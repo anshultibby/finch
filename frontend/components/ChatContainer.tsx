@@ -116,22 +116,19 @@ export default function ChatContainer() {
         
         <div className="flex items-center space-x-3">
           {/* Portfolio Connection Status/Button */}
-          {isPortfolioConnected ? (
-            <div className="flex items-center space-x-2 bg-green-50 px-4 py-2 rounded-lg border border-green-200">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm font-medium text-green-700">Portfolio Connected</span>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowLoginModal(true)}
-              className="flex items-center space-x-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              <span>Connect Portfolio</span>
-            </button>
-          )}
+          <button
+            onClick={() => setShowLoginModal(true)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+              isPortfolioConnected
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-red-600 hover:bg-red-700 text-white'
+            }`}
+          >
+            <span className="text-lg">
+              {isPortfolioConnected ? '🚀' : '☹️'}
+            </span>
+            Robinhood
+          </button>
           
           {/* Clear Chat Button */}
           {messages.length > 0 && (
@@ -144,6 +141,29 @@ export default function ChatContainer() {
           )}
         </div>
       </div>
+
+      {/* Connection Prompt Banner */}
+      {!isPortfolioConnected && messages.length === 0 && (
+        <div className="mx-6 mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-500 rounded-lg p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">🔗</div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-green-900 mb-1">
+                Connect Your Portfolio
+              </h3>
+              <p className="text-sm text-green-700 mb-3">
+                Connect your Robinhood account to ask questions about your portfolio, get insights, and track your investments.
+              </p>
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                Connect Robinhood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6 chat-scrollbar bg-gray-50">
