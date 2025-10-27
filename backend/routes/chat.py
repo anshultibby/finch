@@ -36,6 +36,10 @@ async def send_chat_message(chat_message: ChatMessage):
         )
     
     except Exception as e:
+        import traceback
+        error_msg = str(e)
+        print(f"❌ ERROR in chat route: {error_msg}", flush=True)
+        print(f"❌ Traceback:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -21,6 +21,9 @@ class Config:
     SNAPTRADE_CLIENT_ID = os.getenv("SNAPTRADE_CLIENT_ID")
     SNAPTRADE_CONSUMER_KEY = os.getenv("SNAPTRADE_CONSUMER_KEY")
     
+    # Financial Modeling Prep Configuration
+    FMP_API_KEY = os.getenv("FMP_API_KEY")
+    
     # Database Configuration (Supabase PostgreSQL)
     DATABASE_URL = os.getenv("DATABASE_URL")
     
@@ -50,6 +53,10 @@ class Config:
                 "SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY are required.\n"
                 "Get your API keys from: https://snaptrade.com/dashboard"
             )
+        
+        # FMP API key is optional - insider trading features won't work without it
+        # if not cls.FMP_API_KEY:
+        #     print("⚠️  Warning: FMP_API_KEY not set. Insider trading features will be disabled.")
     
     @classmethod
     def is_snaptrade_configured(cls):

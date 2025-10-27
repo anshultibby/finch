@@ -11,6 +11,7 @@ export default function ChatContainer() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +36,28 @@ export default function ChatContainer() {
       localStorage.setItem('finch_session_id', newSessionId);
     }
   }, []);
+
+  // Check if session has an existing SnapTrade connection on mount
+  useEffect(() => {
+    const checkExistingConnection = async () => {
+      if (!sessionId) return;
+      
+      setIsCheckingConnection(true);
+      try {
+        const status = await snaptradeApi.checkStatus(sessionId);
+        if (status.is_connected) {
+          console.log('✅ Found existing SnapTrade connection');
+          setIsPortfolioConnected(true);
+        }
+      } catch (err) {
+        console.log('No existing connection found or error checking status:', err);
+      } finally {
+        setIsCheckingConnection(false);
+      }
+    };
+    
+    checkExistingConnection();
+  }, [sessionId]);
 
   // Check for OAuth callback (when redirected back from SnapTrade)
   useEffect(() => {
@@ -244,17 +267,19 @@ export default function ChatContainer() {
           {/* Portfolio Connection Status/Button */}
           <button
             onClick={handleBrokerageConnection}
-            disabled={isConnecting}
+            disabled={isConnecting || isCheckingConnection}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
               isPortfolioConnected
                 ? 'bg-green-600 hover:bg-green-700 text-white'
+                : (isConnecting || isCheckingConnection)
+                ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
             } disabled:opacity-50`}
           >
             <span className="text-lg">
-              {isConnecting ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
+              {(isConnecting || isCheckingConnection) ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
             </span>
-            {isConnecting ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
+            {(isConnecting || isCheckingConnection) ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
           </button>
           
           {/* Clear Chat Button */}
@@ -270,7 +295,7 @@ export default function ChatContainer() {
       </div>
 
       {/* Connection Prompt Banner */}
-      {!isPortfolioConnected && !isConnecting && messages.length === 0 && (
+      {!isPortfolioConnected && !isConnecting && !isCheckingConnection && messages.length === 0 && (
         <div className="mx-6 mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-500 rounded-lg p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="text-2xl">🔗</div>
@@ -337,23 +362,23 @@ export default function ChatContainer() {
             </p>
             <div className="grid gap-3 max-w-2xl">
               <button
-                onClick={() => handleSendMessage("What stocks do I own?")}
+                onClick={() => handleSendMessage("review my portfolio")}
                 className="bg-blue-50 hover:bg-blue-100 text-left px-6 py-4 rounded-lg border-2 border-blue-500 transition-colors"
               >
-                <p className="font-medium text-blue-900">📊 What stocks do I own?</p>
-                <p className="text-xs text-blue-700 mt-1">Connect your brokerage and view your portfolio</p>
+                <p className="font-medium text-blue-900">📊 Review my portfolio</p>
+                <p className="text-xs text-blue-700 mt-1">Get insights on your holdings and performance</p>
               </button>
               <button
-                onClick={() => handleSendMessage("What can you help me with?")}
+                onClick={() => handleSendMessage("get recent insider trades")}
                 className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
               >
-                <p className="font-medium text-gray-900">What can you help me with?</p>
+                <p className="font-medium text-gray-900">💼 Get recent insider trades</p>
               </button>
               <button
-                onClick={() => handleSendMessage("Explain portfolio diversification")}
+                onClick={() => handleSendMessage("get recent house trades")}
                 className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
               >
-                <p className="font-medium text-gray-900">Explain portfolio diversification</p>
+                <p className="font-medium text-gray-900">🏛️ Get recent house trades</p>
               </button>
             </div>
           </div>
@@ -391,7 +416,7 @@ export default function ChatContainer() {
       )}
 
       {/* Input */}
-      <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} />
+      <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting || isCheckingConnection} />
     </div>
   );
 }

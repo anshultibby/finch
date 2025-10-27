@@ -14,6 +14,19 @@ from .snaptrade import (
     AggregatedHolding,
     Portfolio
 )
+from .apewisdom import (
+    StockMention,
+    RedditSentiment,
+    TickerDetails,
+    TrendingStocksResponse
+)
+from .insider_trading import (
+    SenateTrade,
+    HouseTrade,
+    InsiderTrade,
+    CongressionalActivity,
+    InsiderTradingResponse
+)
 
 __all__ = [
     "ChatMessage", 
@@ -26,6 +39,15 @@ __all__ = [
     "Position",
     "Account",
     "AggregatedHolding",
-    "Portfolio"
+    "Portfolio",
+    "StockMention",
+    "RedditSentiment",
+    "TickerDetails",
+    "TrendingStocksResponse",
+    "SenateTrade",
+    "HouseTrade",
+    "InsiderTrade",
+    "CongressionalActivity",
+    "InsiderTradingResponse"
 ]
 
