@@ -32,17 +32,23 @@ export interface ChatHistory {
   messages: Message[];
 }
 
-export interface RobinhoodLoginRequest {
-  username: string;
-  password: string;
+export interface SnapTradeConnectionRequest {
   session_id: string;
-  mfa_code?: string;
+  redirect_uri: string;
 }
 
-export interface RobinhoodLoginResponse {
+export interface SnapTradeConnectionResponse {
   success: boolean;
   message: string;
-  has_credentials: boolean;
+  redirect_uri?: string;
+}
+
+export interface SnapTradeStatusResponse {
+  success: boolean;
+  message: string;
+  is_connected: boolean;
+  account_count?: number;
+  brokerages?: string[];
 }
 
 export const chatApi = {
@@ -69,24 +75,29 @@ export const chatApi = {
   },
 };
 
-export const robinhoodApi = {
-  login: async (username: string, password: string, sessionId: string, mfaCode?: string): Promise<RobinhoodLoginResponse> => {
-    const response = await api.post<RobinhoodLoginResponse>('/robinhood/credentials', {
-      username,
-      password,
+export const snaptradeApi = {
+  initiateConnection: async (sessionId: string, redirectUri: string): Promise<SnapTradeConnectionResponse> => {
+    const response = await api.post<SnapTradeConnectionResponse>('/snaptrade/connect', {
       session_id: sessionId,
-      mfa_code: mfaCode,
+      redirect_uri: redirectUri,
     });
     return response.data;
   },
 
-  checkSession: async (sessionId: string): Promise<RobinhoodLoginResponse> => {
-    const response = await api.get<RobinhoodLoginResponse>(`/robinhood/credentials/${sessionId}`);
+  handleCallback: async (sessionId: string): Promise<SnapTradeStatusResponse> => {
+    const response = await api.post<SnapTradeStatusResponse>('/snaptrade/callback', {
+      session_id: sessionId,
+    });
     return response.data;
   },
 
-  logout: async (sessionId: string): Promise<void> => {
-    await api.delete(`/robinhood/credentials/${sessionId}`);
+  checkStatus: async (sessionId: string): Promise<SnapTradeStatusResponse> => {
+    const response = await api.get<SnapTradeStatusResponse>(`/snaptrade/status/${sessionId}`);
+    return response.data;
+  },
+
+  disconnect: async (sessionId: string): Promise<void> => {
+    await api.delete(`/snaptrade/disconnect/${sessionId}`);
   },
 };
 

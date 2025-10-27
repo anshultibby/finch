@@ -3,15 +3,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
-import RobinhoodLoginModal from './RobinhoodLoginModal';
-import { chatApi, robinhoodApi, Message } from '@/lib/api';
+import { chatApi, snaptradeApi, Message } from '@/lib/api';
 
 export default function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -25,9 +24,93 @@ export default function ChatContainer() {
 
   // Initialize session on mount so user can connect portfolio immediately
   useEffect(() => {
-    if (!sessionId) {
-      setSessionId(`session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    // Try to get existing session from localStorage
+    const existingSession = localStorage.getItem('finch_session_id');
+    
+    if (existingSession) {
+      setSessionId(existingSession);
+    } else if (!sessionId) {
+      const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      setSessionId(newSessionId);
+      localStorage.setItem('finch_session_id', newSessionId);
     }
+  }, []);
+
+  // Check for OAuth callback (when redirected back from SnapTrade)
+  useEffect(() => {
+    const handleCallback = async () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('snaptrade_callback') === 'true' && sessionId) {
+        // If this is a popup window, notify the parent and close
+        if (window.opener && window.opener !== window) {
+          try {
+            const result = await snaptradeApi.handleCallback(sessionId);
+            // Send message to parent window
+            window.opener.postMessage({
+              type: 'SNAPTRADE_CONNECTION',
+              success: result.success,
+              is_connected: result.is_connected,
+              message: result.message
+            }, window.location.origin);
+            
+            // Close this popup immediately
+            setTimeout(() => window.close(), 100);
+          } catch (err) {
+            console.error('Error handling callback:', err);
+            window.opener.postMessage({
+              type: 'SNAPTRADE_CONNECTION',
+              success: false,
+              is_connected: false,
+              message: 'Error during connection'
+            }, window.location.origin);
+            setTimeout(() => window.close(), 300);
+          }
+          return;
+        }
+        
+        // If not in a popup (fallback), handle normally
+        setIsConnecting(true);
+        try {
+          const result = await snaptradeApi.handleCallback(sessionId);
+          if (result.success && result.is_connected) {
+            setIsPortfolioConnected(true);
+            window.history.replaceState({}, '', window.location.pathname);
+          } else {
+            setError(result.message || 'Failed to connect');
+          }
+        } catch (err) {
+          console.error('Error handling callback:', err);
+          setError('Error during connection callback');
+        } finally {
+          setIsConnecting(false);
+        }
+      }
+    };
+    
+    if (sessionId) {
+      handleCallback();
+    }
+  }, [sessionId]);
+
+  // Listen for messages from popup window
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Verify origin for security
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data.type === 'SNAPTRADE_CONNECTION') {
+        setIsConnecting(false);
+        if (event.data.success && event.data.is_connected) {
+          setIsPortfolioConnected(true);
+          setError(null);
+        } else {
+          setError(event.data.message || 'Failed to connect');
+        }
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const handleSendMessage = async (content: string) => {
@@ -50,13 +133,16 @@ export default function ChatContainer() {
         setSessionId(response.session_id);
       }
 
-      // Check if login is required (only show modal if not already connected)
-      if (!isPortfolioConnected && (response.needs_auth || response.response.includes('action_required'))) {
-        setShowLoginModal(true);
+      // Check if connection is required or expired
+      if (!isPortfolioConnected && (response.needs_auth || response.response.includes('action_required') || response.response.includes('expired') || response.response.includes('disabled'))) {
+        // Mark as disconnected if connection expired
+        setIsPortfolioConnected(false);
+        // Trigger connection flow
+        await handleBrokerageConnection();
       }
 
-      // Add assistant response (filter out standalone login success messages)
-      const shouldAddMessage = !response.response.includes('Successfully connected to Robinhood');
+      // Add assistant response (filter out standalone connection success messages)
+      const shouldAddMessage = !response.response.includes('Successfully connected');
       
       if (shouldAddMessage) {
         const assistantMessage: Message = {
@@ -76,19 +162,54 @@ export default function ChatContainer() {
     }
   };
 
-  const handleRobinhoodLogin = async (username: string, password: string, mfaCode?: string) => {
+  const handleBrokerageConnection = async () => {
     if (!sessionId) {
-      throw new Error('No session ID available');
+      setError('No session ID available');
+      return;
     }
 
-    const response = await robinhoodApi.login(username, password, sessionId, mfaCode);
-    
-    if (response.success) {
-      setIsPortfolioConnected(true);
-      setShowLoginModal(false);
-      // No chat message - portfolio connection is separate from chat
-    } else {
-      throw new Error(response.message);
+    setIsConnecting(true);
+    try {
+      // Get redirect URI from backend
+      const redirectUri = `${window.location.origin}${window.location.pathname}?snaptrade_callback=true`;
+      const response = await snaptradeApi.initiateConnection(sessionId, redirectUri);
+      
+      if (response.success && response.redirect_uri) {
+        // Open SnapTrade Connection Portal in a new window
+        const width = 500;
+        const height = 700;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
+        
+        window.open(
+          response.redirect_uri,
+          'SnapTrade Connection',
+          `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+        );
+        
+        // Keep connecting state active until callback is received
+      } else {
+        // Check if we need a new session
+        if (response.message?.includes('refresh the page') || response.message?.includes('new session')) {
+          setError(response.message);
+          // Clear the old session and generate a new one
+          localStorage.removeItem('finch_session_id');
+          const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          setSessionId(newSessionId);
+          localStorage.setItem('finch_session_id', newSessionId);
+          setIsConnecting(false);
+          // Prompt user to try again
+          setTimeout(() => {
+            setError('New session created. Please click "Connect Brokerage" again.');
+          }, 100);
+        } else {
+          setError(response.message || 'Failed to initiate connection');
+          setIsConnecting(false);
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to connect');
+      setIsConnecting(false);
     }
   };
 
@@ -101,8 +222,13 @@ export default function ChatContainer() {
       }
     }
     setMessages([]);
-    setSessionId(null);
+    
+    // Generate new session and store it
+    const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setSessionId(newSessionId);
+    localStorage.setItem('finch_session_id', newSessionId);
     setError(null);
+    setIsPortfolioConnected(false);
   };
 
   return (
@@ -117,17 +243,18 @@ export default function ChatContainer() {
         <div className="flex items-center space-x-3">
           {/* Portfolio Connection Status/Button */}
           <button
-            onClick={() => setShowLoginModal(true)}
+            onClick={handleBrokerageConnection}
+            disabled={isConnecting}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
               isPortfolioConnected
                 ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-red-600 hover:bg-red-700 text-white'
-            }`}
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            } disabled:opacity-50`}
           >
             <span className="text-lg">
-              {isPortfolioConnected ? '🚀' : '☹️'}
+              {isConnecting ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
             </span>
-            Robinhood
+            {isConnecting ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
           </button>
           
           {/* Clear Chat Button */}
@@ -143,23 +270,40 @@ export default function ChatContainer() {
       </div>
 
       {/* Connection Prompt Banner */}
-      {!isPortfolioConnected && messages.length === 0 && (
-        <div className="mx-6 mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-500 rounded-lg p-4 shadow-sm">
+      {!isPortfolioConnected && !isConnecting && messages.length === 0 && (
+        <div className="mx-6 mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-500 rounded-lg p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="text-2xl">🔗</div>
             <div className="flex-1">
-              <h3 className="font-semibold text-green-900 mb-1">
-                Connect Your Portfolio
+              <h3 className="font-semibold text-blue-900 mb-1">
+                Connect Your Brokerage Account
               </h3>
-              <p className="text-sm text-green-700 mb-3">
-                Connect your Robinhood account to ask questions about your portfolio, get insights, and track your investments.
+              <p className="text-sm text-blue-700 mb-3">
+                Securely connect your brokerage account (Robinhood, TD Ameritrade, etc.) via SnapTrade to ask questions about your portfolio, get insights, and track your investments. No passwords stored!
               </p>
               <button
-                onClick={() => setShowLoginModal(true)}
-                className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                onClick={handleBrokerageConnection}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               >
-                Connect Robinhood
+                Connect via SnapTrade
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Connecting Banner */}
+      {isConnecting && (
+        <div className="mx-6 mt-4 bg-gradient-to-r from-yellow-50 to-amber-50 border-2 border-yellow-500 rounded-lg p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="text-2xl animate-pulse">🔗</div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-yellow-900 mb-1">
+                Connecting...
+              </h3>
+              <p className="text-sm text-yellow-700">
+                Please complete the connection process in the popup window. The popup will close automatically once you're connected.
+              </p>
             </div>
           </div>
         </div>
@@ -194,10 +338,10 @@ export default function ChatContainer() {
             <div className="grid gap-3 max-w-2xl">
               <button
                 onClick={() => handleSendMessage("What stocks do I own?")}
-                className="bg-green-50 hover:bg-green-100 text-left px-6 py-4 rounded-lg border-2 border-green-500 transition-colors"
+                className="bg-blue-50 hover:bg-blue-100 text-left px-6 py-4 rounded-lg border-2 border-blue-500 transition-colors"
               >
-                <p className="font-medium text-green-900">📊 What stocks do I own?</p>
-                <p className="text-xs text-green-700 mt-1">Connect to Robinhood and view your portfolio</p>
+                <p className="font-medium text-blue-900">📊 What stocks do I own?</p>
+                <p className="text-xs text-blue-700 mt-1">Connect your brokerage and view your portfolio</p>
               </button>
               <button
                 onClick={() => handleSendMessage("What can you help me with?")}
@@ -247,14 +391,7 @@ export default function ChatContainer() {
       )}
 
       {/* Input */}
-      <ChatInput onSendMessage={handleSendMessage} disabled={isLoading} />
-
-      {/* Robinhood Login Modal */}
-      <RobinhoodLoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onSubmit={handleRobinhoodLogin}
-      />
+      <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} />
     </div>
   );
 }
