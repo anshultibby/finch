@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import RobinhoodLoginModal from './RobinhoodLoginModal';
-import { chatApi, robinhoodApi, Message } from '@/lib/api';
+import { chatApi, robinhoodApi, Message } from '../lib/api';
 
 export default function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
