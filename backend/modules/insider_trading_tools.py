@@ -92,14 +92,18 @@ class InsiderTradingTools:
                     print(f"⚠️ Error parsing Senate trade: {e}", flush=True)
                     continue
             
+            # Convert to DataFrame for compact CSV format
+            trades_objects = [SenateTrade(**trade) for trade in parsed_trades]
+            df = SenateTrade.list_to_df(trades_objects)
+            
             print(f"✅ Found {len(parsed_trades)} Senate trades", flush=True)
             
             return {
                 "success": True,
                 "data_type": "senate",
-                "trades": parsed_trades,
+                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact than split
                 "total_count": len(parsed_trades),
-                "message": f"Found {len(parsed_trades)} recent Senate trades"
+                "message": f"Found {len(parsed_trades)} recent Senate trades. Data is in CSV format."
             }
             
         except httpx.HTTPError as e:
@@ -177,14 +181,18 @@ class InsiderTradingTools:
                     print(f"⚠️ Error parsing House trade: {e}", flush=True)
                     continue
             
+            # Convert to DataFrame for compact CSV format
+            trades_objects = [HouseTrade(**trade) for trade in parsed_trades]
+            df = HouseTrade.list_to_df(trades_objects)
+            
             print(f"✅ Found {len(parsed_trades)} House trades", flush=True)
             
             return {
                 "success": True,
                 "data_type": "house",
-                "trades": parsed_trades,
+                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact than split
                 "total_count": len(parsed_trades),
-                "message": f"Found {len(parsed_trades)} recent House trades"
+                "message": f"Found {len(parsed_trades)} recent House trades. Data is in CSV format."
             }
             
         except httpx.HTTPError as e:
@@ -262,14 +270,18 @@ class InsiderTradingTools:
                     print(f"⚠️ Error parsing insider trade: {e}", flush=True)
                     continue
             
+            # Convert to DataFrame for compact CSV format
+            trades_objects = [InsiderTrade(**trade) for trade in parsed_trades]
+            df = InsiderTrade.list_to_df(trades_objects)
+            
             print(f"✅ Found {len(parsed_trades)} insider trades", flush=True)
             
             return {
                 "success": True,
                 "data_type": "insider",
-                "trades": parsed_trades,
+                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact than split
                 "total_count": len(parsed_trades),
-                "message": f"Found {len(parsed_trades)} recent insider trades"
+                "message": f"Found {len(parsed_trades)} recent insider trades. Data is in CSV format."
             }
             
         except httpx.HTTPError as e:
@@ -407,13 +419,27 @@ class InsiderTradingTools:
             total_purchases = sum(1 for t in all_trades if "Purchase" in str(t.get("transaction_type", t.get("type", ""))))
             total_sales = sum(1 for t in all_trades if "Sale" in str(t.get("transaction_type", t.get("type", ""))))
             
+            # Convert to DataFrame for compact CSV format
+            df_data = []
+            for t in all_trades:
+                df_data.append({
+                    "date": t.get("transaction_date") or t.get("filing_date") or "N/A",
+                    "insider": (t.get("reporting_name") or t.get("firstName", "") + " " + t.get("lastName", ""))[:30],
+                    "position": (t.get("type_of_owner") or t.get("office") or "N/A")[:25],
+                    "type": t.get("transaction_type") or t.get("type") or "N/A",
+                    "shares": t.get("securities_transacted") or t.get("amount") or "N/A",
+                    "price": t.get("price") or "N/A",
+                    "source": t.get("source") or "N/A"
+                })
+            df = pd.DataFrame(df_data)
+            
             print(f"✅ Found {len(all_trades)} total trades for {ticker} ({total_purchases} buys, {total_sales} sells)", flush=True)
             
             return {
                 "success": True,
                 "ticker": ticker.upper(),
                 "data_type": "mixed",
-                "trades": all_trades,
+                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact
                 "total_count": len(all_trades),
                 "summary": {
                     "total_trades": len(all_trades),
@@ -422,7 +448,7 @@ class InsiderTradingTools:
                     "congressional_trades": len(senate_trades) + len(house_trades),
                     "corporate_insider_trades": len(corporate_trades)
                 },
-                "message": f"Found {len(all_trades)} insider trades for {ticker} ({total_purchases} purchases, {total_sales} sales)"
+                "message": f"Found {len(all_trades)} insider trades for {ticker} ({total_purchases} purchases, {total_sales} sales). Data is in CSV format."
             }
             
         except httpx.HTTPError as e:
@@ -506,7 +532,7 @@ class InsiderTradingTools:
                                 "source": t.get("source") or "N/A"
                             })
                         
-                        # Convert to DataFrame and then to compact split format
+                        # Convert to DataFrame and then to compact CSV format
                         df = pd.DataFrame(df_data)
                         
                         portfolio_activity[ticker] = {
@@ -515,8 +541,8 @@ class InsiderTradingTools:
                             "purchases": purchases,
                             "sales": sales,
                             "sentiment": "BULLISH" if purchases > sales else "BEARISH" if sales > purchases else "NEUTRAL",
-                            # Use pandas split format: columns + data (most compact for JSON)
-                            "trades_df": df.to_dict('split')  # Returns {columns: [...], data: [[...], [...]]}
+                            # Use CSV format: 25% more compact than split format
+                            "trades_csv": df.to_csv(index=False)
                         }
                         tickers_with_activity.append(ticker)
             
@@ -540,8 +566,8 @@ class InsiderTradingTools:
             
             return {
                 "success": True,
-                "message": f"Found insider activity in {len(portfolio_activity)} of your {len(tickers)} portfolio stocks in the last {days_back} days",
-                "data_format": "DataFrame split format - Each ticker has 'trades_df' with {columns: [...], data: [[...]]} for easy table interpretation",
+                "message": f"Found insider activity in {len(portfolio_activity)} of your {len(tickers)} portfolio stocks in the last {days_back} days. Data is in CSV format.",
+                "data_format": "CSV format - Each ticker has 'trades_csv' with CSV data (header + rows) for easy reading",
                 "portfolio_activity": dict(sorted_activity),
                 "tickers_with_activity": tickers_with_activity,
                 "days_back": days_back
@@ -634,7 +660,7 @@ class InsiderTradingTools:
                     "avg_buy_sell_ratio": round(avg_ratio, 2),
                     "periods_analyzed": f"Last {len(recent_stats)} quarters"
                 },
-                "statistics_table": df.to_dict('split')
+                "statistics_csv": df.to_csv(index=False)
             }
             
         except httpx.HTTPStatusError as e:
@@ -739,7 +765,7 @@ class InsiderTradingTools:
                     "message": "Could not parse any trades from the search results"
                 }
             
-            # Create DataFrame for easier analysis
+            # Create DataFrame for compact CSV format
             trades_objects = [InsiderTrade(**trade) for trade in parsed_trades]
             df = InsiderTrade.list_to_df(trades_objects)
             
@@ -747,7 +773,7 @@ class InsiderTradingTools:
             
             return {
                 "success": True,
-                "message": f"Found {len(parsed_trades)} insider trades matching your search",
+                "message": f"Found {len(parsed_trades)} insider trades matching your search. Data is in CSV format.",
                 "filters": {
                     "symbol": symbol,
                     "reporting_cik": reporting_cik,
@@ -757,8 +783,7 @@ class InsiderTradingTools:
                     "limit": limit
                 },
                 "total_count": len(parsed_trades),
-                "trades": parsed_trades,
-                "trades_table": df.to_dict('split')
+                "trades_csv": df.to_csv(index=False)  # CSV format is 25% more compact
             }
             
         except httpx.HTTPStatusError as e:

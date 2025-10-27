@@ -16,7 +16,7 @@ psycopg2-binary==2.9.11
 cryptography==43.0.3
 
 # Data processing
-pandas==2.2.2
+pandas>=2.2.3
 
 # Supabase (optional, we'll use direct PostgreSQL connection)
 # supabase==2.3.0
