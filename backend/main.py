@@ -2,12 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import Config
-from routes import chat_router, robinhood_router
+from routes import chat_router, snaptrade_router
 
 app = FastAPI(
     title="Finch Portfolio Chatbot API",
-    description="AI-powered portfolio assistant with Robinhood integration",
-    version="1.0.0"
+    description="AI-powered portfolio assistant with SnapTrade brokerage integration",
+    version="2.0.0"
 )
 
 # Configure CORS
@@ -21,7 +21,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat_router)
-app.include_router(robinhood_router)
+app.include_router(snaptrade_router)
 
 
 @app.get("/")

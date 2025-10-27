@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 from litellm import completion
 import json
 from config import Config
-from modules.robinhood_tools import robinhood_tools, ROBINHOOD_TOOL_DEFINITIONS
+from modules.snaptrade_tools import snaptrade_tools, SNAPTRADE_TOOL_DEFINITIONS
 
 
 class ChatAgent:
@@ -14,42 +14,42 @@ class ChatAgent:
         self.model = Config.OPENAI_MODEL
         # LiteLLM automatically uses API keys from environment variables
         
-        self.system_prompt = """You are Finch, an intelligent portfolio assistant chatbot that helps users manage their Robinhood investments.
+        self.system_prompt = """You are Finch, an intelligent portfolio assistant chatbot that helps users manage their brokerage investments through SnapTrade.
 
 CRITICAL RULES FOR TOOL USAGE:
 
 1. When user asks about portfolio/stocks/holdings:
    → IMMEDIATELY call get_portfolio tool
-   → Do NOT ask for login first
+   → Do NOT ask for connection first
 
 2. If get_portfolio returns needs_auth=true:
-   → Call request_robinhood_login to show login form
-   → Tell user to login
+   → Call request_brokerage_connection to prompt user to connect
+   → Tell user to connect their brokerage account
 
-3. IMPORTANT: After you see "Successfully connected to Robinhood" message:
+3. IMPORTANT: After you see "Successfully connected" message:
    → Check conversation history for what user originally wanted
    → If they asked for portfolio data, IMMEDIATELY call get_portfolio again
    → Do NOT wait for user to ask again
    
 4. Context awareness:
-   → Remember what user wanted before login
-   → After successful login, automatically fulfill their original request
+   → Remember what user wanted before connection
+   → After successful connection, automatically fulfill their original request
    
 EXAMPLE FLOW:
 Turn 1:
   User: "what stocks do I own?"
   You: [call get_portfolio] → needs_auth
-  You: [call request_robinhood_login]
-  You: "Please login..."
+  You: [call request_brokerage_connection]
+  You: "Please connect your brokerage account..."
 
 Turn 2:
-  User: [logs in via modal]
-  Assistant: "Successfully connected to Robinhood!"
+  User: [connects via OAuth]
+  Assistant: "Successfully connected!"
   You: [see user originally wanted portfolio]
   You: [call get_portfolio immediately]
   You: "Here are your holdings: ..."
 
-ALWAYS complete the original request after successful login. DO NOT make user ask twice.
+ALWAYS complete the original request after successful connection. DO NOT make user ask twice.
 
 Be friendly and professional in your responses."""
     
@@ -98,26 +98,26 @@ Be friendly and professional in your responses."""
                 print()  # Empty line between messages
             print(f"{'='*80}\n", flush=True)
             
-            # Check if user has an active Robinhood session
-            has_session = robinhood_tools.has_active_session(session_id) if session_id else False
+            # Check if user has an active brokerage connection
+            has_connection = snaptrade_tools.has_active_connection(session_id) if session_id else False
             
             # Build system prompt with authentication status and context
             auth_status_note = ""
-            if has_session:
-                auth_status_note = "\n\n[SYSTEM INFO: User IS logged into Robinhood.]"
+            if has_connection:
+                auth_status_note = "\n\n[SYSTEM INFO: User IS connected to their brokerage.]"
             else:
-                auth_status_note = "\n\n[SYSTEM INFO: User is NOT logged in.]"
+                auth_status_note = "\n\n[SYSTEM INFO: User is NOT connected to any brokerage.]"
             
-            # Check if user just logged in (successful login in recent history)
-            just_logged_in = False
+            # Check if user just connected (successful connection in recent history)
+            just_connected = False
             for msg in reversed(chat_history[-3:]):  # Check last 3 messages
-                if msg.get("role") == "assistant" and "Successfully connected to Robinhood" in msg.get("content", ""):
-                    just_logged_in = True
-                    print(f"🔍 Detected recent successful login!", flush=True)
+                if msg.get("role") == "assistant" and "Successfully connected" in msg.get("content", ""):
+                    just_connected = True
+                    print(f"🔍 Detected recent successful connection!", flush=True)
                     break
             
-            if just_logged_in and has_session:
-                auth_status_note += "\n[ACTION REQUIRED: User just logged in successfully. Check conversation history for their original request (likely portfolio/holdings) and fulfill it NOW by calling get_portfolio.]"
+            if just_connected and has_connection:
+                auth_status_note += "\n[ACTION REQUIRED: User just connected successfully. Check conversation history for their original request (likely portfolio/holdings) and fulfill it NOW by calling get_portfolio.]"
                 print(f"🎯 ACTION REQUIRED: Agent should call get_portfolio now", flush=True)
             
             full_system_prompt = self.system_prompt + auth_status_note
@@ -160,8 +160,8 @@ Be friendly and professional in your responses."""
                 "api_key": Config.OPENAI_API_KEY
             }
             
-            # Always add tools - the tools will check session status internally
-            api_params["tools"] = ROBINHOOD_TOOL_DEFINITIONS
+            # Always add tools - the tools will check connection status internally
+            api_params["tools"] = SNAPTRADE_TOOL_DEFINITIONS
             
             # Call LLM via LiteLLM
             response = completion(**api_params)
@@ -248,7 +248,7 @@ Be friendly and professional in your responses."""
                 model=self.model,
                 messages=messages,
                 api_key=Config.OPENAI_API_KEY,
-                tools=ROBINHOOD_TOOL_DEFINITIONS
+                tools=SNAPTRADE_TOOL_DEFINITIONS
             )
             
             return final_response.choices[0].message.content, needs_auth
@@ -268,31 +268,31 @@ Be friendly and professional in your responses."""
         """
         print(f"🔧 Executing tool: {function_name} for session: {session_id}", flush=True)
         
-        if function_name == "request_robinhood_login":
-            # Return a special response that tells the frontend to show login UI
+        if function_name == "request_brokerage_connection":
+            # Return a special response that tells the frontend to show connection UI
             return {
                 "success": True,
                 "needs_auth": True,
-                "message": "Please provide your Robinhood username and password to continue.",
-                "action_required": "show_login_form"
+                "message": "Please connect your brokerage account through SnapTrade to continue.",
+                "action_required": "show_connection_modal"
             }
         
         elif function_name == "get_portfolio":
             print(f"📊 get_portfolio tool called for session: {session_id}", flush=True)
-            # Check if we have an active session
-            has_session = robinhood_tools.has_active_session(session_id)
+            # Check if we have an active connection
+            has_connection = snaptrade_tools.has_active_connection(session_id)
             
-            if not has_session:
-                print(f"❌ No active session, returning needs_auth", flush=True)
+            if not has_connection:
+                print(f"❌ No active connection, returning needs_auth", flush=True)
                 return {
                     "success": False,
                     "needs_auth": True,
-                    "message": "You need to log in to Robinhood first. Please provide your credentials."
+                    "message": "You need to connect your brokerage account first."
                 }
             
-            print(f"✅ Active session found, calling robinhood_tools.get_portfolio", flush=True)
-            # Execute tool with stored session
-            result = robinhood_tools.get_portfolio(session_id=session_id)
+            print(f"✅ Active connection found, calling snaptrade_tools.get_portfolio", flush=True)
+            # Execute tool with stored connection
+            result = snaptrade_tools.get_portfolio(session_id=session_id)
             print(f"📊 Portfolio result: {result}", flush=True)
             return result
         

@@ -17,9 +17,9 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
     
-    # Robinhood Configuration (to be added later)
-    ROBINHOOD_USERNAME = os.getenv("ROBINHOOD_USERNAME")
-    ROBINHOOD_PASSWORD = os.getenv("ROBINHOOD_PASSWORD")
+    # SnapTrade Configuration
+    SNAPTRADE_CLIENT_ID = os.getenv("SNAPTRADE_CLIENT_ID")
+    SNAPTRADE_CONSUMER_KEY = os.getenv("SNAPTRADE_CONSUMER_KEY")
     
     # Database Configuration (Supabase PostgreSQL)
     DATABASE_URL = os.getenv("DATABASE_URL")
@@ -44,11 +44,17 @@ class Config:
                 "OPENAI_API_KEY is required. Please add it to your .env file.\n"
                 "Get your API key from: https://platform.openai.com/api-keys"
             )
+        
+        if not cls.SNAPTRADE_CLIENT_ID or not cls.SNAPTRADE_CONSUMER_KEY:
+            raise ValueError(
+                "SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY are required.\n"
+                "Get your API keys from: https://snaptrade.com/dashboard"
+            )
     
     @classmethod
-    def is_robinhood_configured(cls):
-        """Check if Robinhood credentials are configured"""
-        return bool(cls.ROBINHOOD_USERNAME and cls.ROBINHOOD_PASSWORD)
+    def is_snaptrade_configured(cls):
+        """Check if SnapTrade credentials are configured"""
+        return bool(cls.SNAPTRADE_CLIENT_ID and cls.SNAPTRADE_CONSUMER_KEY)
 
 
 # Validate configuration on import

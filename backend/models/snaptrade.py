@@ -1,0 +1,323 @@
+"""
+SnapTrade-related Pydantic models
+"""
+from pydantic import BaseModel, Field
+from typing import Optional, List, Any
+
+
+class SnapTradeConnectionRequest(BaseModel):
+    """Request to initiate SnapTrade connection"""
+    session_id: str
+    redirect_uri: str  # Where to redirect after successful connection
+
+
+class SnapTradeConnectionResponse(BaseModel):
+    """Response with SnapTrade connection URL"""
+    success: bool
+    message: str
+    redirect_uri: Optional[str] = None
+
+
+class SnapTradeCallbackRequest(BaseModel):
+    """Callback after successful connection"""
+    session_id: str
+
+
+class SnapTradeStatusResponse(BaseModel):
+    """Response for connection status check"""
+    success: bool
+    message: str
+    is_connected: bool
+    account_count: Optional[int] = None
+    brokerages: Optional[List[str]] = None
+
+
+# SnapTrade API Response Models (for parsing their responses)
+
+class SnapTradeSymbolInfo(BaseModel):
+    """Symbol info from SnapTrade API (innermost level)"""
+    id: Optional[str] = None
+    symbol: str  # This is the actual ticker
+    description: Optional[str] = None
+    raw_symbol: Optional[str] = None
+    
+    class Config:
+        extra = "allow"  # Ignore extra fields we don't need
+
+
+class SnapTradeSymbolWrapper(BaseModel):
+    """Middle wrapper level for symbol"""
+    symbol: SnapTradeSymbolInfo  # Contains the actual symbol object
+    id: Optional[str] = None
+    
+    class Config:
+        extra = "allow"
+
+
+class SnapTradePositionResponse(BaseModel):
+    """Position response from SnapTrade API"""
+    symbol: SnapTradeSymbolWrapper  # Only 2 levels deep!
+    units: float
+    price: float
+    open_pnl: Optional[float] = None
+    average_purchase_price: Optional[float] = None
+    
+    class Config:
+        extra = "allow"
+    
+    def get_ticker(self) -> str:
+        """Extract the actual ticker symbol"""
+        return self.symbol.symbol.symbol  # symbol.symbol.symbol (not 4 levels)
+    
+    def get_value(self) -> float:
+        """Calculate position value"""
+        return self.units * self.price
+    
+    def to_position(self) -> 'Position':
+        """Convert to clean Position model"""
+        return Position(
+            symbol=self.get_ticker(),
+            quantity=self.units,
+            price=self.price,
+            value=self.get_value()
+        )
+
+
+class SnapTradeAccountMeta(BaseModel):
+    """Account metadata"""
+    type: Optional[str] = None
+    brokerage_account_type: Optional[str] = None
+    institution_name: Optional[str] = None
+    
+    class Config:
+        extra = "allow"
+
+
+class SnapTradeAccountBalance(BaseModel):
+    """Account balance structure"""
+    total: Optional[dict] = None
+    
+    class Config:
+        extra = "allow"
+    
+    def get_amount(self) -> float:
+        """Extract total amount"""
+        if self.total and isinstance(self.total, dict):
+            return float(self.total.get('amount', 0))
+        return 0.0
+
+
+class SnapTradeAccountResponse(BaseModel):
+    """Account response from SnapTrade API"""
+    id: str
+    name: Optional[str] = "Unknown"
+    number: Optional[str] = ""
+    institution_name: Optional[str] = "Unknown"
+    meta: Optional[SnapTradeAccountMeta] = None
+    balance: Optional[SnapTradeAccountBalance] = None
+    
+    class Config:
+        extra = "allow"
+    
+    def get_account_type(self) -> str:
+        """Extract account type"""
+        if self.meta and self.meta.brokerage_account_type:
+            return self.meta.brokerage_account_type
+        return "Unknown"
+    
+    def get_balance(self) -> float:
+        """Extract balance amount"""
+        if self.balance:
+            return self.balance.get_amount()
+        return 0.0
+    
+    def to_account(self, positions: List['Position'], total_value: float, status: Optional[str] = None) -> 'Account':
+        """Convert to clean Account model"""
+        return Account(
+            id=self.id,
+            name=self.name or 'Unknown',
+            number=self.number or '',
+            type=self.get_account_type(),
+            institution=self.institution_name or 'Unknown',
+            balance=self.get_balance(),
+            positions=positions,
+            total_value=total_value,
+            position_count=len(positions),
+            status=status
+        )
+
+
+# Portfolio data models (our cleaned-up versions)
+
+class Position(BaseModel):
+    """Individual position/holding"""
+    symbol: str
+    quantity: float
+    price: float
+    value: float
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "symbol": "AAPL",
+                "quantity": 10.0,
+                "price": 150.50,
+                "value": 1505.00
+            }
+        }
+
+
+class Account(BaseModel):
+    """Brokerage account with positions"""
+    id: str
+    name: str
+    number: str
+    type: str
+    institution: str
+    balance: float
+    positions: List[Position] = []
+    total_value: float = 0.0
+    position_count: int = 0
+    status: Optional[str] = None  # 'syncing', 'error', or None for success
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "abc123",
+                "name": "Robinhood IRA",
+                "number": "****1234",
+                "type": "IRA Roth",
+                "institution": "Robinhood",
+                "balance": 10000.00,
+                "positions": [
+                    {
+                        "symbol": "AAPL",
+                        "quantity": 10.0,
+                        "price": 150.50,
+                        "value": 1505.00
+                    }
+                ],
+                "total_value": 1505.00,
+                "position_count": 1
+            }
+        }
+
+
+class AggregatedHolding(BaseModel):
+    """Aggregated position across all accounts"""
+    symbol: str
+    quantity: float
+    price: float  # Latest price
+    value: float  # Total value across all accounts
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "symbol": "AAPL",
+                "quantity": 25.0,
+                "price": 150.50,
+                "value": 3762.50
+            }
+        }
+    
+    def add_position(self, pos: 'Position'):
+        """Add a position to this aggregated holding"""
+        self.quantity += pos.quantity
+        self.value += pos.value
+        self.price = pos.price  # Use latest price
+
+
+class Portfolio(BaseModel):
+    """Complete portfolio with accounts and aggregated holdings"""
+    success: bool
+    accounts: List[Account]
+    aggregated_holdings: dict[str, AggregatedHolding]
+    total_value: float
+    total_positions: int
+    account_count: int
+    message: str
+    syncing: Optional[bool] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "accounts": [
+                    {
+                        "id": "abc123",
+                        "name": "Robinhood IRA",
+                        "number": "****1234",
+                        "type": "IRA Roth",
+                        "institution": "Robinhood",
+                        "balance": 10000.00,
+                        "positions": [{"symbol": "AAPL", "quantity": 10.0, "price": 150.50, "value": 1505.00}],
+                        "total_value": 1505.00,
+                        "position_count": 1
+                    }
+                ],
+                "aggregated_holdings": {
+                    "AAPL": {"symbol": "AAPL", "quantity": 25.0, "price": 150.50, "value": 3762.50}
+                },
+                "total_value": 3762.50,
+                "total_positions": 1,
+                "account_count": 2,
+                "message": "Found 1 unique positions across 2 accounts"
+            }
+        }
+    
+    @classmethod
+    def from_accounts(cls, accounts: List[Account], syncing_count: int = 0) -> 'Portfolio':
+        """
+        Create a Portfolio from a list of accounts, automatically aggregating holdings
+        
+        Args:
+            accounts: List of Account objects
+            syncing_count: Number of accounts still syncing
+        
+        Returns:
+            Portfolio with aggregated holdings
+        """
+        aggregated_holdings: dict[str, AggregatedHolding] = {}
+        total_value = 0.0
+        
+        # Aggregate all positions across all accounts
+        for account in accounts:
+            total_value += account.total_value
+            
+            for position in account.positions:
+                if position.symbol in aggregated_holdings:
+                    # Add to existing holding
+                    aggregated_holdings[position.symbol].add_position(position)
+                else:
+                    # Create new aggregated holding
+                    aggregated_holdings[position.symbol] = AggregatedHolding(
+                        symbol=position.symbol,
+                        quantity=position.quantity,
+                        price=position.price,
+                        value=position.value
+                    )
+        
+        # Check if still syncing
+        if syncing_count > 0 and len(aggregated_holdings) == 0:
+            return cls(
+                success=False,
+                accounts=accounts,
+                aggregated_holdings={},
+                total_value=0.0,
+                total_positions=0,
+                account_count=len(accounts),
+                message=f"SnapTrade is still syncing your data ({syncing_count} account{'s' if syncing_count > 1 else ''} syncing). This usually takes 1-2 minutes after first connection. Please try asking again in a moment!",
+                syncing=True
+            )
+        
+        # Return successful portfolio
+        return cls(
+            success=True,
+            accounts=accounts,
+            aggregated_holdings=aggregated_holdings,
+            total_value=round(total_value, 2),
+            total_positions=len(aggregated_holdings),
+            account_count=len(accounts),
+            message=f"Found {len(aggregated_holdings)} unique positions across {len(accounts)} accounts"
+        )
+

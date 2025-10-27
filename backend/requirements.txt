@@ -3,12 +3,14 @@ uvicorn==0.32.0
 litellm==1.51.2
 pydantic==2.9.0
 python-dotenv==1.0.0
-robin-stocks==3.4.0
+
+# SnapTrade SDK for brokerage integration
+snaptrade-python-sdk==11.0.142
 
 # Database & ORM
 sqlalchemy==2.0.36
 alembic==1.13.0
-psycopg2-binary==2.9.10
+psycopg2-binary==2.9.11
 
 # Encryption
 cryptography==43.0.3

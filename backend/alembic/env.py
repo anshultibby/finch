@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import Config
 from database import Base
-from models.db import RobinhoodSession  # Import all models here
+from models.db import SnapTradeUser  # Import all models here
 
 # this is the Alembic Config object
 config = context.config
