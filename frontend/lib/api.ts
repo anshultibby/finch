@@ -75,6 +75,7 @@ export interface ResourceMetadata {
   parameters?: Record<string, any>;
   tool_call_id?: string;
   execution_time_ms?: number;
+  total_count?: number;
 }
 
 export interface Resource {

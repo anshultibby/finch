@@ -182,6 +182,12 @@ class ChatService:
         if isinstance(result_data, list):
             return {"data": result_data}
         
+        # Handle portfolio holdings (dict of aggregated holdings)
+        if "aggregated_holdings" in result_data and isinstance(result_data["aggregated_holdings"], dict):
+            # Convert dict to array of holdings
+            holdings_array = list(result_data["aggregated_holdings"].values())
+            return {"data": holdings_array}
+        
         # Extract the main data array from common wrapper structures
         if "mentions" in result_data and isinstance(result_data["mentions"], list):
             return {"data": result_data["mentions"]}
