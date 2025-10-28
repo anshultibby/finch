@@ -11,7 +11,8 @@ const api = axios.create({
 
 export interface ChatMessage {
   message: string;
-  session_id?: string;
+  session_id?: string;  // This is actually user_id
+  chat_id?: string;
 }
 
 export interface ChatResponse {
@@ -51,22 +52,38 @@ export interface SnapTradeStatusResponse {
   brokerages?: string[];
 }
 
+export interface UserChatsResponse {
+  user_id: string;
+  chats: Array<{
+    chat_id: string;
+    title: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+}
+
 export const chatApi = {
-  sendMessage: async (message: string, sessionId?: string): Promise<ChatResponse> => {
+  sendMessage: async (message: string, userId: string, chatId: string): Promise<ChatResponse> => {
     const response = await api.post<ChatResponse>('/chat', {
       message,
-      session_id: sessionId,
+      session_id: userId,  // Using session_id field for user_id
+      chat_id: chatId,
     });
     return response.data;
   },
 
-  getChatHistory: async (sessionId: string): Promise<ChatHistory> => {
-    const response = await api.get<ChatHistory>(`/chat/history/${sessionId}`);
+  getChatHistory: async (chatId: string): Promise<ChatHistory> => {
+    const response = await api.get<ChatHistory>(`/chat/history/${chatId}`);
     return response.data;
   },
 
-  clearChatHistory: async (sessionId: string): Promise<void> => {
-    await api.delete(`/chat/history/${sessionId}`);
+  clearChatHistory: async (chatId: string): Promise<void> => {
+    await api.delete(`/chat/history/${chatId}`);
+  },
+
+  getUserChats: async (userId: string): Promise<UserChatsResponse> => {
+    const response = await api.get<UserChatsResponse>(`/chat/user/${userId}/chats`);
+    return response.data;
   },
 
   healthCheck: async (): Promise<{ status: string }> => {

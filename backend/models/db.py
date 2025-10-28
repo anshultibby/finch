@@ -1,7 +1,7 @@
 """
 SQLAlchemy database models
 """
-from sqlalchemy import Column, String, DateTime, Text, Boolean
+from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer
 from sqlalchemy.sql import func
 from database import Base
 
@@ -43,4 +43,59 @@ class SnapTradeUser(Base):
     
     def __repr__(self):
         return f"<SnapTradeUser(session_id='{self.session_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected})>"
+
+
+class Chat(Base):
+    """
+    Stores chat session metadata
+    
+    Each chat represents a conversation thread between the user and the AI.
+    Users can have multiple chats, and can switch between them.
+    """
+    __tablename__ = "chats"
+    
+    # Primary key
+    chat_id = Column(String, primary_key=True, index=True)
+    
+    # User ID (links to the same user_id used in SnapTradeUser)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Chat metadata
+    title = Column(String, nullable=True)  # Auto-generated or user-set title
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Chat(chat_id='{self.chat_id}', user_id='{self.user_id}', title='{self.title}')>"
+
+
+class ChatMessage(Base):
+    """
+    Stores individual chat messages within a chat session
+    
+    Each message belongs to a chat and has a role (user or assistant).
+    Messages are ordered by their sequence number within the chat.
+    """
+    __tablename__ = "chat_messages"
+    
+    # Primary key (auto-increment)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign key to chat
+    chat_id = Column(String, nullable=False, index=True)
+    
+    # Message content
+    role = Column(String, nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    
+    # Sequence number within the chat (for ordering)
+    sequence = Column(Integer, nullable=False)
+    
+    # Timestamp
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, chat_id='{self.chat_id}', role='{self.role}', seq={self.sequence})>"
 

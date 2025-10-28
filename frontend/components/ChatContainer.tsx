@@ -7,7 +7,8 @@ import { chatApi, snaptradeApi, Message } from '@/lib/api';
 
 export default function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null); // Persistent - for brokerage connection
+  const [chatId, setChatId] = useState<string | null>(null); // Per-session - for chat history
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -23,28 +24,29 @@ export default function ChatContainer() {
     scrollToBottom();
   }, [messages]);
 
-  // Initialize session on mount so user can connect portfolio immediately
+  // Initialize user ID (persistent - for brokerage) and chat ID (new each time - for chat history)
   useEffect(() => {
-    // Try to get existing session from localStorage
-    const existingSession = localStorage.getItem('finch_session_id');
-    
-    if (existingSession) {
-      setSessionId(existingSession);
-    } else if (!sessionId) {
-      const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      setSessionId(newSessionId);
-      localStorage.setItem('finch_session_id', newSessionId);
+    // Get or create persistent user ID for brokerage connection
+    let existingUserId = localStorage.getItem('finch_user_id');
+    if (!existingUserId) {
+      existingUserId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('finch_user_id', existingUserId);
     }
+    setUserId(existingUserId);
+    
+    // Create new chat ID for this conversation (resets on page refresh)
+    const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setChatId(newChatId);
   }, []);
 
-  // Check if session has an existing SnapTrade connection on mount
+  // Check if user has an existing SnapTrade connection on mount
   useEffect(() => {
     const checkExistingConnection = async () => {
-      if (!sessionId) return;
+      if (!userId) return;
       
       setIsCheckingConnection(true);
       try {
-        const status = await snaptradeApi.checkStatus(sessionId);
+        const status = await snaptradeApi.checkStatus(userId);
         if (status.is_connected) {
           console.log('✅ Found existing SnapTrade connection');
           setIsPortfolioConnected(true);
@@ -57,17 +59,17 @@ export default function ChatContainer() {
     };
     
     checkExistingConnection();
-  }, [sessionId]);
+  }, [userId]);
 
   // Check for OAuth callback (when redirected back from SnapTrade)
   useEffect(() => {
     const handleCallback = async () => {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('snaptrade_callback') === 'true' && sessionId) {
+      if (params.get('snaptrade_callback') === 'true' && userId) {
         // If this is a popup window, notify the parent and close
         if (window.opener && window.opener !== window) {
           try {
-            const result = await snaptradeApi.handleCallback(sessionId);
+            const result = await snaptradeApi.handleCallback(userId);
             // Send message to parent window
             window.opener.postMessage({
               type: 'SNAPTRADE_CONNECTION',
@@ -94,7 +96,7 @@ export default function ChatContainer() {
         // If not in a popup (fallback), handle normally
         setIsConnecting(true);
         try {
-          const result = await snaptradeApi.handleCallback(sessionId);
+          const result = await snaptradeApi.handleCallback(userId);
           if (result.success && result.is_connected) {
             setIsPortfolioConnected(true);
             window.history.replaceState({}, '', window.location.pathname);
@@ -110,10 +112,10 @@ export default function ChatContainer() {
       }
     };
     
-    if (sessionId) {
+    if (userId) {
       handleCallback();
     }
-  }, [sessionId]);
+  }, [userId]);
 
   // Listen for messages from popup window
   useEffect(() => {
@@ -137,6 +139,11 @@ export default function ChatContainer() {
   }, []);
 
   const handleSendMessage = async (content: string) => {
+    if (!userId || !chatId) {
+      setError('Session not initialized. Please refresh the page.');
+      return;
+    }
+    
     setError(null);
     
     // Add user message optimistically
@@ -149,12 +156,7 @@ export default function ChatContainer() {
     setIsLoading(true);
 
     try {
-      const response = await chatApi.sendMessage(content, sessionId || undefined);
-      
-      // Save session ID if this is the first message
-      if (!sessionId) {
-        setSessionId(response.session_id);
-      }
+      const response = await chatApi.sendMessage(content, userId, chatId);
 
       // Check if connection is required or expired
       if (!isPortfolioConnected && (response.needs_auth || response.response.includes('action_required') || response.response.includes('expired') || response.response.includes('disabled'))) {
@@ -186,8 +188,8 @@ export default function ChatContainer() {
   };
 
   const handleBrokerageConnection = async () => {
-    if (!sessionId) {
-      setError('No session ID available');
+    if (!userId) {
+      setError('No user ID available');
       return;
     }
 
@@ -195,7 +197,7 @@ export default function ChatContainer() {
     try {
       // Get redirect URI from backend
       const redirectUri = `${window.location.origin}${window.location.pathname}?snaptrade_callback=true`;
-      const response = await snaptradeApi.initiateConnection(sessionId, redirectUri);
+      const response = await snaptradeApi.initiateConnection(userId, redirectUri);
       
       if (response.success && response.redirect_uri) {
         // Open SnapTrade Connection Portal in a new window
@@ -212,18 +214,18 @@ export default function ChatContainer() {
         
         // Keep connecting state active until callback is received
       } else {
-        // Check if we need a new session
+        // Check if we need a new user session
         if (response.message?.includes('refresh the page') || response.message?.includes('new session')) {
           setError(response.message);
-          // Clear the old session and generate a new one
-          localStorage.removeItem('finch_session_id');
-          const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          setSessionId(newSessionId);
-          localStorage.setItem('finch_session_id', newSessionId);
+          // Clear the old user and generate a new one
+          localStorage.removeItem('finch_user_id');
+          const newUserId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          setUserId(newUserId);
+          localStorage.setItem('finch_user_id', newUserId);
           setIsConnecting(false);
           // Prompt user to try again
           setTimeout(() => {
-            setError('New session created. Please click "Connect Brokerage" again.');
+            setError('New user session created. Please click "Connect Brokerage" again.');
           }, 100);
         } else {
           setError(response.message || 'Failed to initiate connection');
@@ -237,21 +239,14 @@ export default function ChatContainer() {
   };
 
   const handleClearChat = async () => {
-    if (sessionId) {
-      try {
-        await chatApi.clearChatHistory(sessionId);
-      } catch (err) {
-        console.error('Error clearing chat:', err);
-      }
-    }
+    // Just create a new chat - don't clear the current one or disconnect brokerage
     setMessages([]);
     
-    // Generate new session and store it
-    const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setSessionId(newSessionId);
-    localStorage.setItem('finch_session_id', newSessionId);
+    // Generate new chat ID (user ID stays the same)
+    const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setChatId(newChatId);
     setError(null);
-    setIsPortfolioConnected(false);
+    // Keep portfolio connected
   };
 
   return (

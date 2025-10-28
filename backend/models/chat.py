@@ -8,7 +8,8 @@ from typing import Optional, Literal
 class ChatMessage(BaseModel):
     """Request model for sending a chat message"""
     message: str
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None  # This is actually user_id for backward compatibility
+    chat_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
