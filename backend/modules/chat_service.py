@@ -5,7 +5,9 @@ from typing import List, Any, Optional, Dict, AsyncGenerator
 from datetime import datetime
 import json
 import uuid
-from agent import ChatAgent
+import io
+import pandas as pd
+from .agent import ChatAgent
 from .context_manager import context_manager
 from database import SessionLocal
 from crud import chat as chat_crud
@@ -44,45 +46,38 @@ class ChatService:
                 # Create new chat
                 chat_crud.create_chat(db, chat_id, user_id)
             
-            # Get existing chat history and deserialize
+            # Get existing chat history
             db_messages = chat_crud.get_chat_messages(db, chat_id)
             chat_history = []
             for msg in db_messages:
-                # Deserialize content if it's JSON (for tool messages)
-                content = msg.content
-                try:
-                    parsed_content = json.loads(content)
-                    # If it successfully parses as JSON, it might be tool data
-                    if isinstance(parsed_content, dict):
-                        message_dict = {
-                            "role": msg.role,
-                            "content": parsed_content.get("content", ""),
-                            "timestamp": msg.timestamp.isoformat()
-                        }
-                        # Add tool-specific fields if present
-                        if "tool_calls" in parsed_content:
-                            message_dict["tool_calls"] = parsed_content["tool_calls"]
-                        if "tool_call_id" in parsed_content:
-                            message_dict["tool_call_id"] = parsed_content["tool_call_id"]
-                            message_dict["name"] = parsed_content.get("name", "")
-                        chat_history.append(message_dict)
-                    else:
-                        # Plain text content
-                        chat_history.append({
-                            "role": msg.role,
-                            "content": content,
-                            "timestamp": msg.timestamp.isoformat()
-                        })
-                except (json.JSONDecodeError, TypeError):
-                    # Not JSON, treat as plain text
-                    chat_history.append({
-                        "role": msg.role,
-                        "content": content,
-                        "timestamp": msg.timestamp.isoformat()
-                    })
+                # Reconstruct message from database columns (OpenAI format)
+                message_dict = {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat()
+                }
+                
+                # Add tool_calls for assistant messages that call tools
+                if msg.role == "assistant" and msg.tool_calls:
+                    message_dict["tool_calls"] = msg.tool_calls
+                
+                # Add tool result metadata for tool role messages
+                if msg.role == "tool":
+                    if msg.tool_call_id:
+                        message_dict["tool_call_id"] = msg.tool_call_id
+                    if msg.name:
+                        message_dict["name"] = msg.name
+                    if msg.resource_id:
+                        message_dict["resource_id"] = msg.resource_id
+                
+                chat_history.append(message_dict)
             
             # Get context for this user (using user_id for SnapTrade)
             context = context_manager.get_all_context(user_id)
+            
+            # Track latency for assistant response
+            import time
+            start_time = time.time()
             
             # Get agent response with full conversation including tool calls
             response, needs_auth, full_messages, tool_calls_info = await self.agent.process_message(
@@ -91,6 +86,9 @@ class ChatService:
                 context=context,
                 session_id=user_id  # Pass user_id as session_id for tools
             )
+            
+            # Calculate latency in milliseconds
+            latency_ms = int((time.time() - start_time) * 1000)
             
             # Store ALL new messages including user message, tool calls, and assistant responses
             # full_messages contains the complete conversation including what we just processed
@@ -142,26 +140,33 @@ class ChatService:
             
             final_timestamp = None
             for msg in full_messages[start_index:]:
-                # Serialize content based on message type
-                if msg["role"] == "tool" or "tool_calls" in msg:
-                    # Store complex messages as JSON
-                    content_to_store = json.dumps({
-                        "content": msg.get("content", ""),
-                        "tool_calls": msg.get("tool_calls"),
-                        "tool_call_id": msg.get("tool_call_id"),
-                        "name": msg.get("name")
-                    })
-                else:
-                    # Store simple text messages as-is
-                    content_to_store = msg.get("content", "")
+                # Extract message components (OpenAI format)
+                role = msg["role"]
+                content = msg.get("content", "")
+                tool_calls = msg.get("tool_calls") if role == "assistant" else None
+                tool_call_id = msg.get("tool_call_id") if role == "tool" else None
+                name = msg.get("name") if role == "tool" else None
                 
-                # Link tool response messages to resources
+                # Link tool result messages to resources
                 resource_id = None
-                if msg["role"] == "tool" and msg.get("tool_call_id"):
-                    resource_id = tool_call_to_resource.get(msg["tool_call_id"])
+                if role == "tool" and tool_call_id:
+                    resource_id = tool_call_to_resource.get(tool_call_id)
                 
+                # Add latency for assistant messages
+                msg_latency = latency_ms if role == "assistant" else None
+                
+                # Create message with proper columns
                 stored_msg = chat_crud.create_message(
-                    db, chat_id, msg["role"], content_to_store, sequence, resource_id
+                    db=db,
+                    chat_id=chat_id,
+                    role=role,
+                    content=content,
+                    sequence=sequence,
+                    resource_id=resource_id,
+                    tool_calls=tool_calls,
+                    tool_call_id=tool_call_id,
+                    name=name,
+                    latency_ms=msg_latency
                 )
                 sequence += 1
                 final_timestamp = stored_msg.timestamp.isoformat()
@@ -196,42 +201,31 @@ class ChatService:
                 # Create new chat
                 chat_crud.create_chat(db, chat_id, user_id)
             
-            # Get existing chat history and deserialize
+            # Get existing chat history
             db_messages = chat_crud.get_chat_messages(db, chat_id)
             chat_history = []
             for msg in db_messages:
-                # Deserialize content if it's JSON (for tool messages)
-                content = msg.content
-                try:
-                    parsed_content = json.loads(content)
-                    # If it successfully parses as JSON, it might be tool data
-                    if isinstance(parsed_content, dict):
-                        message_dict = {
-                            "role": msg.role,
-                            "content": parsed_content.get("content", ""),
-                            "timestamp": msg.timestamp.isoformat()
-                        }
-                        # Add tool-specific fields if present
-                        if "tool_calls" in parsed_content:
-                            message_dict["tool_calls"] = parsed_content["tool_calls"]
-                        if "tool_call_id" in parsed_content:
-                            message_dict["tool_call_id"] = parsed_content["tool_call_id"]
-                            message_dict["name"] = parsed_content.get("name", "")
-                        chat_history.append(message_dict)
-                    else:
-                        # Plain text content
-                        chat_history.append({
-                            "role": msg.role,
-                            "content": content,
-                            "timestamp": msg.timestamp.isoformat()
-                        })
-                except (json.JSONDecodeError, TypeError):
-                    # Not JSON, treat as plain text
-                    chat_history.append({
-                        "role": msg.role,
-                        "content": content,
-                        "timestamp": msg.timestamp.isoformat()
-                    })
+                # Reconstruct message from database columns (OpenAI format)
+                message_dict = {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat()
+                }
+                
+                # Add tool_calls for assistant messages that call tools
+                if msg.role == "assistant" and msg.tool_calls:
+                    message_dict["tool_calls"] = msg.tool_calls
+                
+                # Add tool result metadata for tool role messages
+                if msg.role == "tool":
+                    if msg.tool_call_id:
+                        message_dict["tool_call_id"] = msg.tool_call_id
+                    if msg.name:
+                        message_dict["name"] = msg.name
+                    if msg.resource_id:
+                        message_dict["resource_id"] = msg.resource_id
+                
+                chat_history.append(message_dict)
             
             # Get context for this user (using user_id for SnapTrade)
             context = context_manager.get_all_context(user_id)
@@ -295,11 +289,18 @@ class ChatService:
         if isinstance(result_data, list):
             return {"data": result_data}
         
-        # Handle portfolio holdings (dict of aggregated holdings)
-        if "aggregated_holdings" in result_data and isinstance(result_data["aggregated_holdings"], dict):
-            # Convert dict to array of holdings
-            holdings_array = list(result_data["aggregated_holdings"].values())
-            return {"data": holdings_array}
+        # Handle CSV-formatted portfolio holdings (efficient format)
+        if "holdings_csv" in result_data and isinstance(result_data["holdings_csv"], str):
+            try:
+                # Parse CSV string to DataFrame
+                df = pd.read_csv(io.StringIO(result_data["holdings_csv"]))
+                # Convert to list of dicts for JSON serialization
+                holdings_array = df.to_dict('records')
+                return {"data": holdings_array}
+            except Exception as e:
+                print(f"⚠️ Error parsing CSV portfolio data: {e}", flush=True)
+                # Fall back to returning full result
+                return result_data
         
         # Extract the main data array from common wrapper structures
         if "mentions" in result_data and isinstance(result_data["mentions"], list):
@@ -370,43 +371,36 @@ class ChatService:
             return "other", tool_name.replace("_", " ").title()
     
     def get_chat_history(self, chat_id: str) -> List[dict]:
-        """Get chat history for a chat, including tool calls"""
+        """Get chat history for a chat, including tool calls (OpenAI format)"""
         db = SessionLocal()
         try:
             messages = chat_crud.get_chat_messages(db, chat_id)
             history = []
             for msg in messages:
-                # Try to deserialize JSON content (for tool messages)
-                try:
-                    parsed_content = json.loads(msg.content)
-                    if isinstance(parsed_content, dict):
-                        # Reconstruct the full message with tool data
-                        message_dict = {
-                            "role": msg.role,
-                            "content": parsed_content.get("content", ""),
-                            "timestamp": msg.timestamp.isoformat()
-                        }
-                        # Add tool-specific fields if present
-                        if parsed_content.get("tool_calls"):
-                            message_dict["tool_calls"] = parsed_content["tool_calls"]
-                        if parsed_content.get("tool_call_id"):
-                            message_dict["tool_call_id"] = parsed_content["tool_call_id"]
-                            message_dict["name"] = parsed_content.get("name", "")
-                        history.append(message_dict)
-                    else:
-                        # Plain text that happened to be JSON
-                        history.append({
-                            "role": msg.role,
-                            "content": msg.content,
-                            "timestamp": msg.timestamp.isoformat()
-                        })
-                except (json.JSONDecodeError, TypeError):
-                    # Not JSON, plain text message
-                    history.append({
-                        "role": msg.role,
-                        "content": msg.content,
-                        "timestamp": msg.timestamp.isoformat()
-                    })
+                # Reconstruct message from database columns (OpenAI format)
+                message_dict = {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat()
+                }
+                
+                # Add tool_calls for assistant messages
+                if msg.role == "assistant":
+                    if msg.tool_calls:
+                        message_dict["tool_calls"] = msg.tool_calls
+                    if msg.latency_ms is not None:
+                        message_dict["latency_ms"] = msg.latency_ms
+                
+                # Add tool result metadata for tool role messages
+                if msg.role == "tool":
+                    if msg.tool_call_id:
+                        message_dict["tool_call_id"] = msg.tool_call_id
+                    if msg.name:
+                        message_dict["name"] = msg.name
+                    if msg.resource_id:
+                        message_dict["resource_id"] = msg.resource_id
+                
+                history.append(message_dict)
             return history
         finally:
             db.close()

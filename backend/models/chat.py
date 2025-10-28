@@ -1,8 +1,8 @@
 """
-Chat-related Pydantic models
+Chat-related Pydantic models (OpenAI format)
 """
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Optional, Literal, List, Dict, Any
 
 
 class ChatMessage(BaseModel):
@@ -21,9 +21,32 @@ class ChatResponse(BaseModel):
     tool_calls: Optional[list] = None  # List of tool call statuses
 
 
+class ToolCall(BaseModel):
+    """Tool call structure (OpenAI format)"""
+    id: str
+    type: str = "function"
+    function: Dict[str, Any]  # Contains 'name' and 'arguments'
+
+
 class Message(BaseModel):
-    """Model for individual messages in chat history"""
-    role: Literal["user", "assistant"]
+    """
+    Model for individual messages in chat history (OpenAI format)
+    
+    Roles:
+    - user: User input messages
+    - assistant: AI responses (may include tool_calls)
+    - tool: Tool/function results (includes tool_call_id, name, and optional resource_id)
+    """
+    role: Literal["user", "assistant", "tool"]
     content: str
     timestamp: str
+    
+    # Assistant message fields
+    tool_calls: Optional[List[Dict[str, Any]]] = None  # For assistant role
+    latency_ms: Optional[int] = None  # For assistant role
+    
+    # Tool result message fields
+    tool_call_id: Optional[str] = None  # For tool role
+    name: Optional[str] = None  # For tool role
+    resource_id: Optional[str] = None  # For tool role (FK to resources table)
 

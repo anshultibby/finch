@@ -74,11 +74,15 @@ class Chat(Base):
 
 class ChatMessage(Base):
     """
-    Stores individual chat messages within a chat session
+    Stores individual chat messages within a chat session (OpenAI format)
     
-    Each message belongs to a chat and has a role (user or assistant).
+    Each message belongs to a chat and has a role (user, assistant, or tool).
     Messages are ordered by their sequence number within the chat.
-    Tool result messages can optionally link to a Resource.
+    
+    Message types (matching OpenAI API format):
+    - user: User input messages (content field only)
+    - assistant: AI responses (content field, optionally tool_calls JSONB)
+    - tool: Tool/function results (content field, tool_call_id, name, and resource_id FK)
     """
     __tablename__ = "chat_messages"
     
@@ -95,7 +99,17 @@ class ChatMessage(Base):
     # Sequence number within the chat (for ordering)
     sequence = Column(Integer, nullable=False)
     
-    # Optional link to resource (for tool result messages)
+    # Tool call data (for assistant messages that call tools)
+    tool_calls = Column(JSONB, nullable=True)
+    
+    # Tool result metadata (for tool role messages)
+    tool_call_id = Column(String, nullable=True, index=True)
+    name = Column(String, nullable=True)  # Tool/function name
+    
+    # Performance metrics (for assistant messages)
+    latency_ms = Column(Integer, nullable=True)  # Response time in milliseconds
+    
+    # Foreign key to resource (for tool result messages)
     resource_id = Column(String, nullable=True, index=True)
     
     # Timestamp

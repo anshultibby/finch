@@ -13,7 +13,7 @@ class Config:
     """Application configuration"""
     
     # LLM Configuration (works with any provider via LiteLLM)
-    # Supported models: gpt-5, gpt-4, claude-3-5-sonnet-20241022, gemini-pro, etc.
+    # Supported models: gpt-4o, gpt-4, claude-3-5-sonnet-20241022, gemini-pro, etc.
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
     

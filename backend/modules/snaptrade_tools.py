@@ -624,7 +624,7 @@ class SnapTradeTools:
             
             # Let Portfolio handle ALL the aggregation!
             portfolio = Portfolio.from_accounts(accounts_list, syncing_count=syncing_count)
-            return portfolio.model_dump()
+            return portfolio.to_csv_format()
             
         except Exception as e:
             print(f"❌ Error fetching portfolio: {str(e)}", flush=True)
@@ -649,7 +649,7 @@ SNAPTRADE_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_portfolio",
-            "description": "Fetch the user's current brokerage portfolio holdings (Robinhood, TD Ameritrade, etc.), including stocks they own, quantities, current prices, and total value. ALWAYS call this tool first when the user asks about their portfolio, stocks, holdings, or account value. This tool will automatically handle authentication - if the user isn't connected, it will tell you to request connection. Do not guess or assume - call this tool to check.",
+            "description": "Fetch the user's current brokerage portfolio holdings (Robinhood, TD Ameritrade, etc.), including stocks they own, quantities, current prices, and total value. Returns data in efficient CSV format: holdings_csv contains all unique positions aggregated across accounts. ALWAYS call this tool first when the user asks about their portfolio, stocks, holdings, or account value. This tool will automatically handle authentication - if the user isn't connected, it will tell you to request connection. Do not guess or assume - call this tool to check.",
             "parameters": {
                 "type": "object",
                 "properties": {},

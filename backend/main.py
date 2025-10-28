@@ -41,5 +41,11 @@ if __name__ == "__main__":
     import uvicorn
     print(f"🐦 Finch API starting on {Config.API_HOST}:{Config.API_PORT}")
     print(f"📝 API Documentation: http://localhost:{Config.API_PORT}/docs")
-    uvicorn.run(app, host=Config.API_HOST, port=Config.API_PORT)
+    uvicorn.run(
+        app, 
+        host=Config.API_HOST, 
+        port=Config.API_PORT,
+        timeout_keep_alive=5,
+        log_level="info"
+    )
 

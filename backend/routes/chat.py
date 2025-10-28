@@ -4,6 +4,7 @@ Chat API routes
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 import uuid
+import asyncio
 
 from models import ChatMessage, ChatResponse
 from modules import ChatService
@@ -89,7 +90,7 @@ async def send_chat_message_stream(chat_message: ChatMessage):
         if not chat_message.chat_id:
             raise HTTPException(status_code=400, detail="chat_id is required")
         
-        # Create streaming generator
+        # Create streaming generator with explicit flushing
         async def event_generator():
             try:
                 async for sse_data in chat_service.send_message_stream(
@@ -97,7 +98,11 @@ async def send_chat_message_stream(chat_message: ChatMessage):
                     chat_id=chat_message.chat_id,
                     user_id=chat_message.session_id
                 ):
+                    # Yield event immediately
                     yield sse_data
+                    # Force flush by yielding empty string (hack to prevent buffering)
+                    # This triggers uvicorn to send data immediately
+                    await asyncio.sleep(0)  # Give control back to event loop
             except Exception as e:
                 import traceback
                 error_msg = str(e)

@@ -66,15 +66,37 @@ def create_message(
     role: str,
     content: str,
     sequence: int,
-    resource_id: Optional[str] = None
+    resource_id: Optional[str] = None,
+    tool_calls: Optional[list] = None,
+    tool_call_id: Optional[str] = None,
+    name: Optional[str] = None,
+    latency_ms: Optional[int] = None
 ) -> ChatMessage:
-    """Create a new chat message"""
+    """
+    Create a new chat message (OpenAI format)
+    
+    Args:
+        db: Database session
+        chat_id: Chat identifier
+        role: Message role ('user', 'assistant', or 'tool')
+        content: Message content
+        sequence: Message sequence number
+        resource_id: Optional resource ID (for 'tool' role messages linking to resources)
+        tool_calls: Optional tool calls data (for 'assistant' role messages)
+        tool_call_id: Optional tool call ID (for 'tool' role messages)
+        name: Optional tool name (for 'tool' role messages)
+        latency_ms: Optional latency in milliseconds (for 'assistant' role messages)
+    """
     db_message = ChatMessage(
         chat_id=chat_id,
         role=role,
         content=content,
         sequence=sequence,
-        resource_id=resource_id
+        resource_id=resource_id,
+        tool_calls=tool_calls,
+        tool_call_id=tool_call_id,
+        name=name,
+        latency_ms=latency_ms
     )
     db.add(db_message)
     db.commit()

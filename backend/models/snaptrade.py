@@ -2,7 +2,8 @@
 SnapTrade-related Pydantic models
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
+import pandas as pd
 
 
 class SnapTradeConnectionRequest(BaseModel):
@@ -201,6 +202,22 @@ class Account(BaseModel):
                 "position_count": 1
             }
         }
+    
+    def positions_to_csv(self) -> str:
+        """Convert positions to CSV string"""
+        if not self.positions:
+            return "symbol,quantity,price,value\n"
+        
+        df = pd.DataFrame([
+            {
+                'symbol': pos.symbol,
+                'quantity': pos.quantity,
+                'price': pos.price,
+                'value': pos.value
+            }
+            for pos in self.positions
+        ])
+        return df.to_csv(index=False, float_format='%.4f')
 
 
 class AggregatedHolding(BaseModel):
@@ -320,4 +337,40 @@ class Portfolio(BaseModel):
             account_count=len(accounts),
             message=f"Found {len(aggregated_holdings)} unique positions across {len(accounts)} accounts"
         )
+    
+    def aggregated_holdings_to_csv(self) -> str:
+        """Convert aggregated holdings to CSV string, sorted by value descending"""
+        if not self.aggregated_holdings:
+            return "symbol,quantity,price,value\n"
+        
+        df = pd.DataFrame([
+            {
+                'symbol': holding.symbol,
+                'quantity': holding.quantity,
+                'price': holding.price,
+                'value': holding.value
+            }
+            for holding in self.aggregated_holdings.values()
+        ])
+        df = df.sort_values('value', ascending=False)
+        return df.to_csv(index=False, float_format='%.4f')
+    
+    def to_csv_format(self) -> Dict[str, Any]:
+        """
+        Convert portfolio to CSV format for LLM consumption.
+        Returns ONLY summary info + aggregated CSV (not per-account details).
+        This is much more efficient - the LLM gets all positions in one CSV.
+        """
+        result = {
+            "success": self.success,
+            "message": self.message,
+            "total_value": self.total_value,
+            "total_positions": self.total_positions,
+            "account_count": self.account_count,
+            "syncing": self.syncing,
+            # Only send aggregated CSV - it contains all unique positions
+            "holdings_csv": self.aggregated_holdings_to_csv()
+        }
+        
+        return result
 
