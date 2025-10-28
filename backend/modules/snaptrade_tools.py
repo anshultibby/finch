@@ -329,10 +329,89 @@ class SnapTradeTools:
                 "redirect_uri": redirect_url
             }
         except Exception as e:
-            print(f"❌ Error getting login redirect: {str(e)}", flush=True)
+            error_str = str(e)
+            print(f"❌ Error getting login redirect: {error_str}", flush=True)
+            
+            # Check if it's an invalid credentials error (401 or code 1083)
+            # This happens when API keys are changed (e.g., test -> production)
+            if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
+                print(f"⚠️ Invalid credentials detected, clearing old session and re-registering...", flush=True)
+                
+                # Delete the old database record
+                db = SessionLocal()
+                try:
+                    from crud import snaptrade_user as snaptrade_crud
+                    snaptrade_crud.delete_user(db, session_id)
+                    print(f"✅ Deleted old SnapTrade user from database", flush=True)
+                finally:
+                    db.close()
+                
+                # Clear from cache
+                if session_id in self._sessions:
+                    del self._sessions[session_id]
+                
+                # Try to delete from SnapTrade API (may fail, that's okay)
+                try:
+                    self.client.authentication.delete_snap_trade_user(user_id=session_id)
+                    print(f"✅ Deleted old SnapTrade user from API", flush=True)
+                except Exception as delete_error:
+                    print(f"⚠️ Could not delete from SnapTrade API: {str(delete_error)}", flush=True)
+                
+                # Re-register with new credentials
+                print(f"🔄 Re-registering user with new API credentials...", flush=True)
+                register_result = self.register_user(session_id)
+                if not register_result["success"]:
+                    return {
+                        "success": False,
+                        "message": "Credentials were invalid (possibly due to API key change). Failed to re-register. Please try again."
+                    }
+                
+                # Retry getting the login URL with new credentials
+                session = self._get_session(session_id)
+                if not session or not session.snaptrade_user_secret:
+                    return {
+                        "success": False,
+                        "message": "Failed to re-register. Please try again."
+                    }
+                
+                try:
+                    response = self.client.authentication.login_snap_trade_user(
+                        user_id=session_id,
+                        user_secret=session.snaptrade_user_secret,
+                        body={
+                            "broker": "ROBINHOOD",
+                            "immediateRedirect": True,
+                            "customRedirect": redirect_uri,
+                            "reconnect": "",
+                            "connectionType": "read",
+                            "connectionPortalVersion": "v3"
+                        }
+                    )
+                    
+                    response_data = response.body if hasattr(response, 'body') else response
+                    redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
+                    
+                    if not redirect_url:
+                        return {
+                            "success": False,
+                            "message": "Failed to get redirect URL after re-registration"
+                        }
+                    
+                    print(f"✅ Successfully re-registered and got login URL", flush=True)
+                    return {
+                        "success": True,
+                        "redirect_uri": redirect_url
+                    }
+                except Exception as retry_error:
+                    print(f"❌ Error after re-registration: {str(retry_error)}", flush=True)
+                    return {
+                        "success": False,
+                        "message": f"Re-registered but failed to get login URL: {str(retry_error)}"
+                    }
+            
             return {
                 "success": False,
-                "message": f"Failed to get login URL: {str(e)}"
+                "message": f"Failed to get login URL: {error_str}"
             }
     
     def handle_connection_callback(self, session_id: str) -> Dict[str, Any]:
@@ -393,12 +472,36 @@ class SnapTradeTools:
                 "brokerages": brokerage_names
             }
         except Exception as e:
-            print(f"❌ Error handling connection callback: {str(e)}", flush=True)
+            error_str = str(e)
+            print(f"❌ Error handling connection callback: {error_str}", flush=True)
             import traceback
             traceback.print_exc()
+            
+            # Check if it's an invalid credentials error
+            if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
+                print(f"⚠️ Invalid credentials detected during callback", flush=True)
+                # Delete the old database record
+                db = SessionLocal()
+                try:
+                    from crud import snaptrade_user as snaptrade_crud
+                    snaptrade_crud.delete_user(db, session_id)
+                finally:
+                    db.close()
+                
+                # Clear from cache
+                if session_id in self._sessions:
+                    del self._sessions[session_id]
+                
+                return {
+                    "success": False,
+                    "message": "Your credentials were invalid (possibly due to API key change). Please reconnect to create a new session.",
+                    "is_connected": False,
+                    "requires_new_connection": True
+                }
+            
             return {
                 "success": False,
-                "message": f"Failed to verify connection: {str(e)}",
+                "message": f"Failed to verify connection: {error_str}",
                 "is_connected": False
             }
     
@@ -446,8 +549,31 @@ class SnapTradeTools:
                         "connection_expired": True
                     }
             except Exception as e:
-                error_msg = str(e).lower()
-                if 'unauthorized' in error_msg or 'invalid' in error_msg or 'expired' in error_msg:
+                error_str = str(e)
+                error_msg = error_str.lower()
+                
+                # Check if it's an invalid credentials error (API key change)
+                if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
+                    print(f"⚠️ Invalid credentials detected in get_portfolio, cleaning up...", flush=True)
+                    # Delete the old database record
+                    db = SessionLocal()
+                    try:
+                        from crud import snaptrade_user as snaptrade_crud
+                        snaptrade_crud.delete_user(db, session_id)
+                    finally:
+                        db.close()
+                    
+                    # Clear from cache
+                    if session_id in self._sessions:
+                        del self._sessions[session_id]
+                    
+                    return {
+                        "success": False,
+                        "message": "Your credentials were invalid (possibly due to API key change). Please reconnect to create a new session.",
+                        "needs_auth": True,
+                        "connection_expired": True
+                    }
+                elif 'unauthorized' in error_msg or 'invalid' in error_msg or 'expired' in error_msg:
                     session.is_connected = False
                     return {
                         "success": False,
