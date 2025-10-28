@@ -161,7 +161,10 @@ Be friendly and professional in your responses."""
             # Convert chat history to standard format
             messages = [{"role": "system", "content": full_system_prompt}]
             
-            for msg in chat_history[:-1]:  # Exclude the last message (current user message)
+            # Track tool_call_ids to validate completeness
+            pending_tool_calls = set()
+            
+            for msg in chat_history:  # Process all existing chat history
                 if msg["role"] in ["user", "assistant", "tool"]:
                     # Reconstruct message for API
                     api_msg = {
@@ -172,14 +175,47 @@ Be friendly and professional in your responses."""
                     # Preserve tool calls for assistant messages
                     if msg["role"] == "assistant" and "tool_calls" in msg:
                         api_msg["tool_calls"] = msg["tool_calls"]
+                        # Track tool call IDs that need responses
+                        for tc in msg["tool_calls"]:
+                            pending_tool_calls.add(tc["id"])
                     
                     # Preserve tool call ID for tool responses
                     if msg["role"] == "tool" and "tool_call_id" in msg:
                         api_msg["tool_call_id"] = msg["tool_call_id"]
                         if "name" in msg:
                             api_msg["name"] = msg["name"]
+                        # Mark this tool call as completed
+                        pending_tool_calls.discard(msg["tool_call_id"])
                     
                     messages.append(api_msg)
+            
+            # Validate: If there are pending tool calls, remove incomplete sequences
+            if pending_tool_calls:
+                print(f"⚠️ Found incomplete tool call sequence with IDs: {pending_tool_calls}", flush=True)
+                print(f"⚠️ Cleaning up chat history to remove incomplete tool calls", flush=True)
+                
+                # Remove messages back to the last complete state
+                cleaned_messages = [messages[0]]  # Keep system message
+                pending_in_clean = set()
+                
+                for msg in messages[1:]:
+                    # If this is an assistant message with tool calls
+                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                        # Start tracking new tool calls
+                        new_pending = {tc["id"] for tc in msg["tool_calls"]}
+                        # Only add if we can verify all tool calls will be completed
+                        # For now, skip this message and everything after it
+                        print(f"⚠️ Removing assistant message with tool_calls: {new_pending}", flush=True)
+                        break
+                    elif msg.get("role") == "tool":
+                        # This tool response is orphaned, skip it
+                        print(f"⚠️ Removing orphaned tool response: {msg.get('tool_call_id')}", flush=True)
+                        break
+                    else:
+                        cleaned_messages.append(msg)
+                
+                messages = cleaned_messages
+                print(f"✅ Cleaned message history, now has {len(messages)} messages", flush=True)
             
             # Add current message
             messages.append({
@@ -326,10 +362,11 @@ Be friendly and professional in your responses."""
                         tool_result_str = tool_result_str[:max_size] + '... [TRUNCATED]"}'
                         print(f"⚠️ Hard truncated to {max_size} bytes", flush=True)
                 
-                # Add tool result to messages
+                # Add tool result to messages (name field is required by OpenAI API)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
+                    "name": function_name,
                     "content": tool_result_str
                 })
             
