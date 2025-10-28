@@ -5,7 +5,17 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import ResourcesSidebar from './ResourcesSidebar';
 import ResourceViewer from './ResourceViewer';
-import { chatApi, snaptradeApi, resourcesApi, Message, ToolCallStatus, Resource } from '@/lib/api';
+import { 
+  chatApi, 
+  snaptradeApi, 
+  resourcesApi, 
+  Message, 
+  ToolCallStatus, 
+  Resource,
+  SSEToolCallStartEvent,
+  SSEToolCallCompleteEvent,
+  SSEAssistantMessageEvent 
+} from '@/lib/api';
 
 export default function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -17,6 +27,7 @@ export default function ChatContainer() {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
+  const [isThinking, setIsThinking] = useState(false);
   const [resources, setResources] = useState<Resource[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
@@ -177,47 +188,115 @@ export default function ChatContainer() {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
     setEphemeralToolCalls([]);
+    setIsThinking(false);
+
+    // Track tool calls and resources
+    const toolCallsMap = new Map<string, ToolCallStatus>();
+    let needsAuth = false;
 
     try {
-      const response = await chatApi.sendMessage(content, userId, chatId);
+      // Use streaming API for real-time updates
+      const eventSource = chatApi.sendMessageStream(
+        content,
+        userId,
+        chatId,
+        {
+          onToolCallStart: (event: SSEToolCallStartEvent) => {
+            console.log('🔧 Tool call started:', event.tool_name);
+            
+            // IMMEDIATELY show ephemeral message when tool call starts
+            const toolCallStatus: ToolCallStatus = {
+              tool_call_id: event.tool_call_id,
+              tool_name: event.tool_name,
+              status: 'calling',
+            };
+            toolCallsMap.set(event.tool_call_id, toolCallStatus);
+            setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+          },
+          
+          onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
+            console.log('✅ Tool call completed:', event.tool_name, event.status);
+            
+            // Update ephemeral message with completion status
+            const toolCallStatus = toolCallsMap.get(event.tool_call_id);
+            if (toolCallStatus) {
+              toolCallStatus.status = event.status;
+              toolCallStatus.resource_id = event.resource_id;
+              toolCallStatus.error = event.error;
+              setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+            }
+          },
+          
+          onThinking: (event) => {
+            console.log('🤔 AI is thinking:', event.message);
+            // Show thinking indicator
+            setIsThinking(true);
+          },
+          
+          onAssistantMessage: (event: SSEAssistantMessageEvent) => {
+            console.log('💬 Assistant message received');
+            
+            needsAuth = event.needs_auth;
+            
+            // Hide thinking indicator
+            setIsThinking(false);
+            
+            // Add assistant response (filter out standalone connection success messages)
+            const shouldAddMessage = !event.content.includes('Successfully connected');
+            
+            if (shouldAddMessage) {
+              const assistantMessage: Message = {
+                role: 'assistant',
+                content: event.content,
+                timestamp: event.timestamp,
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
+            }
+          },
+          
+          onDone: async () => {
+            console.log('✨ Stream complete');
+            setIsLoading(false);
+            
+            // Reload resources to include new ones
+            try {
+              const chatResources = await resourcesApi.getChatResources(chatId);
+              setResources(chatResources);
+            } catch (err) {
+              console.error('Error reloading resources:', err);
+            }
+            
+            // Check if connection is required
+            if (needsAuth && !isPortfolioConnected) {
+              setIsPortfolioConnected(false);
+              await handleBrokerageConnection();
+            }
+            
+            // Clear ephemeral tool calls after a delay
+            setTimeout(() => setEphemeralToolCalls([]), 5000);
+          },
+          
+          onError: (event) => {
+            console.error('❌ SSE error:', event.error);
+            setError(`Error: ${event.error}`);
+            setIsLoading(false);
+            setIsThinking(false);
+            // Remove the optimistic user message
+            setMessages((prev) => prev.slice(0, -1));
+          },
+        }
+      );
 
-      // Show ephemeral tool call messages
-      if (response.tool_calls && response.tool_calls.length > 0) {
-        setEphemeralToolCalls(response.tool_calls);
-        
-        // Reload resources to include new ones
-        const chatResources = await resourcesApi.getChatResources(chatId);
-        setResources(chatResources);
-      }
-
-      // Check if connection is required or expired
-      if (!isPortfolioConnected && (response.needs_auth || response.response.includes('action_required') || response.response.includes('expired') || response.response.includes('disabled'))) {
-        // Mark as disconnected if connection expired
-        setIsPortfolioConnected(false);
-        // Trigger connection flow
-        await handleBrokerageConnection();
-      }
-
-      // Add assistant response (filter out standalone connection success messages)
-      const shouldAddMessage = !response.response.includes('Successfully connected');
+      // Store event source for cleanup if needed
+      // (In case user navigates away)
       
-      if (shouldAddMessage) {
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: response.response,
-          timestamp: response.timestamp,
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      }
     } catch (err) {
       setError('Failed to send message. Please try again.');
       console.error('Error sending message:', err);
       // Remove the optimistic user message
       setMessages((prev) => prev.slice(0, -1));
-    } finally {
       setIsLoading(false);
-      // Clear ephemeral tool calls after a delay
-      setTimeout(() => setEphemeralToolCalls([]), 5000);
+      setIsThinking(false);
     }
   };
 
@@ -397,7 +476,7 @@ export default function ChatContainer() {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 chat-scrollbar bg-gray-50">
+      <div className="flex-1 overflow-y-auto px-6 py-6 chat-scrollbar bg-white">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="bg-white rounded-full p-6 shadow-lg mb-6">
@@ -470,50 +549,55 @@ export default function ChatContainer() {
                 timestamp={message.timestamp}
               />
             ))}
-            {/* Ephemeral Tool Call Messages */}
+            {/* Ephemeral Tool Call Messages - Flashing text that fades out */}
             {ephemeralToolCalls.length > 0 && (
-              <div className="space-y-2 mb-4">
+              <div className="space-y-2 mb-4 px-2">
                 {ephemeralToolCalls.map((toolCall) => (
                   <div
                     key={toolCall.tool_call_id}
-                    className="flex justify-start"
+                    className={`flex justify-start items-center gap-2 ${
+                      toolCall.status === 'calling' ? 'animate-pulse' : 'animate-fadeOut'
+                    }`}
                   >
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-2">
-                      <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-blue-900">
-                          {toolCall.tool_name.replace(/_/g, ' ')}
-                        </p>
-                        <p className="text-xs text-blue-700">
-                          {toolCall.status === 'calling' && 'Calling function...'}
-                          {toolCall.status === 'completed' && '✓ Completed'}
-                          {toolCall.status === 'error' && `✗ Error: ${toolCall.error}`}
-                        </p>
-                      </div>
-                      {toolCall.resource_id && (
-                        <button
-                          onClick={async () => {
-                            const resource = await resourcesApi.getResource(toolCall.resource_id!);
-                            handleSelectResource(resource);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          View →
-                        </button>
-                      )}
-                    </div>
+                    <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
+                    <p className="text-sm text-gray-500 font-medium">
+                      {toolCall.tool_name.replace(/_/g, ' ')}
+                      {toolCall.status === 'calling' && '...'}
+                      {toolCall.status === 'completed' && ' ✓'}
+                      {toolCall.status === 'error' && ` ✗`}
+                    </p>
+                    {toolCall.resource_id && (
+                      <button
+                        onClick={async () => {
+                          const resource = await resourcesApi.getResource(toolCall.resource_id!);
+                          handleSelectResource(resource);
+                        }}
+                        className="text-sm text-blue-500 hover:text-blue-700 font-medium underline"
+                      >
+                        view
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
+            {/* Thinking Indicator - Flashing text */}
+            {isThinking && (
+              <div className="flex justify-start mb-4 px-2">
+                <div className="flex items-center gap-2 animate-pulse">
+                  <span className="text-lg">🤔</span>
+                  <p className="text-sm text-gray-500 font-medium">
+                    analyzing results...
+                  </p>
+                </div>
+              </div>
+            )}
             {isLoading && (
-              <div className="flex justify-start mb-4">
-                <div className="bg-gray-200 rounded-2xl rounded-bl-none px-4 py-3">
-                  <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  </div>
+              <div className="flex justify-start mb-4 px-2">
+                <div className="flex space-x-2">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                 </div>
               </div>
             )}

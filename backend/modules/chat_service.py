@@ -1,7 +1,7 @@
 """
 Chat service for managing chat sessions and interactions
 """
-from typing import List, Any, Optional, Dict
+from typing import List, Any, Optional, Dict, AsyncGenerator
 from datetime import datetime
 import json
 import uuid
@@ -10,6 +10,7 @@ from .context_manager import context_manager
 from database import SessionLocal
 from crud import chat as chat_crud
 from crud import resource as resource_crud
+from models.sse import SSEEvent, ToolCallCompleteEvent
 
 
 class ChatService:
@@ -166,6 +167,118 @@ class ChatService:
                 final_timestamp = stored_msg.timestamp.isoformat()
             
             return response, final_timestamp or datetime.now().isoformat(), needs_auth, tool_calls_info
+            
+        finally:
+            db.close()
+    
+    async def send_message_stream(
+        self, 
+        message: str, 
+        chat_id: str,
+        user_id: str
+    ) -> AsyncGenerator[str, None]:
+        """
+        Send a message and stream SSE events as they happen
+        
+        Args:
+            message: User message content
+            chat_id: Chat identifier
+            user_id: User identifier (for SnapTrade tools)
+            
+        Yields:
+            SSE formatted strings (event: <type>\\ndata: <json>\\n\\n)
+        """
+        db = SessionLocal()
+        try:
+            # Ensure chat exists
+            db_chat = chat_crud.get_chat(db, chat_id)
+            if not db_chat:
+                # Create new chat
+                chat_crud.create_chat(db, chat_id, user_id)
+            
+            # Get existing chat history and deserialize
+            db_messages = chat_crud.get_chat_messages(db, chat_id)
+            chat_history = []
+            for msg in db_messages:
+                # Deserialize content if it's JSON (for tool messages)
+                content = msg.content
+                try:
+                    parsed_content = json.loads(content)
+                    # If it successfully parses as JSON, it might be tool data
+                    if isinstance(parsed_content, dict):
+                        message_dict = {
+                            "role": msg.role,
+                            "content": parsed_content.get("content", ""),
+                            "timestamp": msg.timestamp.isoformat()
+                        }
+                        # Add tool-specific fields if present
+                        if "tool_calls" in parsed_content:
+                            message_dict["tool_calls"] = parsed_content["tool_calls"]
+                        if "tool_call_id" in parsed_content:
+                            message_dict["tool_call_id"] = parsed_content["tool_call_id"]
+                            message_dict["name"] = parsed_content.get("name", "")
+                        chat_history.append(message_dict)
+                    else:
+                        # Plain text content
+                        chat_history.append({
+                            "role": msg.role,
+                            "content": content,
+                            "timestamp": msg.timestamp.isoformat()
+                        })
+                except (json.JSONDecodeError, TypeError):
+                    # Not JSON, treat as plain text
+                    chat_history.append({
+                        "role": msg.role,
+                        "content": content,
+                        "timestamp": msg.timestamp.isoformat()
+                    })
+            
+            # Get context for this user (using user_id for SnapTrade)
+            context = context_manager.get_all_context(user_id)
+            
+            # Store tool call info to create resources later
+            tool_calls_map = {}  # tool_call_id -> tool_call_data
+            
+            # Stream events from agent
+            async for event in self.agent.process_message_stream(
+                message=message,
+                chat_history=chat_history,
+                context=context,
+                session_id=user_id
+            ):
+                # Track tool calls for resource creation
+                if event.event == "tool_call_start":
+                    tool_call_id = event.data.get("tool_call_id")
+                    tool_calls_map[tool_call_id] = {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": event.data.get("tool_name"),
+                        "arguments": event.data.get("arguments"),
+                        "status": "calling"
+                    }
+                elif event.event == "tool_call_complete":
+                    tool_call_id = event.data.get("tool_call_id")
+                    if tool_call_id in tool_calls_map:
+                        tool_calls_map[tool_call_id]["status"] = event.data.get("status")
+                        tool_calls_map[tool_call_id]["error"] = event.data.get("error")
+                        
+                        # Create resource if completed successfully
+                        if event.data.get("status") == "completed":
+                            # We need to get the tool result - but it's not in the event
+                            # For now, we'll create resources in a post-processing step
+                            # Or we need to modify the agent to include result_data in the event
+                            pass
+                
+                # Yield the SSE formatted event
+                yield event.to_sse_format()
+            
+            # After streaming completes, save messages to database
+            # We need to reconstruct what happened from the events
+            # For simplicity, let's call the non-streaming version to save
+            # Or we build messages as we go
+            
+            # TODO: Store messages to database after streaming
+            # For now, this is a limitation - streaming doesn't save to DB
+            # We'll need to collect events and save them after
             
         finally:
             db.close()

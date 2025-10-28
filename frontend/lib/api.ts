@@ -31,6 +31,55 @@ export interface ChatResponse {
   tool_calls?: ToolCallStatus[];
 }
 
+// SSE Event types
+export interface SSEToolCallStartEvent {
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, any>;
+  timestamp: string;
+}
+
+export interface SSEToolCallCompleteEvent {
+  tool_call_id: string;
+  tool_name: string;
+  status: 'completed' | 'error';
+  resource_id?: string;
+  error?: string;
+  timestamp: string;
+}
+
+export interface SSEThinkingEvent {
+  message: string;
+  timestamp: string;
+}
+
+export interface SSEAssistantMessageEvent {
+  content: string;
+  timestamp: string;
+  needs_auth: boolean;
+}
+
+export interface SSEDoneEvent {
+  message: string;
+  timestamp: string;
+}
+
+export interface SSEErrorEvent {
+  error: string;
+  details?: string;
+  timestamp: string;
+}
+
+// Callback types for SSE event handlers
+export interface SSEEventHandlers {
+  onToolCallStart?: (event: SSEToolCallStartEvent) => void;
+  onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
+  onThinking?: (event: SSEThinkingEvent) => void;
+  onAssistantMessage?: (event: SSEAssistantMessageEvent) => void;
+  onDone?: (event: SSEDoneEvent) => void;
+  onError?: (event: SSEErrorEvent) => void;
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -98,6 +147,116 @@ export const chatApi = {
       chat_id: chatId,
     });
     return response.data;
+  },
+
+  /**
+   * Send a message and receive streaming SSE events
+   * This is the recommended way to send messages for real-time updates
+   */
+  sendMessageStream: (
+    message: string,
+    userId: string,
+    chatId: string,
+    handlers: SSEEventHandlers
+  ): EventSource => {
+    // Create SSE connection
+    const url = new URL('/chat/stream', API_BASE_URL);
+    
+    // We need to POST data, but EventSource only supports GET
+    // So we'll use fetch with stream processing instead
+    const abortController = new AbortController();
+    
+    // Start the fetch request
+    fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        session_id: userId,
+        chat_id: chatId,
+      }),
+      signal: abortController.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        
+        if (!reader) {
+          throw new Error('Response body is null');
+        }
+        
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            break;
+          }
+          
+          // Decode chunk and add to buffer
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Process complete SSE messages
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || ''; // Keep incomplete message in buffer
+          
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            // Parse SSE format: event: <type>\ndata: <json>
+            const eventMatch = line.match(/event:\s*(\w+)/);
+            const dataMatch = line.match(/data:\s*([\s\S]+)/);
+            
+            if (eventMatch && dataMatch) {
+              const eventType = eventMatch[1];
+              const eventData = JSON.parse(dataMatch[1]);
+              
+              // Call appropriate handler
+              switch (eventType) {
+                case 'tool_call_start':
+                  handlers.onToolCallStart?.(eventData as SSEToolCallStartEvent);
+                  break;
+                case 'tool_call_complete':
+                  handlers.onToolCallComplete?.(eventData as SSEToolCallCompleteEvent);
+                  break;
+                case 'thinking':
+                  handlers.onThinking?.(eventData as SSEThinkingEvent);
+                  break;
+                case 'assistant_message':
+                  handlers.onAssistantMessage?.(eventData as SSEAssistantMessageEvent);
+                  break;
+                case 'done':
+                  handlers.onDone?.(eventData as SSEDoneEvent);
+                  break;
+                case 'error':
+                  handlers.onError?.(eventData as SSEErrorEvent);
+                  break;
+              }
+            }
+          }
+        }
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('SSE stream error:', error);
+          handlers.onError?.({
+            error: error.message,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      });
+    
+    // Return a mock EventSource with close method
+    return {
+      close: () => abortController.abort(),
+    } as EventSource;
   },
 
   getChatHistory: async (chatId: string): Promise<ChatHistory> => {

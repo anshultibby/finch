@@ -1,10 +1,20 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 from litellm import completion
 import json
+from datetime import datetime
 from config import Config
 from modules.snaptrade_tools import snaptrade_tools, SNAPTRADE_TOOL_DEFINITIONS
 from modules.apewisdom_tools import apewisdom_tools, APEWISDOM_TOOL_DEFINITIONS
 from modules.insider_trading_tools import insider_trading_tools, INSIDER_TRADING_TOOL_DEFINITIONS
+from models.sse import (
+    SSEEvent,
+    ToolCallStartEvent,
+    ToolCallCompleteEvent,
+    ThinkingEvent,
+    AssistantMessageEvent,
+    DoneEvent,
+    ErrorEvent
+)
 
 
 class ChatAgent:
@@ -263,6 +273,171 @@ Be friendly and professional in your responses."""
             print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
             return f"I apologize, but I encountered an error: {str(e)}", False, [], []
     
+    async def process_message_stream(
+        self, 
+        message: str, 
+        chat_history: List[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None
+    ) -> AsyncGenerator[SSEEvent, None]:
+        """
+        Process a user message and stream SSE events as tool calls are made
+        This is the streaming version that yields events in real-time
+        
+        Yields:
+            SSEEvent objects containing tool call updates and final response
+        """
+        context = context or {}
+        
+        try:
+            print(f"\n{'='*80}", flush=True)
+            print(f"📨 STREAMING MESSAGE for session: {session_id}", flush=True)
+            print(f"📨 Current message: {message}", flush=True)
+            print(f"{'='*80}\n", flush=True)
+            
+            # Check if user has an active brokerage connection
+            has_connection = snaptrade_tools.has_active_connection(session_id) if session_id else False
+            
+            # Build system prompt with authentication status and context
+            auth_status_note = ""
+            if has_connection:
+                auth_status_note = "\n\n[SYSTEM INFO: User IS connected to their brokerage.]"
+            else:
+                auth_status_note = "\n\n[SYSTEM INFO: User is NOT connected to any brokerage.]"
+            
+            # Check if user just connected (successful connection in recent history)
+            just_connected = False
+            for msg in reversed(chat_history[-3:]):  # Check last 3 messages
+                if msg.get("role") == "assistant" and "Successfully connected" in msg.get("content", ""):
+                    just_connected = True
+                    print(f"🔍 Detected recent successful connection!", flush=True)
+                    break
+            
+            if just_connected and has_connection:
+                auth_status_note += "\n[ACTION REQUIRED: User just connected successfully. Check conversation history for their original request (likely portfolio/holdings) and fulfill it NOW by calling get_portfolio.]"
+                print(f"🎯 ACTION REQUIRED: Agent should call get_portfolio now", flush=True)
+            
+            full_system_prompt = self.system_prompt + auth_status_note
+            
+            # Convert chat history to standard format
+            messages = [{"role": "system", "content": full_system_prompt}]
+            
+            # Track tool_call_ids to validate completeness
+            pending_tool_calls = set()
+            
+            for msg in chat_history:  # Process all existing chat history
+                if msg["role"] in ["user", "assistant", "tool"]:
+                    # Reconstruct message for API
+                    api_msg = {
+                        "role": msg["role"],
+                        "content": msg.get("content", "")
+                    }
+                    
+                    # Preserve tool calls for assistant messages
+                    if msg["role"] == "assistant" and "tool_calls" in msg:
+                        api_msg["tool_calls"] = msg["tool_calls"]
+                        # Track tool call IDs that need responses
+                        for tc in msg["tool_calls"]:
+                            pending_tool_calls.add(tc["id"])
+                    
+                    # Preserve tool call ID for tool responses
+                    if msg["role"] == "tool" and "tool_call_id" in msg:
+                        api_msg["tool_call_id"] = msg["tool_call_id"]
+                        if "name" in msg:
+                            api_msg["name"] = msg["name"]
+                        # Mark this tool call as completed
+                        pending_tool_calls.discard(msg["tool_call_id"])
+                    
+                    messages.append(api_msg)
+            
+            # Validate: If there are pending tool calls, remove incomplete sequences
+            if pending_tool_calls:
+                print(f"⚠️ Found incomplete tool call sequence with IDs: {pending_tool_calls}", flush=True)
+                print(f"⚠️ Cleaning up chat history to remove incomplete tool calls", flush=True)
+                
+                # Remove messages back to the last complete state
+                cleaned_messages = [messages[0]]  # Keep system message
+                
+                for msg in messages[1:]:
+                    # If this is an assistant message with tool calls
+                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                        # Skip this message and everything after it
+                        print(f"⚠️ Removing assistant message with tool_calls", flush=True)
+                        break
+                    elif msg.get("role") == "tool":
+                        # This tool response is orphaned, skip it
+                        print(f"⚠️ Removing orphaned tool response: {msg.get('tool_call_id')}", flush=True)
+                        break
+                    else:
+                        cleaned_messages.append(msg)
+                
+                messages = cleaned_messages
+                print(f"✅ Cleaned message history, now has {len(messages)} messages", flush=True)
+            
+            # Add current message
+            messages.append({
+                "role": "user",
+                "content": message
+            })
+            
+            # Prepare API call parameters
+            api_params = {
+                "model": self.model,
+                "messages": messages,
+                "api_key": Config.OPENAI_API_KEY
+            }
+            
+            # Always add tools
+            api_params["tools"] = SNAPTRADE_TOOL_DEFINITIONS + APEWISDOM_TOOL_DEFINITIONS + INSIDER_TRADING_TOOL_DEFINITIONS
+            
+            # Call LLM via LiteLLM
+            response = completion(**api_params)
+            
+            # Check if the model wants to call a tool
+            if hasattr(response.choices[0].message, 'tool_calls') and response.choices[0].message.tool_calls:
+                # Stream tool calls and get final response
+                async for event in self._handle_tool_calls_stream(
+                    response, 
+                    messages, 
+                    context, 
+                    session_id
+                ):
+                    yield event
+            else:
+                # No tool calls, just send the response
+                response_content = response.choices[0].message.content
+                if response_content is None:
+                    response_content = "I'm not sure how to respond to that. Could you please rephrase your question?"
+                
+                yield SSEEvent(
+                    event="assistant_message",
+                    data=AssistantMessageEvent(
+                        content=response_content,
+                        timestamp=datetime.now().isoformat(),
+                        needs_auth=False
+                    ).model_dump()
+                )
+            
+            # Send done event
+            yield SSEEvent(
+                event="done",
+                data=DoneEvent().model_dump()
+            )
+            
+        except Exception as e:
+            error_msg = f"Error in process_message_stream: {str(e)}"
+            print(f"❌ {error_msg}", flush=True)
+            import traceback
+            print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
+            
+            yield SSEEvent(
+                event="error",
+                data=ErrorEvent(
+                    error=str(e),
+                    details=traceback.format_exc()
+                ).model_dump()
+            )
+    
     async def _handle_tool_calls(
         self,
         initial_response: Any,
@@ -403,6 +578,176 @@ Be friendly and professional in your responses."""
             import traceback
             print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
             return f"I encountered an error while processing tools: {str(e)}", False, []
+    
+    async def _handle_tool_calls_stream(
+        self,
+        initial_response: Any,
+        messages: List[Dict[str, Any]],
+        context: Dict[str, Any],
+        session_id: str
+    ) -> AsyncGenerator[SSEEvent, None]:
+        """
+        Handle tool calls from the LLM and stream SSE events as they happen
+        This yields events immediately when tool calls START and when they COMPLETE
+        
+        Yields:
+            SSEEvent objects for each tool call lifecycle event
+        """
+        needs_auth = False
+        
+        try:
+            # Add assistant's tool call message to history
+            messages.append({
+                "role": "assistant",
+                "content": initial_response.choices[0].message.content or "",
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    }
+                    for tool_call in initial_response.choices[0].message.tool_calls
+                ]
+            })
+            
+            # Execute each tool call
+            for tool_call in initial_response.choices[0].message.tool_calls:
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
+                
+                # IMMEDIATELY send tool_call_start event (THIS IS THE KEY IMPROVEMENT)
+                yield SSEEvent(
+                    event="tool_call_start",
+                    data=ToolCallStartEvent(
+                        tool_call_id=tool_call.id,
+                        tool_name=function_name,
+                        arguments=function_args
+                    ).model_dump()
+                )
+                
+                # Execute the tool with context (credentials)
+                tool_result = await self._execute_tool(
+                    function_name,
+                    function_args,
+                    context,
+                    session_id
+                )
+                
+                # Determine status
+                status = "completed" if tool_result.get("success", True) else "error"
+                error_msg = None if status == "completed" else tool_result.get("message", "Unknown error")
+                
+                # Send tool_call_complete event
+                yield SSEEvent(
+                    event="tool_call_complete",
+                    data=ToolCallCompleteEvent(
+                        tool_call_id=tool_call.id,
+                        tool_name=function_name,
+                        status=status,
+                        resource_id=None,  # Will be set by chat_service after resource creation
+                        error=error_msg
+                    ).model_dump()
+                )
+                
+                # Check if authentication is needed
+                if tool_result.get("needs_auth") or tool_result.get("action_required") == "show_login_form":
+                    needs_auth = True
+                
+                # Truncate large tool results to avoid overwhelming the LLM
+                try:
+                    tool_result_str = json.dumps(tool_result)
+                except Exception as json_err:
+                    print(f"❌ Error serializing tool result to JSON: {json_err}", flush=True)
+                    tool_result_str = json.dumps({
+                        "success": False,
+                        "error": f"Failed to serialize tool result: {str(json_err)}"
+                    })
+                
+                max_size = 50000  # 50KB limit per tool response
+                
+                if len(tool_result_str) > max_size:
+                    print(f"⚠️ Tool result too large ({len(tool_result_str)} bytes), truncating to {max_size} bytes", flush=True)
+                    
+                    # Try to intelligently truncate portfolio_activity data
+                    if "portfolio_activity" in tool_result and isinstance(tool_result["portfolio_activity"], dict):
+                        original_count = len(tool_result["portfolio_activity"])
+                        # Keep only top 10 tickers by activity
+                        truncated_activity = dict(list(tool_result["portfolio_activity"].items())[:10])
+                        tool_result["portfolio_activity"] = truncated_activity
+                        tool_result["_truncated"] = f"Showing top 10 of {original_count} tickers with activity"
+                        print(f"📊 Truncated portfolio activity from {original_count} to 10 tickers", flush=True)
+                        tool_result_str = json.dumps(tool_result)
+                    
+                    # If still too large, hard truncate
+                    if len(tool_result_str) > max_size:
+                        tool_result_str = tool_result_str[:max_size] + '... [TRUNCATED]"}'
+                        print(f"⚠️ Hard truncated to {max_size} bytes", flush=True)
+                
+                # Add tool result to messages (name field is required by OpenAI API)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": function_name,
+                    "content": tool_result_str
+                })
+            
+            # Send thinking event - AI is now analyzing tool results and generating response
+            print(f"🤔 AI is analyzing tool results and generating response...", flush=True)
+            yield SSEEvent(
+                event="thinking",
+                data=ThinkingEvent(
+                    message="Analyzing results..."
+                ).model_dump()
+            )
+            
+            # Get final response from LLM with tool results
+            final_response = completion(
+                model=self.model,
+                messages=messages,
+                api_key=Config.OPENAI_API_KEY,
+                tools=SNAPTRADE_TOOL_DEFINITIONS + APEWISDOM_TOOL_DEFINITIONS + INSIDER_TRADING_TOOL_DEFINITIONS
+            )
+            
+            # Check if the LLM wants to make more tool calls (recursive/multi-turn tool calling)
+            if hasattr(final_response.choices[0].message, 'tool_calls') and final_response.choices[0].message.tool_calls:
+                print(f"🔄 LLM requested additional tool calls, handling recursively...", flush=True)
+                # Recursively handle the additional tool calls
+                async for event in self._handle_tool_calls_stream(
+                    final_response, messages, context, session_id
+                ):
+                    yield event
+            else:
+                # Send final assistant message
+                response_content = final_response.choices[0].message.content
+                if response_content is None:
+                    print(f"⚠️ LLM returned None content, using fallback message", flush=True)
+                    response_content = "I encountered an issue processing that request. Please try again."
+                
+                yield SSEEvent(
+                    event="assistant_message",
+                    data=AssistantMessageEvent(
+                        content=response_content,
+                        timestamp=datetime.now().isoformat(),
+                        needs_auth=needs_auth
+                    ).model_dump()
+                )
+            
+        except Exception as e:
+            error_msg = f"Error in tool processing: {str(e)}"
+            print(f"❌ {error_msg}", flush=True)
+            import traceback
+            print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
+            
+            yield SSEEvent(
+                event="error",
+                data=ErrorEvent(
+                    error=error_msg,
+                    details=traceback.format_exc()
+                ).model_dump()
+            )
     
     async def _execute_tool(
         self,

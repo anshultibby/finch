@@ -37,3 +37,20 @@ body {
   background: #555;
 }
 
+/* Fade out animation for ephemeral messages */
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-fadeOut {
+  animation: fadeOut 5s ease-in-out forwards;
+}
+

@@ -33,6 +33,15 @@ from .resource import (
     ToolCallStatus,
     ToolCallInfo
 )
+from .sse import (
+    SSEEvent,
+    ToolCallStartEvent,
+    ToolCallCompleteEvent,
+    ThinkingEvent,
+    AssistantMessageEvent,
+    DoneEvent,
+    ErrorEvent
+)
 
 __all__ = [
     "ChatMessage", 
@@ -58,6 +67,13 @@ __all__ = [
     "ResourceResponse",
     "ResourceMetadata",
     "ToolCallStatus",
-    "ToolCallInfo"
+    "ToolCallInfo",
+    "SSEEvent",
+    "ToolCallStartEvent",
+    "ToolCallCompleteEvent",
+    "ThinkingEvent",
+    "AssistantMessageEvent",
+    "DoneEvent",
+    "ErrorEvent"
 ]
 
