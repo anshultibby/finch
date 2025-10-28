@@ -42,8 +42,14 @@ if grep -q "OPENAI_API_KEY=your_openai_api_key_here" .env; then
 fi
 
 # Install/update dependencies
-echo "📦 Checking dependencies..."
-pip install -q -r requirements.txt
+if [ ! -f "venv/.requirements-installed" ] || [ requirements.txt -nt venv/.requirements-installed ]; then
+    echo "📦 Installing/updating Python dependencies..."
+    pip install -r requirements.txt
+    touch venv/.requirements-installed
+    echo "✅ Dependencies installed"
+else
+    echo "✅ Dependencies are up to date"
+fi
 
 echo ""
 echo "✅ Backend setup complete!"

@@ -6,11 +6,17 @@ echo ""
 # Navigate to frontend directory
 cd frontend
 
-# Check if node_modules exists
+# Check if node_modules exists or if package.json has changed
 if [ ! -d "node_modules" ]; then
-    echo "📦 Installing dependencies..."
+    echo "📦 node_modules not found. Installing dependencies..."
     npm install
     echo "✅ Dependencies installed"
+elif [ package.json -nt node_modules/.package-lock.json ] 2>/dev/null || [ ! -f node_modules/.package-lock.json ]; then
+    echo "📦 Package.json has changed. Updating dependencies..."
+    npm install
+    echo "✅ Dependencies updated"
+else
+    echo "✅ Dependencies are up to date"
 fi
 
 # Create .env.local if it doesn't exist

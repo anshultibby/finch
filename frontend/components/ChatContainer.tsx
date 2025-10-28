@@ -28,6 +28,7 @@ export default function ChatContainer() {
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState<string>('');  // Accumulate streaming tokens
   const [resources, setResources] = useState<Resource[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
@@ -189,6 +190,7 @@ export default function ChatContainer() {
     setIsLoading(true);
     setEphemeralToolCalls([]);
     setIsThinking(false);
+    setStreamingMessage(''); // Clear any previous streaming message
 
     // Track tool calls and resources
     const toolCallsMap = new Map<string, ToolCallStatus>();
@@ -203,6 +205,9 @@ export default function ChatContainer() {
         {
           onToolCallStart: (event: SSEToolCallStartEvent) => {
             console.log('🔧 Tool call started:', event.tool_name);
+            
+            // Clear any streaming message if tool calls are starting
+            setStreamingMessage('');
             
             // IMMEDIATELY show ephemeral message when tool call starts
             const toolCallStatus: ToolCallStatus = {
@@ -233,13 +238,26 @@ export default function ChatContainer() {
             setIsThinking(true);
           },
           
+          onAssistantMessageDelta: (event) => {
+            console.log('💬 Streaming delta received:', event.delta.substring(0, 50));
+            // Accumulate streaming text as it arrives
+            setStreamingMessage((prev) => {
+              const newContent = prev + event.delta;
+              console.log('📝 Current streaming message length:', newContent.length);
+              return newContent;
+            });
+          },
+          
           onAssistantMessage: (event: SSEAssistantMessageEvent) => {
-            console.log('💬 Assistant message received');
+            console.log('💬 Assistant message received (complete)');
             
             needsAuth = event.needs_auth;
             
             // Hide thinking indicator
             setIsThinking(false);
+            
+            // Clear streaming message
+            setStreamingMessage('');
             
             // Add assistant response (filter out standalone connection success messages)
             const shouldAddMessage = !event.content.includes('Successfully connected');
@@ -281,6 +299,7 @@ export default function ChatContainer() {
             setError(`Error: ${event.error}`);
             setIsLoading(false);
             setIsThinking(false);
+            setStreamingMessage(''); // Clear streaming message on error
             // Remove the optimistic user message
             setMessages((prev) => prev.slice(0, -1));
           },
@@ -297,6 +316,7 @@ export default function ChatContainer() {
       setMessages((prev) => prev.slice(0, -1));
       setIsLoading(false);
       setIsThinking(false);
+      setStreamingMessage(''); // Clear streaming message on error
     }
   };
 
@@ -591,6 +611,14 @@ export default function ChatContainer() {
                   </p>
                 </div>
               </div>
+            )}
+            {/* Streaming Message - Show text as it arrives */}
+            {streamingMessage && (
+              <ChatMessage
+                role="assistant"
+                content={streamingMessage}
+                timestamp={new Date().toISOString()}
+              />
             )}
             {isLoading && (
               <div className="flex justify-start mb-4 px-2">

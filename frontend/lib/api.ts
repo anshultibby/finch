@@ -53,6 +53,10 @@ export interface SSEThinkingEvent {
   timestamp: string;
 }
 
+export interface SSEAssistantMessageDeltaEvent {
+  delta: string;
+}
+
 export interface SSEAssistantMessageEvent {
   content: string;
   timestamp: string;
@@ -75,6 +79,7 @@ export interface SSEEventHandlers {
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
   onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
   onThinking?: (event: SSEThinkingEvent) => void;
+  onAssistantMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onAssistantMessage?: (event: SSEAssistantMessageEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
@@ -200,12 +205,17 @@ export const chatApi = {
             break;
           }
           
+          // Log when chunks arrive in browser
+          console.log(`🌐 Browser received chunk: ${value.length} bytes at ${new Date().toISOString()}`);
+          
           // Decode chunk and add to buffer
           buffer += decoder.decode(value, { stream: true });
           
           // Process complete SSE messages
           const lines = buffer.split('\n\n');
           buffer = lines.pop() || ''; // Keep incomplete message in buffer
+          
+          console.log(`📦 Processing ${lines.length} complete SSE events`);
           
           for (const line of lines) {
             if (!line.trim()) continue;
@@ -228,6 +238,9 @@ export const chatApi = {
                   break;
                 case 'thinking':
                   handlers.onThinking?.(eventData as SSEThinkingEvent);
+                  break;
+                case 'assistant_message_delta':
+                  handlers.onAssistantMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
                   break;
                 case 'assistant_message':
                   handlers.onAssistantMessage?.(eventData as SSEAssistantMessageEvent);
