@@ -19,7 +19,7 @@ export default function ResourcesSidebar({
   const [selectedType, setSelectedType] = useState<string>('all');
 
   // Get unique resource types
-  const resourceTypes = ['all', ...new Set(resources.map((r) => r.resource_type))];
+  const resourceTypes: string[] = ['all', ...Array.from(new Set(resources.map((r) => r.resource_type)))];
 
   // Filter resources by type
   const filteredResources =
