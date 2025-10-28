@@ -42,6 +42,12 @@ class ChatAgent:
     
     def __init__(self):
         self.model = Config.OPENAI_MODEL
+        self._last_messages = []  # Store messages from last stream
+        self._initial_messages_len = 0  # Track where new messages start
+    
+    def get_new_messages(self) -> List[Dict[str, Any]]:
+        """Get the new messages from the last stream (for saving to DB)"""
+        return self._last_messages[self._initial_messages_len:]
     
     async def process_message(
         self,
@@ -118,18 +124,13 @@ class ChatAgent:
         session_id: Optional[str] = None
     ) -> AsyncGenerator[SSEEvent, None]:
         """
-        Process a user message and stream SSE events as tool calls are made
-        
-        Args:
-            message: User message
-            chat_history: Previous conversation
-            context: Context variables
-            session_id: User session ID
-            
-        Yields:
-            SSEEvent objects containing tool call updates and final response
+        Simple chat loop with streaming:
+        1. Call LLM, stream response
+        2. If tool calls → execute tools, add to history, loop back to step 1
+        3. If text → show to user, done
         """
         context = context or {}
+        needs_auth = False
         
         try:
             print(f"\n{'='*80}", flush=True)
@@ -137,95 +138,142 @@ class ChatAgent:
             print(f"📨 Current message: {message}", flush=True)
             print(f"{'='*80}\n", flush=True)
             
-            # Build messages for API
-            messages = self._build_messages_for_api(message, chat_history, session_id)
+            # Build initial messages
+            initial_messages = self._build_messages_for_api(message, chat_history, session_id)
+            messages = initial_messages.copy()
             
-            # Stream LLM call
-            llm_start = time.time()
-            print(f"🎬 Streaming initial LLM call...", flush=True)
+            # Store for later retrieval
+            self._last_messages = messages
+            self._initial_messages_len = len(initial_messages)
             
-            print(f"🤖 Using model: {self.model}", flush=True)
-            stream_response = await acompletion(
-                model=self.model,
-                messages=messages,
-                api_key=Config.OPENAI_API_KEY,
-                tools=ALL_TOOLS,
-                stream=True,
-                stream_options={"include_usage": False},  # Reduce latency
-                reasoning_effort="low",  # GPT-5: Use fast thinking mode, not deep reasoning
-                temperature=1.0,  # Default, but explicit for speed
-                caching=True,  # LiteLLM: Enable prompt caching
-                seed=42  # OpenAI: Consistent seed helps with caching
-            )
-            
-            # Stream chunks immediately, detect tool calls as we go
-            full_content = ""
-            accumulated_tool_calls = []
-            is_tool_call = False
-            initial_chunk_count = 0
-            
-            async for chunk in stream_response:
-                initial_chunk_count += 1
-                full_content, accumulated_tool_calls, is_tool_call = accumulate_stream_chunk(
-                    chunk, full_content, accumulated_tool_calls, is_tool_call
+            # Simple loop: LLM → tools → LLM → ... → final text
+            while True:
+                # Call LLM and stream
+                stream_response = await acompletion(
+                    model=self.model,
+                    messages=messages,
+                    api_key=Config.OPENAI_API_KEY,
+                    tools=ALL_TOOLS,
+                    stream=True,
+                    stream_options={"include_usage": False},
+                    reasoning_effort="low",
+                    caching=True,
+                    seed=42
                 )
                 
-                # Stream text content immediately as it arrives
-                if hasattr(chunk.choices[0], 'delta'):
-                    delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
-                        yield SSEEvent(
-                            event="assistant_message_delta",
-                            data=stream_content_chunk(delta.content)
-                        )
-            
-            llm_time = int((time.time() - llm_start) * 1000)
-            print(f"⏱️ Initial LLM call took {llm_time}ms", flush=True)
-            
-            # Handle based on what we got
-            if is_tool_call and accumulated_tool_calls:
-                mock_response = build_mock_response_from_stream(full_content, accumulated_tool_calls)
-                async for event in self._handle_tool_calls_stream(
-                    mock_response, messages, context, session_id
-                ):
-                    yield event
-            else:
-                # No tool calls - send final message event
-                if not full_content:
-                    full_content = "I'm not sure how to respond to that. Could you please rephrase your question?"
-                    # Send as delta since we didn't stream anything yet
+                # Stream response and collect tool calls
+                content = ""
+                tool_calls = []
+                
+                async for chunk in stream_response:
+                    if hasattr(chunk, 'choices') and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta'):
+                        delta = chunk.choices[0].delta
+                        
+                        # Stream text
+                        if hasattr(delta, 'content') and delta.content:
+                            content += delta.content
+                            yield SSEEvent(
+                                event="assistant_message_delta",
+                                data={"delta": delta.content}
+                            )
+                        
+                        # Collect tool calls
+                        if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                            for tc in delta.tool_calls:
+                                idx = tc.index
+                                while len(tool_calls) <= idx:
+                                    tool_calls.append({
+                                        "id": "",
+                                        "type": "function",  # Required by OpenAI
+                                        "function": {"name": "", "arguments": ""}
+                                    })
+                                if tc.id:
+                                    tool_calls[idx]["id"] = tc.id
+                                if hasattr(tc, 'function') and tc.function:
+                                    if tc.function.name:
+                                        tool_calls[idx]["function"]["name"] = tc.function.name
+                                    if tc.function.arguments:
+                                        tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                
+                # If text response → done
+                if not tool_calls:
+                    if not content:
+                        content = "I'm not sure how to respond."
+                    
                     yield SSEEvent(
-                        event="assistant_message_delta",
-                        data=stream_content_chunk(full_content)
+                        event="assistant_message",
+                        data=AssistantMessageEvent(
+                            content=content,
+                            timestamp=datetime.now().isoformat(),
+                            needs_auth=needs_auth
+                        ).model_dump()
                     )
+                    break  # Exit loop
                 
-                # Send final complete event
+                # If tool calls → execute and loop
+                messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+                
+                for tc in tool_calls:
+                    func_name = tc["function"]["name"]
+                    func_args = json.loads(tc["function"]["arguments"])
+                    
+                    # Notify frontend
+                    yield SSEEvent(
+                        event="tool_call_start",
+                        data=ToolCallStartEvent(
+                            tool_call_id=tc["id"],
+                            tool_name=func_name,
+                            arguments=func_args,
+                            timestamp=datetime.now().isoformat()
+                        ).model_dump()
+                    )
+                    
+                    # Execute
+                    result = await execute_tool(func_name, func_args, session_id)
+                    
+                    if result.get("needs_auth"):
+                        needs_auth = True
+                    
+                    # Notify completion
+                    yield SSEEvent(
+                        event="tool_call_complete",
+                        data=ToolCallCompleteEvent(
+                            tool_call_id=tc["id"],
+                            tool_name=func_name,
+                            status="completed",
+                            timestamp=datetime.now().isoformat()
+                        ).model_dump()
+                    )
+                    
+                    # Add result to messages
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": func_name,
+                        "content": self._truncate_tool_result(result)
+                    })
+                
+                # Show thinking indicator before looping
                 yield SSEEvent(
-                    event="assistant_message",
-                    data=AssistantMessageEvent(
-                        content=full_content,
-                        timestamp=datetime.now().isoformat(),
-                        needs_auth=False
-                    ).model_dump()
+                    event="thinking",
+                    data=ThinkingEvent(message="Analyzing results...").model_dump()
                 )
+                # Loop continues...
             
-            # Send done event
+            # Done
             yield SSEEvent(
                 event="done",
                 data=DoneEvent().model_dump()
             )
             
         except Exception as e:
-            print(f"❌ Error in process_message_stream: {str(e)}", flush=True)
+            print(f"❌ Error: {str(e)}", flush=True)
             import traceback
             print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
             
             yield SSEEvent(
                 event="error",
-                data=ErrorEvent(
-                    error=str(e),
-                    details=traceback.format_exc()
-                ).model_dump()
+                data=ErrorEvent(error=str(e), details=traceback.format_exc()).model_dump()
             )
     
     def _build_messages_for_api(
@@ -461,9 +509,11 @@ class ChatAgent:
                 seed=42  # OpenAI: Consistent seed helps with caching
             )
             
-            # Stream content as it arrives
+            # Stream content as it arrives and detect tool calls
             full_content = ""
             chunk_count = 0
+            accumulated_tool_calls_response = []
+            
             async for chunk in stream_response:
                 chunk_count += 1
                 
@@ -478,23 +528,54 @@ class ChatAgent:
                             data=stream_content_chunk(delta.content)
                         )
                     
-                    # Handle edge case: LLM requests more tools (rare)
+                    # Accumulate tool calls if present
                     if hasattr(delta, 'tool_calls') and delta.tool_calls:
-                        print(f"⚠️ LLM requested additional tools (rare) - not fully supported in streaming", flush=True)
-                        break
+                        for tc_delta in delta.tool_calls:
+                            tc_index = tc_delta.index
+                            
+                            # Ensure we have a slot for this tool call
+                            while len(accumulated_tool_calls_response) <= tc_index:
+                                accumulated_tool_calls_response.append({
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""}
+                                })
+                            
+                            # Accumulate tool call parts
+                            if tc_delta.id:
+                                accumulated_tool_calls_response[tc_index]["id"] = tc_delta.id
+                            if hasattr(tc_delta, 'function') and tc_delta.function:
+                                if tc_delta.function.name:
+                                    accumulated_tool_calls_response[tc_index]["function"]["name"] = tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    accumulated_tool_calls_response[tc_index]["function"]["arguments"] += tc_delta.function.arguments
             
             final_llm_time = int((time.time() - final_llm_start) * 1000)
             print(f"⏱️ LLM response completed in {final_llm_time}ms", flush=True)
             
-            # Send final complete event
-            yield SSEEvent(
-                event="assistant_message",
-                data=AssistantMessageEvent(
-                    content=full_content,
-                    timestamp=datetime.now().isoformat(),
-                    needs_auth=needs_auth
-                ).model_dump()
-            )
+            # If LLM wants to call more tools, handle them recursively
+            if accumulated_tool_calls_response:
+                print(f"🔄 LLM requested {len(accumulated_tool_calls_response)} additional tool calls", flush=True)
+                
+                # Build a mock response object
+                from .response_builder import build_mock_response_from_stream
+                mock_response = build_mock_response_from_stream(full_content, accumulated_tool_calls_response)
+                
+                # Recursively handle these tool calls
+                async for event in self._handle_tool_calls_stream(
+                    mock_response, messages, context, session_id
+                ):
+                    yield event
+            else:
+                # No more tool calls - send final message
+                yield SSEEvent(
+                    event="assistant_message",
+                    data=AssistantMessageEvent(
+                        content=full_content,
+                        timestamp=datetime.now().isoformat(),
+                        needs_auth=needs_auth
+                    ).model_dump()
+                )
             
         except Exception as e:
             print(f"❌ Error in tool processing: {str(e)}", flush=True)

@@ -76,11 +76,17 @@ class SnapTradePositionResponse(BaseModel):
     
     def to_position(self) -> 'Position':
         """Convert to clean Position model"""
+        total_cost = None
+        if self.average_purchase_price is not None:
+            total_cost = self.units * self.average_purchase_price
+        
         return Position(
             symbol=self.get_ticker(),
             quantity=self.units,
             price=self.price,
-            value=self.get_value()
+            value=self.get_value(),
+            average_purchase_price=self.average_purchase_price,
+            total_cost=total_cost
         )
 
 
@@ -156,6 +162,8 @@ class Position(BaseModel):
     quantity: float
     price: float
     value: float
+    average_purchase_price: Optional[float] = None
+    total_cost: Optional[float] = None  # quantity * average_purchase_price
     
     class Config:
         json_schema_extra = {
@@ -163,7 +171,9 @@ class Position(BaseModel):
                 "symbol": "AAPL",
                 "quantity": 10.0,
                 "price": 150.50,
-                "value": 1505.00
+                "value": 1505.00,
+                "average_purchase_price": 145.00,
+                "total_cost": 1450.00
             }
         }
 
@@ -206,14 +216,18 @@ class Account(BaseModel):
     def positions_to_csv(self) -> str:
         """Convert positions to CSV string"""
         if not self.positions:
-            return "symbol,quantity,price,value\n"
+            return "symbol,quantity,price,value,avg_cost,total_cost,gain_loss,gain_loss_pct\n"
         
         df = pd.DataFrame([
             {
                 'symbol': pos.symbol,
                 'quantity': pos.quantity,
                 'price': pos.price,
-                'value': pos.value
+                'value': pos.value,
+                'avg_cost': pos.average_purchase_price,
+                'total_cost': pos.total_cost,
+                'gain_loss': (pos.value - pos.total_cost) if pos.total_cost is not None else None,
+                'gain_loss_pct': ((pos.value - pos.total_cost) / pos.total_cost * 100) if pos.total_cost and pos.total_cost > 0 else None
             }
             for pos in self.positions
         ])
@@ -226,6 +240,10 @@ class AggregatedHolding(BaseModel):
     quantity: float
     price: float  # Latest price
     value: float  # Total value across all accounts
+    average_purchase_price: Optional[float] = None  # Weighted average cost basis
+    total_cost: Optional[float] = None  # Total cost basis across all accounts
+    unrealized_gain_loss: Optional[float] = None  # value - total_cost
+    unrealized_gain_loss_percent: Optional[float] = None  # (value - total_cost) / total_cost * 100
     
     class Config:
         json_schema_extra = {
@@ -233,7 +251,11 @@ class AggregatedHolding(BaseModel):
                 "symbol": "AAPL",
                 "quantity": 25.0,
                 "price": 150.50,
-                "value": 3762.50
+                "value": 3762.50,
+                "average_purchase_price": 145.00,
+                "total_cost": 3625.00,
+                "unrealized_gain_loss": 137.50,
+                "unrealized_gain_loss_percent": 3.79
             }
         }
     
@@ -242,6 +264,19 @@ class AggregatedHolding(BaseModel):
         self.quantity += pos.quantity
         self.value += pos.value
         self.price = pos.price  # Use latest price
+        
+        # Aggregate cost basis (weighted average)
+        if pos.total_cost is not None:
+            if self.total_cost is None:
+                self.total_cost = 0.0
+            self.total_cost += pos.total_cost
+            
+            # Recalculate weighted average purchase price
+            if self.quantity > 0:
+                self.average_purchase_price = self.total_cost / self.quantity
+                self.unrealized_gain_loss = self.value - self.total_cost
+                if self.total_cost > 0:
+                    self.unrealized_gain_loss_percent = (self.unrealized_gain_loss / self.total_cost) * 100
 
 
 class Portfolio(BaseModel):
@@ -307,11 +342,22 @@ class Portfolio(BaseModel):
                     aggregated_holdings[position.symbol].add_position(position)
                 else:
                     # Create new aggregated holding
+                    gain_loss = None
+                    gain_loss_pct = None
+                    if position.total_cost is not None:
+                        gain_loss = position.value - position.total_cost
+                        if position.total_cost > 0:
+                            gain_loss_pct = (gain_loss / position.total_cost) * 100
+                    
                     aggregated_holdings[position.symbol] = AggregatedHolding(
                         symbol=position.symbol,
                         quantity=position.quantity,
                         price=position.price,
-                        value=position.value
+                        value=position.value,
+                        average_purchase_price=position.average_purchase_price,
+                        total_cost=position.total_cost,
+                        unrealized_gain_loss=gain_loss,
+                        unrealized_gain_loss_percent=gain_loss_pct
                     )
         
         # Check if still syncing
@@ -341,14 +387,18 @@ class Portfolio(BaseModel):
     def aggregated_holdings_to_csv(self) -> str:
         """Convert aggregated holdings to CSV string, sorted by value descending"""
         if not self.aggregated_holdings:
-            return "symbol,quantity,price,value\n"
+            return "symbol,quantity,price,value,avg_cost,total_cost,gain_loss,gain_loss_pct\n"
         
         df = pd.DataFrame([
             {
                 'symbol': holding.symbol,
                 'quantity': holding.quantity,
                 'price': holding.price,
-                'value': holding.value
+                'value': holding.value,
+                'avg_cost': holding.average_purchase_price,
+                'total_cost': holding.total_cost,
+                'gain_loss': holding.unrealized_gain_loss,
+                'gain_loss_pct': holding.unrealized_gain_loss_percent
             }
             for holding in self.aggregated_holdings.values()
         ])

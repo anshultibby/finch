@@ -230,9 +230,6 @@ class ChatService:
             # Get context for this user (using user_id for SnapTrade)
             context = context_manager.get_all_context(user_id)
             
-            # Store tool call info to create resources later
-            tool_calls_map = {}  # tool_call_id -> tool_call_data
-            
             # Stream events from agent
             async for event in self.agent.process_message_stream(
                 message=message,
@@ -240,39 +237,36 @@ class ChatService:
                 context=context,
                 session_id=user_id
             ):
-                # Track tool calls for resource creation
-                if event.event == "tool_call_start":
-                    tool_call_id = event.data.get("tool_call_id")
-                    tool_calls_map[tool_call_id] = {
-                        "tool_call_id": tool_call_id,
-                        "tool_name": event.data.get("tool_name"),
-                        "arguments": event.data.get("arguments"),
-                        "status": "calling"
-                    }
-                elif event.event == "tool_call_complete":
-                    tool_call_id = event.data.get("tool_call_id")
-                    if tool_call_id in tool_calls_map:
-                        tool_calls_map[tool_call_id]["status"] = event.data.get("status")
-                        tool_calls_map[tool_call_id]["error"] = event.data.get("error")
-                        
-                        # Create resource if completed successfully
-                        if event.data.get("status") == "completed":
-                            # We need to get the tool result - but it's not in the event
-                            # For now, we'll create resources in a post-processing step
-                            # Or we need to modify the agent to include result_data in the event
-                            pass
-                
                 # Yield the SSE formatted event
                 yield event.to_sse_format()
             
-            # After streaming completes, save messages to database
-            # We need to reconstruct what happened from the events
-            # For simplicity, let's call the non-streaming version to save
-            # Or we build messages as we go
+            # After streaming, get new messages and save to database
+            new_messages = self.agent.get_new_messages()
+            print(f"💾 Saving {len(new_messages)} messages to database...", flush=True)
             
-            # TODO: Store messages to database after streaming
-            # For now, this is a limitation - streaming doesn't save to DB
-            # We'll need to collect events and save them after
+            start_index = len(chat_crud.get_chat_messages(db, chat_id))
+            sequence = start_index
+            
+            for msg in new_messages:
+                role = msg["role"]
+                content = msg.get("content", "")
+                tool_calls = msg.get("tool_calls") if role == "assistant" else None
+                tool_call_id = msg.get("tool_call_id") if role == "tool" else None
+                name = msg.get("name") if role == "tool" else None
+                
+                chat_crud.create_message(
+                    db=db,
+                    chat_id=chat_id,
+                    role=role,
+                    content=content,
+                    sequence=sequence,
+                    tool_calls=tool_calls,
+                    tool_call_id=tool_call_id,
+                    name=name
+                )
+                sequence += 1
+            
+            print(f"✅ Saved conversation history", flush=True)
             
         finally:
             db.close()
