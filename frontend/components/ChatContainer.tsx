@@ -3,7 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
-import { chatApi, snaptradeApi, Message } from '@/lib/api';
+import ResourcesSidebar from './ResourcesSidebar';
+import ResourceViewer from './ResourceViewer';
+import { chatApi, snaptradeApi, resourcesApi, Message, ToolCallStatus, Resource } from '@/lib/api';
 
 export default function ChatContainer() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -14,6 +16,10 @@ export default function ChatContainer() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
+  const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -38,6 +44,22 @@ export default function ChatContainer() {
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setChatId(newChatId);
   }, []);
+
+  // Load resources when chat ID changes
+  useEffect(() => {
+    const loadResources = async () => {
+      if (!chatId) return;
+      
+      try {
+        const chatResources = await resourcesApi.getChatResources(chatId);
+        setResources(chatResources);
+      } catch (err) {
+        console.error('Error loading resources:', err);
+      }
+    };
+    
+    loadResources();
+  }, [chatId]);
 
   // Check if user has an existing SnapTrade connection on mount
   useEffect(() => {
@@ -154,9 +176,19 @@ export default function ChatContainer() {
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
+    setEphemeralToolCalls([]);
 
     try {
       const response = await chatApi.sendMessage(content, userId, chatId);
+
+      // Show ephemeral tool call messages
+      if (response.tool_calls && response.tool_calls.length > 0) {
+        setEphemeralToolCalls(response.tool_calls);
+        
+        // Reload resources to include new ones
+        const chatResources = await resourcesApi.getChatResources(chatId);
+        setResources(chatResources);
+      }
 
       // Check if connection is required or expired
       if (!isPortfolioConnected && (response.needs_auth || response.response.includes('action_required') || response.response.includes('expired') || response.response.includes('disabled'))) {
@@ -184,6 +216,8 @@ export default function ChatContainer() {
       setMessages((prev) => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
+      // Clear ephemeral tool calls after a delay
+      setTimeout(() => setEphemeralToolCalls([]), 5000);
     }
   };
 
@@ -241,6 +275,8 @@ export default function ChatContainer() {
   const handleClearChat = async () => {
     // Just create a new chat - don't clear the current one or disconnect brokerage
     setMessages([]);
+    setResources([]);
+    setEphemeralToolCalls([]);
     
     // Generate new chat ID (user ID stays the same)
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -249,10 +285,23 @@ export default function ChatContainer() {
     // Keep portfolio connected
   };
 
+  const handleSelectResource = (resource: Resource) => {
+    setSelectedResource(resource);
+  };
+
+  const getToolIcon = (toolName: string) => {
+    if (toolName.includes('portfolio')) return '📊';
+    if (toolName.includes('reddit')) return '📱';
+    if (toolName.includes('senate') || toolName.includes('house')) return '🏛️';
+    if (toolName.includes('insider')) return '💼';
+    return '🔧';
+  };
+
   return (
-    <div className="flex flex-col h-screen max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+    <>
+      <div className="flex flex-col h-screen max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Finch</h1>
           <p className="text-sm text-gray-600">Your Portfolio Assistant</p>
@@ -275,6 +324,24 @@ export default function ChatContainer() {
               {(isConnecting || isCheckingConnection) ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
             </span>
             {(isConnecting || isCheckingConnection) ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
+          </button>
+          
+          {/* Resources Button - Always visible */}
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className={`relative flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+              resources.length > 0
+                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <span className="text-lg">📦</span>
+            Resources
+            {resources.length > 0 && (
+              <span className="bg-white text-blue-600 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                {resources.length}
+              </span>
+            )}
           </button>
           
           {/* Clear Chat Button */}
@@ -364,16 +431,32 @@ export default function ChatContainer() {
                 <p className="text-xs text-blue-700 mt-1">Get insights on your holdings and performance</p>
               </button>
               <button
+                onClick={() => handleSendMessage("what are the most recent Reddit trends?")}
+                className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
+              >
+                <p className="font-medium text-gray-900">📱 What are the most recent Reddit trends?</p>
+                <p className="text-xs text-gray-600 mt-1">See what stocks are trending on Reddit</p>
+              </button>
+              <button
                 onClick={() => handleSendMessage("get recent insider trades")}
                 className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
               >
                 <p className="font-medium text-gray-900">💼 Get recent insider trades</p>
+                <p className="text-xs text-gray-600 mt-1">Track corporate insider buying and selling</p>
               </button>
               <button
                 onClick={() => handleSendMessage("get recent house trades")}
                 className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
               >
                 <p className="font-medium text-gray-900">🏛️ Get recent house trades</p>
+                <p className="text-xs text-gray-600 mt-1">See what members of Congress are trading</p>
+              </button>
+              <button
+                onClick={() => handleSendMessage("what are the top trending stocks right now?")}
+                className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
+              >
+                <p className="font-medium text-gray-900">🔥 What are the top trending stocks right now?</p>
+                <p className="text-xs text-gray-600 mt-1">Discover hot stocks from social media</p>
               </button>
             </div>
           </div>
@@ -387,6 +470,42 @@ export default function ChatContainer() {
                 timestamp={message.timestamp}
               />
             ))}
+            {/* Ephemeral Tool Call Messages */}
+            {ephemeralToolCalls.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {ephemeralToolCalls.map((toolCall) => (
+                  <div
+                    key={toolCall.tool_call_id}
+                    className="flex justify-start"
+                  >
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-2">
+                      <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-blue-900">
+                          {toolCall.tool_name.replace(/_/g, ' ')}
+                        </p>
+                        <p className="text-xs text-blue-700">
+                          {toolCall.status === 'calling' && 'Calling function...'}
+                          {toolCall.status === 'completed' && '✓ Completed'}
+                          {toolCall.status === 'error' && `✗ Error: ${toolCall.error}`}
+                        </p>
+                      </div>
+                      {toolCall.resource_id && (
+                        <button
+                          onClick={async () => {
+                            const resource = await resourcesApi.getResource(toolCall.resource_id!);
+                            handleSelectResource(resource);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          View →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {isLoading && (
               <div className="flex justify-start mb-4">
                 <div className="bg-gray-200 rounded-2xl rounded-bl-none px-4 py-3">
@@ -410,9 +529,25 @@ export default function ChatContainer() {
         </div>
       )}
 
-      {/* Input */}
-      <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting || isCheckingConnection} />
-    </div>
+        {/* Input */}
+        <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting || isCheckingConnection} />
+      </div>
+
+      {/* Resources Sidebar */}
+      <ResourcesSidebar
+        resources={resources}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onSelectResource={handleSelectResource}
+      />
+
+      {/* Resource Viewer Modal */}
+      <ResourceViewer
+        resource={selectedResource}
+        isOpen={!!selectedResource}
+        onClose={() => setSelectedResource(null)}
+      />
+    </>
   );
 }
 

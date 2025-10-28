@@ -93,13 +93,13 @@ Be friendly and professional in your responses."""
         chat_history: List[Dict[str, Any]],
         context: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None
-    ) -> tuple[str, bool, List[Dict[str, Any]]]:
+    ) -> tuple[str, bool, List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Process a user message and return the agent's response
         Context variables (like credentials) are passed to tools but NOT visible to the LLM
         
         Returns:
-            Tuple of (response_text, needs_auth, full_conversation_history)
+            Tuple of (response_text, needs_auth, full_conversation_history, tool_call_info)
         """
         context = context or {}
         
@@ -202,7 +202,7 @@ Be friendly and professional in your responses."""
             
             # Check if the model wants to call a tool
             if hasattr(response.choices[0].message, 'tool_calls') and response.choices[0].message.tool_calls:
-                final_response, needs_auth = await self._handle_tool_calls(
+                final_response, needs_auth, tool_calls_info = await self._handle_tool_calls(
                     response, 
                     messages, 
                     context, 
@@ -210,7 +210,7 @@ Be friendly and professional in your responses."""
                 )
                 # Convert messages to storable format (remove system message, add timestamps)
                 storable_messages = self._convert_to_storable_history(messages)
-                return final_response, needs_auth, storable_messages
+                return final_response, needs_auth, storable_messages, tool_calls_info
             
             # Extract text response
             storable_messages = self._convert_to_storable_history(messages)
@@ -218,14 +218,14 @@ Be friendly and professional in your responses."""
             if response_content is None:
                 print(f"⚠️ LLM returned None content, using fallback message", flush=True)
                 response_content = "I'm not sure how to respond to that. Could you please rephrase your question?"
-            return response_content, False, storable_messages
+            return response_content, False, storable_messages, []
             
         except Exception as e:
             error_msg = f"Error in process_message: {str(e)}"
             print(f"❌ {error_msg}", flush=True)
             import traceback
             print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
-            return f"I apologize, but I encountered an error: {str(e)}", False, []
+            return f"I apologize, but I encountered an error: {str(e)}", False, [], []
     
     async def _handle_tool_calls(
         self,
@@ -233,15 +233,16 @@ Be friendly and professional in your responses."""
         messages: List[Dict[str, Any]],
         context: Dict[str, Any],
         session_id: str
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, List[Dict[str, Any]]]:
         """
         Handle tool calls from the LLM
         Execute tools with context variables (credentials) that aren't visible to LLM
         
         Returns:
-            Tuple of (response_text, needs_auth)
+            Tuple of (response_text, needs_auth, tool_calls_info)
         """
         needs_auth = False
+        tool_calls_info = []
         
         try:
             # Add assistant's tool call message to history
@@ -266,6 +267,14 @@ Be friendly and professional in your responses."""
                 function_name = tool_call.function.name
                 function_args = json.loads(tool_call.function.arguments)
                 
+                # Track tool call info for frontend
+                tool_call_info = {
+                    "tool_call_id": tool_call.id,
+                    "tool_name": function_name,
+                    "status": "calling",
+                    "arguments": function_args
+                }
+                
                 # Execute the tool with context (credentials)
                 tool_result = await self._execute_tool(
                     function_name,
@@ -273,6 +282,15 @@ Be friendly and professional in your responses."""
                     context,
                     session_id
                 )
+                
+                # Update tool call status
+                tool_call_info["status"] = "completed" if tool_result.get("success", True) else "error"
+                if not tool_result.get("success", True):
+                    tool_call_info["error"] = tool_result.get("message", "Unknown error")
+                
+                # Store tool result data for resource creation
+                tool_call_info["result_data"] = tool_result
+                tool_calls_info.append(tool_call_info)
                 
                 # Check if authentication is needed
                 if tool_result.get("needs_auth") or tool_result.get("action_required") == "show_login_form":
@@ -323,19 +341,31 @@ Be friendly and professional in your responses."""
                 tools=SNAPTRADE_TOOL_DEFINITIONS + APEWISDOM_TOOL_DEFINITIONS + INSIDER_TRADING_TOOL_DEFINITIONS
             )
             
+            # Check if the LLM wants to make more tool calls (recursive/multi-turn tool calling)
+            if hasattr(final_response.choices[0].message, 'tool_calls') and final_response.choices[0].message.tool_calls:
+                print(f"🔄 LLM requested additional tool calls, handling recursively...", flush=True)
+                # Recursively handle the additional tool calls
+                recursive_response, recursive_needs_auth, recursive_tool_calls = await self._handle_tool_calls(
+                    final_response, messages, context, session_id
+                )
+                # Merge tool calls info and needs_auth status
+                needs_auth = needs_auth or recursive_needs_auth
+                tool_calls_info.extend(recursive_tool_calls)
+                return recursive_response, needs_auth, tool_calls_info
+            
             response_content = final_response.choices[0].message.content
             if response_content is None:
                 print(f"⚠️ LLM returned None content, using fallback message", flush=True)
                 response_content = "I encountered an issue processing that request. Please try again."
             
-            return response_content, needs_auth
+            return response_content, needs_auth, tool_calls_info
             
         except Exception as e:
             error_msg = f"Error in tool processing: {str(e)}"
             print(f"❌ {error_msg}", flush=True)
             import traceback
             print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
-            return f"I encountered an error while processing tools: {str(e)}", False
+            return f"I encountered an error while processing tools: {str(e)}", False, []
     
     async def _execute_tool(
         self,

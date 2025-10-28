@@ -1,13 +1,15 @@
 """
 Chat service for managing chat sessions and interactions
 """
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict
 from datetime import datetime
 import json
+import uuid
 from agent import ChatAgent
 from .context_manager import context_manager
 from database import SessionLocal
 from crud import chat as chat_crud
+from crud import resource as resource_crud
 
 
 class ChatService:
@@ -21,7 +23,7 @@ class ChatService:
         message: str, 
         chat_id: str,
         user_id: str
-    ) -> tuple[str, str, bool]:
+    ) -> tuple[str, str, bool, List[Dict[str, Any]]]:
         """
         Send a message and get agent response
         
@@ -31,7 +33,7 @@ class ChatService:
             user_id: User identifier (for SnapTrade tools)
             
         Returns:
-            Tuple of (response, timestamp, needs_auth)
+            Tuple of (response, timestamp, needs_auth, tool_calls_info)
         """
         db = SessionLocal()
         try:
@@ -82,7 +84,7 @@ class ChatService:
             context = context_manager.get_all_context(user_id)
             
             # Get agent response with full conversation including tool calls
-            response, needs_auth, full_messages = await self.agent.process_message(
+            response, needs_auth, full_messages, tool_calls_info = await self.agent.process_message(
                 message=message,
                 chat_history=chat_history,
                 context=context,
@@ -94,6 +96,48 @@ class ChatService:
             # We need to store only the NEW messages (after the existing history)
             start_index = len(db_messages)
             sequence = start_index
+            
+            # Map tool_call_id to resource_id for linking messages to resources
+            tool_call_to_resource = {}
+            
+            # Create resources for each successful tool call
+            for tool_call_info in tool_calls_info:
+                if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
+                    result_data = tool_call_info["result_data"]
+                    
+                    # Determine resource type and title based on tool name
+                    resource_type, title = self._get_resource_metadata(
+                        tool_call_info["tool_name"],
+                        tool_call_info.get("arguments", {}),
+                        result_data
+                    )
+                    
+                    # Extract core table data from wrapped structures
+                    table_data = self._extract_table_data(result_data)
+                    
+                    # Create resource
+                    resource = resource_crud.create_resource(
+                        db=db,
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        tool_name=tool_call_info["tool_name"],
+                        resource_type=resource_type,
+                        title=title,
+                        data=table_data,
+                        resource_metadata={
+                            "parameters": tool_call_info.get("arguments", {}),
+                            "tool_call_id": tool_call_info["tool_call_id"],
+                            "original_success": result_data.get("success"),
+                            "data_source": result_data.get("data_source"),
+                            "total_count": result_data.get("total_count") or result_data.get("total_tickers")
+                        }
+                    )
+                    
+                    # Map tool_call_id to resource_id
+                    tool_call_to_resource[tool_call_info["tool_call_id"]] = resource.id
+                    
+                    # Update tool_call_info with resource_id for frontend
+                    tool_call_info["resource_id"] = resource.id
             
             final_timestamp = None
             for msg in full_messages[start_index:]:
@@ -110,16 +154,101 @@ class ChatService:
                     # Store simple text messages as-is
                     content_to_store = msg.get("content", "")
                 
+                # Link tool response messages to resources
+                resource_id = None
+                if msg["role"] == "tool" and msg.get("tool_call_id"):
+                    resource_id = tool_call_to_resource.get(msg["tool_call_id"])
+                
                 stored_msg = chat_crud.create_message(
-                    db, chat_id, msg["role"], content_to_store, sequence
+                    db, chat_id, msg["role"], content_to_store, sequence, resource_id
                 )
                 sequence += 1
                 final_timestamp = stored_msg.timestamp.isoformat()
             
-            return response, final_timestamp or datetime.now().isoformat(), needs_auth
+            return response, final_timestamp or datetime.now().isoformat(), needs_auth, tool_calls_info
             
         finally:
             db.close()
+    
+    def _extract_table_data(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract core table data from wrapped API responses
+        Converts nested structures to flat arrays for better table display
+        
+        Returns:
+            Simplified data structure optimized for table display
+        """
+        # If it's already a simple array, return as-is
+        if isinstance(result_data, list):
+            return {"data": result_data}
+        
+        # Extract the main data array from common wrapper structures
+        if "mentions" in result_data and isinstance(result_data["mentions"], list):
+            return {"data": result_data["mentions"]}
+        elif "trades" in result_data and isinstance(result_data["trades"], list):
+            return {"data": result_data["trades"]}
+        elif "holdings" in result_data and isinstance(result_data["holdings"], list):
+            return {"data": result_data["holdings"]}
+        elif "positions" in result_data and isinstance(result_data["positions"], list):
+            return {"data": result_data["positions"]}
+        elif "portfolio_activity" in result_data:
+            # Flatten portfolio insider activity
+            activities = []
+            for ticker, activity_list in result_data.get("portfolio_activity", {}).items():
+                for activity in activity_list:
+                    activities.append({"ticker": ticker, **activity})
+            return {"data": activities}
+        elif "results" in result_data and isinstance(result_data["results"], list):
+            return {"data": result_data["results"]}
+        
+        # If no recognizable array structure, return the whole thing
+        return result_data
+    
+    def _get_resource_metadata(
+        self, 
+        tool_name: str, 
+        arguments: Dict[str, Any],
+        result_data: Dict[str, Any]
+    ) -> tuple[str, str]:
+        """
+        Determine resource type and title based on tool name and results
+        
+        Returns:
+            Tuple of (resource_type, title)
+        """
+        if tool_name == "get_portfolio":
+            return "portfolio", "Portfolio Holdings"
+        elif tool_name == "get_reddit_trending_stocks":
+            limit = arguments.get("limit", 10)
+            return "reddit_trends", f"Top {limit} Trending Stocks on Reddit"
+        elif tool_name == "get_reddit_ticker_sentiment":
+            ticker = arguments.get("ticker", "").upper()
+            return "reddit_sentiment", f"Reddit Sentiment for {ticker}"
+        elif tool_name == "compare_reddit_sentiment":
+            tickers = arguments.get("tickers", [])
+            return "reddit_comparison", f"Reddit Comparison: {', '.join(tickers)}"
+        elif tool_name == "get_recent_senate_trades":
+            limit = arguments.get("limit", 50)
+            return "senate_trades", f"Recent Senate Trades (Last {limit})"
+        elif tool_name == "get_recent_house_trades":
+            limit = arguments.get("limit", 50)
+            return "house_trades", f"Recent House Trades (Last {limit})"
+        elif tool_name == "get_recent_insider_trades":
+            limit = arguments.get("limit", 100)
+            return "insider_trades", f"Recent Insider Trades (Last {limit})"
+        elif tool_name == "search_ticker_insider_activity":
+            ticker = arguments.get("ticker", "").upper()
+            return "ticker_insider_activity", f"Insider Activity: {ticker}"
+        elif tool_name == "get_portfolio_insider_activity":
+            return "portfolio_insider_activity", "Insider Activity in Portfolio"
+        elif tool_name == "get_insider_trading_statistics":
+            symbol = arguments.get("symbol", "").upper()
+            return "insider_statistics", f"Insider Statistics: {symbol}"
+        elif tool_name == "search_insider_trades":
+            symbol = arguments.get("symbol", "").upper() if arguments.get("symbol") else "Multiple"
+            return "insider_search", f"Insider Trades Search: {symbol}"
+        else:
+            return "other", tool_name.replace("_", " ").title()
     
     def get_chat_history(self, chat_id: str) -> List[dict]:
         """Get chat history for a chat, including tool calls"""

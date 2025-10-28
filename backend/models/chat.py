@@ -18,6 +18,7 @@ class ChatResponse(BaseModel):
     session_id: str
     timestamp: str
     needs_auth: Optional[bool] = False
+    tool_calls: Optional[list] = None  # List of tool call statuses
 
 
 class Message(BaseModel):

@@ -27,6 +27,12 @@ from .insider_trading import (
     CongressionalActivity,
     InsiderTradingResponse
 )
+from .resource import (
+    ResourceResponse,
+    ResourceMetadata,
+    ToolCallStatus,
+    ToolCallInfo
+)
 
 __all__ = [
     "ChatMessage", 
@@ -48,6 +54,10 @@ __all__ = [
     "HouseTrade",
     "InsiderTrade",
     "CongressionalActivity",
-    "InsiderTradingResponse"
+    "InsiderTradingResponse",
+    "ResourceResponse",
+    "ResourceMetadata",
+    "ToolCallStatus",
+    "ToolCallInfo"
 ]
 

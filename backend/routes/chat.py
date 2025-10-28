@@ -30,17 +30,30 @@ async def send_chat_message(chat_message: ChatMessage):
             raise HTTPException(status_code=400, detail="chat_id is required")
         
         # Process message through chat service
-        response, timestamp, needs_auth = await chat_service.send_message(
+        response, timestamp, needs_auth, tool_calls = await chat_service.send_message(
             message=chat_message.message,
             chat_id=chat_message.chat_id,
             user_id=chat_message.session_id  # Using session_id field for user_id
         )
         
+        # Format tool_calls for response (remove internal data)
+        tool_calls_clean = [
+            {
+                "tool_call_id": tc["tool_call_id"],
+                "tool_name": tc["tool_name"],
+                "status": tc["status"],
+                "resource_id": tc.get("resource_id"),
+                "error": tc.get("error")
+            }
+            for tc in tool_calls
+        ]
+        
         return ChatResponse(
             response=response,
             session_id=chat_message.session_id,
             timestamp=timestamp,
-            needs_auth=needs_auth
+            needs_auth=needs_auth,
+            tool_calls=tool_calls_clean if tool_calls_clean else None
         )
     
     except HTTPException:

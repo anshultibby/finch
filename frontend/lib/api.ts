@@ -15,11 +15,20 @@ export interface ChatMessage {
   chat_id?: string;
 }
 
+export interface ToolCallStatus {
+  tool_call_id: string;
+  tool_name: string;
+  status: 'calling' | 'completed' | 'error';
+  resource_id?: string;
+  error?: string;
+}
+
 export interface ChatResponse {
   response: string;
   session_id: string;
   timestamp: string;
   needs_auth?: boolean;
+  tool_calls?: ToolCallStatus[];
 }
 
 export interface Message {
@@ -60,6 +69,24 @@ export interface UserChatsResponse {
     created_at: string;
     updated_at: string;
   }>;
+}
+
+export interface ResourceMetadata {
+  parameters?: Record<string, any>;
+  tool_call_id?: string;
+  execution_time_ms?: number;
+}
+
+export interface Resource {
+  id: string;
+  chat_id: string;
+  user_id: string;
+  tool_name: string;
+  resource_type: string;
+  title: string;
+  data: Record<string, any>;
+  metadata?: ResourceMetadata;
+  created_at: string;
 }
 
 export const chatApi = {
@@ -115,6 +142,31 @@ export const snaptradeApi = {
 
   disconnect: async (sessionId: string): Promise<void> => {
     await api.delete(`/snaptrade/disconnect/${sessionId}`);
+  },
+};
+
+export const resourcesApi = {
+  getChatResources: async (chatId: string, limit?: number): Promise<Resource[]> => {
+    const response = await api.get<Resource[]>(`/resources/chat/${chatId}`, {
+      params: { limit },
+    });
+    return response.data;
+  },
+
+  getUserResources: async (userId: string, limit?: number): Promise<Resource[]> => {
+    const response = await api.get<Resource[]>(`/resources/user/${userId}`, {
+      params: { limit },
+    });
+    return response.data;
+  },
+
+  getResource: async (resourceId: string): Promise<Resource> => {
+    const response = await api.get<Resource>(`/resources/${resourceId}`);
+    return response.data;
+  },
+
+  deleteResource: async (resourceId: string): Promise<void> => {
+    await api.delete(`/resources/${resourceId}`);
   },
 };
 

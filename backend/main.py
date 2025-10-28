@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import Config
-from routes import chat_router, snaptrade_router
+from routes import chat_router, snaptrade_router, resources_router
 
 app = FastAPI(
     title="Finch Portfolio Chatbot API",
@@ -22,6 +22,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chat_router)
 app.include_router(snaptrade_router)
+app.include_router(resources_router)
 
 
 @app.get("/")

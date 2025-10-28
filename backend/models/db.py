@@ -2,6 +2,7 @@
 SQLAlchemy database models
 """
 from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from database import Base
 
@@ -77,6 +78,7 @@ class ChatMessage(Base):
     
     Each message belongs to a chat and has a role (user or assistant).
     Messages are ordered by their sequence number within the chat.
+    Tool result messages can optionally link to a Resource.
     """
     __tablename__ = "chat_messages"
     
@@ -87,15 +89,52 @@ class ChatMessage(Base):
     chat_id = Column(String, nullable=False, index=True)
     
     # Message content
-    role = Column(String, nullable=False)  # 'user' or 'assistant'
+    role = Column(String, nullable=False)  # 'user', 'assistant', or 'tool'
     content = Column(Text, nullable=False)
     
     # Sequence number within the chat (for ordering)
     sequence = Column(Integer, nullable=False)
+    
+    # Optional link to resource (for tool result messages)
+    resource_id = Column(String, nullable=True, index=True)
     
     # Timestamp
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
     def __repr__(self):
         return f"<ChatMessage(id={self.id}, chat_id='{self.chat_id}', role='{self.role}', seq={self.sequence})>"
+
+
+class Resource(Base):
+    """
+    Stores function call results as resources that users can browse
+    
+    Resources contain the full data from tool/function executions.
+    ChatMessages can optionally reference a resource via resource_id.
+    """
+    __tablename__ = "resources"
+    
+    # Primary key
+    id = Column(String, primary_key=True, index=True)
+    
+    # Links to chat and user (for querying all resources in a chat/user)
+    chat_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Tool call information
+    tool_name = Column(String, nullable=False)
+    
+    # Resource metadata
+    resource_type = Column(String, nullable=False)  # 'portfolio', 'insider_trades', 'reddit_trends', etc.
+    title = Column(String, nullable=False)
+    
+    # Resource data (stored as JSONB for efficient querying)
+    data = Column(JSONB, nullable=False)
+    resource_metadata = Column(JSONB, nullable=True)  # Additional metadata like parameters
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<Resource(id='{self.id}', type='{self.resource_type}', tool='{self.tool_name}')>"
 

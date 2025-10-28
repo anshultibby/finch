@@ -65,14 +65,16 @@ def create_message(
     chat_id: str,
     role: str,
     content: str,
-    sequence: int
+    sequence: int,
+    resource_id: Optional[str] = None
 ) -> ChatMessage:
     """Create a new chat message"""
     db_message = ChatMessage(
         chat_id=chat_id,
         role=role,
         content=content,
-        sequence=sequence
+        sequence=sequence,
+        resource_id=resource_id
     )
     db.add(db_message)
     db.commit()
@@ -84,6 +86,20 @@ def create_message(
         db_chat.updated_at = datetime.utcnow()
         db.commit()
     
+    return db_message
+
+
+def update_message_resource(
+    db: Session,
+    message_id: int,
+    resource_id: str
+) -> Optional[ChatMessage]:
+    """Link a resource to a message"""
+    db_message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+    if db_message:
+        db_message.resource_id = resource_id
+        db.commit()
+        db.refresh(db_message)
     return db_message
 
 
