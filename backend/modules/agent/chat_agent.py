@@ -8,9 +8,8 @@ import time
 from datetime import datetime
 
 from config import Config
-from modules.snaptrade_tools import snaptrade_tools, SNAPTRADE_TOOL_DEFINITIONS
-from modules.apewisdom_tools import APEWISDOM_TOOL_DEFINITIONS
-from modules.insider_trading_tools import INSIDER_TRADING_TOOL_DEFINITIONS
+from modules.snaptrade_tools import snaptrade_tools
+from modules.tools import tool_registry
 from models.sse import (
     SSEEvent,
     ToolCallStartEvent,
@@ -21,7 +20,11 @@ from models.sse import (
     ErrorEvent
 )
 
-from .prompts import build_system_prompt
+from .prompts import (
+    FINCH_SYSTEM_PROMPT,
+    AUTH_STATUS_CONNECTED,
+    AUTH_STATUS_NOT_CONNECTED
+)
 from .tool_executor import execute_tool
 from .stream_handler import accumulate_stream_chunk, stream_content_chunk
 from .message_processor import (
@@ -32,9 +35,8 @@ from .message_processor import (
 )
 from .response_builder import build_mock_response_from_stream
 
-
-# All available tools
-ALL_TOOLS = SNAPTRADE_TOOL_DEFINITIONS + APEWISDOM_TOOL_DEFINITIONS + INSIDER_TRADING_TOOL_DEFINITIONS
+# Import tool_definitions to register all tools
+import modules.tool_definitions  # This will auto-register all tools
 
 
 class ChatAgent:
@@ -89,12 +91,15 @@ class ChatAgent:
             
             # Simple loop: LLM → tools → LLM → ... → final text
             while True:
+                # Get all tool schemas from registry
+                tools = tool_registry.get_all_schemas()
+                
                 # Call LLM and stream
                 stream_response = await acompletion(
                     model=self.model,
                     messages=messages,
                     api_key=Config.OPENAI_API_KEY,
-                    tools=ALL_TOOLS,
+                    tools=tools,
                     stream=True,
                     stream_options={"include_usage": False},
                     reasoning_effort="low",
@@ -237,17 +242,13 @@ class ChatAgent:
         # Check connection status
         has_connection = snaptrade_tools.has_active_connection(session_id) if session_id else False
         
-        # Check if user just connected
-        just_connected = any(
-            msg.get("role") == "assistant" and "Successfully connected" in msg.get("content", "")
-            for msg in list(reversed(chat_history))[:3]
-        )
+        # Build system prompt using simple string concatenation
+        system_prompt = FINCH_SYSTEM_PROMPT
+        system_prompt += AUTH_STATUS_CONNECTED if has_connection else AUTH_STATUS_NOT_CONNECTED
         
-        # Build system prompt with context
-        system_prompt = build_system_prompt(has_connection, just_connected)
-        
-        if just_connected and has_connection:
-            print(f"🎯 ACTION REQUIRED: Agent should call get_portfolio now", flush=True)
+        # Add tool descriptions to prompt (best practice for function calling)
+        tool_descriptions = tool_registry.get_tool_descriptions_for_prompt()
+        system_prompt += f"\n\n{tool_descriptions}"
         
         # Start with system message
         messages = [{"role": "system", "content": system_prompt}]
