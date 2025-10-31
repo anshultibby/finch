@@ -24,7 +24,6 @@ export default function ChatContainer() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
   const [isThinking, setIsThinking] = useState(false);
@@ -78,7 +77,6 @@ export default function ChatContainer() {
     const checkExistingConnection = async () => {
       if (!userId) return;
       
-      setIsCheckingConnection(true);
       try {
         const status = await snaptradeApi.checkStatus(userId);
         if (status.is_connected) {
@@ -87,8 +85,6 @@ export default function ChatContainer() {
         }
       } catch (err) {
         console.log('No existing connection found or error checking status:', err);
-      } finally {
-        setIsCheckingConnection(false);
       }
     };
     
@@ -240,7 +236,9 @@ export default function ChatContainer() {
           
           onAssistantMessageDelta: (event) => {
             console.log('💬 Streaming delta received:', event.delta.substring(0, 50));
-            // Accumulate streaming text as it arrives
+            
+            setIsThinking(false);
+            
             setStreamingMessage((prev) => {
               const newContent = prev + event.delta;
               console.log('📝 Current streaming message length:', newContent.length);
@@ -410,19 +408,19 @@ export default function ChatContainer() {
           {/* Portfolio Connection Status/Button */}
           <button
             onClick={handleBrokerageConnection}
-            disabled={isConnecting || isCheckingConnection}
+            disabled={isConnecting}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
               isPortfolioConnected
                 ? 'bg-green-600 hover:bg-green-700 text-white'
-                : (isConnecting || isCheckingConnection)
+                : isConnecting
                 ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
             } disabled:opacity-50`}
           >
             <span className="text-lg">
-              {(isConnecting || isCheckingConnection) ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
+              {isConnecting ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
             </span>
-            {(isConnecting || isCheckingConnection) ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
+            {isConnecting ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
           </button>
           
           {/* Resources Button - Always visible */}
@@ -456,7 +454,7 @@ export default function ChatContainer() {
       </div>
 
       {/* Connection Prompt Banner */}
-      {!isPortfolioConnected && !isConnecting && !isCheckingConnection && messages.length === 0 && (
+      {!isPortfolioConnected && !isConnecting && messages.length === 0 && (
         <div className="mx-6 mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-500 rounded-lg p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="text-2xl">🔗</div>
@@ -569,56 +567,59 @@ export default function ChatContainer() {
                 timestamp={message.timestamp}
               />
             ))}
-            {/* Ephemeral Tool Call Messages - Flashing text that fades out */}
-            {ephemeralToolCalls.length > 0 && (
-              <div className="space-y-2 mb-4 px-2">
-                {ephemeralToolCalls.map((toolCall) => (
-                  <div
-                    key={toolCall.tool_call_id}
-                    className={`flex justify-start items-center gap-2 ${
-                      toolCall.status === 'calling' ? 'animate-pulse' : 'animate-fadeOut'
-                    }`}
-                  >
-                    <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
-                    <p className="text-sm text-gray-500 font-medium">
-                      {toolCall.tool_name.replace(/_/g, ' ')}
-                      {toolCall.status === 'calling' && '...'}
-                      {toolCall.status === 'completed' && ' ✓'}
-                      {toolCall.status === 'error' && ` ✗`}
-                    </p>
-                    {toolCall.resource_id && (
-                      <button
-                        onClick={async () => {
-                          const resource = await resourcesApi.getResource(toolCall.resource_id!);
-                          handleSelectResource(resource);
-                        }}
-                        className="text-sm text-blue-500 hover:text-blue-700 font-medium underline"
-                      >
-                        view
-                      </button>
-                    )}
+            {/* Status Area - All indicators occupy the same space and overwrite each other */}
+            {(ephemeralToolCalls.length > 0 || isThinking || streamingMessage) && (
+              <div className="mb-4">
+                {/* Show streaming message first if available */}
+                {streamingMessage ? (
+                  <ChatMessage
+                    role="assistant"
+                    content={streamingMessage}
+                    timestamp={new Date().toISOString()}
+                  />
+                ) : isThinking ? (
+                  /* Show thinking indicator if no streaming message */
+                  <div className="flex justify-start px-2">
+                    <div className="flex items-center gap-2 animate-pulse">
+                      <span className="text-lg">🤔</span>
+                      <p className="text-sm text-gray-500 font-medium">
+                        analyzing results...
+                      </p>
+                    </div>
                   </div>
-                ))}
+                ) : ephemeralToolCalls.length > 0 ? (
+                  /* Show tool calls if no thinking or streaming */
+                  <div className="space-y-2 px-2">
+                    {ephemeralToolCalls.map((toolCall) => (
+                      <div
+                        key={toolCall.tool_call_id}
+                        className={`flex justify-start items-center gap-2 ${
+                          toolCall.status === 'calling' ? 'animate-pulse' : 'animate-fadeOut'
+                        }`}
+                      >
+                        <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
+                        <p className="text-sm text-gray-500 font-medium">
+                          {toolCall.tool_name.replace(/_/g, ' ')}
+                          {toolCall.status === 'calling' && '...'}
+                          {toolCall.status === 'completed' && ' ✓'}
+                          {toolCall.status === 'error' && ` ✗`}
+                        </p>
+                        {toolCall.resource_id && (
+                          <button
+                            onClick={async () => {
+                              const resource = await resourcesApi.getResource(toolCall.resource_id!);
+                              handleSelectResource(resource);
+                            }}
+                            className="text-sm text-blue-500 hover:text-blue-700 font-medium underline"
+                          >
+                            view
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            )}
-            {/* Thinking Indicator - Flashing text */}
-            {isThinking && (
-              <div className="flex justify-start mb-4 px-2">
-                <div className="flex items-center gap-2 animate-pulse">
-                  <span className="text-lg">🤔</span>
-                  <p className="text-sm text-gray-500 font-medium">
-                    analyzing results...
-                  </p>
-                </div>
-              </div>
-            )}
-            {/* Streaming Message - Show text as it arrives */}
-            {streamingMessage && (
-              <ChatMessage
-                role="assistant"
-                content={streamingMessage}
-                timestamp={new Date().toISOString()}
-              />
             )}
             {isLoading && (
               <div className="flex justify-start mb-4 px-2">
@@ -642,7 +643,7 @@ export default function ChatContainer() {
       )}
 
         {/* Input */}
-        <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting || isCheckingConnection} />
+        <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} />
       </div>
 
       {/* Resources Sidebar */}
