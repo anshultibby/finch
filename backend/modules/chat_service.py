@@ -21,161 +21,6 @@ class ChatService:
     def __init__(self):
         self.agent = ChatAgent()
     
-    async def send_message(
-        self, 
-        message: str, 
-        chat_id: str,
-        user_id: str
-    ) -> tuple[str, str, bool, List[Dict[str, Any]]]:
-        """
-        Send a message and get agent response
-        
-        Args:
-            message: User message content
-            chat_id: Chat identifier
-            user_id: User identifier (for SnapTrade tools)
-            
-        Returns:
-            Tuple of (response, timestamp, needs_auth, tool_calls_info)
-        """
-        db = SessionLocal()
-        try:
-            # Ensure chat exists
-            db_chat = chat_crud.get_chat(db, chat_id)
-            if not db_chat:
-                # Create new chat
-                chat_crud.create_chat(db, chat_id, user_id)
-            
-            # Get existing chat history
-            db_messages = chat_crud.get_chat_messages(db, chat_id)
-            chat_history = []
-            for msg in db_messages:
-                # Reconstruct message from database columns (OpenAI format)
-                message_dict = {
-                    "role": msg.role,
-                    "content": msg.content,
-                    "timestamp": msg.timestamp.isoformat()
-                }
-                
-                # Add tool_calls for assistant messages that call tools
-                if msg.role == "assistant" and msg.tool_calls:
-                    message_dict["tool_calls"] = msg.tool_calls
-                
-                # Add tool result metadata for tool role messages
-                if msg.role == "tool":
-                    if msg.tool_call_id:
-                        message_dict["tool_call_id"] = msg.tool_call_id
-                    if msg.name:
-                        message_dict["name"] = msg.name
-                    if msg.resource_id:
-                        message_dict["resource_id"] = msg.resource_id
-                
-                chat_history.append(message_dict)
-            
-            # Get context for this user (using user_id for SnapTrade)
-            context = context_manager.get_all_context(user_id)
-            
-            # Track latency for assistant response
-            import time
-            start_time = time.time()
-            
-            # Get agent response with full conversation including tool calls
-            response, needs_auth, full_messages, tool_calls_info = await self.agent.process_message(
-                message=message,
-                chat_history=chat_history,
-                context=context,
-                session_id=user_id  # Pass user_id as session_id for tools
-            )
-            
-            # Calculate latency in milliseconds
-            latency_ms = int((time.time() - start_time) * 1000)
-            
-            # Store ALL new messages including user message, tool calls, and assistant responses
-            # full_messages contains the complete conversation including what we just processed
-            # We need to store only the NEW messages (after the existing history)
-            start_index = len(db_messages)
-            sequence = start_index
-            
-            # Map tool_call_id to resource_id for linking messages to resources
-            tool_call_to_resource = {}
-            
-            # Create resources for each successful tool call
-            for tool_call_info in tool_calls_info:
-                if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
-                    result_data = tool_call_info["result_data"]
-                    
-                    # Determine resource type and title based on tool name
-                    resource_type, title = self._get_resource_metadata(
-                        tool_call_info["tool_name"],
-                        tool_call_info.get("arguments", {}),
-                        result_data
-                    )
-                    
-                    # Extract core table data from wrapped structures
-                    table_data = self._extract_table_data(result_data)
-                    
-                    # Create resource
-                    resource = resource_crud.create_resource(
-                        db=db,
-                        chat_id=chat_id,
-                        user_id=user_id,
-                        tool_name=tool_call_info["tool_name"],
-                        resource_type=resource_type,
-                        title=title,
-                        data=table_data,
-                        resource_metadata={
-                            "parameters": tool_call_info.get("arguments", {}),
-                            "tool_call_id": tool_call_info["tool_call_id"],
-                            "original_success": result_data.get("success"),
-                            "data_source": result_data.get("data_source"),
-                            "total_count": result_data.get("total_count") or result_data.get("total_tickers")
-                        }
-                    )
-                    
-                    # Map tool_call_id to resource_id
-                    tool_call_to_resource[tool_call_info["tool_call_id"]] = resource.id
-                    
-                    # Update tool_call_info with resource_id for frontend
-                    tool_call_info["resource_id"] = resource.id
-            
-            final_timestamp = None
-            for msg in full_messages[start_index:]:
-                # Extract message components (OpenAI format)
-                role = msg["role"]
-                content = msg.get("content", "")
-                tool_calls = msg.get("tool_calls") if role == "assistant" else None
-                tool_call_id = msg.get("tool_call_id") if role == "tool" else None
-                name = msg.get("name") if role == "tool" else None
-                
-                # Link tool result messages to resources
-                resource_id = None
-                if role == "tool" and tool_call_id:
-                    resource_id = tool_call_to_resource.get(tool_call_id)
-                
-                # Add latency for assistant messages
-                msg_latency = latency_ms if role == "assistant" else None
-                
-                # Create message with proper columns
-                stored_msg = chat_crud.create_message(
-                    db=db,
-                    chat_id=chat_id,
-                    role=role,
-                    content=content,
-                    sequence=sequence,
-                    resource_id=resource_id,
-                    tool_calls=tool_calls,
-                    tool_call_id=tool_call_id,
-                    name=name,
-                    latency_ms=msg_latency
-                )
-                sequence += 1
-                final_timestamp = stored_msg.timestamp.isoformat()
-            
-            return response, final_timestamp or datetime.now().isoformat(), needs_auth, tool_calls_info
-            
-        finally:
-            db.close()
-    
     async def send_message_stream(
         self, 
         message: str, 
@@ -230,6 +75,17 @@ class ChatService:
             # Get context for this user (using user_id for SnapTrade)
             context = context_manager.get_all_context(user_id)
             
+            # Save user message FIRST before streaming
+            start_sequence = len(db_messages)
+            chat_crud.create_message(
+                db=db,
+                chat_id=chat_id,
+                role="user",
+                content=message,
+                sequence=start_sequence
+            )
+            print(f"💾 Saved user message to database", flush=True)
+            
             # Stream events from agent
             async for event in self.agent.process_message_stream(
                 message=message,
@@ -240,12 +96,53 @@ class ChatService:
                 # Yield the SSE formatted event
                 yield event.to_sse_format()
             
-            # After streaming, get new messages and save to database
+            # After streaming, get new messages (assistant + tool responses) and save to database
             new_messages = self.agent.get_new_messages()
             print(f"💾 Saving {len(new_messages)} messages to database...", flush=True)
             
-            start_index = len(chat_crud.get_chat_messages(db, chat_id))
-            sequence = start_index
+            # Get tool call information for resource creation
+            tool_calls_info = self.agent.get_tool_calls_info()
+            
+            # Create resources for each successful tool call
+            tool_call_to_resource = {}
+            for tool_call_info in tool_calls_info:
+                if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
+                    result_data = tool_call_info["result_data"]
+                    
+                    # Determine resource type and title based on tool name
+                    resource_type, title = self._get_resource_metadata(
+                        tool_call_info["tool_name"],
+                        tool_call_info.get("arguments", {}),
+                        result_data
+                    )
+                    
+                    # Extract core table data from wrapped structures
+                    table_data = self._extract_table_data(result_data)
+                    
+                    # Create resource
+                    resource = resource_crud.create_resource(
+                        db=db,
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        tool_name=tool_call_info["tool_name"],
+                        resource_type=resource_type,
+                        title=title,
+                        data=table_data,
+                        resource_metadata={
+                            "parameters": tool_call_info.get("arguments", {}),
+                            "tool_call_id": tool_call_info["tool_call_id"],
+                            "original_success": result_data.get("success"),
+                            "data_source": result_data.get("data_source"),
+                            "total_count": result_data.get("total_count") or result_data.get("total_tickers")
+                        }
+                    )
+                    
+                    # Map tool_call_id to resource_id
+                    tool_call_to_resource[tool_call_info["tool_call_id"]] = resource.id
+                    print(f"📊 Created resource {resource.id} for tool call {tool_call_info['tool_call_id']}", flush=True)
+            
+            # Save messages with proper sequencing (start after user message)
+            sequence = start_sequence + 1
             
             for msg in new_messages:
                 role = msg["role"]
@@ -254,12 +151,18 @@ class ChatService:
                 tool_call_id = msg.get("tool_call_id") if role == "tool" else None
                 name = msg.get("name") if role == "tool" else None
                 
+                # Link tool result messages to resources
+                resource_id = None
+                if role == "tool" and tool_call_id:
+                    resource_id = tool_call_to_resource.get(tool_call_id)
+                
                 chat_crud.create_message(
                     db=db,
                     chat_id=chat_id,
                     role=role,
                     content=content,
                     sequence=sequence,
+                    resource_id=resource_id,
                     tool_calls=tool_calls,
                     tool_call_id=tool_call_id,
                     name=name

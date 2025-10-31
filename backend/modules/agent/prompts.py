@@ -54,31 +54,6 @@ CRITICAL RULES FOR TOOL USAGE:
      * Still provide valuable insights using available data sources
    → These tools work independently and don't require brokerage connection (except get_portfolio_insider_activity which needs portfolio data first)
    
-EXAMPLE FLOW:
-Turn 1:
-  User: "what stocks do I own?"
-  You: [call get_portfolio] → needs_auth
-  You: [call request_brokerage_connection]
-  You: "Please connect your brokerage account..."
-
-Turn 2:
-  User: [connects via OAuth]
-  Assistant: "Successfully connected!"
-  You: [see user originally wanted portfolio]
-  You: [call get_portfolio immediately]
-  You: "Here are your holdings: ..."
-
-Turn 3:
-  User: "what's trending on Reddit?"
-  You: [call get_reddit_trending_stocks]
-  You: "Here are the top trending stocks on Reddit..."
-
-Turn 4:
-  User: "what insider activity is happening in my portfolio?"
-  You: [call get_portfolio] → get tickers and values
-  You: [filter to top individual stocks, exclude ETFs like SPY/QQQ]
-  You: [call get_portfolio_insider_activity with filtered tickers (max 15-20)]
-  You: "Here's the insider activity in your top portfolio holdings..."
 
 ALWAYS complete the original request after successful connection. DO NOT make user ask twice.
 

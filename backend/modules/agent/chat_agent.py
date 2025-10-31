@@ -44,77 +44,15 @@ class ChatAgent:
         self.model = Config.OPENAI_MODEL
         self._last_messages = []  # Store messages from last stream
         self._initial_messages_len = 0  # Track where new messages start
+        self._tool_calls_info = []  # Store tool call execution info
     
     def get_new_messages(self) -> List[Dict[str, Any]]:
         """Get the new messages from the last stream (for saving to DB)"""
         return self._last_messages[self._initial_messages_len:]
     
-    async def process_message(
-        self,
-        message: str,
-        chat_history: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None
-    ) -> tuple[str, bool, List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        Process a user message and return the agent's response
-        
-        Args:
-            message: User message
-            chat_history: Previous conversation
-            context: Context variables (not visible to LLM)
-            session_id: User session ID
-            
-        Returns:
-            Tuple of (response_text, needs_auth, full_messages, tool_calls_info)
-        """
-        context = context or {}
-        
-        try:
-            print(f"\n{'='*80}", flush=True)
-            print(f"📨 PROCESSING MESSAGE for session: {session_id}", flush=True)
-            print(f"📨 Current message: {message}", flush=True)
-            print(f"📨 Chat history length: {len(chat_history)}", flush=True)
-            print(f"{'='*80}\n", flush=True)
-            
-            # Build messages for API
-            messages = self._build_messages_for_api(message, chat_history, session_id)
-            
-            # Call LLM
-            llm_start = time.time()
-            response = await acompletion(
-                model=self.model,
-                messages=messages,
-                api_key=Config.OPENAI_API_KEY,
-                tools=ALL_TOOLS,
-                reasoning_effort="low",  # GPT-5: Fast mode for lower latency
-                caching=True,  # LiteLLM: Enable prompt caching
-                seed=42  # OpenAI: Consistent seed helps with caching
-            )
-            llm_time = int((time.time() - llm_start) * 1000)
-            print(f"⏱️ Initial LLM call took {llm_time}ms", flush=True)
-            
-            # Handle response
-            if hasattr(response.choices[0].message, 'tool_calls') and response.choices[0].message.tool_calls:
-                tool_start = time.time()
-                final_response, needs_auth, tool_calls_info = await self._handle_tool_calls(
-                    response, messages, context, session_id
-                )
-                tool_total_time = int((time.time() - tool_start) * 1000)
-                print(f"⏱️ Tool handling (execution + LLM analysis) took {tool_total_time}ms", flush=True)
-                storable_messages = convert_to_storable_history(messages)
-                return final_response, needs_auth, storable_messages, tool_calls_info
-            
-            # No tool calls
-            storable_messages = convert_to_storable_history(messages)
-            response_content = response.choices[0].message.content or "I'm not sure how to respond to that. Could you please rephrase your question?"
-            return response_content, False, storable_messages, []
-            
-        except Exception as e:
-            print(f"❌ Error in process_message: {str(e)}", flush=True)
-            import traceback
-            print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
-            return f"I apologize, but I encountered an error: {str(e)}", False, [], []
+    def get_tool_calls_info(self) -> List[Dict[str, Any]]:
+        """Get tool call execution information from the last stream"""
+        return self._tool_calls_info
     
     async def process_message_stream(
         self,
@@ -142,9 +80,12 @@ class ChatAgent:
             initial_messages = self._build_messages_for_api(message, chat_history, session_id)
             messages = initial_messages.copy()
             
-            # Store for later retrieval
+            # Store for later retrieval (only new messages, not including system/history/user)
             self._last_messages = messages
             self._initial_messages_len = len(initial_messages)
+            
+            # Reset tool calls info for this interaction
+            self._tool_calls_info = []
             
             # Simple loop: LLM → tools → LLM → ... → final text
             while True:
@@ -234,6 +175,16 @@ class ChatAgent:
                     if result.get("needs_auth"):
                         needs_auth = True
                     
+                    # Track tool call info for resource creation
+                    self._tool_calls_info.append({
+                        "tool_call_id": tc["id"],
+                        "tool_name": func_name,
+                        "status": "completed" if result.get("success", True) else "error",
+                        "arguments": func_args,
+                        "result_data": result,
+                        "error": result.get("message") if not result.get("success", True) else None
+                    })
+                    
                     # Notify completion
                     yield SSEEvent(
                         event="tool_call_complete",
@@ -315,280 +266,6 @@ class ChatAgent:
         messages.append({"role": "user", "content": message})
         
         return messages
-    
-    async def _handle_tool_calls(
-        self,
-        initial_response: Any,
-        messages: List[Dict[str, Any]],
-        context: Dict[str, Any],
-        session_id: str
-    ) -> tuple[str, bool, List[Dict[str, Any]]]:
-        """Handle tool calls from the LLM (non-streaming)"""
-        needs_auth = False
-        tool_calls_info = []
-        
-        try:
-            # Add assistant's tool call message
-            messages.append({
-                "role": "assistant",
-                "content": initial_response.choices[0].message.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-                    for tc in initial_response.choices[0].message.tool_calls
-                ]
-            })
-            
-            # Execute each tool call
-            for tool_call in initial_response.choices[0].message.tool_calls:
-                tool_exec_start = time.time()
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                
-                result = await execute_tool(function_name, function_args, session_id)
-                
-                tool_exec_time = int((time.time() - tool_exec_start) * 1000)
-                print(f"⏱️ Tool '{function_name}' execution took {tool_exec_time}ms", flush=True)
-                
-                # Track tool call info
-                tool_calls_info.append({
-                    "tool_call_id": tool_call.id,
-                    "tool_name": function_name,
-                    "status": "completed" if result.get("success", True) else "error",
-                    "arguments": function_args,
-                    "result_data": result,
-                    "error": result.get("message") if not result.get("success", True) else None
-                })
-                
-                if result.get("needs_auth") or result.get("action_required") == "show_login_form":
-                    needs_auth = True
-                
-                # Truncate large results
-                result_str = self._truncate_tool_result(result)
-                
-                # Add tool result to messages
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": function_name,
-                    "content": result_str
-                })
-            
-            # Get final response from LLM
-            print(f"🤔 Sending tool results to LLM for analysis...", flush=True)
-            final_llm_start = time.time()
-            final_response = await acompletion(
-                model=self.model,
-                messages=messages,
-                api_key=Config.OPENAI_API_KEY,
-                tools=ALL_TOOLS,
-                reasoning_effort="low",  # GPT-5: Fast mode for lower latency
-                caching=True,  # LiteLLM: Enable prompt caching
-                seed=42  # OpenAI: Consistent seed helps with caching
-            )
-            final_llm_time = int((time.time() - final_llm_start) * 1000)
-            print(f"⏱️ LLM analysis of tool results took {final_llm_time}ms", flush=True)
-            
-            # Handle recursive tool calls
-            if hasattr(final_response.choices[0].message, 'tool_calls') and final_response.choices[0].message.tool_calls:
-                print(f"🔄 LLM requested additional tool calls, handling recursively...", flush=True)
-                recursive_response, recursive_needs_auth, recursive_tool_calls = await self._handle_tool_calls(
-                    final_response, messages, context, session_id
-                )
-                needs_auth = needs_auth or recursive_needs_auth
-                tool_calls_info.extend(recursive_tool_calls)
-                return recursive_response, needs_auth, tool_calls_info
-            
-            response_content = final_response.choices[0].message.content or "I encountered an issue processing that request. Please try again."
-            return response_content, needs_auth, tool_calls_info
-            
-        except Exception as e:
-            print(f"❌ Error in tool processing: {str(e)}", flush=True)
-            import traceback
-            print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
-            return f"I encountered an error while processing tools: {str(e)}", False, []
-    
-    async def _handle_tool_calls_stream(
-        self,
-        initial_response: Any,
-        messages: List[Dict[str, Any]],
-        context: Dict[str, Any],
-        session_id: str
-    ) -> AsyncGenerator[SSEEvent, None]:
-        """Handle tool calls from the LLM (streaming)"""
-        needs_auth = False
-        
-        try:
-            # Add assistant's tool call message
-            messages.append({
-                "role": "assistant",
-                "content": initial_response.choices[0].message.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-                    for tc in initial_response.choices[0].message.tool_calls
-                ]
-            })
-            
-            # Execute each tool call
-            for tool_call in initial_response.choices[0].message.tool_calls:
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                
-                # Send tool call start event
-                yield SSEEvent(
-                    event="tool_call_start",
-                    data=ToolCallStartEvent(
-                        tool_call_id=tool_call.id,
-                        tool_name=function_name,
-                        arguments=function_args,
-                        timestamp=datetime.now().isoformat()
-                    ).model_dump()
-                )
-                
-                # Execute tool
-                result = await execute_tool(function_name, function_args, session_id)
-                
-                # Send tool call complete event
-                yield SSEEvent(
-                    event="tool_call_complete",
-                    data=ToolCallCompleteEvent(
-                        tool_call_id=tool_call.id,
-                        tool_name=function_name,
-                        status="completed" if result.get("success", True) else "error",
-                        error=result.get("message") if not result.get("success", True) else None,
-                        timestamp=datetime.now().isoformat()
-                    ).model_dump()
-                )
-                
-                if result.get("needs_auth") or result.get("action_required") == "show_login_form":
-                    needs_auth = True
-                
-                # Truncate and add result
-                result_str = self._truncate_tool_result(result)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": function_name,
-                    "content": result_str
-                })
-            
-            # Send thinking event
-            print(f"🤔 AI is analyzing tool results and generating response...", flush=True)
-            yield SSEEvent(
-                event="thinking",
-                data=ThinkingEvent(message="Analyzing results...").model_dump()
-            )
-            
-            # Stream final response from LLM
-            final_llm_start = time.time()
-            print(f"🎬 Streaming LLM response...", flush=True)
-            print(f"🤖 Using model: {self.model}", flush=True)
-            
-            stream_response = await acompletion(
-                model=self.model,
-                messages=messages,
-                api_key=Config.OPENAI_API_KEY,
-                tools=ALL_TOOLS,
-                stream=True,
-                stream_options={"include_usage": False},  # Reduce latency
-                reasoning_effort="low",  # GPT-5: Fast mode
-                caching=True,  # LiteLLM: Enable prompt caching for OpenAI
-                seed=42  # OpenAI: Consistent seed helps with caching
-            )
-            
-            # Stream content as it arrives and detect tool calls
-            full_content = ""
-            chunk_count = 0
-            accumulated_tool_calls_response = []
-            
-            async for chunk in stream_response:
-                chunk_count += 1
-                
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta'):
-                    delta = chunk.choices[0].delta
-                    
-                    # Stream content tokens
-                    if hasattr(delta, 'content') and delta.content:
-                        full_content += delta.content
-                        yield SSEEvent(
-                            event="assistant_message_delta",
-                            data=stream_content_chunk(delta.content)
-                        )
-                    
-                    # Accumulate tool calls if present
-                    if hasattr(delta, 'tool_calls') and delta.tool_calls:
-                        for tc_delta in delta.tool_calls:
-                            tc_index = tc_delta.index
-                            
-                            # Ensure we have a slot for this tool call
-                            while len(accumulated_tool_calls_response) <= tc_index:
-                                accumulated_tool_calls_response.append({
-                                    "id": "",
-                                    "type": "function",
-                                    "function": {"name": "", "arguments": ""}
-                                })
-                            
-                            # Accumulate tool call parts
-                            if tc_delta.id:
-                                accumulated_tool_calls_response[tc_index]["id"] = tc_delta.id
-                            if hasattr(tc_delta, 'function') and tc_delta.function:
-                                if tc_delta.function.name:
-                                    accumulated_tool_calls_response[tc_index]["function"]["name"] = tc_delta.function.name
-                                if tc_delta.function.arguments:
-                                    accumulated_tool_calls_response[tc_index]["function"]["arguments"] += tc_delta.function.arguments
-            
-            final_llm_time = int((time.time() - final_llm_start) * 1000)
-            print(f"⏱️ LLM response completed in {final_llm_time}ms", flush=True)
-            
-            # If LLM wants to call more tools, handle them recursively
-            if accumulated_tool_calls_response:
-                print(f"🔄 LLM requested {len(accumulated_tool_calls_response)} additional tool calls", flush=True)
-                
-                # Build a mock response object
-                from .response_builder import build_mock_response_from_stream
-                mock_response = build_mock_response_from_stream(full_content, accumulated_tool_calls_response)
-                
-                # Recursively handle these tool calls
-                async for event in self._handle_tool_calls_stream(
-                    mock_response, messages, context, session_id
-                ):
-                    yield event
-            else:
-                # No more tool calls - send final message
-                yield SSEEvent(
-                    event="assistant_message",
-                    data=AssistantMessageEvent(
-                        content=full_content,
-                        timestamp=datetime.now().isoformat(),
-                        needs_auth=needs_auth
-                    ).model_dump()
-                )
-            
-        except Exception as e:
-            print(f"❌ Error in tool processing: {str(e)}", flush=True)
-            import traceback
-            print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
-            
-            yield SSEEvent(
-                event="error",
-                data=ErrorEvent(
-                    error=str(e),
-                    details=traceback.format_exc()
-                ).model_dump()
-            )
     
     def _truncate_tool_result(self, result: Dict[str, Any]) -> str:
         """Truncate large tool results to avoid overwhelming the LLM"""
