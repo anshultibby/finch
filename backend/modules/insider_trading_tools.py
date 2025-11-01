@@ -4,12 +4,15 @@ Includes Senate, House, and corporate insider trades
 """
 import httpx
 import pandas as pd
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Type, TypeVar
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 from models.insider_trading import (
     SenateTrade, HouseTrade, InsiderTrade, InsiderTradingResponse, InsiderTradingStatistics
 )
 from config import Config
+
+T = TypeVar('T', bound=BaseModel)
 
 
 class InsiderTradingTools:
@@ -20,6 +23,8 @@ class InsiderTradingTools:
     - Senate trading disclosures
     - House trading disclosures  
     - Corporate insider trades (SEC Form 4)
+    
+    Uses DRY principles with generic methods for API calls and data parsing.
     """
     
     # FMP has migrated to /stable/ endpoints (legacy v3/v4 deprecated as of Aug 2025)
@@ -30,7 +35,7 @@ class InsiderTradingTools:
         self.api_key = Config.FMP_API_KEY
         self.api_enabled = bool(self.api_key)
     
-    def _check_api_key(self) -> dict:
+    def _check_api_key(self) -> Optional[dict]:
         """Check if API key is configured"""
         if not self.api_enabled:
             return {
@@ -39,35 +44,42 @@ class InsiderTradingTools:
             }
         return None
     
-    async def get_recent_senate_trades(
-        self, 
-        limit: int = 50
+    async def _fetch_and_parse_trades(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        model_class: Type[T],
+        log_prefix: str = "🏛️",
+        trade_type: str = "trades"
     ) -> Dict[str, Any]:
         """
-        Get recent Senate trading disclosures
+        Generic method to fetch and parse insider trading data
         
         Args:
-            limit: Number of trades to return (default 50)
+            endpoint: API endpoint path
+            params: Query parameters
+            model_class: Pydantic model class for parsing
+            log_prefix: Emoji prefix for logging
+            trade_type: Type of trades for logging
             
         Returns:
-            Dictionary with recent Senate trades
+            Dictionary with parsed trades in CSV format
         """
-        # Check API key
         api_check = self._check_api_key()
         if api_check:
             return api_check
         
+        limit = params.get("limit", 50)
+        symbol = params.get("symbol", "")
+        
         try:
-            print(f"🏛️ Fetching recent Senate trades (limit: {limit})...", flush=True)
+            symbol_str = f" for {symbol}" if symbol else ""
+            print(f"{log_prefix} Fetching {trade_type}{symbol_str} (limit: {limit})...", flush=True)
             
-            # Use free tier endpoint
-            url = f"{self.BASE_URL}/senate-latest"
-            params = {
-                "apikey": self.api_key,
-                "page": 0,
-                "limit": limit
-            }
+            # Add API key to params
+            params["apikey"] = self.api_key
             
+            url = f"{self.BASE_URL}/{endpoint}"
             response = await self.client.get(url, params=params)
             response.raise_for_status()
             
@@ -76,226 +88,95 @@ class InsiderTradingTools:
             if not data:
                 return {
                     "success": False,
-                    "message": "No Senate trades found"
+                    "message": f"No {trade_type} found{symbol_str}"
                 }
             
             # Limit results
             trades = data[:limit] if isinstance(data, list) else []
             
-            # Parse and enrich using Pydantic models
+            # Parse using Pydantic models
             parsed_trades = []
             for trade in trades:
                 try:
-                    senate_trade = SenateTrade(**trade)
-                    parsed_trades.append(senate_trade.model_dump())
+                    parsed_trade = model_class(**trade)
+                    parsed_trades.append(parsed_trade)
                 except Exception as e:
-                    print(f"⚠️ Error parsing Senate trade: {e}", flush=True)
+                    print(f"⚠️ Error parsing {trade_type}: {e}", flush=True)
                     continue
             
+            if not parsed_trades:
+                return {
+                    "success": False,
+                    "message": f"Could not parse {trade_type}{symbol_str}"
+                }
+            
             # Convert to DataFrame for compact CSV format
-            trades_objects = [SenateTrade(**trade) for trade in parsed_trades]
-            df = SenateTrade.list_to_df(trades_objects)
+            df = model_class.list_to_df(parsed_trades)
             
-            print(f"✅ Found {len(parsed_trades)} Senate trades", flush=True)
+            print(f"✅ Found {len(parsed_trades)} {trade_type}{symbol_str}", flush=True)
             
-            return {
+            result = {
                 "success": True,
-                "data_type": "senate",
-                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact than split
+                "data_type": trade_type.split()[0].lower() if " " in trade_type else trade_type,
+                "trades_csv": df.to_csv(index=False),
                 "total_count": len(parsed_trades),
-                "message": f"Found {len(parsed_trades)} recent Senate trades. Data is in CSV format."
+                "message": f"Found {len(parsed_trades)} {trade_type}{symbol_str}. Data is in CSV format."
             }
             
-        except httpx.HTTPError as e:
+            if symbol:
+                result["ticker"] = symbol.upper()
+            
+            return result
+            
+        except httpx.HTTPStatusError as e:
             error_msg = str(e)
-            print(f"❌ HTTP error fetching Senate trades: {error_msg}", flush=True)
+            print(f"❌ HTTP error fetching {trade_type}: {error_msg}", flush=True)
             
             # Check if it's a 402/403 (API tier restriction)
             if "402" in error_msg or "403" in error_msg:
                 return {
                     "success": False,
-                    "message": "Senate trading data requires a paid FMP API plan. Please upgrade at https://site.financialmodelingprep.com/developer/docs/pricing"
+                    "message": f"{trade_type.capitalize()} require a paid FMP API plan. Please upgrade at https://site.financialmodelingprep.com/developer/docs/pricing"
                 }
             
             return {
                 "success": False,
-                "message": f"Failed to fetch Senate trades: {error_msg}"
+                "message": f"Failed to fetch {trade_type}: {error_msg}"
             }
         except Exception as e:
-            print(f"❌ Error fetching Senate trades: {str(e)}", flush=True)
+            print(f"❌ Error fetching {trade_type}: {str(e)}", flush=True)
             return {
                 "success": False,
                 "message": f"Error: {str(e)}"
             }
     
-    async def get_recent_house_trades(
-        self, 
-        limit: int = 50
-    ) -> Dict[str, Any]:
-        """
-        Get recent House trading disclosures
-        
-        Args:
-            limit: Number of trades to return (default 50)
-            
-        Returns:
-            Dictionary with recent House trades
-        """
-        # Check API key
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
-        try:
-            print(f"🏛️ Fetching recent House trades (limit: {limit})...", flush=True)
-            
-            # Use free tier endpoint
-            url = f"{self.BASE_URL}/house-latest"
-            params = {
-                "apikey": self.api_key,
-                "page": 0,
-                "limit": limit
-            }
-            
-            response = await self.client.get(url, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not data:
-                return {
-                    "success": False,
-                    "message": "No House trades found"
-                }
-            
-            # Limit results
-            trades = data[:limit] if isinstance(data, list) else []
-            
-            # Parse and enrich using Pydantic models
-            parsed_trades = []
-            for trade in trades:
-                try:
-                    house_trade = HouseTrade(**trade)
-                    parsed_trades.append(house_trade.model_dump())
-                except Exception as e:
-                    print(f"⚠️ Error parsing House trade: {e}", flush=True)
-                    continue
-            
-            # Convert to DataFrame for compact CSV format
-            trades_objects = [HouseTrade(**trade) for trade in parsed_trades]
-            df = HouseTrade.list_to_df(trades_objects)
-            
-            print(f"✅ Found {len(parsed_trades)} House trades", flush=True)
-            
-            return {
-                "success": True,
-                "data_type": "house",
-                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact than split
-                "total_count": len(parsed_trades),
-                "message": f"Found {len(parsed_trades)} recent House trades. Data is in CSV format."
-            }
-            
-        except httpx.HTTPError as e:
-            error_msg = str(e)
-            print(f"❌ HTTP error fetching House trades: {error_msg}", flush=True)
-            
-            # Check if it's a 402/403 (API tier restriction)
-            if "402" in error_msg or "403" in error_msg:
-                return {
-                    "success": False,
-                    "message": "House trading data requires a paid FMP API plan. Please upgrade at https://site.financialmodelingprep.com/developer/docs/pricing"
-                }
-            
-            return {
-                "success": False,
-                "message": f"Failed to fetch House trades: {error_msg}"
-            }
-        except Exception as e:
-            print(f"❌ Error fetching House trades: {str(e)}", flush=True)
-            return {
-                "success": False,
-                "message": f"Error: {str(e)}"
-            }
+    async def get_recent_senate_trades(self, limit: int = 50) -> Dict[str, Any]:
+        """Get recent Senate trading disclosures"""
+        return await self._fetch_and_parse_trades(
+            endpoint="senate-latest",
+            params={"page": 0, "limit": limit},
+            model_class=SenateTrade,
+            trade_type="Senate trades"
+        )
     
-    async def get_recent_insider_trades(
-        self, 
-        limit: int = 20
-    ) -> Dict[str, Any]:
-        """
-        Get recent corporate insider trades (SEC Form 4 filings)
-        
-        Args:
-            limit: Number of trades to return (default 20)
-            
-        Returns:
-            Dictionary with recent insider trades
-        """
-        # Check API key
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
-        try:
-            print(f"💼 Fetching recent insider trades (limit: {limit})...", flush=True)
-            
-            # Use stable endpoint with /latest
-            url = f"{self.BASE_URL}/insider-trading/latest"
-            params = {
-                "apikey": self.api_key,
-                "page": 0,
-                "limit": limit
-            }
-            
-            response = await self.client.get(url, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not data:
-                return {
-                    "success": False,
-                    "message": "No insider trades found"
-                }
-            
-            # Limit results
-            trades = data[:limit] if isinstance(data, list) else []
-            
-            # Parse and enrich using Pydantic models
-            parsed_trades = []
-            for trade in trades:
-                try:
-                    insider_trade = InsiderTrade(**trade)  # Pydantic will handle the camelCase to snake_case conversion
-                    parsed_trades.append(insider_trade.model_dump())
-                except Exception as e:
-                    print(f"⚠️ Error parsing insider trade: {e}", flush=True)
-                    continue
-            
-            # Convert to DataFrame for compact CSV format
-            trades_objects = [InsiderTrade(**trade) for trade in parsed_trades]
-            df = InsiderTrade.list_to_df(trades_objects)
-            
-            print(f"✅ Found {len(parsed_trades)} insider trades", flush=True)
-            
-            return {
-                "success": True,
-                "data_type": "insider",
-                "trades_csv": df.to_csv(index=False),  # CSV format is 25% more compact than split
-                "total_count": len(parsed_trades),
-                "message": f"Found {len(parsed_trades)} recent insider trades. Data is in CSV format."
-            }
-            
-        except httpx.HTTPError as e:
-            print(f"❌ HTTP error fetching insider trades: {str(e)}", flush=True)
-            return {
-                "success": False,
-                "message": f"Failed to fetch insider trades: {str(e)}"
-            }
-        except Exception as e:
-            print(f"❌ Error fetching insider trades: {str(e)}", flush=True)
-            return {
-                "success": False,
-                "message": f"Error: {str(e)}"
-            }
+    async def get_recent_house_trades(self, limit: int = 50) -> Dict[str, Any]:
+        """Get recent House trading disclosures"""
+        return await self._fetch_and_parse_trades(
+            endpoint="house-latest",
+            params={"page": 0, "limit": limit},
+            model_class=HouseTrade,
+            trade_type="House trades"
+        )
+    
+    async def get_recent_insider_trades(self, limit: int = 20) -> Dict[str, Any]:
+        """Get recent corporate insider trades (SEC Form 4 filings)"""
+        return await self._fetch_and_parse_trades(
+            endpoint="insider-trading/latest",
+            params={"page": 0, "limit": limit},
+            model_class=InsiderTrade,
+            log_prefix="💼",
+            trade_type="insider trades"
+        )
     
     async def search_ticker_insider_activity(
         self, 
