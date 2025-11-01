@@ -25,6 +25,7 @@ export default function ChatContainer() {
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
+  const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
   const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<string>('');  // Accumulate streaming tokens
@@ -140,6 +141,7 @@ export default function ChatContainer() {
           const result = await snaptradeApi.handleCallback(userId);
           if (result.success && result.is_connected) {
             setIsPortfolioConnected(true);
+            setConnectionUrl(null); // Clear the connection URL
             window.history.replaceState({}, '', window.location.pathname);
           } else {
             setError(result.message || 'Failed to connect');
@@ -172,6 +174,7 @@ export default function ChatContainer() {
       if (event.data.type === 'SNAPTRADE_CONNECTION') {
         console.log('🔗 SnapTrade connection message received:', event.data);
         setIsConnecting(false);
+        setConnectionUrl(null); // Clear the connection URL
         if (event.data.success && event.data.is_connected) {
           console.log('✅ Setting portfolio to connected');
           setIsPortfolioConnected(true);
@@ -355,9 +358,12 @@ export default function ChatContainer() {
       console.log('📡 Backend response:', response);
       
       if (response.success && response.redirect_uri) {
-        console.log('✅ Got redirect URI, opening popup...');
+        console.log('✅ Got redirect URI');
         
-        // Open SnapTrade Connection Portal in a new window
+        // Detect if we're on mobile
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        // Try to open popup/new tab
         const width = 500;
         const height = 700;
         const left = (window.screen.width - width) / 2;
@@ -366,16 +372,18 @@ export default function ChatContainer() {
         const popup = window.open(
           response.redirect_uri,
           'SnapTrade Connection',
-          `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+          isMobile ? '_blank' : `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
         );
         
         // Check if popup was blocked
         if (!popup || popup.closed || typeof popup.closed === 'undefined') {
           console.error('❌ Popup was blocked!');
-          setError('Popup blocked! Please allow popups for this site and try again.');
-          setIsConnecting(false);
+          // Store the URL so we can show a clickable link
+          setConnectionUrl(response.redirect_uri);
+          setError(null); // Clear error, we'll show a better UI
+          // Stay in connecting state to show the link UI
         } else {
-          console.log('✅ Popup opened successfully');
+          console.log('✅ Popup/tab opened successfully');
           // Keep connecting state active until callback is received
         }
       } else {
@@ -514,7 +522,7 @@ export default function ChatContainer() {
       )}
       
       {/* Connecting Banner */}
-      {isConnecting && (
+      {isConnecting && !connectionUrl && (
         <div className="mx-6 mt-4 bg-gradient-to-r from-yellow-50 to-amber-50 border-2 border-yellow-500 rounded-lg p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="text-2xl animate-pulse">🔗</div>
@@ -523,8 +531,43 @@ export default function ChatContainer() {
                 Connecting...
               </h3>
               <p className="text-sm text-yellow-700">
-                Please complete the connection process in the popup window. The popup will close automatically once you're connected.
+                Please complete the connection process in the popup window. The window will close automatically once you're connected.
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Connection Link Banner (when popup is blocked) */}
+      {isConnecting && connectionUrl && (
+        <div className="mx-6 mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-500 rounded-lg p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">🔗</div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900 mb-1">
+                Popup Blocked
+              </h3>
+              <p className="text-sm text-blue-700 mb-3">
+                Your browser blocked the popup. Click the button below to connect your brokerage in a new tab. You'll be redirected back here automatically after connecting.
+              </p>
+              <a
+                href={connectionUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                <span>🚀</span>
+                Open Connection Page
+              </a>
+              <button
+                onClick={() => {
+                  setConnectionUrl(null);
+                  setIsConnecting(false);
+                }}
+                className="ml-3 text-sm text-blue-600 hover:text-blue-800 underline"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>
