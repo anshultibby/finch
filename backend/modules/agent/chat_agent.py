@@ -46,8 +46,38 @@ class ChatAgent(BaseAgent):
         return Config.OPENAI_MODEL
     
     def get_tool_names(self) -> Optional[List[str]]:
-        """Use all available tools"""
-        return None
+        """
+        Main agent uses high-level tools and delegates to specialized agents.
+        Individual FMP tools are excluded - use analyze_financials instead.
+        """
+        return [
+            # Portfolio tools
+            'get_portfolio',
+            'request_brokerage_connection',
+            
+            # Reddit sentiment
+            'get_reddit_trending_stocks',
+            'get_reddit_ticker_sentiment',
+            'compare_reddit_sentiment',
+            
+            # Insider trading
+            'get_recent_senate_trades',
+            'get_recent_house_trades',
+            'get_recent_insider_trades',
+            'search_ticker_insider_activity',
+            'get_portfolio_insider_activity',
+            'get_insider_trading_statistics',
+            'search_insider_trades',
+            
+            # Financial analysis (delegated to FMP agent)
+            'analyze_financials',
+            
+            # Visualization (delegated to plotting agent)
+            'create_plot',
+            
+            # Note: Individual FMP tools (get_company_profile, get_income_statement, etc.)
+            # are NOT included here - main agent delegates via analyze_financials instead
+        ]
     
     def get_system_prompt(self, session_id: Optional[str] = None, **kwargs) -> str:
         """

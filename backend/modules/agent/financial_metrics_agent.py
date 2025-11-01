@@ -34,36 +34,33 @@ class FinancialMetricsAgent(BaseAgent):
             
             # Analyst data
             'get_analyst_recommendations',
-            'get_price_target',
-            'get_upgrades_downgrades',
+            'get_analyst_price_targets',
+            'get_analyst_rating_changes',
             
             # Comparisons & screening
-            'get_stock_peers',
-            'stock_screener',
+            'get_peer_companies',
+            'screen_stocks',
             
             # Market performance
-            'get_market_gainers',
-            'get_market_losers',
-            'get_most_active',
-            'get_sector_performance',
+            'get_top_gainers',
+            'get_top_losers',
+            'get_most_active_stocks',
+            'get_sectors_performance',
             
             # ETF data
-            'get_etf_holdings',
-            'get_etf_info',
-            'get_etf_sector_weighting',
+            'get_etf_holdings_data',
+            'get_etf_information',
             
             # Corporate events
-            'get_earnings_calendar',
-            'get_dividends_calendar',
-            'get_stock_splits',
+            'get_earnings_schedule',
+            'get_dividends_schedule',
             
             # News & filings
-            'get_stock_news',
-            'get_press_releases',
-            'get_sec_filings',
+            'get_stock_news_articles',
+            'get_sec_filing_documents',
             
             # ESG
-            'get_esg_score'
+            'get_esg_scores'
         ]
     
     def get_model(self) -> str:

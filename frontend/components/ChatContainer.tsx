@@ -343,27 +343,44 @@ export default function ChatContainer() {
       return;
     }
 
+    console.log('🔗 Starting brokerage connection for userId:', userId);
     setIsConnecting(true);
+    setError(null); // Clear any previous errors
+    
     try {
       // Get redirect URI from backend
       const redirectUri = `${window.location.origin}${window.location.pathname}?snaptrade_callback=true`;
+      console.log('📡 Calling backend API to get redirect URI...');
       const response = await snaptradeApi.initiateConnection(userId, redirectUri);
+      console.log('📡 Backend response:', response);
       
       if (response.success && response.redirect_uri) {
+        console.log('✅ Got redirect URI, opening popup...');
+        
         // Open SnapTrade Connection Portal in a new window
         const width = 500;
         const height = 700;
         const left = (window.screen.width - width) / 2;
         const top = (window.screen.height - height) / 2;
         
-        window.open(
+        const popup = window.open(
           response.redirect_uri,
           'SnapTrade Connection',
           `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
         );
         
-        // Keep connecting state active until callback is received
+        // Check if popup was blocked
+        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+          console.error('❌ Popup was blocked!');
+          setError('Popup blocked! Please allow popups for this site and try again.');
+          setIsConnecting(false);
+        } else {
+          console.log('✅ Popup opened successfully');
+          // Keep connecting state active until callback is received
+        }
       } else {
+        console.error('❌ Failed to get redirect URI:', response.message);
+        
         // Check if we need a new user session
         if (response.message?.includes('refresh the page') || response.message?.includes('new session')) {
           setError(response.message);
@@ -383,7 +400,8 @@ export default function ChatContainer() {
         }
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to connect');
+      console.error('❌ Error during connection:', err);
+      setError(err.message || 'Failed to connect to backend. Make sure the backend server is running.');
       setIsConnecting(false);
     }
   };

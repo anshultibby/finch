@@ -364,15 +364,17 @@ class FMPTools:
         to_date: Optional[str] = None,
         limit: int = 100
     ) -> Dict[str, Any]:
-        """Get historical price data"""
+        """Get historical price data (end of day)"""
         params = {"symbol": symbol.upper()}
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
+        if limit:
+            params["limit"] = limit
         
         result = await self._fetch_and_parse_list(
-            endpoint="historical-price-full",
+            endpoint="historical-price-eod/full",
             params=params,
             model_class=HistoricalPrice,
             data_key="historical",
@@ -384,14 +386,6 @@ class FMPTools:
         if result.get("success"):
             result["from_date"] = from_date
             result["to_date"] = to_date
-            # Limit the number of records
-            if result.get("count", 0) > limit:
-                # Re-parse with limit
-                df = pd.read_csv(StringIO(result["data_csv"]))
-                df_limited = df.head(limit)
-                result["data_csv"] = df_limited.to_csv(index=False)
-                result["count"] = limit
-                result["message"] = f"Found {limit} days of historical prices for {symbol}. Data is in CSV format."
         
         return result
     
@@ -721,7 +715,7 @@ class FMPTools:
     # ============================================================================
     
     async def get_stock_peers(self, symbol: str) -> Dict[str, Any]:
-        """Get stock peer companies"""
+        """Get stock peer companies (US stocks only due to API plan limitations)"""
         api_check = self._check_api_key()
         if api_check:
             return api_check
@@ -731,6 +725,16 @@ class FMPTools:
                 endpoint="stock-peers",
                 params={"symbol": symbol.upper()}
             )
+            
+            # Filter out non-US stocks (those with exchange suffixes like .TO, .L, etc.)
+            # Most API plans only support US exchanges
+            if isinstance(data, list):
+                us_peers = [peer for peer in data if '.' not in peer.get('symbol', '')]
+                if len(us_peers) < len(data):
+                    filtered_count = len(data) - len(us_peers)
+                    print(f"ℹ️ Filtered out {filtered_count} non-US peers (API plan limitation)", flush=True)
+                data = us_peers
+            
             return {"success": True, "symbol": symbol, "peers": data}
         except Exception as e:
             return {"success": False, "message": f"Failed: {str(e)}"}
