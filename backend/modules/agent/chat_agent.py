@@ -79,15 +79,15 @@ class ChatAgent(BaseAgent):
             # are NOT included here - main agent delegates via analyze_financials instead
         ]
     
-    def get_system_prompt(self, session_id: Optional[str] = None, **kwargs) -> str:
+    def get_system_prompt(self, user_id: Optional[str] = None, **kwargs) -> str:
         """
         Build system prompt with auth status
         
         Args:
-            session_id: Used to check auth status
+            user_id: Used to check auth status
         """
         # Check connection status
-        has_connection = snaptrade_tools.has_active_connection(session_id) if session_id else False
+        has_connection = snaptrade_tools.has_active_connection(user_id) if user_id else False
         
         # Build system prompt
         system_prompt = FINCH_SYSTEM_PROMPT
@@ -111,13 +111,13 @@ class ChatAgent(BaseAgent):
         Args:
             message: User message
             chat_history: Previous messages
-            agent_context: AgentContext with session_id, user_id, chat_id, resource_manager
+            agent_context: AgentContext with user_id, chat_id, resource_manager
         """
         needs_auth = [False]  # Mutable to capture in closures
         
         try:
             print(f"\n{'='*80}", flush=True)
-            print(f"📨 STREAMING MESSAGE for session: {agent_context.session_id}", flush=True)
+            print(f"📨 STREAMING MESSAGE for user: {agent_context.user_id}", flush=True)
             print(f"📨 Current message: {message}", flush=True)
             print(f"{'='*80}\n", flush=True)
             
@@ -228,7 +228,7 @@ class ChatAgent(BaseAgent):
         messages = self.build_messages(
             user_message=message,
             chat_history=chat_history,
-            session_id=agent_context.session_id,  # Passed to get_system_prompt
+            user_id=agent_context.user_id,  # Passed to get_system_prompt
             resource_manager=agent_context.resource_manager  # Passed for resource section
         )
         

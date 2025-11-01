@@ -12,10 +12,9 @@ if TYPE_CHECKING:
 class ToolContext(BaseModel):
     """
     Context passed to tools (not visible to LLM)
-    Contains secure information like session_id, API keys, etc.
+    Contains secure information like user_id, API keys, etc.
     """
-    session_id: Optional[str] = None
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None  # Supabase user ID (OAuth identifier)
     stream_handler: Optional[Any] = None  # ToolStreamHandler (optional for tool streaming)
     resource_manager: Optional[Any] = None  # ResourceManager (for accessing and registering resources)
     chat_id: Optional[str] = None  # Chat ID for resource context

@@ -92,7 +92,7 @@ export interface Message {
 }
 
 export interface ChatHistory {
-  session_id: string;
+  user_id: string;
   messages: Message[];
 }
 

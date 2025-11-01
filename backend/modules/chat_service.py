@@ -55,7 +55,6 @@ class ChatService:
                 resource_manager.load_resources(db=sync_db, limit=50)
             
             agent_context = AgentContext(
-                session_id=user_id,
                 user_id=user_id,
                 chat_id=chat_id,
                 resource_manager=resource_manager,

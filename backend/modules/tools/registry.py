@@ -125,7 +125,7 @@ class ToolRegistry:
         Args:
             tool_name: Name of the tool to execute
             arguments: Arguments from LLM (keyword args for the function)
-            context: Context with session_id, etc. (not visible to LLM)
+            context: Context with user_id, etc. (not visible to LLM)
         
         Returns:
             Tool execution result

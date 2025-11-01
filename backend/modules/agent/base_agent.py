@@ -72,7 +72,7 @@ class BaseAgent(ABC):
         tools: List[Dict[str, Any]],
         llm_config: LLMConfig,
         on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]],
-        session_id: Optional[str] = None
+        user_id: Optional[str] = None
     ):
         """
         One iteration: Call LLM with streaming and accumulate response
@@ -80,7 +80,7 @@ class BaseAgent(ABC):
         Yields SSE events, then yields final (content, tool_calls) tuple
         """
         # Create LLM handler for this call
-        llm_handler = LLMHandler(session_id=session_id)
+        llm_handler = LLMHandler(user_id=user_id)
         
         # Merge tools into LiteLLM kwargs
         llm_kwargs = llm_config.to_litellm_kwargs()
@@ -168,7 +168,6 @@ class BaseAgent(ABC):
             result = await tool_runner.execute(
                 tool_name=call["name"],
                 arguments=call["args"],
-                session_id=context.session_id,
                 user_id=context.user_id,
                 resource_manager=context.resource_manager,
                 chat_id=context.chat_id
@@ -243,7 +242,7 @@ class BaseAgent(ABC):
         
         Args:
             initial_messages: Starting messages
-            session_id: User session
+            user_id: User ID
             max_iterations: Max tool loops
             llm_config: LLM configuration (uses preset if not provided)
             on_content_delta: Callback for streaming text chunks
@@ -283,7 +282,7 @@ class BaseAgent(ABC):
                     tools=tools,
                     llm_config=llm_config,
                     on_content_delta=on_content_delta,
-                    session_id=context.session_id
+                    user_id=context.user_id
                 ):
                     # Check if it's the result marker or SSE event
                     if isinstance(event, tuple) and event[0] == "__result__":
@@ -373,7 +372,7 @@ class BaseAgent(ABC):
                 tools = tool_registry.get_openai_tools(tool_names=tool_names)
                 
                 # Create LLM handler for this call
-                llm_handler = LLMHandler(session_id=context.session_id)
+                llm_handler = LLMHandler(user_id=context.user_id)
                 
                 # Prepare LiteLLM kwargs
                 llm_kwargs = llm_config.to_litellm_kwargs()
@@ -413,11 +412,10 @@ class BaseAgent(ABC):
                         func_args = json.loads(tc.function.arguments)
                         
                         result = await tool_runner.execute(
-                            tool_name=func_name,
-                            arguments=func_args,
-                            session_id=context.session_id,
-                            user_id=context.user_id,
-                            resource_manager=context.resource_manager,
+                        tool_name=func_name,
+                        arguments=func_args,
+                        user_id=context.user_id,
+                        resource_manager=context.resource_manager,
                             chat_id=context.chat_id
                         )
                         

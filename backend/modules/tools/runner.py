@@ -20,7 +20,7 @@ class ToolRunner:
     Responsibilities:
     - Execute tools from the registry
     - Handle errors gracefully
-    - Manage context (session_id, user_id, etc.)
+    - Manage context (user_id, etc.)
     - Log execution for debugging
     """
     
@@ -38,7 +38,6 @@ class ToolRunner:
         tool_name: str,
         arguments: Dict[str, Any],
         context: Optional[ToolContext] = None,
-        session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         stream_handler: Optional[ToolStreamHandler] = None,
         resource_manager: Optional[Any] = None,
@@ -51,7 +50,6 @@ class ToolRunner:
             tool_name: Name of the tool to execute
             arguments: Arguments from LLM (keyword args for the function)
             context: Pre-built context (if provided, ignores other parameters)
-            session_id: User session ID (if context not provided)
             user_id: User ID (if context not provided)
             stream_handler: Optional stream handler for tool progress updates
             resource_manager: Optional resource manager for accessing/registering resources
@@ -69,7 +67,6 @@ class ToolRunner:
         # Build context if not provided
         if context is None:
             context = ToolContext(
-                session_id=session_id,
                 user_id=user_id,
                 stream_handler=stream_handler,
                 resource_manager=resource_manager,
@@ -182,7 +179,6 @@ class ToolRunner:
         self,
         tool_calls: list[Dict[str, Any]],
         context: Optional[ToolContext] = None,
-        session_id: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> list[Dict[str, Any]]:
         """
@@ -195,7 +191,6 @@ class ToolRunner:
                     {"tool_name": "create_chart", "arguments": {...}}
                 ]
             context: Pre-built context
-            session_id: User session ID
             user_id: User ID
         
         Returns:
@@ -208,7 +203,6 @@ class ToolRunner:
                 tool_name=tool_call["tool_name"],
                 arguments=tool_call.get("arguments", {}),
                 context=context,
-                session_id=session_id,
                 user_id=user_id
             )
             results.append(result)

@@ -21,18 +21,18 @@ class LLMHandler:
     Handler for LLM API calls with optional debug logging.
     
     When DEBUG_LLM_CALLS=true, saves all requests and responses to:
-        resources/<session_id>/<timestamp>_<call_number>_request.txt
-        resources/<session_id>/<timestamp>_<call_number>_response.txt
+        resources/<user_id>/<timestamp>_<call_number>_request.txt
+        resources/<user_id>/<timestamp>_<call_number>_response.txt
     """
     
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, user_id: Optional[str] = None):
         """
         Initialize LLM handler
         
         Args:
-            session_id: Session/chat ID for organizing debug logs
+            user_id: User ID for organizing debug logs
         """
-        self.session_id = session_id or "unknown"
+        self.user_id = user_id or "unknown"
         self.call_counter = 0
         self.debug_enabled = Config.DEBUG_LLM_CALLS
         
@@ -40,7 +40,7 @@ class LLMHandler:
         if self.debug_enabled:
             # Get the backend directory (where this module is located)
             backend_dir = Path(__file__).parent.parent.parent
-            self.debug_dir = backend_dir / "resources" / self.session_id
+            self.debug_dir = backend_dir / "resources" / self.user_id
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             print(f"🐛 Debug mode enabled. Logging LLM calls to: {self.debug_dir}", flush=True)
     
@@ -119,7 +119,7 @@ class LLMHandler:
             with open(request_file, "w") as f:
                 f.write("=" * 80 + "\n")
                 f.write(f"LLM REQUEST #{call_num}\n")
-                f.write(f"Session: {self.session_id}\n")
+                f.write(f"User: {self.user_id}\n")
                 f.write(f"Timestamp: {timestamp}\n")
                 f.write("=" * 80 + "\n\n")
                 
@@ -178,7 +178,7 @@ class LLMHandler:
             with open(response_file, "w") as f:
                 f.write("=" * 80 + "\n")
                 f.write(f"LLM RESPONSE #{call_num}\n")
-                f.write(f"Session: {self.session_id}\n")
+                f.write(f"User: {self.user_id}\n")
                 f.write(f"Timestamp: {timestamp}\n")
                 f.write("=" * 80 + "\n\n")
                 
@@ -228,7 +228,7 @@ class LLMHandler:
             with open(response_file, "w") as f:
                 f.write("=" * 80 + "\n")
                 f.write(f"LLM RESPONSE #{call_num} (STREAMING)\n")
-                f.write(f"Session: {self.session_id}\n")
+                f.write(f"User: {self.user_id}\n")
                 f.write(f"Timestamp: {timestamp}\n")
                 f.write("=" * 80 + "\n\n")
                 

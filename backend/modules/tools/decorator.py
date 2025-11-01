@@ -39,7 +39,7 @@ def tool(
     - All other parameters will be exposed to the LLM in the tool schema
     
     Security Note:
-    - The 'context' parameter contains session_id, user_id, and other secure data
+    - The 'context' parameter contains user_id, and other secure data
     - It is passed by the tool executor, NOT by the LLM
     - It never appears in the OpenAI tool schema
     

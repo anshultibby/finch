@@ -72,14 +72,14 @@ def get_portfolio(
     context: ToolContext
 ) -> Dict[str, Any]:
     """Get user's portfolio holdings"""
-    if not context.session_id:
+    if not context.user_id:
         return {
             "success": False,
-            "message": "Session ID required",
+            "message": "User ID required",
             "needs_auth": True
         }
     
-    return snaptrade_tools.get_portfolio(session_id=context.session_id)
+    return snaptrade_tools.get_portfolio(user_id=context.user_id)
 
 
 @tool(
@@ -812,7 +812,6 @@ async def analyze_financials(
         # Create agent context for financial metrics agent
         from modules.agent.context import AgentContext
         metrics_context = AgentContext(
-            session_id=context.session_id,
             user_id=context.user_id,
             chat_id=context.chat_id,
             resource_manager=context.resource_manager
@@ -916,7 +915,6 @@ async def create_plot(
         # Create agent context for plotting agent
         from modules.agent.context import AgentContext
         plotting_context = AgentContext(
-            session_id=context.session_id,
             user_id=context.user_id,
             chat_id=context.chat_id,
             resource_manager=context.resource_manager

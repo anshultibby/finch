@@ -5,6 +5,7 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import ResourcesSidebar from './ResourcesSidebar';
 import ResourceViewer from './ResourceViewer';
+import ProfileDropdown from './ProfileDropdown';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   chatApi, 
@@ -19,7 +20,7 @@ import {
 } from '@/lib/api';
 
 export default function ChatContainer() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatId, setChatId] = useState<string | null>(null); // Per-session - for chat history
   const [isLoading, setIsLoading] = useState(false);
@@ -485,21 +486,10 @@ export default function ChatContainer() {
             </button>
           )}
           
-          {/* User Profile & Sign Out */}
-          {user && (
-            <div className="flex items-center gap-3 border-l pl-3 ml-3">
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">{user.email}</p>
-              </div>
-              <button
-                onClick={signOut}
-                className="text-sm text-gray-600 hover:text-red-600 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
-                title="Sign out"
-              >
-                🚪
-              </button>
-            </div>
-          )}
+          {/* Profile Dropdown */}
+          <div className="border-l pl-3 ml-3">
+            <ProfileDropdown />
+          </div>
         </div>
       </div>
 
