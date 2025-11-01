@@ -9,8 +9,9 @@ import io
 import pandas as pd
 from .agent import ChatAgent
 from .context_manager import context_manager
-from database import SessionLocal
+from database import SessionLocal, AsyncSessionLocal
 from crud import chat as chat_crud
+from crud import chat_async
 from crud import resource as resource_crud
 from models.sse import SSEEvent, ToolCallCompleteEvent
 
@@ -38,16 +39,30 @@ class ChatService:
         Yields:
             SSE formatted strings (event: <type>\\ndata: <json>\\n\\n)
         """
-        db = SessionLocal()
-        try:
-            # Ensure chat exists
-            db_chat = chat_crud.get_chat(db, chat_id)
+        async with AsyncSessionLocal() as db:
+            # Ensure chat exists and get history in parallel
+            db_chat = await chat_async.get_chat(db, chat_id)
             if not db_chat:
                 # Create new chat
-                chat_crud.create_chat(db, chat_id, user_id)
+                await chat_async.create_chat(db, chat_id, user_id)
             
             # Get existing chat history
-            db_messages = chat_crud.get_chat_messages(db, chat_id)
+            db_messages = await chat_async.get_chat_messages(db, chat_id)
+            
+            # Get context for this user (using user_id for SnapTrade)
+            context = context_manager.get_all_context(user_id)
+            
+            # Save user message FIRST before streaming (non-blocking)
+            start_sequence = len(db_messages)
+            await chat_async.create_message(
+                db=db,
+                chat_id=chat_id,
+                role="user",
+                content=message,
+                sequence=start_sequence
+            )
+            
+            # Process chat history (fast in-memory operation)
             chat_history = []
             for msg in db_messages:
                 # Reconstruct message from database columns (OpenAI format)
@@ -72,20 +87,6 @@ class ChatService:
                 
                 chat_history.append(message_dict)
             
-            # Get context for this user (using user_id for SnapTrade)
-            context = context_manager.get_all_context(user_id)
-            
-            # Save user message FIRST before streaming
-            start_sequence = len(db_messages)
-            chat_crud.create_message(
-                db=db,
-                chat_id=chat_id,
-                role="user",
-                content=message,
-                sequence=start_sequence
-            )
-            print(f"💾 Saved user message to database", flush=True)
-            
             # Stream events from agent
             async for event in self.agent.process_message_stream(
                 message=message,
@@ -103,45 +104,47 @@ class ChatService:
             # Get tool call information for resource creation
             tool_calls_info = self.agent.get_tool_calls_info()
             
-            # Create resources for each successful tool call
+            # Create resources for each successful tool call (sync for now, not on critical path)
+            # TODO: Convert resource CRUD to async as well
             tool_call_to_resource = {}
-            for tool_call_info in tool_calls_info:
-                if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
-                    result_data = tool_call_info["result_data"]
-                    
-                    # Determine resource type and title based on tool name
-                    resource_type, title = self._get_resource_metadata(
-                        tool_call_info["tool_name"],
-                        tool_call_info.get("arguments", {}),
-                        result_data
-                    )
-                    
-                    # Extract core table data from wrapped structures
-                    table_data = self._extract_table_data(result_data)
-                    
-                    # Create resource
-                    resource = resource_crud.create_resource(
-                        db=db,
-                        chat_id=chat_id,
-                        user_id=user_id,
-                        tool_name=tool_call_info["tool_name"],
-                        resource_type=resource_type,
-                        title=title,
-                        data=table_data,
-                        resource_metadata={
-                            "parameters": tool_call_info.get("arguments", {}),
-                            "tool_call_id": tool_call_info["tool_call_id"],
-                            "original_success": result_data.get("success"),
-                            "data_source": result_data.get("data_source"),
-                            "total_count": result_data.get("total_count") or result_data.get("total_tickers")
-                        }
-                    )
-                    
-                    # Map tool_call_id to resource_id
-                    tool_call_to_resource[tool_call_info["tool_call_id"]] = resource.id
-                    print(f"📊 Created resource {resource.id} for tool call {tool_call_info['tool_call_id']}", flush=True)
+            with SessionLocal() as sync_db:
+                for tool_call_info in tool_calls_info:
+                    if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
+                        result_data = tool_call_info["result_data"]
+                        
+                        # Determine resource type and title based on tool name
+                        resource_type, title = self._get_resource_metadata(
+                            tool_call_info["tool_name"],
+                            tool_call_info.get("arguments", {}),
+                            result_data
+                        )
+                        
+                        # Extract core table data from wrapped structures
+                        table_data = self._extract_table_data(result_data)
+                        
+                        # Create resource
+                        resource = resource_crud.create_resource(
+                            db=sync_db,
+                            chat_id=chat_id,
+                            user_id=user_id,
+                            tool_name=tool_call_info["tool_name"],
+                            resource_type=resource_type,
+                            title=title,
+                            data=table_data,
+                            resource_metadata={
+                                "parameters": tool_call_info.get("arguments", {}),
+                                "tool_call_id": tool_call_info["tool_call_id"],
+                                "original_success": result_data.get("success"),
+                                "data_source": result_data.get("data_source"),
+                                "total_count": result_data.get("total_count") or result_data.get("total_tickers")
+                            }
+                        )
+                        
+                        # Map tool_call_id to resource_id
+                        tool_call_to_resource[tool_call_info["tool_call_id"]] = resource.id
+                        print(f"📊 Created resource {resource.id} for tool call {tool_call_info['tool_call_id']}", flush=True)
             
-            # Save messages with proper sequencing (start after user message)
+            # Save messages with proper sequencing (start after user message) - async
             sequence = start_sequence + 1
             
             for msg in new_messages:
@@ -156,7 +159,7 @@ class ChatService:
                 if role == "tool" and tool_call_id:
                     resource_id = tool_call_to_resource.get(tool_call_id)
                 
-                chat_crud.create_message(
+                await chat_async.create_message(
                     db=db,
                     chat_id=chat_id,
                     role=role,
@@ -170,9 +173,6 @@ class ChatService:
                 sequence += 1
             
             print(f"✅ Saved conversation history", flush=True)
-            
-        finally:
-            db.close()
     
     def _extract_table_data(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
         """

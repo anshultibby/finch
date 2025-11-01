@@ -11,6 +11,8 @@ snaptrade-python-sdk==11.0.142
 sqlalchemy==2.0.36
 alembic==1.13.0
 psycopg2-binary==2.9.11
+asyncpg==0.29.0  # Async PostgreSQL driver
+greenlet==3.0.3  # Required for SQLAlchemy async
 
 # Encryption
 cryptography==43.0.3
