@@ -9,7 +9,7 @@ from database import Base
 
 class SnapTradeUser(Base):
     """
-    Stores SnapTrade user connections per session
+    Stores SnapTrade user connections per user
     
     SnapTrade handles OAuth authentication, but we need to store the userSecret
     that SnapTrade generates for each user so we can make API calls on their behalf.
@@ -17,12 +17,12 @@ class SnapTradeUser(Base):
     SECURITY:
     - userSecret is sensitive and should be treated like a password
     - OAuth flow handled by SnapTrade
-    - We store user_id, userSecret, and account references
+    - We store user_id (Supabase UUID), userSecret, and account references
     """
     __tablename__ = "snaptrade_users"
     
-    # Primary key (our session ID)
-    session_id = Column(String, primary_key=True, index=True)
+    # Primary key (Supabase user ID from OAuth)
+    user_id = Column(String, primary_key=True, index=True)
     
     # SnapTrade user ID (returned after registering user with SnapTrade)
     snaptrade_user_id = Column(String, unique=True, nullable=False, index=True)
@@ -43,7 +43,7 @@ class SnapTradeUser(Base):
     last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<SnapTradeUser(session_id='{self.session_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected})>"
+        return f"<SnapTradeUser(user_id='{self.user_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected})>"
 
 
 class Chat(Base):

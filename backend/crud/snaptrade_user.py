@@ -9,7 +9,7 @@ from models.db import SnapTradeUser
 
 def create_user(
     db: Session,
-    session_id: str,
+    user_id: str,
     snaptrade_user_id: str,
     snaptrade_user_secret: str,
 ) -> SnapTradeUser:
@@ -18,7 +18,7 @@ def create_user(
     
     Args:
         db: Database session
-        session_id: User session identifier
+        user_id: User identifier (Supabase UUID)
         snaptrade_user_id: SnapTrade user ID returned from registration
         snaptrade_user_secret: SnapTrade user secret returned from registration
     
@@ -26,7 +26,7 @@ def create_user(
         Created SnapTradeUser
     """
     db_user = SnapTradeUser(
-        session_id=session_id,
+        user_id=user_id,
         snaptrade_user_id=snaptrade_user_id,
         snaptrade_user_secret=snaptrade_user_secret,
         is_connected=False
@@ -38,10 +38,10 @@ def create_user(
     return db_user
 
 
-def get_user_by_session(db: Session, session_id: str) -> Optional[SnapTradeUser]:
-    """Get a SnapTrade user by session_id"""
+def get_user_by_id(db: Session, user_id: str) -> Optional[SnapTradeUser]:
+    """Get a SnapTrade user by user_id"""
     return db.query(SnapTradeUser).filter(
-        SnapTradeUser.session_id == session_id
+        SnapTradeUser.user_id == user_id
     ).first()
 
 
@@ -54,13 +54,13 @@ def get_user_by_snaptrade_id(db: Session, snaptrade_user_id: str) -> Optional[Sn
 
 def update_connection_status(
     db: Session,
-    session_id: str,
+    user_id: str,
     is_connected: bool,
     account_ids: Optional[str] = None,
     brokerage_name: Optional[str] = None
 ) -> bool:
     """Update connection status and account info for a user"""
-    user = get_user_by_session(db, session_id)
+    user = get_user_by_id(db, user_id)
     if user:
         user.is_connected = is_connected
         if account_ids is not None:
@@ -73,9 +73,9 @@ def update_connection_status(
     return False
 
 
-def update_activity(db: Session, session_id: str) -> bool:
+def update_activity(db: Session, user_id: str) -> bool:
     """Update last_activity timestamp for a user"""
-    user = get_user_by_session(db, session_id)
+    user = get_user_by_id(db, user_id)
     if user:
         user.last_activity = datetime.utcnow()
         db.commit()
@@ -83,9 +83,9 @@ def update_activity(db: Session, session_id: str) -> bool:
     return False
 
 
-def delete_user(db: Session, session_id: str) -> bool:
+def delete_user(db: Session, user_id: str) -> bool:
     """Delete a SnapTrade user"""
-    user = get_user_by_session(db, session_id)
+    user = get_user_by_id(db, user_id)
     if user:
         db.delete(user)
         db.commit()
@@ -93,9 +93,9 @@ def delete_user(db: Session, session_id: str) -> bool:
     return False
 
 
-def disconnect_user(db: Session, session_id: str) -> bool:
+def disconnect_user(db: Session, user_id: str) -> bool:
     """Mark user as disconnected (soft delete)"""
-    user = get_user_by_session(db, session_id)
+    user = get_user_by_id(db, user_id)
     if user:
         user.is_connected = False
         user.connected_account_ids = None

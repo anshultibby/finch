@@ -24,7 +24,7 @@ async def initiate_connection(request: SnapTradeConnectionRequest):
     """
     try:
         result = snaptrade_tools.get_login_redirect_uri(
-            session_id=request.session_id,
+            user_id=request.user_id,
             redirect_uri=request.redirect_uri
         )
         
@@ -53,7 +53,7 @@ async def handle_callback(request: SnapTradeCallbackRequest):
     """
     try:
         result = snaptrade_tools.handle_connection_callback(
-            session_id=request.session_id
+            user_id=request.user_id
         )
         
         if result["success"]:
@@ -75,13 +75,13 @@ async def handle_callback(request: SnapTradeCallbackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/status/{session_id}", response_model=SnapTradeStatusResponse)
-async def check_connection_status(session_id: str):
+@router.get("/status/{user_id}", response_model=SnapTradeStatusResponse)
+async def check_connection_status(user_id: str):
     """
     Check if user has an active SnapTrade connection
     """
-    print(f"📊 Checking connection status for session: {session_id}", flush=True)
-    is_connected = snaptrade_tools.has_active_connection(session_id)
+    print(f"📊 Checking connection status for user: {user_id}", flush=True)
+    is_connected = snaptrade_tools.has_active_connection(user_id)
     print(f"📊 Connection status result: {is_connected}", flush=True)
     
     response = SnapTradeStatusResponse(
@@ -94,12 +94,12 @@ async def check_connection_status(session_id: str):
     return response
 
 
-@router.delete("/disconnect/{session_id}")
-async def disconnect(session_id: str):
+@router.delete("/disconnect/{user_id}")
+async def disconnect(user_id: str):
     """
-    Disconnect from SnapTrade and clear session
+    Disconnect from SnapTrade and clear user session
     """
-    snaptrade_tools.disconnect(session_id)
+    snaptrade_tools.disconnect(user_id)
     
     return {
         "success": True,

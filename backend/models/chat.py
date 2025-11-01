@@ -8,14 +8,14 @@ from typing import Optional, Literal, List, Dict, Any
 class ChatMessage(BaseModel):
     """Request model for sending a chat message"""
     message: str
-    session_id: Optional[str] = None  # This is actually user_id for backward compatibility
+    user_id: Optional[str] = None  # Supabase user ID
     chat_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
     """Response model for chat messages"""
     response: str
-    session_id: str
+    user_id: str
     timestamp: str
     needs_auth: Optional[bool] = False
     tool_calls: Optional[list] = None  # List of tool call statuses

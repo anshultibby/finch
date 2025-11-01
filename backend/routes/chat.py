@@ -32,7 +32,7 @@ async def send_chat_message_stream(chat_message: ChatMessage):
     """
     try:
         # Validate required fields
-        if not chat_message.session_id:
+        if not chat_message.user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
         if not chat_message.chat_id:
             raise HTTPException(status_code=400, detail="chat_id is required")
@@ -43,7 +43,7 @@ async def send_chat_message_stream(chat_message: ChatMessage):
                 async for sse_data in chat_service.send_message_stream(
                     message=chat_message.message,
                     chat_id=chat_message.chat_id,
-                    user_id=chat_message.session_id
+                    user_id=chat_message.user_id
                 ):
                     # Yield event immediately
                     yield sse_data

@@ -1,13 +1,13 @@
 import ChatContainer from '@/components/ChatContainer';
-import PasswordGate from '@/components/PasswordGate';
+import AuthGate from '@/components/PasswordGate';
 
 export default function Home() {
   return (
-    <PasswordGate>
+    <AuthGate>
       <main className="min-h-screen">
         <ChatContainer />
       </main>
-    </PasswordGate>
+    </AuthGate>
   );
 }
 

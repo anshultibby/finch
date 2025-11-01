@@ -11,7 +11,7 @@ const api = axios.create({
 
 export interface ChatMessage {
   message: string;
-  session_id?: string;  // This is actually user_id
+  user_id?: string;  // Supabase user ID
   chat_id?: string;
 }
 
@@ -25,7 +25,7 @@ export interface ToolCallStatus {
 
 export interface ChatResponse {
   response: string;
-  session_id: string;
+  user_id: string;
   timestamp: string;
   needs_auth?: boolean;
   tool_calls?: ToolCallStatus[];
@@ -97,7 +97,7 @@ export interface ChatHistory {
 }
 
 export interface SnapTradeConnectionRequest {
-  session_id: string;
+  user_id: string;
   redirect_uri: string;
 }
 
@@ -148,7 +148,7 @@ export const chatApi = {
   sendMessage: async (message: string, userId: string, chatId: string): Promise<ChatResponse> => {
     const response = await api.post<ChatResponse>('/chat', {
       message,
-      session_id: userId,  // Using session_id field for user_id
+      user_id: userId,
       chat_id: chatId,
     });
     return response.data;
@@ -179,7 +179,7 @@ export const chatApi = {
       },
       body: JSON.stringify({
         message,
-        session_id: userId,
+        user_id: userId,
         chat_id: chatId,
       }),
       signal: abortController.signal,
@@ -293,28 +293,28 @@ export const chatApi = {
 };
 
 export const snaptradeApi = {
-  initiateConnection: async (sessionId: string, redirectUri: string): Promise<SnapTradeConnectionResponse> => {
+  initiateConnection: async (userId: string, redirectUri: string): Promise<SnapTradeConnectionResponse> => {
     const response = await api.post<SnapTradeConnectionResponse>('/snaptrade/connect', {
-      session_id: sessionId,
+      user_id: userId,
       redirect_uri: redirectUri,
     });
     return response.data;
   },
 
-  handleCallback: async (sessionId: string): Promise<SnapTradeStatusResponse> => {
+  handleCallback: async (userId: string): Promise<SnapTradeStatusResponse> => {
     const response = await api.post<SnapTradeStatusResponse>('/snaptrade/callback', {
-      session_id: sessionId,
+      user_id: userId,
     });
     return response.data;
   },
 
-  checkStatus: async (sessionId: string): Promise<SnapTradeStatusResponse> => {
-    const response = await api.get<SnapTradeStatusResponse>(`/snaptrade/status/${sessionId}`);
+  checkStatus: async (userId: string): Promise<SnapTradeStatusResponse> => {
+    const response = await api.get<SnapTradeStatusResponse>(`/snaptrade/status/${userId}`);
     return response.data;
   },
 
-  disconnect: async (sessionId: string): Promise<void> => {
-    await api.delete(`/snaptrade/disconnect/${sessionId}`);
+  disconnect: async (userId: string): Promise<void> => {
+    await api.delete(`/snaptrade/disconnect/${userId}`);
   },
 };
 

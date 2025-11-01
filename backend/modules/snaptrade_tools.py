@@ -55,16 +55,16 @@ class SnapTradeTools:
         # Cache sessions in memory for performance (but also persist to DB)
         self._sessions: Dict[str, SnapTradeSession] = {}
     
-    def _get_session(self, session_id: str) -> Optional[SnapTradeSession]:
+    def _get_session(self, user_id: str) -> Optional[SnapTradeSession]:
         """Get session from cache or database"""
         # Check cache first
-        if session_id in self._sessions:
-            return self._sessions[session_id]
+        if user_id in self._sessions:
+            return self._sessions[user_id]
         
         # Load from database
         db = SessionLocal()
         try:
-            db_user = snaptrade_crud.get_user_by_session(db, session_id)
+            db_user = snaptrade_crud.get_user_by_id(db, user_id)
             if db_user and db_user.snaptrade_user_secret:
                 # Restore to cache
                 session = SnapTradeSession(
@@ -74,25 +74,25 @@ class SnapTradeTools:
                     last_activity=db_user.last_activity.isoformat(),
                     account_ids=db_user.connected_account_ids.split(',') if db_user.connected_account_ids else []
                 )
-                self._sessions[session_id] = session
-                print(f"✅ Loaded session from database: {session_id}", flush=True)
+                self._sessions[user_id] = session
+                print(f"✅ Loaded session from database: {user_id}", flush=True)
                 return session
         finally:
             db.close()
         
         return None
     
-    def _save_session(self, session_id: str, session: SnapTradeSession):
+    def _save_session(self, user_id: str, session: SnapTradeSession):
         """Save session to both cache and database"""
-        print(f"💾 Saving session: {session_id}, is_connected={session.is_connected}", flush=True)
+        print(f"💾 Saving session: {user_id}, is_connected={session.is_connected}", flush=True)
         
         # Update cache
-        self._sessions[session_id] = session
+        self._sessions[user_id] = session
         
         # Save to database
         db = SessionLocal()
         try:
-            db_user = snaptrade_crud.get_user_by_session(db, session_id)
+            db_user = snaptrade_crud.get_user_by_id(db, user_id)
             if db_user:
                 # Update existing
                 print(f"💾 Updating existing user in DB, setting is_connected={session.is_connected}", flush=True)
@@ -107,7 +107,7 @@ class SnapTradeTools:
                 print(f"💾 Creating new user in DB", flush=True)
                 snaptrade_crud.create_user(
                     db=db,
-                    session_id=session_id,
+                    user_id=user_id,
                     snaptrade_user_id=session.snaptrade_user_id,
                     snaptrade_user_secret=session.snaptrade_user_secret
                 )
@@ -115,7 +115,7 @@ class SnapTradeTools:
                     print(f"💾 Updating connection status to True", flush=True)
                     snaptrade_crud.update_connection_status(
                         db=db,
-                        session_id=session_id,
+                        user_id=user_id,
                         is_connected=True,
                         account_ids=','.join(session.account_ids)
                     )

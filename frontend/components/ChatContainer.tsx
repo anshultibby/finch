@@ -5,6 +5,7 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import ResourcesSidebar from './ResourcesSidebar';
 import ResourceViewer from './ResourceViewer';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   chatApi, 
   snaptradeApi, 
@@ -18,8 +19,8 @@ import {
 } from '@/lib/api';
 
 export default function ChatContainer() {
+  const { user, signOut } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
-  const [userId, setUserId] = useState<string | null>(null); // Persistent - for brokerage connection
   const [chatId, setChatId] = useState<string | null>(null); // Per-session - for chat history
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +35,9 @@ export default function ChatContainer() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Use Supabase user ID
+  const userId = user?.id || null;
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -42,20 +46,14 @@ export default function ChatContainer() {
     scrollToBottom();
   }, [messages]);
 
-  // Initialize user ID (persistent - for brokerage) and chat ID (new each time - for chat history)
+  // Initialize chat ID (new each time - for chat history)
   useEffect(() => {
-    // Get or create persistent user ID for brokerage connection
-    let existingUserId = localStorage.getItem('finch_user_id');
-    if (!existingUserId) {
-      existingUserId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('finch_user_id', existingUserId);
-    }
-    setUserId(existingUserId);
+    if (!userId) return;
     
     // Create new chat ID for this conversation (resets on page refresh)
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setChatId(newChatId);
-  }, []);
+  }, [userId]);
 
   // Load resources when chat ID changes
   useEffect(() => {
@@ -391,17 +389,8 @@ export default function ChatContainer() {
         
         // Check if we need a new user session
         if (response.message?.includes('refresh the page') || response.message?.includes('new session')) {
-          setError(response.message);
-          // Clear the old user and generate a new one
-          localStorage.removeItem('finch_user_id');
-          const newUserId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          setUserId(newUserId);
-          localStorage.setItem('finch_user_id', newUserId);
+          setError('Session error. Please sign out and sign back in.');
           setIsConnecting(false);
-          // Prompt user to try again
-          setTimeout(() => {
-            setError('New user session created. Please click "Connect Brokerage" again.');
-          }, 100);
         } else {
           setError(response.message || 'Failed to initiate connection');
           setIsConnecting(false);
@@ -494,6 +483,22 @@ export default function ChatContainer() {
             >
               Clear Chat
             </button>
+          )}
+          
+          {/* User Profile & Sign Out */}
+          {user && (
+            <div className="flex items-center gap-3 border-l pl-3 ml-3">
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900">{user.email}</p>
+              </div>
+              <button
+                onClick={signOut}
+                className="text-sm text-gray-600 hover:text-red-600 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Sign out"
+              >
+                🚪
+              </button>
+            </div>
           )}
         </div>
       </div>

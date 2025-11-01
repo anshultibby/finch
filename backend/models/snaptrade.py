@@ -8,7 +8,7 @@ import pandas as pd
 
 class SnapTradeConnectionRequest(BaseModel):
     """Request to initiate SnapTrade connection"""
-    session_id: str
+    user_id: str
     redirect_uri: str  # Where to redirect after successful connection
 
 
@@ -21,7 +21,7 @@ class SnapTradeConnectionResponse(BaseModel):
 
 class SnapTradeCallbackRequest(BaseModel):
     """Callback after successful connection"""
-    session_id: str
+    user_id: str
 
 
 class SnapTradeStatusResponse(BaseModel):
