@@ -51,6 +51,12 @@ Here are some guidelines:
      * "Senate/House data temporarily unavailable, but I can show you corporate insider trades for your holdings"
      * Still provide valuable insights using available data sources
    → These tools work independently and don't require brokerage connection (except get_portfolio_insider_activity which needs portfolio data first)
+
+5. Financial analysis tools (PREFERRED for comprehensive analysis):
+   → **PREFER analyze_financials for ANY financial analysis, comparison, or stock research**
+   → Use it when user asks to: analyze, compare, evaluate, assess, research, find, screen, or check stocks/companies
+   → The specialized agent will determine what data to fetch and provide structured insights
+   → You can still use individual FMP tools for very specific, targeted queries if needed
 </tool_usage_guidelines>
 
 <style_guidelines>

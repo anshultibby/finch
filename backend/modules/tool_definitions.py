@@ -17,13 +17,53 @@ from modules.agent.financial_metrics_agent import financial_metrics_agent
 # Import plotting tools (for sub-agent)
 from modules.plotting_tools import create_chart
 
+# Import tool descriptions
+from modules.tool_descriptions import (
+    # Portfolio
+    GET_PORTFOLIO_DESC, REQUEST_BROKERAGE_CONNECTION_DESC,
+    # Reddit sentiment
+    GET_REDDIT_TRENDING_DESC, GET_REDDIT_TICKER_SENTIMENT_DESC, COMPARE_REDDIT_SENTIMENT_DESC,
+    # Insider trading
+    GET_SENATE_TRADES_DESC, GET_HOUSE_TRADES_DESC, GET_INSIDER_TRADES_DESC,
+    SEARCH_TICKER_INSIDER_DESC, GET_PORTFOLIO_INSIDER_DESC, GET_INSIDER_STATISTICS_DESC,
+    SEARCH_INSIDER_TRADES_DESC,
+    # Financial metrics
+    GET_COMPANY_PROFILE_DESC, GET_INCOME_STATEMENT_DESC, GET_BALANCE_SHEET_DESC,
+    GET_CASH_FLOW_DESC, GET_KEY_METRICS_DESC, GET_FINANCIAL_RATIOS_DESC,
+    GET_FINANCIAL_GROWTH_DESC, GET_QUOTE_DESC, GET_HISTORICAL_PRICES_DESC,
+    GET_ANALYST_RECOMMENDATIONS_DESC,
+    # Screening & search
+    SCREEN_STOCKS_DESC,
+    # Market movers
+    GET_TOP_GAINERS_DESC, GET_TOP_LOSERS_DESC, GET_MOST_ACTIVE_DESC,
+    GET_SECTOR_PERFORMANCE_DESC,
+    # News
+    GET_STOCK_NEWS_DESC,
+    # ETF
+    GET_ETF_HOLDINGS_DESC, GET_ETF_INFO_DESC,
+    # Corporate events
+    GET_EARNINGS_CALENDAR_DESC, GET_DIVIDENDS_CALENDAR_DESC,
+    # Analyst data
+    GET_PRICE_TARGET_DESC, GET_UPGRADES_DOWNGRADES_DESC,
+    # Comparisons
+    GET_PEER_COMPANIES_DESC,
+    # ESG
+    GET_ESG_SCORES_DESC,
+    # SEC filings
+    GET_SEC_FILINGS_DESC,
+    # Financial analysis agent
+    ANALYZE_FINANCIALS_DESC,
+    # Visualization
+    CREATE_PLOT_DESC
+)
+
 
 # ============================================================================
 # PORTFOLIO TOOLS (SnapTrade)
 # ============================================================================
 
 @tool(
-    description="Fetch the user's current brokerage portfolio holdings (Robinhood, TD Ameritrade, etc.), including stocks they own, quantities, current prices, and total value. Returns data in efficient CSV format: holdings_csv contains all unique positions aggregated across accounts. ALWAYS call this tool first when the user asks about their portfolio, stocks, holdings, or account value. This tool will automatically handle authentication - if the user isn't connected, it will tell you to request connection. Do not guess or assume - call this tool to check.",
+    description=GET_PORTFOLIO_DESC,
     category="portfolio",
     requires_auth=True
 )
@@ -43,7 +83,7 @@ def get_portfolio(
 
 
 @tool(
-    description="Request the user to connect their brokerage account via SnapTrade. ONLY use this tool if get_portfolio returns an authentication error. Do NOT call this proactively - always try get_portfolio first.",
+    description=REQUEST_BROKERAGE_CONNECTION_DESC,
     category="portfolio",
     requires_auth=False
 )
@@ -65,7 +105,7 @@ def request_brokerage_connection(
 # ============================================================================
 
 @tool(
-    description="Get the most talked about and trending stocks from Reddit communities like r/wallstreetbets, r/stocks, and r/investing. Shows current mentions, upvotes, and ranking. Use this when user asks about what's popular/trending on Reddit, what stocks Reddit is talking about, or meme stocks.",
+    description=GET_REDDIT_TRENDING_DESC,
     category="reddit_sentiment"
 )
 async def get_reddit_trending_stocks(
@@ -83,7 +123,7 @@ async def get_reddit_trending_stocks(
 
 
 @tool(
-    description="Get Reddit sentiment and mentions for a specific stock ticker. Shows how many times it's been mentioned, upvotes, rank, and 24h change. Use this when user asks about Reddit sentiment for a specific stock.",
+    description=GET_REDDIT_TICKER_SENTIMENT_DESC,
     category="reddit_sentiment"
 )
 async def get_reddit_ticker_sentiment(
@@ -101,7 +141,7 @@ async def get_reddit_ticker_sentiment(
 
 
 @tool(
-    description="Compare Reddit sentiment for multiple stock tickers. Shows which stocks are more popular on Reddit. Use this when user wants to compare multiple stocks or asks which one Reddit prefers.",
+    description=COMPARE_REDDIT_SENTIMENT_DESC,
     category="reddit_sentiment"
 )
 async def compare_reddit_sentiment(
@@ -123,7 +163,7 @@ async def compare_reddit_sentiment(
 # ============================================================================
 
 @tool(
-    description="Get recent stock trading disclosures from U.S. Senators. Shows what stocks senators are buying and selling. Use when user asks about Senate trades, congressional trades, or what politicians are buying.",
+    description=GET_SENATE_TRADES_DESC,
     category="insider_trading"
 )
 async def get_recent_senate_trades(
@@ -141,7 +181,7 @@ async def get_recent_senate_trades(
 
 
 @tool(
-    description="Get recent stock trading disclosures from U.S. House Representatives. Shows what stocks house members are buying and selling. Use when user asks about House trades or congressional activity.",
+    description=GET_HOUSE_TRADES_DESC,
     category="insider_trading"
 )
 async def get_recent_house_trades(
@@ -159,7 +199,7 @@ async def get_recent_house_trades(
 
 
 @tool(
-    description="Get recent corporate insider trades (SEC Form 4 filings). Shows what company executives, directors, and major shareholders are buying and selling. Use when user asks about insider trades, insider buying/selling, or Form 4 filings.",
+    description=GET_INSIDER_TRADES_DESC,
     category="insider_trading"
 )
 async def get_recent_insider_trades(
@@ -177,7 +217,7 @@ async def get_recent_insider_trades(
 
 
 @tool(
-    description="Search for all insider trading activity (Senate, House, and corporate insiders) for a specific stock ticker. Use when user asks about insider activity for a particular stock.",
+    description=SEARCH_TICKER_INSIDER_DESC,
     category="insider_trading"
 )
 async def search_ticker_insider_activity(
@@ -197,7 +237,7 @@ async def search_ticker_insider_activity(
 
 
 @tool(
-    description="Get insider trading activity for stocks in the user's portfolio. Shows which portfolio stocks have recent insider/congressional activity. REQUIRES get_portfolio to be called first to get the list of tickers.",
+    description=GET_PORTFOLIO_INSIDER_DESC,
     category="insider_trading",
     requires_auth=True
 )
@@ -223,7 +263,7 @@ async def get_portfolio_insider_activity(
 
 
 @tool(
-    description="Get quarterly aggregated insider trading statistics for a specific stock. Shows historical trends of insider buying vs selling over time, including buy/sell ratios, average transaction sizes, and patterns. Useful for analyzing long-term insider sentiment.",
+    description=GET_INSIDER_STATISTICS_DESC,
     category="insider_trading"
 )
 async def get_insider_trading_statistics(
@@ -241,7 +281,7 @@ async def get_insider_trading_statistics(
 
 
 @tool(
-    description="Search insider trades with advanced filters. Filter by specific stock, insider CIK, company CIK, or transaction type (P-Purchase, S-Sale, A-Award, etc.). Useful for finding specific patterns or tracking particular insiders.",
+    description=SEARCH_INSIDER_TRADES_DESC,
     category="insider_trading"
 )
 async def search_insider_trades(
@@ -280,7 +320,7 @@ async def search_insider_trades(
 # ============================================================================
 
 @tool(
-    description="Get comprehensive company profile and information including CEO, industry, sector, market cap, description, and key details. Use this when user asks about basic company information or wants to know about a company.",
+    description=GET_COMPANY_PROFILE_DESC,
     category="financial_metrics"
 )
 async def get_company_profile(
@@ -298,7 +338,7 @@ async def get_company_profile(
 
 
 @tool(
-    description="Get income statement data (revenue, expenses, net income, EPS, etc.) for a stock. Shows profitability and operating performance over time. Use when analyzing revenue, profitability, or earnings.",
+    description=GET_INCOME_STATEMENT_DESC,
     category="financial_metrics"
 )
 async def get_income_statement(
@@ -320,7 +360,7 @@ async def get_income_statement(
 
 
 @tool(
-    description="Get balance sheet data (assets, liabilities, equity, debt, cash, etc.) for a stock. Shows financial position and capital structure. Use when analyzing financial health, debt levels, or asset base.",
+    description=GET_BALANCE_SHEET_DESC,
     category="financial_metrics"
 )
 async def get_balance_sheet(
@@ -342,7 +382,7 @@ async def get_balance_sheet(
 
 
 @tool(
-    description="Get cash flow statement data (operating CF, investing CF, financing CF, free cash flow, CapEx) for a stock. Shows how the company generates and uses cash. Use when analyzing cash generation, FCF, or capital allocation.",
+    description=GET_CASH_FLOW_DESC,
     category="financial_metrics"
 )
 async def get_cash_flow_statement(
@@ -364,7 +404,7 @@ async def get_cash_flow_statement(
 
 
 @tool(
-    description="Get key metrics and valuation ratios (P/E, P/B, EV/EBITDA, ROE, ROA, debt ratios, FCF yield, dividend yield, etc.). Shows valuation and performance metrics. Use when analyzing valuation or comparing stocks.",
+    description=GET_KEY_METRICS_DESC,
     category="financial_metrics"
 )
 async def get_key_metrics(
@@ -386,7 +426,7 @@ async def get_key_metrics(
 
 
 @tool(
-    description="Get financial ratios (liquidity, profitability, leverage, efficiency ratios). Includes current ratio, quick ratio, ROE, ROA, debt/equity, profit margins, asset turnover, etc. Use when analyzing financial health or operational efficiency.",
+    description=GET_FINANCIAL_RATIOS_DESC,
     category="financial_metrics"
 )
 async def get_financial_ratios(
@@ -408,7 +448,7 @@ async def get_financial_ratios(
 
 
 @tool(
-    description="Get financial growth metrics (revenue growth, earnings growth, EPS growth, FCF growth, etc.) over time. Shows growth trends and rates. Use when analyzing growth or comparing growth rates.",
+    description=GET_FINANCIAL_GROWTH_DESC,
     category="financial_metrics"
 )
 async def get_financial_growth(
@@ -430,7 +470,7 @@ async def get_financial_growth(
 
 
 @tool(
-    description="Get real-time stock quote (current price, change, volume, day high/low, 52-week high/low, market cap, P/E, moving averages). Use when user asks for current stock price or market data.",
+    description=GET_QUOTE_DESC,
     category="financial_metrics"
 )
 async def get_quote(
@@ -448,7 +488,7 @@ async def get_quote(
 
 
 @tool(
-    description="Get historical stock prices (OHLCV data) for technical analysis or price trends. Returns daily prices with open, high, low, close, and volume. Use when analyzing price history or creating price charts.",
+    description=GET_HISTORICAL_PRICES_DESC,
     category="financial_metrics"
 )
 async def get_historical_prices(
@@ -472,7 +512,7 @@ async def get_historical_prices(
 
 
 @tool(
-    description="Get analyst recommendations (strong buy, buy, hold, sell, strong sell ratings) over time. Shows Wall Street consensus. Use when user asks about analyst ratings or what analysts think.",
+    description=GET_ANALYST_RECOMMENDATIONS_DESC,
     category="financial_metrics"
 )
 async def get_analyst_recommendations(
@@ -492,7 +532,7 @@ async def get_analyst_recommendations(
 
 
 @tool(
-    description="Screen stocks based on financial criteria like market cap, price, sector, industry. Find stocks matching specific investment criteria. Use when user wants to find stocks with certain characteristics.",
+    description=SCREEN_STOCKS_DESC,
     category="financial_screening"
 )
 async def screen_stocks(
@@ -505,7 +545,7 @@ async def screen_stocks(
     sector: Optional[str] = None,
     industry: Optional[str] = None,
     country: Optional[str] = None,
-    limit: int = 50
+    limit: int = 30
 ) -> Dict[str, Any]:
     """Screen stocks based on criteria"""
     return await fmp_tools.stock_screener(
@@ -521,7 +561,7 @@ async def screen_stocks(
 
 
 @tool(
-    description="Get biggest stock gainers today. Shows stocks with largest price increases. Use when user asks what stocks are up the most or what's moving.",
+    description=GET_TOP_GAINERS_DESC,
     category="market_movers"
 )
 async def get_top_gainers(
@@ -533,7 +573,7 @@ async def get_top_gainers(
 
 
 @tool(
-    description="Get biggest stock losers today. Shows stocks with largest price decreases. Use when user asks what stocks are down the most.",
+    description=GET_TOP_LOSERS_DESC,
     category="market_movers"
 )
 async def get_top_losers(
@@ -545,7 +585,7 @@ async def get_top_losers(
 
 
 @tool(
-    description="Get most actively traded stocks. Shows stocks with highest trading volume. Use when user asks what stocks are most active or have highest volume.",
+    description=GET_MOST_ACTIVE_DESC,
     category="market_movers"
 )
 async def get_most_active_stocks(
@@ -557,7 +597,7 @@ async def get_most_active_stocks(
 
 
 @tool(
-    description="Get sector performance showing how different market sectors are performing. Use when user asks about sector performance or which sectors are doing well.",
+    description=GET_SECTOR_PERFORMANCE_DESC,
     category="market_performance"
 )
 async def get_sectors_performance(
@@ -569,7 +609,7 @@ async def get_sectors_performance(
 
 
 @tool(
-    description="Get latest stock news articles. Optionally filter by specific symbols. Use when user asks for news about stocks.",
+    description=GET_STOCK_NEWS_DESC,
     category="news"
 )
 async def get_stock_news_articles(
@@ -583,7 +623,7 @@ async def get_stock_news_articles(
 
 
 @tool(
-    description="Get ETF holdings showing what stocks/assets an ETF contains. Use when user asks what's in an ETF or wants to see ETF composition.",
+    description=GET_ETF_HOLDINGS_DESC,
     category="etf_data"
 )
 async def get_etf_holdings_data(
@@ -596,7 +636,7 @@ async def get_etf_holdings_data(
 
 
 @tool(
-    description="Get ETF information including expense ratio, AUM, and other key details. Use when user asks about ETF details or characteristics.",
+    description=GET_ETF_INFO_DESC,
     category="etf_data"
 )
 async def get_etf_information(
@@ -609,7 +649,7 @@ async def get_etf_information(
 
 
 @tool(
-    description="Get earnings calendar showing upcoming earnings announcements. Use when user asks when companies report earnings or wants to see earnings schedule.",
+    description=GET_EARNINGS_CALENDAR_DESC,
     category="corporate_events"
 )
 async def get_earnings_schedule(
@@ -623,7 +663,7 @@ async def get_earnings_schedule(
 
 
 @tool(
-    description="Get dividends calendar showing upcoming dividend payments. Use when user asks about dividend payment dates or dividend schedule.",
+    description=GET_DIVIDENDS_CALENDAR_DESC,
     category="corporate_events"
 )
 async def get_dividends_schedule(
@@ -637,7 +677,7 @@ async def get_dividends_schedule(
 
 
 @tool(
-    description="Get analyst price targets showing where analysts think a stock will trade. Use when user asks about price targets or analyst expectations.",
+    description=GET_PRICE_TARGET_DESC,
     category="analyst_data"
 )
 async def get_analyst_price_targets(
@@ -650,7 +690,7 @@ async def get_analyst_price_targets(
 
 
 @tool(
-    description="Get analyst upgrades and downgrades showing rating changes from Wall Street analysts. Use when user asks about analyst ratings changes or upgrades/downgrades.",
+    description=GET_UPGRADES_DOWNGRADES_DESC,
     category="analyst_data"
 )
 async def get_analyst_rating_changes(
@@ -664,7 +704,7 @@ async def get_analyst_rating_changes(
 
 
 @tool(
-    description="Get peer companies in the same sector and market cap range. Use when user wants to compare a stock to its competitors or find similar companies.",
+    description=GET_PEER_COMPANIES_DESC,
     category="comparisons"
 )
 async def get_peer_companies(
@@ -677,7 +717,7 @@ async def get_peer_companies(
 
 
 @tool(
-    description="Get ESG (Environmental, Social, Governance) scores showing how sustainable/ethical a company is. Use when user asks about ESG, sustainability, or social responsibility.",
+    description=GET_ESG_SCORES_DESC,
     category="esg"
 )
 async def get_esg_scores(
@@ -690,7 +730,7 @@ async def get_esg_scores(
 
 
 @tool(
-    description="Get SEC filings like 10-K, 10-Q, 8-K for regulatory documents. Use when user asks about SEC filings or wants to see official company documents.",
+    description=GET_SEC_FILINGS_DESC,
     category="sec_filings"
 )
 async def get_sec_filing_documents(
@@ -719,23 +759,34 @@ async def get_sec_filing_documents(
 class AnalyzeFinancialsRequest(BaseModel):
     """Request parameters for financial analysis"""
     objective: str = Field(
-        description="Clear description of the financial analysis objective. Examples: 'Analyze AAPL profitability trends', 'Compare TSLA vs F financial health', 'Evaluate MSFT growth metrics'"
+        description="Detailed description of what to analyze. Examples: 'Analyze AAPL profitability trends', 'Compare TSLA vs F', 'Find tech stocks under $100', 'What are today's biggest gainers?', 'Analyze SPY ETF holdings'"
     )
     symbols: List[str] = Field(
-        description="List of stock ticker symbols to analyze (e.g., ['AAPL'], ['TSLA', 'F'])"
+        default_factory=list,
+        description="List of stock ticker symbols to analyze (e.g., ['AAPL'], ['TSLA', 'F']). Can be empty for market screening/search tasks."
     )
     
     class Config:
         json_schema_extra = {
-            "example": {
-                "objective": "Analyze Apple's profitability and cash generation over the past 5 years",
-                "symbols": ["AAPL"]
-            }
+            "examples": [
+                {
+                    "objective": "Analyze Apple's profitability and cash generation over the past 5 years",
+                    "symbols": ["AAPL"]
+                },
+                {
+                    "objective": "Find technology stocks under $50 with market cap over $1B",
+                    "symbols": []
+                },
+                {
+                    "objective": "Show me today's biggest gainers and analyze why they're up",
+                    "symbols": []
+                }
+            ]
         }
 
 
 @tool(
-    description="Delegate to a specialized financial metrics agent to analyze and curate financial data for stocks. This agent will fetch relevant financial statements, ratios, and metrics based on your objective, then provide structured insights and analysis. Use this when user asks for comprehensive financial analysis, comparisons, or evaluation of stocks. The agent will determine which financial data to fetch and provide actionable insights.",
+    description=ANALYZE_FINANCIALS_DESC,
     category="financial_analysis"
 )
 async def analyze_financials(
@@ -745,11 +796,11 @@ async def analyze_financials(
     symbols: List[str]
 ) -> Dict[str, Any]:
     """
-    Analyze financial metrics and fundamentals for stocks
+    Analyze financial metrics and fundamentals for stocks using specialized FMP agent
     
     Args:
-        objective: What you want to analyze (e.g., "Evaluate AAPL profitability", "Compare TSLA vs F growth")
-        symbols: List of ticker symbols to analyze
+        objective: Detailed objective describing what to analyze (e.g., "Analyze Apple's profitability and compare to Microsoft", "Find growth stocks in tech sector")
+        symbols: List of ticker symbols to analyze (can be empty for screening/search tasks)
     """
     try:
         import json
@@ -838,7 +889,7 @@ class CreatePlotRequest(BaseModel):
 
 
 @tool(
-    description="Create an interactive chart or plot with optional trendlines. This tool delegates to a specialized plotting agent that will analyze your data and create the best visualization. Supports line charts, bar charts, scatter plots, and area charts. Can add trendlines (linear, polynomial, exponential, moving average) for analysis. The plot will be saved as a RESOURCE that you can reference in your response. After calling this tool, you can tell the user about the plot that was created and mention they can view it in the resources sidebar. Use this when the user asks to visualize data, show trends, create charts, or compare values graphically.",
+    description=CREATE_PLOT_DESC,
     category="visualization"
 )
 async def create_plot(
