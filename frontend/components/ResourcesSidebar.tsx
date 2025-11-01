@@ -29,6 +29,8 @@ export default function ResourcesSidebar({
 
   const getResourceIcon = (type: string) => {
     switch (type) {
+      case 'plot':
+        return '📈';
       case 'portfolio':
         return '📊';
       case 'reddit_trends':

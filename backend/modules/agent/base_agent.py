@@ -2,14 +2,17 @@
 Base Agent class - reusable agent logic for main and specialized agents
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
-from litellm import acompletion
 import json
+import asyncio
 from datetime import datetime
 from abc import ABC, abstractmethod
 
 from modules.tools import tool_registry, tool_runner, ToolContext
+from modules.resource_manager import ResourceManager
 from models.sse import SSEEvent
 from .llm_config import LLMConfig
+from .llm_handler import LLMHandler
+from .context import AgentContext
 
 
 class BaseAgent(ABC):
@@ -68,13 +71,17 @@ class BaseAgent(ABC):
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
         llm_config: LLMConfig,
-        on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]]
+        on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]],
+        session_id: Optional[str] = None
     ):
         """
         One iteration: Call LLM with streaming and accumulate response
         
         Yields SSE events, then yields final (content, tool_calls) tuple
         """
+        # Create LLM handler for this call
+        llm_handler = LLMHandler(session_id=session_id)
+        
         # Merge tools into LiteLLM kwargs
         llm_kwargs = llm_config.to_litellm_kwargs()
         llm_kwargs["messages"] = messages
@@ -84,7 +91,7 @@ class BaseAgent(ABC):
         if "stream_options" not in llm_kwargs:
             llm_kwargs["stream_options"] = {"include_usage": False}
         
-        stream_response = await acompletion(**llm_kwargs)
+        stream_response = await llm_handler.acompletion(**llm_kwargs)
         
         content = ""
         tool_calls = []
@@ -125,52 +132,78 @@ class BaseAgent(ABC):
     async def _execute_tools_step(
         self,
         tool_calls: List[Dict[str, Any]],
-        session_id: Optional[str],
+        context: AgentContext,
         on_tool_call_start: Optional[Callable[[Dict[str, Any]], AsyncGenerator[SSEEvent, None]]],
         on_tool_call_complete: Optional[Callable[[Dict[str, Any]], AsyncGenerator[SSEEvent, None]]]
     ):
         """
-        One iteration: Execute all tool calls and yield events
+        One iteration: Execute all tool calls in parallel and yield events
         
         Yields SSE events, then yields final tool_messages list
         """
-        tool_messages = []
-        
+        # Parse arguments upfront
+        parsed_calls = []
         for tc in tool_calls:
             func_name = tc["function"]["name"]
             func_args = json.loads(tc["function"]["arguments"])
-            
-            # Notify tool call start
-            if on_tool_call_start:
+            parsed_calls.append({
+                "id": tc["id"],
+                "name": func_name,
+                "args": func_args
+            })
+        
+        # Emit start events for all tools
+        if on_tool_call_start:
+            for call in parsed_calls:
                 async for event in on_tool_call_start({
-                    "tool_call_id": tc["id"],
-                    "tool_name": func_name,
-                    "arguments": func_args
+                    "tool_call_id": call["id"],
+                    "tool_name": call["name"],
+                    "arguments": call["args"]
                 }):
                     yield event
-            
-            # Execute tool via ToolRunner
+        
+        # Execute all tools in parallel
+        async def execute_single_tool(call: Dict[str, Any]) -> Dict[str, Any]:
+            """Execute one tool and return result with metadata"""
             result = await tool_runner.execute(
-                tool_name=func_name,
-                arguments=func_args,
-                session_id=session_id
+                tool_name=call["name"],
+                arguments=call["args"],
+                session_id=context.session_id,
+                user_id=context.user_id,
+                resource_manager=context.resource_manager,
+                chat_id=context.chat_id
             )
+            return {
+                "tool_call_id": call["id"],
+                "tool_name": call["name"],
+                "arguments": call["args"],
+                "result": result
+            }
+        
+        # Run all tools concurrently
+        print(f"🔧 Executing {len(parsed_calls)} tool(s) in parallel", flush=True)
+        results = await asyncio.gather(*[execute_single_tool(call) for call in parsed_calls])
+        
+        # Process results and emit complete events
+        tool_messages = []
+        for result_data in results:
+            result = result_data["result"]
             
             # Notify tool call complete
             if on_tool_call_complete:
                 async for event in on_tool_call_complete({
-                    "tool_call_id": tc["id"],
-                    "tool_name": func_name,
+                    "tool_call_id": result_data["tool_call_id"],
+                    "tool_name": result_data["tool_name"],
                     "result": result
                 }):
                     yield event
             
             # Track tool call info (for parent to access via get_tool_calls_info)
             self._tool_calls_info.append({
-                "tool_call_id": tc["id"],
-                "tool_name": func_name,
+                "tool_call_id": result_data["tool_call_id"],
+                "tool_name": result_data["tool_name"],
                 "status": "completed" if result.get("success", True) else "error",
-                "arguments": func_args,
+                "arguments": result_data["arguments"],
                 "result_data": result,
                 "error": result.get("message") if not result.get("success", True) else None
             })
@@ -178,8 +211,8 @@ class BaseAgent(ABC):
             # Build tool message for conversation
             tool_messages.append({
                 "role": "tool",
-                "tool_call_id": tc["id"],
-                "name": func_name,
+                "tool_call_id": result_data["tool_call_id"],
+                "name": result_data["tool_name"],
                 "content": self._truncate_tool_result(result)
             })
         
@@ -189,7 +222,7 @@ class BaseAgent(ABC):
     async def run_tool_loop_streaming(
         self,
         initial_messages: List[Dict[str, Any]],
-        session_id: Optional[str] = None,
+        context: AgentContext,  # Always required
         max_iterations: int = 10,
         llm_config: Optional[LLMConfig] = None,
         on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]] = None,
@@ -222,11 +255,10 @@ class BaseAgent(ABC):
             SSEEvent objects for streaming to frontend
         """
         # Use default config if not provided
-        if llm_config is None:
-            llm_config = LLMConfig.from_config(
-                model=self.get_model(),
-                stream=True
-            )
+        llm_config = llm_config or LLMConfig.from_config(
+            model=self.get_model(),
+            stream=True
+        )
         
         messages = initial_messages.copy()
         self._last_messages = messages
@@ -250,7 +282,8 @@ class BaseAgent(ABC):
                     messages=messages,
                     tools=tools,
                     llm_config=llm_config,
-                    on_content_delta=on_content_delta
+                    on_content_delta=on_content_delta,
+                    session_id=context.session_id
                 ):
                     # Check if it's the result marker or SSE event
                     if isinstance(event, tuple) and event[0] == "__result__":
@@ -275,7 +308,7 @@ class BaseAgent(ABC):
                 tool_messages = []
                 async for event in self._execute_tools_step(
                     tool_calls=tool_calls,
-                    session_id=session_id,
+                    context=context,
                     on_tool_call_start=on_tool_call_start,
                     on_tool_call_complete=on_tool_call_complete
                 ):
@@ -303,7 +336,7 @@ class BaseAgent(ABC):
     async def run_tool_loop(
         self,
         initial_messages: List[Dict[str, Any]],
-        session_id: Optional[str] = None,
+        context: AgentContext,  # Always required
         max_iterations: int = 10,
         llm_config: Optional[LLMConfig] = None
     ) -> Dict[str, Any]:
@@ -318,6 +351,12 @@ class BaseAgent(ABC):
                 "iterations": int
             }
         """
+        # Use default config if not provided
+        llm_config = llm_config or LLMConfig.from_config(
+            model=self.get_model(),
+            stream=False
+        )
+        
         messages = initial_messages.copy()
         self._last_messages = messages
         self._initial_messages_len = len(initial_messages)
@@ -333,6 +372,9 @@ class BaseAgent(ABC):
                 tool_names = self.get_tool_names()
                 tools = tool_registry.get_openai_tools(tool_names=tool_names)
                 
+                # Create LLM handler for this call
+                llm_handler = LLMHandler(session_id=context.session_id)
+                
                 # Prepare LiteLLM kwargs
                 llm_kwargs = llm_config.to_litellm_kwargs()
                 llm_kwargs["messages"] = messages
@@ -340,7 +382,7 @@ class BaseAgent(ABC):
                 llm_kwargs["tool_choice"] = "auto" if tools else None
                 
                 # Call LLM (non-streaming)
-                response = await acompletion(**llm_kwargs)
+                response = await llm_handler.acompletion(**llm_kwargs)
                 
                 response_message = response.choices[0].message
                 content = response_message.content or ""
@@ -365,32 +407,48 @@ class BaseAgent(ABC):
                         "tool_calls": tool_calls_list
                     })
                     
-                    # Execute each tool
-                    for tc in response_message.tool_calls:
+                    # Execute all tools in parallel
+                    async def execute_tool_with_metadata(tc):
                         func_name = tc.function.name
                         func_args = json.loads(tc.function.arguments)
                         
-                        print(f"🔧 {self.__class__.__name__} executing: {func_name}", flush=True)
-                        
-                        # Execute tool via ToolRunner
                         result = await tool_runner.execute(
                             tool_name=func_name,
                             arguments=func_args,
-                            session_id=session_id
+                            session_id=context.session_id,
+                            user_id=context.user_id,
+                            resource_manager=context.resource_manager,
+                            chat_id=context.chat_id
                         )
                         
-                        tool_results.append({
+                        return {
+                            "tool_call_id": tc.id,
                             "tool_name": func_name,
                             "arguments": func_args,
                             "result": result
+                        }
+                    
+                    print(f"🔧 {self.__class__.__name__} executing {len(response_message.tool_calls)} tool(s) in parallel", flush=True)
+                    
+                    # Run all tools concurrently
+                    execution_results = await asyncio.gather(
+                        *[execute_tool_with_metadata(tc) for tc in response_message.tool_calls]
+                    )
+                    
+                    # Process results
+                    for exec_result in execution_results:
+                        tool_results.append({
+                            "tool_name": exec_result["tool_name"],
+                            "arguments": exec_result["arguments"],
+                            "result": exec_result["result"]
                         })
                         
                         # Add tool result to messages
                         messages.append({
                             "role": "tool",
-                            "tool_call_id": tc.id,
-                            "name": func_name,
-                            "content": self._truncate_tool_result(result)
+                            "tool_call_id": exec_result["tool_call_id"],
+                            "name": exec_result["tool_name"],
+                            "content": self._truncate_tool_result(exec_result["result"])
                         })
                     
                     # Continue loop (LLM will process tool results)
@@ -444,8 +502,17 @@ class BaseAgent(ABC):
         Returns:
             List of messages in OpenAI format
         """
+        # Get base system prompt
+        system_prompt = self.get_system_prompt(**kwargs)
+        
+        # Add resource information if provided via kwargs
+        if 'resource_manager' in kwargs and kwargs['resource_manager']:
+            resource_section = kwargs['resource_manager'].to_system_prompt_section()
+            if resource_section:
+                system_prompt += "\n\n" + resource_section
+        
         messages = [
-            {"role": "system", "content": self.get_system_prompt(**kwargs)}
+            {"role": "system", "content": system_prompt}
         ]
         
         if chat_history:

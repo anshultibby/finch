@@ -38,6 +38,9 @@ class Config:
     # CORS Configuration
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
     
+    # Debug Configuration
+    DEBUG_LLM_CALLS = os.getenv("DEBUG_LLM_CALLS", "false").lower() in ("true", "1", "yes")
+    
     # Validate required configuration
     @classmethod
     def validate(cls):

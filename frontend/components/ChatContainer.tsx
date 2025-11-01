@@ -75,16 +75,27 @@ export default function ChatContainer() {
   // Check if user has an existing SnapTrade connection on mount
   useEffect(() => {
     const checkExistingConnection = async () => {
-      if (!userId) return;
+      if (!userId) {
+        console.log('⏸️  No userId yet, skipping connection check');
+        return;
+      }
+      
+      console.log('🔍 Checking connection status for userId:', userId);
       
       try {
         const status = await snaptradeApi.checkStatus(userId);
+        console.log('📊 Connection status response:', status);
+        
         if (status.is_connected) {
           console.log('✅ Found existing SnapTrade connection');
           setIsPortfolioConnected(true);
+        } else {
+          console.log('❌ No active connection found');
+          setIsPortfolioConnected(false);
         }
       } catch (err) {
-        console.log('No existing connection found or error checking status:', err);
+        console.error('⚠️  Error checking connection status:', err);
+        setIsPortfolioConnected(false);
       }
     };
     
@@ -150,15 +161,23 @@ export default function ChatContainer() {
   // Listen for messages from popup window
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      console.log('📨 Received postMessage:', event.data);
+      
       // Verify origin for security
-      if (event.origin !== window.location.origin) return;
+      if (event.origin !== window.location.origin) {
+        console.log('⚠️  Message from different origin, ignoring:', event.origin);
+        return;
+      }
       
       if (event.data.type === 'SNAPTRADE_CONNECTION') {
+        console.log('🔗 SnapTrade connection message received:', event.data);
         setIsConnecting(false);
         if (event.data.success && event.data.is_connected) {
+          console.log('✅ Setting portfolio to connected');
           setIsPortfolioConnected(true);
           setError(null);
         } else {
+          console.log('❌ Connection failed:', event.data.message);
           setError(event.data.message || 'Failed to connect');
         }
       }
@@ -559,14 +578,26 @@ export default function ChatContainer() {
           </div>
         ) : (
           <>
-            {messages.map((message, index) => (
-              <ChatMessage
-                key={index}
-                role={message.role}
-                content={message.content}
-                timestamp={message.timestamp}
-              />
-            ))}
+            {messages.map((message, index) => {
+              // Find resources created around the time of this message
+              // Resources are created when tools complete, so match by timestamp proximity
+              const messageTime = message.timestamp ? new Date(message.timestamp).getTime() : 0;
+              const messageResources = resources.filter(r => {
+                const resourceTime = new Date(r.created_at).getTime();
+                // Match resources created within 5 seconds of this message
+                return Math.abs(resourceTime - messageTime) < 5000;
+              });
+              
+              return (
+                <ChatMessage
+                  key={index}
+                  role={message.role}
+                  content={message.content}
+                  timestamp={message.timestamp}
+                  resources={messageResources}
+                />
+              );
+            })}
             {/* Status Area - All indicators occupy the same space and overwrite each other */}
             {(ephemeralToolCalls.length > 0 || isThinking || streamingMessage) && (
               <div className="mb-4">

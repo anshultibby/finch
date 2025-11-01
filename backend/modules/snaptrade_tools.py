@@ -84,6 +84,8 @@ class SnapTradeTools:
     
     def _save_session(self, session_id: str, session: SnapTradeSession):
         """Save session to both cache and database"""
+        print(f"💾 Saving session: {session_id}, is_connected={session.is_connected}", flush=True)
+        
         # Update cache
         self._sessions[session_id] = session
         
@@ -93,13 +95,16 @@ class SnapTradeTools:
             db_user = snaptrade_crud.get_user_by_session(db, session_id)
             if db_user:
                 # Update existing
+                print(f"💾 Updating existing user in DB, setting is_connected={session.is_connected}", flush=True)
                 db_user.snaptrade_user_secret = session.snaptrade_user_secret
                 db_user.is_connected = session.is_connected
                 db_user.connected_account_ids = ','.join(session.account_ids) if session.account_ids else None
                 db_user.last_activity = datetime.utcnow()
                 db.commit()
+                print(f"✅ Session saved successfully, is_connected={db_user.is_connected}", flush=True)
             else:
                 # Create new
+                print(f"💾 Creating new user in DB", flush=True)
                 snaptrade_crud.create_user(
                     db=db,
                     session_id=session_id,
@@ -107,12 +112,18 @@ class SnapTradeTools:
                     snaptrade_user_secret=session.snaptrade_user_secret
                 )
                 if session.is_connected and session.account_ids:
+                    print(f"💾 Updating connection status to True", flush=True)
                     snaptrade_crud.update_connection_status(
                         db=db,
                         session_id=session_id,
                         is_connected=True,
                         account_ids=','.join(session.account_ids)
                     )
+                print(f"✅ New user created successfully", flush=True)
+        except Exception as e:
+            print(f"❌ Error saving session to database: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
         finally:
             db.close()
     

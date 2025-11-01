@@ -300,43 +300,57 @@ class CreatePlotRequest(BaseModel):
 
 
 @tool(
-    description="Create an interactive chart or plot with optional trendlines. This tool delegates to a specialized plotting agent that will analyze your data and create the best visualization. Supports line charts, bar charts, scatter plots, and area charts. Can add trendlines (linear, polynomial, exponential, moving average) for analysis. Use this when the user asks to visualize data, show trends, create charts, or compare values graphically. The chart will be interactive and can be explored by the user.",
+    description="Create an interactive chart or plot with optional trendlines. This tool delegates to a specialized plotting agent that will analyze your data and create the best visualization. Supports line charts, bar charts, scatter plots, and area charts. Can add trendlines (linear, polynomial, exponential, moving average) for analysis. The plot will be saved as a RESOURCE that you can reference in your response. After calling this tool, you can tell the user about the plot that was created and mention they can view it in the resources sidebar. Use this when the user asks to visualize data, show trends, create charts, or compare values graphically.",
     category="visualization"
 )
 async def create_plot(
     *,
     context: ToolContext,
-    params: CreatePlotRequest
+    objective: str,
+    data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Create a plot by delegating to the specialized plotting agent
     
     Args:
-        params: Plot request including objective and optional data
+        objective: What you want to visualize (e.g., "Show portfolio allocation as a pie chart")
+        data: Optional data to visualize (the agent will structure it appropriately)
     """
     try:
         import json
         
         # Build message for plotting agent
-        user_message = f"Objective: {params.objective}"
-        if params.data:
-            user_message += f"\n\nData provided:\n{json.dumps(params.data, indent=2)}"
+        user_message = f"Objective: {objective}"
+        if data:
+            user_message += f"\n\nData provided:\n{json.dumps(data, indent=2)}"
         
-        # Build messages using base class
-        messages = plotting_agent.build_messages(user_message)
+        # Create agent context for plotting agent
+        from modules.agent.context import AgentContext
+        plotting_context = AgentContext(
+            session_id=context.session_id,
+            user_id=context.user_id,
+            chat_id=context.chat_id,
+            resource_manager=context.resource_manager
+        )
         
-        # Create deterministic LLM config for consistent plotting
+        # Build messages using base class (resource_manager passed via kwargs)
+        messages = plotting_agent.build_messages(
+            user_message,
+            resource_manager=context.resource_manager
+        )
+        
+        # Create LLM config for plotting agent (GPT-5/o1 doesn't support custom temperature)
         from modules.agent.llm_config import LLMConfig
         llm_config = LLMConfig.from_config(
             model=plotting_agent.get_model(),
-            stream=False,
-            temperature=0.1
+            stream=False
+            # Note: temperature not set - o1 models only support default (1.0)
         )
         
         # Run plotting agent's tool loop (it will automatically call create_chart)
         result = await plotting_agent.run_tool_loop(
             initial_messages=messages,
-            session_id=context.session_id,
+            context=plotting_context,
             max_iterations=3,  # Plotting should be quick
             llm_config=llm_config
         )
@@ -350,8 +364,15 @@ async def create_plot(
         # Extract the plotting result from tool_results
         tool_results = result.get("tool_results", [])
         if tool_results:
-            # Return the first (and usually only) tool result
-            return tool_results[0]["result"]
+            # Get the plot result from the plotting agent
+            plot_result = tool_results[0]["result"]
+            
+            # Enhance the result with resource information
+            if plot_result.get("success"):
+                plot_result["resource_type"] = "plot"
+                plot_result["message"] = f"{plot_result.get('message', '')}. This plot has been saved as a resource and can be viewed in the resources sidebar."
+            
+            return plot_result
         else:
             # Agent responded without calling tools
             return {

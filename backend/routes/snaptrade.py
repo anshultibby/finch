@@ -80,13 +80,18 @@ async def check_connection_status(session_id: str):
     """
     Check if user has an active SnapTrade connection
     """
+    print(f"📊 Checking connection status for session: {session_id}", flush=True)
     is_connected = snaptrade_tools.has_active_connection(session_id)
+    print(f"📊 Connection status result: {is_connected}", flush=True)
     
-    return SnapTradeStatusResponse(
+    response = SnapTradeStatusResponse(
         success=True,
         message="Connected" if is_connected else "Not connected",
         is_connected=is_connected
     )
+    print(f"📊 Returning response: {response}", flush=True)
+    
+    return response
 
 
 @router.delete("/disconnect/{session_id}")

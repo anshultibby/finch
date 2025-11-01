@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from .stream_handler import ToolStreamHandler
+    from modules.resource_manager import ResourceManager
 
 
 class ToolContext(BaseModel):
@@ -16,6 +17,8 @@ class ToolContext(BaseModel):
     session_id: Optional[str] = None
     user_id: Optional[str] = None
     stream_handler: Optional[Any] = None  # ToolStreamHandler (optional for tool streaming)
+    resource_manager: Optional[Any] = None  # ResourceManager (for accessing and registering resources)
+    chat_id: Optional[str] = None  # Chat ID for resource context
     # Add more context fields as needed
     
     class Config:

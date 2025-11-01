@@ -5,7 +5,9 @@ Separates execution logic from registry (storage) and agents (orchestration)
 """
 from typing import Dict, Any, Optional
 import traceback
+import inspect
 
+from pydantic import BaseModel
 from .models import ToolContext
 from .registry import tool_registry
 from .stream_handler import ToolStreamHandler
@@ -38,7 +40,9 @@ class ToolRunner:
         context: Optional[ToolContext] = None,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        stream_handler: Optional[ToolStreamHandler] = None
+        stream_handler: Optional[ToolStreamHandler] = None,
+        resource_manager: Optional[Any] = None,
+        chat_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute a tool with given arguments
@@ -46,10 +50,12 @@ class ToolRunner:
         Args:
             tool_name: Name of the tool to execute
             arguments: Arguments from LLM (keyword args for the function)
-            context: Pre-built context (if provided, ignores session_id/user_id/stream_handler)
+            context: Pre-built context (if provided, ignores other parameters)
             session_id: User session ID (if context not provided)
             user_id: User ID (if context not provided)
             stream_handler: Optional stream handler for tool progress updates
+            resource_manager: Optional resource manager for accessing/registering resources
+            chat_id: Optional chat ID for resource context
         
         Returns:
             Tool execution result with standard format:
@@ -65,11 +71,20 @@ class ToolRunner:
             context = ToolContext(
                 session_id=session_id,
                 user_id=user_id,
-                stream_handler=stream_handler
+                stream_handler=stream_handler,
+                resource_manager=resource_manager,
+                chat_id=chat_id
             )
-        elif stream_handler and not context.stream_handler:
-            # Add stream_handler to existing context if provided
-            context.stream_handler = stream_handler
+        else:
+            # Update context with any provided values that aren't already set
+            if stream_handler and not context.stream_handler:
+                context.stream_handler = stream_handler
+            if resource_manager and not context.resource_manager:
+                context.resource_manager = resource_manager
+            if chat_id and not context.chat_id:
+                context.chat_id = chat_id
+            if user_id and not context.user_id:
+                context.user_id = user_id
         
         # Get tool from registry
         tool = self.registry.get_tool(tool_name)
@@ -83,8 +98,49 @@ class ToolRunner:
         try:
             print(f"🔧 Executing tool: {tool_name}", flush=True)
             
-            # Merge context into arguments
-            kwargs = {"context": context, **arguments}
+            # Inspect function signature to detect Pydantic model parameters
+            sig = inspect.signature(tool.handler)
+            kwargs = {"context": context}
+            
+            # Check if any parameter (excluding 'context') is a Pydantic model
+            pydantic_param = None
+            for param_name, param in sig.parameters.items():
+                if param_name == 'context':
+                    continue
+                
+                # Check if this parameter is a Pydantic BaseModel
+                param_annotation = param.annotation
+                try:
+                    if (isinstance(param_annotation, type) and 
+                        issubclass(param_annotation, BaseModel)):
+                        # Found a Pydantic model parameter
+                        pydantic_param = (param_name, param_annotation)
+                        break
+                except TypeError:
+                    # param_annotation is not a class (e.g., it's a typing construct)
+                    continue
+            
+            # If we found a Pydantic parameter, construct it from arguments
+            if pydantic_param:
+                param_name, param_class = pydantic_param
+                print(f"🔍 Detected Pydantic parameter: {param_name} of type {param_class.__name__}", flush=True)
+                
+                # Check if arguments are already wrapped in the parameter name
+                if param_name in arguments and isinstance(arguments[param_name], dict):
+                    # Already wrapped: {"params": {...}}
+                    print(f"📦 Arguments already wrapped in '{param_name}'", flush=True)
+                    kwargs[param_name] = param_class(**arguments[param_name])
+                elif param_name in arguments:
+                    # Already wrapped but might already be a model instance
+                    print(f"📦 Found existing '{param_name}' in arguments", flush=True)
+                    kwargs[param_name] = arguments[param_name]
+                else:
+                    # Not wrapped, assume all arguments are for the model: {"data_series": ..., "plot_type": ...}
+                    print(f"📦 Arguments flattened, constructing {param_class.__name__} from: {list(arguments.keys())}", flush=True)
+                    kwargs[param_name] = param_class(**arguments)
+            else:
+                # No Pydantic models, just unpack arguments normally
+                kwargs.update(arguments)
             
             # Execute tool (async or sync)
             if tool.is_async:

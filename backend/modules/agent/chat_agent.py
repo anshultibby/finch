@@ -7,6 +7,7 @@ from datetime import datetime
 from config import Config
 from modules.snaptrade_tools import snaptrade_tools
 from modules.tools import tool_registry
+from .context import AgentContext
 from models.sse import (
     SSEEvent,
     ToolCallStartEvent,
@@ -72,23 +73,28 @@ class ChatAgent(BaseAgent):
         self,
         message: str,
         chat_history: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None
+        agent_context: AgentContext  # Always required
     ) -> AsyncGenerator[SSEEvent, None]:
         """
         Stream chat responses using BaseAgent with SSE callbacks
+        
+        Args:
+            message: User message
+            chat_history: Previous messages
+            agent_context: AgentContext with session_id, user_id, chat_id, resource_manager
         """
-        context = context or {}
         needs_auth = [False]  # Mutable to capture in closures
         
         try:
             print(f"\n{'='*80}", flush=True)
-            print(f"📨 STREAMING MESSAGE for session: {session_id}", flush=True)
+            print(f"📨 STREAMING MESSAGE for session: {agent_context.session_id}", flush=True)
             print(f"📨 Current message: {message}", flush=True)
             print(f"{'='*80}\n", flush=True)
             
             # Build initial messages
-            initial_messages = self._build_messages_for_api(message, chat_history, session_id)
+            initial_messages = self._build_messages_for_api(
+                message, chat_history, agent_context
+            )
             
             # Define SSE callbacks
             async def on_content_delta(delta: str):
@@ -139,7 +145,7 @@ class ChatAgent(BaseAgent):
             # Use BaseAgent's streaming loop
             async for event in self.run_tool_loop_streaming(
                 initial_messages=initial_messages,
-                session_id=session_id,
+                context=agent_context,
                 max_iterations=10,
                 llm_config=llm_config,
                 on_content_delta=on_content_delta,
@@ -185,14 +191,15 @@ class ChatAgent(BaseAgent):
         self,
         message: str,
         chat_history: List[Dict[str, Any]],
-        session_id: Optional[str]
+        agent_context: AgentContext
     ) -> List[Dict[str, Any]]:
         """Build message list for LLM API"""
         # Use BaseAgent's build_messages with system prompt
         messages = self.build_messages(
             user_message=message,
             chat_history=chat_history,
-            session_id=session_id  # Passed to get_system_prompt
+            session_id=agent_context.session_id,  # Passed to get_system_prompt
+            resource_manager=agent_context.resource_manager  # Passed for resource section
         )
         
         # Clean incomplete tool calls from history

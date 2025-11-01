@@ -1,19 +1,16 @@
 """
 Chat service for managing chat sessions and interactions
 """
-from typing import List, Any, Optional, Dict, AsyncGenerator
-from datetime import datetime
-import json
-import uuid
+from typing import List, Any, Dict, AsyncGenerator
 import io
 import pandas as pd
 from .agent import ChatAgent
 from .context_manager import context_manager
+from .resource_manager import ResourceManager
 from database import SessionLocal, AsyncSessionLocal
+from modules.agent.context import AgentContext
 from crud import chat as chat_crud
 from crud import chat_async
-from crud import resource as resource_crud
-from models.sse import SSEEvent, ToolCallCompleteEvent
 
 
 class ChatService:
@@ -23,8 +20,8 @@ class ChatService:
         self.agent = ChatAgent()
     
     async def send_message_stream(
-        self, 
-        message: str, 
+        self,
+        message: str,
         chat_id: str,
         user_id: str
     ) -> AsyncGenerator[str, None]:
@@ -51,6 +48,19 @@ class ChatService:
             
             # Get context for this user (using user_id for SnapTrade)
             context = context_manager.get_all_context(user_id)
+            
+            # Create and load resource manager for this chat
+            resource_manager = ResourceManager(chat_id=chat_id, user_id=user_id, db=None)
+            with SessionLocal() as sync_db:
+                resource_manager.load_resources(db=sync_db, limit=50)
+            
+            agent_context = AgentContext(
+                session_id=user_id,
+                user_id=user_id,
+                chat_id=chat_id,
+                resource_manager=resource_manager,
+                data=context  # Additional context data (auth status, etc.)
+            )
             
             # Save user message FIRST before streaming (non-blocking)
             start_sequence = len(db_messages)
@@ -91,8 +101,7 @@ class ChatService:
             async for event in self.agent.process_message_stream(
                 message=message,
                 chat_history=chat_history,
-                context=context,
-                session_id=user_id
+                agent_context=agent_context
             ):
                 # Yield the SSE formatted event
                 yield event.to_sse_format()
@@ -101,48 +110,26 @@ class ChatService:
             new_messages = self.agent.get_new_messages()
             print(f"💾 Saving {len(new_messages)} messages to database...", flush=True)
             
-            # Get tool call information for resource creation
+            # Get tool call information to extract resource_ids from results
             tool_calls_info = self.agent.get_tool_calls_info()
             
-            # Create resources for each successful tool call (sync for now, not on critical path)
-            # TODO: Convert resource CRUD to async as well
+            # Extract resource_ids from tool results (tools write directly to DB now)
             tool_call_to_resource = {}
-            with SessionLocal() as sync_db:
-                for tool_call_info in tool_calls_info:
-                    if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
-                        result_data = tool_call_info["result_data"]
+            plot_resources = []
+            
+            for tool_call_info in tool_calls_info:
+                if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
+                    result_data = tool_call_info["result_data"]
+                    
+                    # Check if tool returned a resource_id
+                    if "resource_id" in result_data and result_data["resource_id"]:
+                        resource_id = result_data["resource_id"]
+                        tool_call_to_resource[tool_call_info["tool_call_id"]] = resource_id
+                        print(f"📊 Tool call {tool_call_info['tool_call_id']} created resource {resource_id}", flush=True)
                         
-                        # Determine resource type and title based on tool name
-                        resource_type, title = self._get_resource_metadata(
-                            tool_call_info["tool_name"],
-                            tool_call_info.get("arguments", {}),
-                            result_data
-                        )
-                        
-                        # Extract core table data from wrapped structures
-                        table_data = self._extract_table_data(result_data)
-                        
-                        # Create resource
-                        resource = resource_crud.create_resource(
-                            db=sync_db,
-                            chat_id=chat_id,
-                            user_id=user_id,
-                            tool_name=tool_call_info["tool_name"],
-                            resource_type=resource_type,
-                            title=title,
-                            data=table_data,
-                            resource_metadata={
-                                "parameters": tool_call_info.get("arguments", {}),
-                                "tool_call_id": tool_call_info["tool_call_id"],
-                                "original_success": result_data.get("success"),
-                                "data_source": result_data.get("data_source"),
-                                "total_count": result_data.get("total_count") or result_data.get("total_tickers")
-                            }
-                        )
-                        
-                        # Map tool_call_id to resource_id
-                        tool_call_to_resource[tool_call_info["tool_call_id"]] = resource.id
-                        print(f"📊 Created resource {resource.id} for tool call {tool_call_info['tool_call_id']}", flush=True)
+                        # Track plot resources for appending to final message
+                        if result_data.get("resource_type") == "plot":
+                            plot_resources.append(result_data.get("title", "Chart"))
             
             # Save messages with proper sequencing (start after user message) - async
             sequence = start_sequence + 1
@@ -153,6 +140,12 @@ class ChatService:
                 tool_calls = msg.get("tool_calls") if role == "assistant" else None
                 tool_call_id = msg.get("tool_call_id") if role == "tool" else None
                 name = msg.get("name") if role == "tool" else None
+                
+                # Append plot references to final assistant message
+                if role == "assistant" and content and plot_resources and msg == new_messages[-1]:
+                    # This is the final assistant message, append plot markers
+                    for plot_title in plot_resources:
+                        content += f"\n\n[plot:{plot_title}]"
                 
                 # Link tool result messages to resources
                 resource_id = None
