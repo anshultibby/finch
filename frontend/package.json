@@ -17,7 +17,9 @@
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
     "rehype-katex": "^7.0.0",
-    "katex": "^0.16.9"
+    "katex": "^0.16.9",
+    "plotly.js": "^2.35.2",
+    "react-plotly.js": "^2.6.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

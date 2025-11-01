@@ -2,7 +2,6 @@
 Tool registry for managing and executing tools
 """
 from typing import Dict, List, Optional, Any, Callable
-import inspect
 
 from .models import Tool, ToolContext
 
@@ -65,22 +64,49 @@ class ToolRegistry:
         
         return tools
     
-    def get_openai_schemas(
+    def get_tools_by_names(self, tool_names: List[str]) -> List[Tool]:
+        """
+        Get specific tools by their names
+        
+        Args:
+            tool_names: List of tool names to retrieve
+            
+        Returns:
+            List of Tool objects (skips unknown tools)
+        """
+        tools = []
+        for name in tool_names:
+            tool = self.get_tool(name)
+            if tool:
+                tools.append(tool)
+            else:
+                print(f"⚠️ Warning: Tool '{name}' not found in registry", flush=True)
+        return tools
+    
+    def get_openai_tools(
         self,
+        tool_names: Optional[List[str]] = None,
         category: Optional[str] = None,
         requires_auth: Optional[bool] = None
     ) -> List[Dict[str, Any]]:
         """
-        Get OpenAI tool schemas for filtered tools
+        Get OpenAI tool schemas for specified tools or filtered tools
         
         Args:
-            category: Filter by category
-            requires_auth: Filter by auth requirement
+            tool_names: Specific tool names to include (if provided, ignores other filters)
+            category: Filter by category (only if tool_names not provided)
+            requires_auth: Filter by auth requirement (only if tool_names not provided)
         
         Returns:
             List of OpenAI-compatible tool schemas
         """
-        tools = self.list_tools(category=category, requires_auth=requires_auth)
+        if tool_names is not None:
+            # Get specific tools by name
+            tools = self.get_tools_by_names(tool_names)
+        else:
+            # Get filtered tools
+            tools = self.list_tools(category=category, requires_auth=requires_auth)
+        
         return [t.to_openai_schema() for t in tools]
     
     def get_all_schemas(self) -> List[Dict[str, Any]]:

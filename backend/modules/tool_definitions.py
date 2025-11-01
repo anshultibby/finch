@@ -3,12 +3,17 @@ Central tool definitions file
 All LLM-callable tools are defined here using the @tool decorator
 """
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
 from modules.tools import tool, ToolContext, tool_registry
 
 # Import business logic modules
 from modules.snaptrade_tools import snaptrade_tools
 from modules.apewisdom_tools import apewisdom_tools
 from modules.insider_trading_tools import insider_trading_tools
+from modules.agent.plotting_agent import plotting_agent
+
+# Import plotting tools (for sub-agent)
+from modules.plotting_tools import create_chart
 
 
 # ============================================================================
@@ -269,6 +274,99 @@ async def search_insider_trades(
 
 
 # ============================================================================
+# VISUALIZATION TOOLS (Plotting Agent Delegation)
+# ============================================================================
+
+class CreatePlotRequest(BaseModel):
+    """Request parameters for creating a plot"""
+    objective: str = Field(
+        description="Clear description of what to visualize. Examples: 'Create a line chart showing price trends', 'Compare these values with a bar chart', 'Show correlation with trendline'"
+    )
+    data: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional data to visualize. Can be raw data - the plotting agent will structure it appropriately. Can include arrays, objects, or structured data."
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "objective": "Create a line chart showing AAPL stock price with a linear trendline",
+                "data": {
+                    "dates": ["2024-01", "2024-02", "2024-03", "2024-04"],
+                    "prices": [150, 155, 153, 160]
+                }
+            }
+        }
+
+
+@tool(
+    description="Create an interactive chart or plot with optional trendlines. This tool delegates to a specialized plotting agent that will analyze your data and create the best visualization. Supports line charts, bar charts, scatter plots, and area charts. Can add trendlines (linear, polynomial, exponential, moving average) for analysis. Use this when the user asks to visualize data, show trends, create charts, or compare values graphically. The chart will be interactive and can be explored by the user.",
+    category="visualization"
+)
+async def create_plot(
+    *,
+    context: ToolContext,
+    params: CreatePlotRequest
+) -> Dict[str, Any]:
+    """
+    Create a plot by delegating to the specialized plotting agent
+    
+    Args:
+        params: Plot request including objective and optional data
+    """
+    try:
+        import json
+        
+        # Build message for plotting agent
+        user_message = f"Objective: {params.objective}"
+        if params.data:
+            user_message += f"\n\nData provided:\n{json.dumps(params.data, indent=2)}"
+        
+        # Build messages using base class
+        messages = plotting_agent.build_messages(user_message)
+        
+        # Create deterministic LLM config for consistent plotting
+        from modules.agent.llm_config import LLMConfig
+        llm_config = LLMConfig.from_config(
+            model=plotting_agent.get_model(),
+            stream=False,
+            temperature=0.1
+        )
+        
+        # Run plotting agent's tool loop (it will automatically call create_chart)
+        result = await plotting_agent.run_tool_loop(
+            initial_messages=messages,
+            session_id=context.session_id,
+            max_iterations=3,  # Plotting should be quick
+            llm_config=llm_config
+        )
+        
+        if not result.get("success"):
+            return {
+                "success": False,
+                "message": result.get("message", "Plotting agent failed")
+            }
+        
+        # Extract the plotting result from tool_results
+        tool_results = result.get("tool_results", [])
+        if tool_results:
+            # Return the first (and usually only) tool result
+            return tool_results[0]["result"]
+        else:
+            # Agent responded without calling tools
+            return {
+                "success": False,
+                "message": f"Plotting agent couldn't create chart: {result.get('content', 'No response')}"
+            }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to create plot: {str(e)}"
+        }
+
+
+# ============================================================================
 # REGISTER ALL TOOLS
 # ============================================================================
 
@@ -291,6 +389,12 @@ def register_all_tools():
     tool_registry.register_function(get_portfolio_insider_activity)
     tool_registry.register_function(get_insider_trading_statistics)
     tool_registry.register_function(search_insider_trades)
+    
+    # Visualization tools (main agent)
+    tool_registry.register_function(create_plot)
+    
+    # Low-level plotting tools (for plotting sub-agent)
+    tool_registry.register_function(create_chart)
 
 
 # Auto-register on import

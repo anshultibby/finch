@@ -1,8 +1,11 @@
 """
 Models for tool system
 """
-from typing import Any, Dict, Optional, Callable, Awaitable, Union
+from typing import Any, Dict, Optional, Callable, Awaitable, Union, TYPE_CHECKING
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .stream_handler import ToolStreamHandler
 
 
 class ToolContext(BaseModel):
@@ -12,6 +15,7 @@ class ToolContext(BaseModel):
     """
     session_id: Optional[str] = None
     user_id: Optional[str] = None
+    stream_handler: Optional[Any] = None  # ToolStreamHandler (optional for tool streaming)
     # Add more context fields as needed
     
     class Config:

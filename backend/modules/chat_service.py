@@ -182,6 +182,10 @@ class ChatService:
         Returns:
             Simplified data structure optimized for table display
         """
+        # Handle plot data specially - keep plotly_json intact
+        if "plotly_json" in result_data:
+            return result_data
+        
         # If it's already a simple array, return as-is
         if isinstance(result_data, list):
             return {"data": result_data}
@@ -264,6 +268,10 @@ class ChatService:
         elif tool_name == "search_insider_trades":
             symbol = arguments.get("symbol", "").upper() if arguments.get("symbol") else "Multiple"
             return "insider_search", f"Insider Trades Search: {symbol}"
+        elif tool_name == "create_plot":
+            # Extract title from result data if available
+            title = result_data.get("title", "Interactive Chart")
+            return "plot", title
         else:
             return "other", tool_name.replace("_", " ").title()
     
