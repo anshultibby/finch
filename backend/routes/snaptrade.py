@@ -9,7 +9,7 @@ from models import (
     SnapTradeCallbackRequest,
     SnapTradeStatusResponse
 )
-from modules import snaptrade_tools
+from modules.tools.clients import snaptrade_tools
 
 router = APIRouter(prefix="/snaptrade", tags=["snaptrade"])
 

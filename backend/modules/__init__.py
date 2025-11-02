@@ -3,9 +3,9 @@ Business logic and service modules
 """
 from .chat_service import ChatService
 from .context_manager import context_manager, ContextManager
-from .snaptrade_tools import snaptrade_tools, SnapTradeTools
-from .apewisdom_tools import apewisdom_tools, ApeWisdomTools
-from .insider_trading_tools import insider_trading_tools, InsiderTradingTools
+from .tools.clients.snaptrade import snaptrade_tools, SnapTradeTools
+from .tools.clients.apewisdom import apewisdom_tools, ApeWisdomTools
+from .tools.clients.fmp import fmp_tools, FMPTools
 from .agent import ChatAgent
 
 __all__ = [
@@ -17,7 +17,7 @@ __all__ = [
     "SnapTradeTools",
     "apewisdom_tools",
     "ApeWisdomTools",
-    "insider_trading_tools",
-    "InsiderTradingTools"
+    "fmp_tools",
+    "FMPTools"
 ]
 

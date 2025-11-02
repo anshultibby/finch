@@ -17,50 +17,10 @@ class FinancialMetricsAgent(BaseAgent):
     """
     
     def get_tool_names(self) -> Optional[List[str]]:
-        """This agent uses all FMP financial tools"""
+        """This agent uses the universal FMP tool for all financial data"""
         return [
-            # Core financial data
-            'get_company_profile',
-            'get_income_statement',
-            'get_balance_sheet',
-            'get_cash_flow_statement',
-            'get_key_metrics',
-            'get_financial_ratios',
-            'get_financial_growth',
-            
-            # Market data
-            'get_quote',
-            'get_historical_prices',
-            
-            # Analyst data
-            'get_analyst_recommendations',
-            'get_analyst_price_targets',
-            'get_analyst_rating_changes',
-            
-            # Comparisons & screening
-            'get_peer_companies',
-            'screen_stocks',
-            
-            # Market performance
-            'get_top_gainers',
-            'get_top_losers',
-            'get_most_active_stocks',
-            'get_sectors_performance',
-            
-            # ETF data
-            'get_etf_holdings_data',
-            'get_etf_information',
-            
-            # Corporate events
-            'get_earnings_schedule',
-            'get_dividends_schedule',
-            
-            # News & filings
-            'get_stock_news_articles',
-            'get_sec_filing_documents',
-            
-            # ESG
-            'get_esg_scores'
+            # Universal FMP tool - handles ALL financial data and insider trading
+            'get_fmp_data'
         ]
     
     def get_model(self) -> str:
