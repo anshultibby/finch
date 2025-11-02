@@ -74,6 +74,20 @@ export interface SSEErrorEvent {
   timestamp: string;
 }
 
+export interface OptionButton {
+  id: string;
+  label: string;
+  value: string;
+  description?: string;
+}
+
+export interface SSEOptionsEvent {
+  type: string;
+  question: string;
+  options: OptionButton[];
+  timestamp: string;
+}
+
 // Callback types for SSE event handlers
 export interface SSEEventHandlers {
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
@@ -81,6 +95,7 @@ export interface SSEEventHandlers {
   onThinking?: (event: SSEThinkingEvent) => void;
   onAssistantMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onAssistantMessage?: (event: SSEAssistantMessageEvent) => void;
+  onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
 }
@@ -244,6 +259,9 @@ export const chatApi = {
                   break;
                 case 'assistant_message':
                   handlers.onAssistantMessage?.(eventData as SSEAssistantMessageEvent);
+                  break;
+                case 'tool_options':
+                  handlers.onOptions?.(eventData as SSEOptionsEvent);
                   break;
                 case 'done':
                   handlers.onDone?.(eventData as SSEDoneEvent);

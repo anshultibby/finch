@@ -161,11 +161,6 @@ export default function ChatMessage({ role, content, timestamp, resources }: Cha
             </div>
           </div>
         )}
-        {timestamp && (
-          <p className={`text-xs text-gray-400 mt-1 ${isUser ? 'text-right' : 'text-left'}`}>
-            {new Date(timestamp).toLocaleTimeString()}
-          </p>
-        )}
       </div>
     </div>
   );

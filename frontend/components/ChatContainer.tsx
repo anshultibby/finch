@@ -16,7 +16,9 @@ import {
   Resource,
   SSEToolCallStartEvent,
   SSEToolCallCompleteEvent,
-  SSEAssistantMessageEvent 
+  SSEAssistantMessageEvent,
+  SSEOptionsEvent,
+  OptionButton
 } from '@/lib/api';
 
 export default function ChatContainer() {
@@ -34,6 +36,7 @@ export default function ChatContainer() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Use Supabase user ID
@@ -189,6 +192,14 @@ export default function ChatContainer() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  const handleOptionSelect = (optionValue: string) => {
+    // Clear pending options
+    setPendingOptions(null);
+    
+    // Send the selected option value as a user message
+    handleSendMessage(optionValue);
+  };
+
   const handleSendMessage = async (content: string) => {
     if (!userId || !chatId) {
       setError('Session not initialized. Please refresh the page.');
@@ -196,6 +207,9 @@ export default function ChatContainer() {
     }
     
     setError(null);
+    
+    // Clear pending options when sending a new message
+    setPendingOptions(null);
     
     // Add user message optimistically
     const userMessage: Message = {
@@ -289,6 +303,17 @@ export default function ChatContainer() {
               };
               setMessages((prev) => [...prev, assistantMessage]);
             }
+          },
+          
+          onOptions: (event: SSEOptionsEvent) => {
+            console.log('🔘 Options received:', event.question, event.options);
+            
+            // Store pending options to display
+            setPendingOptions(event);
+            
+            // Hide thinking and streaming indicators
+            setIsThinking(false);
+            setStreamingMessage('');
           },
           
           onDone: async () => {
@@ -654,6 +679,68 @@ export default function ChatContainer() {
                 />
               );
             })}
+            {/* Options Display - Inline with messages */}
+            {pendingOptions && (
+              <div className="flex justify-start mb-6 px-2 animate-fadeIn">
+                <div className="max-w-[95%]">
+                  <div className="mb-3 px-1">
+                    <p className="text-[15px] text-gray-900 font-medium leading-relaxed">
+                      {pendingOptions.question}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {pendingOptions.options.map((option, index) => (
+                      <button
+                        key={option.id}
+                        onClick={() => handleOptionSelect(option.value)}
+                        className="group relative bg-gradient-to-br from-gray-50 to-gray-100/80 hover:from-gray-100 hover:to-gray-200/80 text-left px-6 py-4 rounded-xl border border-gray-200/80 hover:border-gray-300 transition-all duration-300 ease-out shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-[0.98] min-w-[200px] max-w-[320px] flex-1"
+                        style={{ 
+                          animationDelay: `${index * 75}ms`,
+                          animation: 'slideInFromLeft 0.4s ease-out forwards'
+                        }}
+                        title={option.description}
+                      >
+                        <div className="relative z-10">
+                          <p className="font-semibold text-gray-900 text-[15px] mb-1.5 leading-tight">
+                            {option.label}
+                          </p>
+                          {option.description && (
+                            <p className="text-[13px] text-gray-600 leading-relaxed">
+                              {option.description}
+                            </p>
+                          )}
+                        </div>
+                        {/* Subtle shine effect on hover */}
+                        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                        {/* Accent border glow on hover */}
+                        <div className="absolute inset-0 rounded-xl ring-2 ring-primary-400/0 group-hover:ring-primary-400/30 transition-all duration-300 pointer-events-none"></div>
+                      </button>
+                    ))}
+                  </div>
+                  <style jsx>{`
+                    @keyframes slideInFromLeft {
+                      from {
+                        opacity: 0;
+                        transform: translateX(-20px);
+                      }
+                      to {
+                        opacity: 1;
+                        transform: translateX(0);
+                      }
+                    }
+                    @keyframes fadeIn {
+                      from {
+                        opacity: 0;
+                      }
+                      to {
+                        opacity: 1;
+                      }
+                    }
+                  `}</style>
+                </div>
+              </div>
+            )}
+            
             {/* Status Area - All indicators occupy the same space and overwrite each other */}
             {(ephemeralToolCalls.length > 0 || isThinking || streamingMessage) && (
               <div className="mb-4">
@@ -729,8 +816,8 @@ export default function ChatContainer() {
         </div>
       )}
 
-        {/* Input */}
-        <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} />
+      {/* Input */}
+      <ChatInput onSendMessage={handleSendMessage} disabled={isLoading || isConnecting || !!pendingOptions} />
       </div>
 
       {/* Resources Sidebar */}

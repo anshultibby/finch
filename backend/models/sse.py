@@ -2,7 +2,7 @@
 Pydantic models for Server-Sent Events (SSE)
 """
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, List
 from datetime import datetime
 
 
@@ -58,5 +58,20 @@ class ErrorEvent(BaseModel):
     """Event sent when an error occurs"""
     error: str
     details: Optional[str] = None
+    timestamp: str = datetime.now().isoformat()
+
+
+class OptionButton(BaseModel):
+    """Model for a single option button"""
+    id: str  # Unique identifier for this option
+    label: str  # Display text on the button
+    value: str  # Value to send back when clicked
+    description: Optional[str] = None  # Optional tooltip/description
+
+
+class OptionsEvent(BaseModel):
+    """Event sent when the assistant wants to present options to the user"""
+    question: str  # The question/prompt to show above the options
+    options: List[OptionButton]  # List of option buttons to display
     timestamp: str = datetime.now().isoformat()
 

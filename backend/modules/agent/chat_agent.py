@@ -3,10 +3,12 @@ Main ChatAgent class - refactored to use BaseAgent
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
+import json
+import asyncio
 
 from config import Config
-from modules.snaptrade_tools import snaptrade_tools
-from modules.tools import tool_registry
+from modules.tools.clients.snaptrade import snaptrade_tools
+from modules.tools import tool_registry, tool_runner, ToolStreamHandler
 from .context import AgentContext
 from models.sse import (
     SSEEvent,
@@ -15,7 +17,9 @@ from models.sse import (
     ThinkingEvent,
     AssistantMessageEvent,
     DoneEvent,
-    ErrorEvent
+    ErrorEvent,
+    OptionsEvent,
+    OptionButton
 )
 
 from .prompts import (
@@ -27,12 +31,11 @@ from .base_agent import BaseAgent
 from .llm_config import LLMConfig
 from .message_processor import (
     clean_incomplete_tool_calls,
-    reconstruct_message_for_api,
     track_pending_tool_calls
 )
 
 # Import tool_definitions to register all tools
-import modules.tool_definitions  # This will auto-register all tools
+import modules.tools.definitions  # This will auto-register all tools
 
 
 class ChatAgent(BaseAgent):
@@ -66,7 +69,10 @@ class ChatAgent(BaseAgent):
             'analyze_financials',
             
             # Visualization (delegated to plotting agent)
-            'create_plot'
+            'create_plot',
+            
+            # Interactive options
+            'present_options'
         ]
     
     def get_system_prompt(self, user_id: Optional[str] = None, **kwargs) -> str:
@@ -88,6 +94,129 @@ class ChatAgent(BaseAgent):
         system_prompt += f"\n\n{tool_descriptions}"
         
         return system_prompt
+    
+    async def _execute_tools_step(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        context: AgentContext,
+        on_tool_call_start: Optional,
+        on_tool_call_complete: Optional
+    ):
+        """
+        Override to add stream_handler for tool event streaming (like present_options)
+        """
+        # Store events from tools to yield them
+        tool_events_queue = []
+        
+        # Create stream_handler callback that captures events
+        async def stream_callback(event: Dict[str, Any]):
+            """
+            Generic callback that converts ANY tool event to SSE
+            Tools can emit any event type and it will be forwarded to frontend
+            """
+            event_type = event.get("type")
+            
+            # Forward all tool events as SSE with event name prefixed with "tool_"
+            # This allows any tool to stream any type of event
+            sse_event = SSEEvent(
+                event=f"tool_{event_type}",
+                data=event
+            )
+            tool_events_queue.append(sse_event)
+        
+        # Create stream handler
+        stream_handler = ToolStreamHandler(callback=stream_callback)
+        
+        # Parse arguments upfront
+        parsed_calls = []
+        for tc in tool_calls:
+            func_name = tc["function"]["name"]
+            func_args = json.loads(tc["function"]["arguments"])
+            parsed_calls.append({
+                "id": tc["id"],
+                "name": func_name,
+                "args": func_args
+            })
+        
+        # Emit start events for all tools
+        if on_tool_call_start:
+            for call in parsed_calls:
+                async for event in on_tool_call_start({
+                    "tool_call_id": call["id"],
+                    "tool_name": call["name"],
+                    "arguments": call["args"]
+                }):
+                    yield event
+        
+        # Execute all tools in parallel
+        async def execute_single_tool(call: Dict[str, Any]) -> Dict[str, Any]:
+            """Execute one tool and return result with metadata"""
+            result = await tool_runner.execute(
+                tool_name=call["name"],
+                arguments=call["args"],
+                user_id=context.user_id,
+                resource_manager=context.resource_manager,
+                chat_id=context.chat_id,
+                stream_handler=stream_handler  # Pass stream handler
+            )
+            return {
+                "tool_call_id": call["id"],
+                "tool_name": call["name"],
+                "arguments": call["args"],
+                "result": result
+            }
+        
+        # Run all tools concurrently
+        print(f"🔧 Executing {len(parsed_calls)} tool(s) in parallel", flush=True)
+        results = await asyncio.gather(*[execute_single_tool(call) for call in parsed_calls])
+        
+        # Yield any tool events that were emitted (like options)
+        for sse_event in tool_events_queue:
+            yield sse_event
+        
+        # Process results and emit complete events
+        tool_messages = []
+        for result_data in results:
+            result = result_data["result"]
+            
+            # Notify tool call complete
+            if on_tool_call_complete:
+                async for event in on_tool_call_complete({
+                    "tool_call_id": result_data["tool_call_id"],
+                    "tool_name": result_data["tool_name"],
+                    "result": result
+                }):
+                    yield event
+            
+            # Track tool call info (for parent to access via get_tool_calls_info)
+            self._tool_calls_info.append({
+                "tool_call_id": result_data["tool_call_id"],
+                "tool_name": result_data["tool_name"],
+                "status": "completed" if result.get("success", True) else "error",
+                "arguments": result_data["arguments"],
+                "result_data": result,
+                "error": result.get("message") if not result.get("success", True) else None
+            })
+            
+            # Build tool message for conversation
+            tool_messages.append({
+                "role": "tool",
+                "tool_call_id": result_data["tool_call_id"],
+                "name": result_data["tool_name"],
+                "content": self._truncate_tool_result(result)
+            })
+        
+        # Yield final result (special marker)
+        yield ("__tool_messages__", tool_messages)
+    
+    def _truncate_tool_result(self, result: Dict[str, Any]) -> str:
+        """Truncate tool results for conversation (copied from BaseAgent)"""
+        import json
+        result_str = json.dumps(result)
+        max_len = 2000
+        if len(result_str) > max_len:
+            return result_str[:max_len] + f"... (truncated {len(result_str) - max_len} chars)"
+        return result_str
     
     async def process_message_stream(
         self,
@@ -142,6 +271,7 @@ class ChatAgent(BaseAgent):
                 if result.get("needs_auth"):
                     needs_auth[0] = True
                 
+                # Regular tool completion event
                 yield SSEEvent(
                     event="tool_call_complete",
                     data=ToolCallCompleteEvent(

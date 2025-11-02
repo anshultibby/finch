@@ -5,6 +5,7 @@ All LLM-callable tools are defined here using the @tool decorator
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from modules.tools import tool, ToolContext, tool_registry
+from models.sse import OptionButton
 
 # Import business logic modules (API clients)
 from modules.tools.clients.snaptrade import snaptrade_tools
@@ -372,6 +373,72 @@ async def create_plot(
 
 
 # ============================================================================
+# INTERACTIVE OPTIONS TOOL
+# ============================================================================
+
+class PresentOptionsInput(BaseModel):
+    """Input model for present_options tool"""
+    question: str = Field(
+        ...,
+        description="The question to ask the user (shown above the option buttons)"
+    )
+    options: List[OptionButton] = Field(
+        ...,
+        description="List of option buttons to present (2-6 options)",
+        min_length=2,
+        max_length=6
+    )
+
+
+@tool(
+    description="""Present interactive option buttons to the user for them to choose from.
+
+Use this when you want to guide the user through a workflow with specific choices rather than open-ended questions.
+
+Examples:
+- Investment timeframes (short/medium/long term)
+- Analysis depth (quick/standard/deep)
+- Portfolio actions (review/opportunities/trim)
+- Stock screening criteria (growth/value/dividend)
+
+The user will select one option, and their selection will be returned as the next message.
+You should then acknowledge their choice and proceed with the appropriate action.
+
+This provides better UX than asking open-ended questions for well-defined workflows.
+
+IMPORTANT: Do NOT generate any follow-up text after calling this tool. The conversation will pause to wait for user selection.""",
+    category="interaction"
+)
+async def present_options(
+    *,
+    context: ToolContext,
+    params: PresentOptionsInput
+) -> Dict[str, Any]:
+    """
+    Present option buttons to the user
+    
+    Args:
+        params: PresentOptionsInput containing question and option buttons
+    """
+    # Emit options event through stream_handler if available
+    if context.stream_handler:
+        await context.stream_handler.emit("options", {
+            "question": params.question,
+            "options": [opt.model_dump() for opt in params.options]
+        })
+    
+    # Return result indicating options were presented
+    # The conversation should pause here waiting for user selection
+    return {
+        "success": True,
+        "message": "Options presented to user. Waiting for user selection.",
+        "question": params.question,
+        "options": [opt.model_dump() for opt in params.options],
+        "_stop_response": True  # Signal that response should end after this
+    }
+
+
+# ============================================================================
 # REGISTER ALL TOOLS
 # ============================================================================
 
@@ -397,6 +464,9 @@ def register_all_tools():
     
     # Low-level plotting tools (for plotting sub-agent)
     tool_registry.register_function(create_chart)
+    
+    # Interactive options tool
+    tool_registry.register_function(present_options)
 
 
 # Auto-register on import

@@ -69,6 +69,86 @@ Here are some guidelines:
 - Use line breaks to improve readability
 </style_guidelines>
 
+<option_presentation_guidelines>
+**IMPORTANT: Interactive Options Feature**
+
+You have access to the `present_options` tool to show users interactive option buttons instead of asking open-ended questions. This provides better UX for guided workflows.
+
+**When to Use present_options:**
+1. **Investment Timeframes** - When users ask broadly about making money, investing, or strategies
+2. **Analysis Depth** - Before performing analysis, let users choose the depth (quick/standard/deep)
+3. **Portfolio Actions** - When users want to take action but haven't specified what
+4. **Stock Screening** - Let users choose screening criteria (growth/value/dividend/momentum)
+5. **General Guidance** - Whenever a workflow would benefit from structured choices
+
+**How to Use present_options Tool:**
+
+Call the tool with a question and 2-6 option buttons. Each button has:
+- `id`: UPPERCASE_SNAKE_CASE identifier (e.g., "SHORT_TERM", "QUICK_ANALYSIS")
+- `label`: User-facing text (e.g., "Short term (1-4 weeks)")
+- `value`: What to send back when clicked (usually same as id)
+- `description`: Optional tooltip text
+
+**After User Selects:**
+The user's next message will contain their selected value. Acknowledge their choice and proceed with the appropriate action.
+
+**Example Usage:**
+
+When user says "help me make money", call present_options:
+```
+{
+  "question": "What's your investment timeframe?",
+  "options": [
+    {
+      "id": "SHORT_TERM",
+      "label": "Short term (1-4 weeks)",
+      "value": "SHORT_TERM"
+    },
+    {
+      "id": "MEDIUM_TERM",
+      "label": "Medium term (6-18 months)",
+      "value": "MEDIUM_TERM"
+    },
+    {
+      "id": "LONG_TERM",
+      "label": "Long term (3-6 years)",
+      "value": "LONG_TERM"
+    }
+  ]
+}
+```
+
+When using FMP tools, offer analysis depth:
+```
+{
+  "question": "How deep should the analysis be?",
+  "options": [
+    {
+      "id": "QUICK",
+      "label": "Quick (1 min)",
+      "value": "QUICK"
+    },
+    {
+      "id": "STANDARD",
+      "label": "Standard (3 min)",
+      "value": "STANDARD"
+    },
+    {
+      "id": "DEEP",
+      "label": "Deep (10 min)",
+      "value": "DEEP"
+    }
+  ]
+}
+```
+
+**When NOT to Use present_options:**
+- User has already specified clear intent or parameters
+- Question is too open-ended for discrete choices
+- User is in middle of specific analysis or conversation flow
+- Options would oversimplify a nuanced decision
+</option_presentation_guidelines>
+
 </guidelines>
 """
 
