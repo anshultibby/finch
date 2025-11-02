@@ -34,22 +34,13 @@ class FMPTools:
     Uses DRY principles with generic methods for API calls and data parsing.
     """
     
-    # FMP has migrated to /stable/ endpoints (legacy v3/v4 deprecated as of Aug 2025)
-    BASE_URL = "https://financialmodelingprep.com/stable"
+    # FMP API uses v3 endpoints
+    BASE_URL = "https://financialmodelingprep.com/api/v3"
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=30.0)
         self.api_key = Config.FMP_API_KEY
         self.api_enabled = bool(self.api_key)
-    
-    def _check_api_key(self) -> Optional[dict]:
-        """Check if API key is configured"""
-        if not self.api_enabled:
-            return {
-                "success": False,
-                "message": "Financial data features require a Financial Modeling Prep API key. Please add FMP_API_KEY to your .env file. Get your API key from: https://site.financialmodelingprep.com/developer/docs/pricing"
-            }
-        return None
     
     async def _fetch_api_data(
         self,
@@ -67,7 +58,17 @@ class FMPTools:
             
         Returns:
             API response data or None on error
+            
+        Raises:
+            ValueError: If API key is not configured
         """
+        if not self.api_enabled:
+            raise ValueError(
+                "Financial data features require a Financial Modeling Prep API key. "
+                "Please add FMP_API_KEY to your .env file. "
+                "Get your API key from: https://site.financialmodelingprep.com/developer/docs/pricing"
+            )
+        
         try:
             url = f"{self.BASE_URL}/{endpoint}"
             params["apikey"] = self.api_key
@@ -112,10 +113,6 @@ class FMPTools:
         Returns:
             Dictionary with parsed data in CSV format
         """
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         symbol = params.get("symbol", "N/A")
         period = params.get("period", "")
         
@@ -198,10 +195,6 @@ class FMPTools:
         Returns:
             Dictionary with parsed data
         """
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         symbol = params.get("symbol", "N/A")
         
         try:
@@ -413,10 +406,6 @@ class FMPTools:
     
     async def search_symbol(self, query: str, limit: int = 10) -> Dict[str, Any]:
         """Search for stock symbols by query"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="search-symbol",
@@ -445,10 +434,6 @@ class FMPTools:
         limit: int = 100
     ) -> Dict[str, Any]:
         """Screen stocks based on various criteria"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         params = {"limit": limit}
         if market_cap_more_than: params["marketCapMoreThan"] = market_cap_more_than
         if market_cap_lower_than: params["marketCapLowerThan"] = market_cap_lower_than
@@ -481,10 +466,6 @@ class FMPTools:
         to_date: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get earnings calendar"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         params = {}
         if from_date: params["from"] = from_date
         if to_date: params["to"] = to_date
@@ -501,10 +482,6 @@ class FMPTools:
         to_date: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get dividends calendar"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         params = {}
         if from_date: params["from"] = from_date
         if to_date: params["to"] = to_date
@@ -517,10 +494,6 @@ class FMPTools:
     
     async def get_stock_splits(self, symbol: str) -> Dict[str, Any]:
         """Get stock split history for a symbol"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="splits",
@@ -536,10 +509,6 @@ class FMPTools:
     
     async def get_treasury_rates(self, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
         """Get treasury rates"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         params = {}
         if from_date: params["from"] = from_date
         if to_date: params["to"] = to_date
@@ -552,10 +521,6 @@ class FMPTools:
     
     async def get_economic_indicator(self, name: str, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
         """Get economic indicator data (GDP, unemployment, inflation, etc.)"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         params = {"name": name}
         if from_date: params["from"] = from_date
         if to_date: params["to"] = to_date
@@ -572,10 +537,6 @@ class FMPTools:
     
     async def get_stock_news(self, symbols: Optional[List[str]] = None, limit: int = 20) -> Dict[str, Any]:
         """Get stock news"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             if symbols:
                 endpoint = "news/stock"
@@ -591,10 +552,6 @@ class FMPTools:
     
     async def get_press_releases(self, symbols: Optional[List[str]] = None, limit: int = 20) -> Dict[str, Any]:
         """Get press releases"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             if symbols:
                 endpoint = "news/press-releases"
@@ -614,10 +571,6 @@ class FMPTools:
     
     async def get_etf_holdings(self, symbol: str) -> Dict[str, Any]:
         """Get ETF holdings"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="etf/holdings",
@@ -629,10 +582,6 @@ class FMPTools:
     
     async def get_etf_info(self, symbol: str) -> Dict[str, Any]:
         """Get ETF information"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="etf/info",
@@ -645,10 +594,6 @@ class FMPTools:
     
     async def get_etf_sector_weighting(self, symbol: str) -> Dict[str, Any]:
         """Get ETF sector weightings"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="etf/sector-weightings",
@@ -664,10 +609,6 @@ class FMPTools:
     
     async def get_market_gainers(self) -> Dict[str, Any]:
         """Get biggest stock gainers"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(endpoint="biggest-gainers", params={})
             return {"success": True, "gainers": data, "count": len(data) if data else 0}
@@ -676,10 +617,6 @@ class FMPTools:
     
     async def get_market_losers(self) -> Dict[str, Any]:
         """Get biggest stock losers"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(endpoint="biggest-losers", params={})
             return {"success": True, "losers": data, "count": len(data) if data else 0}
@@ -688,10 +625,6 @@ class FMPTools:
     
     async def get_most_active(self) -> Dict[str, Any]:
         """Get most actively traded stocks"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(endpoint="most-actives", params={})
             return {"success": True, "most_active": data, "count": len(data) if data else 0}
@@ -700,10 +633,6 @@ class FMPTools:
     
     async def get_sector_performance(self) -> Dict[str, Any]:
         """Get sector performance"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(endpoint="sector-performance-snapshot", params={})
             return {"success": True, "sectors": data}
@@ -716,10 +645,6 @@ class FMPTools:
     
     async def get_stock_peers(self, symbol: str) -> Dict[str, Any]:
         """Get stock peer companies (US stocks only due to API plan limitations)"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="stock-peers",
@@ -745,10 +670,6 @@ class FMPTools:
     
     async def get_price_target(self, symbol: str) -> Dict[str, Any]:
         """Get analyst price targets"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="price-target-consensus",
@@ -760,10 +681,6 @@ class FMPTools:
     
     async def get_upgrades_downgrades(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
         """Get analyst upgrades and downgrades"""
-        api_check = self._check_api_key()
-        if api_check:
-            return api_check
-        
         try:
             data = await self._fetch_api_data(
                 endpoint="grades",
