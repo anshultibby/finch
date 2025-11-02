@@ -192,12 +192,136 @@ export default function ChatContainer() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const handleOptionSelect = (optionValue: string) => {
+  const handleOptionSelect = (option: OptionButton) => {
     // Clear pending options
+    const selectedOptions = pendingOptions;
     setPendingOptions(null);
     
-    // Send the selected option value as a user message
-    handleSendMessage(optionValue);
+    // Add a user message showing what they selected (using the nice label)
+    const userMessage: Message = {
+      role: 'user',
+      content: option.label,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+    
+    // Send the option value to the backend (this is what the LLM sees)
+    setIsLoading(true);
+    setEphemeralToolCalls([]);
+    setIsThinking(false);
+    setStreamingMessage('');
+    
+    // Track tool calls and resources
+    const toolCallsMap = new Map<string, ToolCallStatus>();
+    let needsAuth = false;
+
+    if (!userId || !chatId) {
+      setError('Session not initialized. Please refresh the page.');
+      return;
+    }
+
+    try {
+      // Use streaming API - send the label to backend
+      const eventSource = chatApi.sendMessageStream(
+        option.label, // Backend gets the full label (e.g., "Short term (1-4 weeks)")
+        userId,
+        chatId,
+        {
+          onToolCallStart: (event: SSEToolCallStartEvent) => {
+            console.log('🔧 Tool call started:', event.tool_name);
+            setStreamingMessage('');
+            const toolCallStatus: ToolCallStatus = {
+              tool_call_id: event.tool_call_id,
+              tool_name: event.tool_name,
+              status: 'calling',
+            };
+            toolCallsMap.set(event.tool_call_id, toolCallStatus);
+            setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+          },
+          
+          onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
+            console.log('✅ Tool call completed:', event.tool_name, event.status);
+            const toolCallStatus = toolCallsMap.get(event.tool_call_id);
+            if (toolCallStatus) {
+              toolCallStatus.status = event.status;
+              toolCallStatus.resource_id = event.resource_id;
+              toolCallStatus.error = event.error;
+              setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+            }
+          },
+          
+          onThinking: (event) => {
+            console.log('🤔 AI is thinking:', event.message);
+            setIsThinking(true);
+          },
+          
+          onAssistantMessageDelta: (event) => {
+            console.log('💬 Streaming delta received:', event.delta.substring(0, 50));
+            setIsThinking(false);
+            setStreamingMessage((prev) => {
+              const newContent = prev + event.delta;
+              console.log('📝 Current streaming message length:', newContent.length);
+              return newContent;
+            });
+          },
+          
+          onAssistantMessage: (event: SSEAssistantMessageEvent) => {
+            console.log('💬 Assistant message received (complete)');
+            needsAuth = event.needs_auth;
+            setIsThinking(false);
+            setStreamingMessage('');
+            const shouldAddMessage = !event.content.includes('Successfully connected');
+            if (shouldAddMessage) {
+              const assistantMessage: Message = {
+                role: 'assistant',
+                content: event.content,
+                timestamp: event.timestamp,
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
+            }
+          },
+          
+          onOptions: (event: SSEOptionsEvent) => {
+            console.log('🔘 Options received:', event.question, event.options);
+            setPendingOptions(event);
+            setIsThinking(false);
+            setStreamingMessage('');
+          },
+          
+          onDone: async () => {
+            console.log('✨ Stream complete');
+            setIsLoading(false);
+            try {
+              const chatResources = await resourcesApi.getChatResources(chatId);
+              setResources(chatResources);
+            } catch (err) {
+              console.error('Error reloading resources:', err);
+            }
+            if (needsAuth && !isPortfolioConnected) {
+              setIsPortfolioConnected(false);
+              await handleBrokerageConnection();
+            }
+            setTimeout(() => setEphemeralToolCalls([]), 5000);
+          },
+          
+          onError: (event) => {
+            console.error('❌ SSE error:', event.error);
+            setError(`Error: ${event.error}`);
+            setIsLoading(false);
+            setIsThinking(false);
+            setStreamingMessage('');
+            setMessages((prev) => prev.slice(0, -1));
+          },
+        }
+      );
+    } catch (err) {
+      setError('Failed to send message. Please try again.');
+      console.error('Error sending message:', err);
+      setMessages((prev) => prev.slice(0, -1));
+      setIsLoading(false);
+      setIsThinking(false);
+      setStreamingMessage('');
+    }
   };
 
   const handleSendMessage = async (content: string) => {
@@ -377,9 +501,12 @@ export default function ChatContainer() {
     try {
       // Get redirect URI from backend
       const redirectUri = `${window.location.origin}${window.location.pathname}?snaptrade_callback=true`;
+      console.log('🌐 Current origin:', window.location.origin);
+      console.log('📡 Redirect URI being sent to backend:', redirectUri);
       console.log('📡 Calling backend API to get redirect URI...');
       const response = await snaptradeApi.initiateConnection(userId, redirectUri);
       console.log('📡 Backend response:', response);
+      console.log('📡 SnapTrade OAuth URL:', response.redirect_uri);
       
       if (response.success && response.redirect_uri) {
         console.log('✅ Got redirect URI');
@@ -692,7 +819,7 @@ export default function ChatContainer() {
                     {pendingOptions.options.map((option, index) => (
                       <button
                         key={option.id}
-                        onClick={() => handleOptionSelect(option.value)}
+                        onClick={() => handleOptionSelect(option)}
                         className="group relative bg-gradient-to-br from-gray-50 to-gray-100/80 hover:from-gray-100 hover:to-gray-200/80 text-left px-6 py-4 rounded-xl border border-gray-200/80 hover:border-gray-300 transition-all duration-300 ease-out shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-[0.98] min-w-[200px] max-w-[320px] flex-1"
                         style={{ 
                           animationDelay: `${index * 75}ms`,

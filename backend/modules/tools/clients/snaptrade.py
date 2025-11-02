@@ -295,6 +295,7 @@ class SnapTradeTools:
         Returns:
             Dictionary with redirect URL
         """
+        print(f"🌐 get_login_redirect_uri called with redirect_uri: {redirect_uri}", flush=True)
         try:
             # Get or load session
             session = self._get_session(user_id)
@@ -312,6 +313,7 @@ class SnapTradeTools:
                 }
             
             # Get login redirect URI from SnapTrade
+            print(f"📡 Calling SnapTrade API with customRedirect: {redirect_uri}", flush=True)
             response = self.client.authentication.login_snap_trade_user(
                 user_id=user_id,
                 user_secret=session.snaptrade_user_secret,
@@ -328,6 +330,8 @@ class SnapTradeTools:
             # SnapTrade SDK returns an ApiResponse object
             response_data = response.body if hasattr(response, 'body') else response
             redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
+            
+            print(f"📡 SnapTrade returned redirect URL: {redirect_url}", flush=True)
             
             if not redirect_url:
                 return {
@@ -386,6 +390,7 @@ class SnapTradeTools:
                     }
                 
                 try:
+                    print(f"📡 Retry: Calling SnapTrade API with customRedirect: {redirect_uri}", flush=True)
                     response = self.client.authentication.login_snap_trade_user(
                         user_id=user_id,
                         user_secret=session.snaptrade_user_secret,
@@ -401,6 +406,8 @@ class SnapTradeTools:
                     
                     response_data = response.body if hasattr(response, 'body') else response
                     redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
+                    
+                    print(f"📡 Retry: SnapTrade returned redirect URL: {redirect_url}", flush=True)
                     
                     if not redirect_url:
                         return {
