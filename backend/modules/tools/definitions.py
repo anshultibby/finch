@@ -2,6 +2,7 @@
 Central tool definitions file
 All LLM-callable tools are defined here using the @tool decorator
 """
+import json
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from modules.tools import tool, ToolContext, tool_registry
@@ -41,7 +42,7 @@ from modules.tools.descriptions import (
     category="portfolio",
     requires_auth=True
 )
-def get_portfolio(
+async def get_portfolio(
     *,
     context: ToolContext
 ) -> Dict[str, Any]:
@@ -53,7 +54,19 @@ def get_portfolio(
             "needs_auth": True
         }
     
-    return snaptrade_tools.get_portfolio(user_id=context.user_id)
+    await context.stream_handler.emit_status("fetching", "Retrieving portfolio from connected brokerage...")
+    
+    result = snaptrade_tools.get_portfolio(user_id=context.user_id)
+    
+    if result.get("success"):
+        holdings_csv = result.get("data", {}).get("holdings_csv", "")
+        if holdings_csv:
+            # Count lines in CSV (minus header)
+            position_count = len(holdings_csv.split('\n')) - 2  # -1 for header, -1 for empty last line
+            if position_count > 0:
+                await context.stream_handler.emit_log("info", f"✓ Found {position_count} positions in your portfolio")
+    
+    return result
 
 
 @tool(
@@ -93,7 +106,15 @@ async def get_reddit_trending_stocks(
     Args:
         limit: Number of trending stocks to return (default 10, max 50)
     """
-    return await apewisdom_tools.get_trending_stocks(limit=limit)
+    await context.stream_handler.emit_status("fetching", f"Scanning r/wallstreetbets for top {limit} trending stocks...")
+    
+    result = await apewisdom_tools.get_trending_stocks(limit=limit)
+    
+    if result.get("success"):
+        mentions = result.get("data", {}).get("mentions", [])
+        await context.stream_handler.emit_log("info", f"Found {len(mentions)} trending stocks")
+    
+    return result
 
 
 @tool(
@@ -111,7 +132,16 @@ async def get_reddit_ticker_sentiment(
     Args:
         ticker: Stock ticker symbol (e.g., 'GME', 'TSLA', 'AAPL')
     """
-    return await apewisdom_tools.get_ticker_sentiment(ticker=ticker)
+    await context.stream_handler.emit_status("analyzing", f"Analyzing Reddit sentiment for ${ticker.upper()} from r/wallstreetbets...")
+    
+    result = await apewisdom_tools.get_ticker_sentiment(ticker=ticker)
+    
+    if result.get("success"):
+        data = result.get("data", {})
+        mentions = data.get("mentions", 0)
+        await context.stream_handler.emit_log("info", f"Found {mentions} Reddit mentions")
+    
+    return result
 
 
 @tool(
@@ -129,7 +159,15 @@ async def compare_reddit_sentiment(
     Args:
         tickers: List of ticker symbols to compare (e.g., ['GME', 'AMC', 'TSLA'])
     """
-    return await apewisdom_tools.compare_tickers_sentiment(tickers=tickers)
+    tickers_str = ", ".join([t.upper() for t in tickers])
+    await context.stream_handler.emit_status("analyzing", f"Comparing Reddit sentiment: {tickers_str}")
+    
+    result = await apewisdom_tools.compare_tickers_sentiment(tickers=tickers)
+    
+    if result.get("success"):
+        await context.stream_handler.emit_log("info", f"Compared {len(tickers)} tickers")
+    
+    return result
 
 
 # ============================================================================
@@ -148,7 +186,32 @@ async def get_fmp_data(
     params: Optional[Dict[str, Any]] = None
 ):
     """Universal tool to fetch ANY financial data from FMP API including insider trading. See description for available endpoints."""
-    return await fmp_tools.get_fmp_data(endpoint=endpoint, params=params or {})
+    # Handle case where params might be passed as a JSON string
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except json.JSONDecodeError:
+            params = {}
+    
+    # Emit status with readable endpoint name and specific parameters
+    endpoint_name = endpoint.replace('_', ' ').title()
+    symbol_str = params.get('symbol', '') if params else ''
+    
+    if symbol_str:
+        await context.stream_handler.emit_status("fetching", f"Fetching {endpoint_name} for {symbol_str}...")
+    else:
+        await context.stream_handler.emit_status("fetching", f"Fetching {endpoint_name} data...")
+    
+    result = await fmp_tools.get_fmp_data(endpoint=endpoint, params=params or {})
+    
+    if result.get("success"):
+        data = result.get("data", [])
+        if isinstance(data, list) and len(data) > 0:
+            await context.stream_handler.emit_log("info", f"✓ Retrieved {len(data)} {endpoint_name.lower()} records")
+        elif data:
+            await context.stream_handler.emit_log("info", f"✓ {endpoint_name} data retrieved")
+    
+    return result
 
 # ============================================================================
 # FINANCIAL ANALYSIS TOOLS (Financial Metrics Agent Delegation)
@@ -203,16 +266,27 @@ async def analyze_financials(
     try:
         import json
         
+        # Show what we're analyzing
+        if symbols:
+            symbols_str = ", ".join(symbols[:3])  # Show first 3 symbols
+            if len(symbols) > 3:
+                symbols_str += f" and {len(symbols) - 3} more"
+            await context.stream_handler.emit_status("analyzing", f"Analyzing {symbols_str}...")
+            await context.stream_handler.emit_log("info", f"Objective: {objective}")
+        else:
+            await context.stream_handler.emit_status("analyzing", f"Starting analysis: {objective[:50]}...")
+        
         # Build message for financial metrics agent
-        symbols_str = ", ".join(symbols)
-        user_message = f"Objective: {objective}\n\nSymbols to analyze: {symbols_str}"
+        symbols_str_full = ", ".join(symbols)
+        user_message = f"Objective: {objective}\n\nSymbols to analyze: {symbols_str_full}"
         
         # Create agent context for financial metrics agent
         from modules.agent.context import AgentContext
         metrics_context = AgentContext(
             user_id=context.user_id,
             chat_id=context.chat_id,
-            resource_manager=context.resource_manager
+            resource_manager=context.resource_manager,
+            stream_handler=context.stream_handler  # Pass through stream handler
         )
         
         # Build messages using base class
@@ -241,6 +315,8 @@ async def analyze_financials(
                 "success": False,
                 "message": result.get("message", "Financial metrics agent failed")
             }
+        
+        await context.stream_handler.emit_log("info", f"Financial analysis completed for {len(symbols) if symbols else 'screening'} symbol(s)")
         
         # Return the agent's analysis
         return {
@@ -305,6 +381,8 @@ async def create_plot(
     try:
         import json
         
+        await context.stream_handler.emit_status("creating", f"Creating visualization: {objective[:60]}...")
+        
         # Build message for plotting agent
         user_message = f"Objective: {objective}"
         if data:
@@ -315,7 +393,8 @@ async def create_plot(
         plotting_context = AgentContext(
             user_id=context.user_id,
             chat_id=context.chat_id,
-            resource_manager=context.resource_manager
+            resource_manager=context.resource_manager,
+            stream_handler=context.stream_handler  # Pass through stream handler
         )
         
         # Build messages using base class (resource_manager passed via kwargs)
@@ -356,6 +435,7 @@ async def create_plot(
             if plot_result.get("success"):
                 plot_result["resource_type"] = "plot"
                 plot_result["message"] = f"{plot_result.get('message', '')}. This plot has been saved as a resource and can be viewed in the resources sidebar."
+                await context.stream_handler.emit_log("info", f"Created plot: {plot_result.get('title', 'Chart')}")
             
             return plot_result
         else:
@@ -420,12 +500,11 @@ async def present_options(
     Args:
         params: PresentOptionsInput containing question and option buttons
     """
-    # Emit options event through stream_handler if available
-    if context.stream_handler:
-        await context.stream_handler.emit("options", {
-            "question": params.question,
-            "options": [opt.model_dump() for opt in params.options]
-        })
+    # Emit options event through stream_handler
+    await context.stream_handler.emit("options", {
+        "question": params.question,
+        "options": [opt.model_dump() for opt in params.options]
+    })
     
     # Return result indicating options were presented
     # The conversation should pause here waiting for user selection

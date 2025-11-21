@@ -9,15 +9,23 @@ from .context_manager import context_manager
 from .resource_manager import ResourceManager
 from database import SessionLocal, AsyncSessionLocal
 from modules.agent.context import AgentContext
+from modules.tools.stream_handler import ToolStreamHandler
 from crud import chat as chat_crud
 from crud import chat_async
+from utils.logger import get_logger
+from utils.tracing import get_tracer
+
+logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 class ChatService:
     """Service for handling chat operations"""
     
     def __init__(self):
-        self.agent = ChatAgent()
+        # Don't create a shared agent instance - create one per request
+        # to avoid state conflicts with concurrent requests
+        pass
     
     async def send_message_stream(
         self,
@@ -36,135 +44,145 @@ class ChatService:
         Yields:
             SSE formatted strings (event: <type>\\ndata: <json>\\n\\n)
         """
-        async with AsyncSessionLocal() as db:
-            # Ensure chat exists and get history in parallel
-            db_chat = await chat_async.get_chat(db, chat_id)
-            if not db_chat:
-                # Create new chat
-                await chat_async.create_chat(db, chat_id, user_id)
+        # OpenTelemetry will automatically trace database and HTTP calls
+        # We just add high-level spans for business logic
+        with tracer.start_as_current_span("chat_turn"):
+            logger.info(f"Starting chat turn for user {user_id}")
             
-            # Get existing chat history
-            db_messages = await chat_async.get_chat_messages(db, chat_id)
+            # Create a new agent instance for this request to avoid
+            # state conflicts with concurrent requests
+            agent = ChatAgent()
             
-            # Get context for this user (using user_id for SnapTrade)
-            context = context_manager.get_all_context(user_id)
-            
-            # Create and load resource manager for this chat
-            resource_manager = ResourceManager(chat_id=chat_id, user_id=user_id, db=None)
-            with SessionLocal() as sync_db:
-                resource_manager.load_resources(db=sync_db, limit=50)
-            
-            agent_context = AgentContext(
-                user_id=user_id,
-                chat_id=chat_id,
-                resource_manager=resource_manager,
-                data=context  # Additional context data (auth status, etc.)
-            )
-            
-            # Save user message FIRST before streaming (non-blocking)
-            start_sequence = len(db_messages)
-            await chat_async.create_message(
-                db=db,
-                chat_id=chat_id,
-                role="user",
-                content=message,
-                sequence=start_sequence
-            )
-            
-            # Process chat history (fast in-memory operation)
-            chat_history = []
-            for msg in db_messages:
-                # Reconstruct message from database columns (OpenAI format)
-                message_dict = {
-                    "role": msg.role,
-                    "content": msg.content,
-                    "timestamp": msg.timestamp.isoformat()
-                }
+            async with AsyncSessionLocal() as db:
+                # Database calls are auto-traced by OpenTelemetry
+                db_chat = await chat_async.get_chat(db, chat_id)
+                if not db_chat:
+                    await chat_async.create_chat(db, chat_id, user_id)
                 
-                # Add tool_calls for assistant messages that call tools
-                if msg.role == "assistant" and msg.tool_calls:
-                    message_dict["tool_calls"] = msg.tool_calls
+                db_messages = await chat_async.get_chat_messages(db, chat_id)
+                context = context_manager.get_all_context(user_id)
                 
-                # Add tool result metadata for tool role messages
-                if msg.role == "tool":
-                    if msg.tool_call_id:
-                        message_dict["tool_call_id"] = msg.tool_call_id
-                    if msg.name:
-                        message_dict["name"] = msg.name
-                    if msg.resource_id:
-                        message_dict["resource_id"] = msg.resource_id
+                # Load resources
+                resource_manager = ResourceManager(chat_id=chat_id, user_id=user_id, db=None)
+                with SessionLocal() as sync_db:
+                    resource_manager.load_resources(db=sync_db, limit=50)
                 
-                chat_history.append(message_dict)
-            
-            # Stream events from agent
-            async for event in self.agent.process_message_stream(
-                message=message,
-                chat_history=chat_history,
-                agent_context=agent_context
-            ):
-                # Yield the SSE formatted event
-                yield event.to_sse_format()
-            
-            # After streaming, get new messages (assistant + tool responses) and save to database
-            new_messages = self.agent.get_new_messages()
-            print(f"💾 Saving {len(new_messages)} messages to database...", flush=True)
-            
-            # Get tool call information to extract resource_ids from results
-            tool_calls_info = self.agent.get_tool_calls_info()
-            
-            # Extract resource_ids from tool results (tools write directly to DB now)
-            tool_call_to_resource = {}
-            plot_resources = []
-            
-            for tool_call_info in tool_calls_info:
-                if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
-                    result_data = tool_call_info["result_data"]
-                    
-                    # Check if tool returned a resource_id
-                    if "resource_id" in result_data and result_data["resource_id"]:
-                        resource_id = result_data["resource_id"]
-                        tool_call_to_resource[tool_call_info["tool_call_id"]] = resource_id
-                        print(f"📊 Tool call {tool_call_info['tool_call_id']} created resource {resource_id}", flush=True)
-                        
-                        # Track plot resources for appending to final message
-                        if result_data.get("resource_type") == "plot":
-                            plot_resources.append(result_data.get("title", "Chart"))
-            
-            # Save messages with proper sequencing (start after user message) - async
-            sequence = start_sequence + 1
-            
-            for msg in new_messages:
-                role = msg["role"]
-                content = msg.get("content", "")
-                tool_calls = msg.get("tool_calls") if role == "assistant" else None
-                tool_call_id = msg.get("tool_call_id") if role == "tool" else None
-                name = msg.get("name") if role == "tool" else None
+                # Create placeholder stream handler (ChatAgent will replace with real one)
+                placeholder_stream_handler = ToolStreamHandler()
                 
-                # Append plot references to final assistant message
-                if role == "assistant" and content and plot_resources and msg == new_messages[-1]:
-                    # This is the final assistant message, append plot markers
-                    for plot_title in plot_resources:
-                        content += f"\n\n[plot:{plot_title}]"
+                agent_context = AgentContext(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    resource_manager=resource_manager,
+                    stream_handler=placeholder_stream_handler,
+                    data=context  # Additional context data (auth status, etc.)
+                )
                 
-                # Link tool result messages to resources
-                resource_id = None
-                if role == "tool" and tool_call_id:
-                    resource_id = tool_call_to_resource.get(tool_call_id)
-                
+                # Save user message FIRST before streaming
+                start_sequence = len(db_messages)
                 await chat_async.create_message(
                     db=db,
                     chat_id=chat_id,
-                    role=role,
-                    content=content,
-                    sequence=sequence,
-                    resource_id=resource_id,
-                    tool_calls=tool_calls,
-                    tool_call_id=tool_call_id,
-                    name=name
+                    role="user",
+                    content=message,
+                    sequence=start_sequence
                 )
-                sequence += 1
-            
-            print(f"✅ Saved conversation history", flush=True)
+                
+                # Process chat history
+                chat_history = []
+                for msg in db_messages:
+                    # Reconstruct message from database columns (OpenAI format)
+                    message_dict = {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.timestamp.isoformat()
+                    }
+                    
+                    # Add tool_calls for assistant messages that call tools
+                    if msg.role == "assistant" and msg.tool_calls:
+                        message_dict["tool_calls"] = msg.tool_calls
+                    
+                    # Add tool result metadata for tool role messages
+                    if msg.role == "tool":
+                        if msg.tool_call_id:
+                            message_dict["tool_call_id"] = msg.tool_call_id
+                        if msg.name:
+                            message_dict["name"] = msg.name
+                        if msg.resource_id:
+                            message_dict["resource_id"] = msg.resource_id
+                    
+                    chat_history.append(message_dict)
+                
+                # Stream events from agent (LLM calls auto-traced by OpenTelemetry)
+                with tracer.start_as_current_span("agent_processing"):
+                    async for event in agent.process_message_stream(
+                        message=message,
+                        chat_history=chat_history,
+                        agent_context=agent_context
+                    ):
+                        # Yield the SSE formatted event
+                        yield event.to_sse_format()
+                
+                # After streaming, save messages to database
+                new_messages = agent.get_new_messages()
+                logger.info(f"Saving {len(new_messages)} messages to database")
+                
+                # Get tool call information to extract resource_ids from results
+                tool_calls_info = agent.get_tool_calls_info()
+                
+                # Extract resource_ids from tool results (tools write directly to DB now)
+                tool_call_to_resource = {}
+                plot_resources = []
+                
+                for tool_call_info in tool_calls_info:
+                    if tool_call_info["status"] == "completed" and tool_call_info.get("result_data"):
+                        result_data = tool_call_info["result_data"]
+                        
+                        # Check if tool returned a resource_id
+                        if "resource_id" in result_data and result_data["resource_id"]:
+                            resource_id = result_data["resource_id"]
+                            tool_call_to_resource[tool_call_info["tool_call_id"]] = resource_id
+                            logger.debug(f"Tool call {tool_call_info['tool_call_id']} created resource {resource_id}")
+                            
+                            # Track plot resources for appending to final message
+                            if result_data.get("resource_type") == "plot":
+                                plot_resources.append(result_data.get("title", "Chart"))
+                
+                # Save messages with proper sequencing
+                sequence = start_sequence + 1
+                
+                for msg in new_messages:
+                    role = msg["role"]
+                    content = msg.get("content", "")
+                    tool_calls = msg.get("tool_calls") if role == "assistant" else None
+                    tool_call_id = msg.get("tool_call_id") if role == "tool" else None
+                    name = msg.get("name") if role == "tool" else None
+                    
+                    # Append plot references to final assistant message
+                    if role == "assistant" and content and plot_resources and msg == new_messages[-1]:
+                        # This is the final assistant message, append plot markers
+                        for plot_title in plot_resources:
+                            content += f"\n\n[plot:{plot_title}]"
+                    
+                    # Link tool result messages to resources
+                    resource_id = None
+                    if role == "tool" and tool_call_id:
+                        resource_id = tool_call_to_resource.get(tool_call_id)
+                    
+                    await chat_async.create_message(
+                        db=db,
+                        chat_id=chat_id,
+                        role=role,
+                        content=content,
+                        sequence=sequence,
+                        resource_id=resource_id,
+                        tool_calls=tool_calls,
+                        tool_call_id=tool_call_id,
+                        name=name
+                    )
+                    sequence += 1
+                
+                logger.info("Saved conversation history")
     
     def _extract_table_data(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -191,7 +209,7 @@ class ChatService:
                 holdings_array = df.to_dict('records')
                 return {"data": holdings_array}
             except Exception as e:
-                print(f"⚠️ Error parsing CSV portfolio data: {e}", flush=True)
+                logger.warning(f"Error parsing CSV portfolio data: {e}")
                 # Fall back to returning full result
                 return result_data
         

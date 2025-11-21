@@ -4,7 +4,9 @@ Tool registry for managing and executing tools
 from typing import Dict, List, Optional, Any, Callable
 
 from .models import Tool, ToolContext
+from utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 class ToolRegistry:
     """
@@ -21,7 +23,7 @@ class ToolRegistry:
             raise ValueError(f"Tool '{tool.name}' is already registered")
         
         self._tools[tool.name] = tool
-        print(f"✅ Registered tool: {tool.name} (category: {tool.category})", flush=True)
+        logger.info(f"Registered tool: {tool.name} (category: {tool.category})")
     
     def register_function(self, func: Callable) -> None:
         """
@@ -80,7 +82,7 @@ class ToolRegistry:
             if tool:
                 tools.append(tool)
             else:
-                print(f"⚠️ Warning: Tool '{name}' not found in registry", flush=True)
+                logger.warning(f"Tool '{name}' not found in registry")
         return tools
     
     def get_openai_tools(

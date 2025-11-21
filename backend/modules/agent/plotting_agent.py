@@ -20,7 +20,7 @@ class PlottingAgent(BaseAgent):
         return ['create_chart']
     
     def get_model(self) -> str:
-        """Use configured OpenAI model (defaults to gpt-5)"""
+        """Use GPT-5 for visualization"""
         return Config.OPENAI_MODEL
     
     def get_system_prompt(self, **kwargs) -> str:

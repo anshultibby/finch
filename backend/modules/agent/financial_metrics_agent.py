@@ -24,7 +24,7 @@ class FinancialMetricsAgent(BaseAgent):
         ]
     
     def get_model(self) -> str:
-        """Use configured OpenAI model (defaults to gpt-5)"""
+        """Use GPT-5 for financial analysis"""
         return Config.OPENAI_MODEL
     
     def get_system_prompt(self, **kwargs) -> str:

@@ -75,3 +75,30 @@ class OptionsEvent(BaseModel):
     options: List[OptionButton]  # List of option buttons to display
     timestamp: str = datetime.now().isoformat()
 
+
+class ToolStatusEvent(BaseModel):
+    """Event sent when a tool emits a status update during execution"""
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
+    status: str  # Status string (fetching, analyzing, processing, etc.)
+    message: Optional[str] = None  # Optional detailed message
+    timestamp: str = datetime.now().isoformat()
+
+
+class ToolProgressEvent(BaseModel):
+    """Event sent when a tool emits a progress update"""
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
+    percent: float  # 0-100
+    message: Optional[str] = None
+    timestamp: str = datetime.now().isoformat()
+
+
+class ToolLogEvent(BaseModel):
+    """Event sent when a tool emits a log message"""
+    tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
+    level: Literal["debug", "info", "warning", "error"]
+    message: str
+    timestamp: str = datetime.now().isoformat()
+

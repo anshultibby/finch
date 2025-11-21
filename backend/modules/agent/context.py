@@ -1,11 +1,8 @@
 """
 Agent Context - Pydantic model for agent execution context
 """
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from modules.resource_manager import ResourceManager
 
 
 class AgentContext(BaseModel):
@@ -15,12 +12,14 @@ class AgentContext(BaseModel):
     Contains all the information needed for an agent to execute:
     - User identification
     - Resource management
+    - Stream handler for progress updates
     - Additional context data (e.g., brokerage connection info)
     """
-    user_id: Optional[str] = None  # Supabase user ID (OAuth identifier)
-    chat_id: Optional[str] = None
-    resource_manager: Optional[Any] = None  # ResourceManager instance
-    data: Optional[Dict[str, Any]] = None  # Additional context data (e.g., auth status)
+    user_id: str  # Supabase user ID (OAuth identifier) - REQUIRED
+    chat_id: str  # Chat session ID - REQUIRED
+    resource_manager: Any  # ResourceManager instance - REQUIRED
+    stream_handler: Any  # ToolStreamHandler for progress updates - REQUIRED
+    data: Optional[Dict[str, Any]] = None  # Additional context data (e.g., auth status) - OPTIONAL
     
     class Config:
         validate_assignment = True

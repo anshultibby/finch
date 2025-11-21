@@ -4,15 +4,20 @@ Base Agent class - reusable agent logic for main and specialized agents
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
 import json
 import asyncio
-from datetime import datetime
+import time
 from abc import ABC, abstractmethod
 
-from modules.tools import tool_registry, tool_runner, ToolContext
+from modules.tools import tool_registry, tool_runner
 from modules.resource_manager import ResourceManager
 from models.sse import SSEEvent
 from .llm_config import LLMConfig
 from .llm_handler import LLMHandler
 from .context import AgentContext
+from utils.logger import get_logger
+from utils.tracing import get_tracer, add_span_attributes, add_span_event
+
+logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 class BaseAgent(ABC):
@@ -169,6 +174,7 @@ class BaseAgent(ABC):
                 tool_name=call["name"],
                 arguments=call["args"],
                 user_id=context.user_id,
+                stream_handler=context.stream_handler,  # Pass through stream handler
                 resource_manager=context.resource_manager,
                 chat_id=context.chat_id
             )
@@ -180,7 +186,7 @@ class BaseAgent(ABC):
             }
         
         # Run all tools concurrently
-        print(f"🔧 Executing {len(parsed_calls)} tool(s) in parallel", flush=True)
+        logger.info(f"{self.__class__.__name__} executing {len(parsed_calls)} tool(s) in parallel")
         results = await asyncio.gather(*[execute_single_tool(call) for call in parsed_calls])
         
         # Process results and emit complete events
@@ -265,72 +271,136 @@ class BaseAgent(ABC):
         self._tool_calls_info = []  # Reset for this interaction
         
         iteration = 0
+        agent_name = self.__class__.__name__
         
-        try:
-            while iteration < max_iterations:
-                iteration += 1
-                
-                # Get tools for this agent from global registry
-                tool_names = self.get_tool_names()
-                tools = tool_registry.get_openai_tools(tool_names=tool_names)
-                
-                # Step 1: Call LLM and stream response
-                content = ""
-                tool_calls = []
-                async for event in self._stream_llm_step(
-                    messages=messages,
-                    tools=tools,
-                    llm_config=llm_config,
-                    on_content_delta=on_content_delta,
-                    user_id=context.user_id
-                ):
-                    # Check if it's the result marker or SSE event
-                    if isinstance(event, tuple) and event[0] == "__result__":
-                        _, content, tool_calls = event
-                    else:
-                        # Forward SSE event
-                        yield event
-                
-                # If no tool calls, we're done
-                if not tool_calls:
-                    messages.append({"role": "assistant", "content": content or ""})
-                    return  # Exit generator
-                
-                # Add assistant message with tool calls
-                messages.append({
-                    "role": "assistant",
-                    "content": content or "",
-                    "tool_calls": tool_calls
+        # Start overall agent interaction span
+        with tracer.start_as_current_span(f"agent.{agent_name}.interaction") as interaction_span:
+            add_span_attributes({
+                "agent.name": agent_name,
+                "agent.model": self.get_model(),
+                "agent.max_iterations": max_iterations,
+                "user.id": context.user_id,
+                "chat.id": context.chat_id
+            })
+            
+            try:
+                while iteration < max_iterations:
+                    iteration += 1
+                    
+                    # Start span for this turn/iteration
+                    with tracer.start_as_current_span(f"agent.turn.{iteration}") as turn_span:
+                        turn_start_time = time.time()
+                        
+                        add_span_attributes({
+                            "agent.turn": iteration,
+                            "agent.message_count": len(messages)
+                        })
+                        add_span_event(f"Turn {iteration} started", {
+                            "message_count": len(messages)
+                        })
+                        
+                        # Get tools for this agent from global registry
+                        tool_names = self.get_tool_names()
+                        tools = tool_registry.get_openai_tools(tool_names=tool_names)
+                        
+                        add_span_attributes({
+                            "agent.tool_count": len(tools) if tools else 0
+                        })
+                        
+                        # Step 1: Call LLM and stream response
+                        content = ""
+                        tool_calls = []
+                        async for event in self._stream_llm_step(
+                            messages=messages,
+                            tools=tools,
+                            llm_config=llm_config,
+                            on_content_delta=on_content_delta,
+                            user_id=context.user_id
+                        ):
+                            # Check if it's the result marker or SSE event
+                            if isinstance(event, tuple) and event[0] == "__result__":
+                                _, content, tool_calls = event
+                            else:
+                                # Forward SSE event
+                                yield event
+                        
+                        add_span_attributes({
+                            "agent.tool_calls_requested": len(tool_calls)
+                        })
+                        
+                        # If no tool calls, we're done
+                        if not tool_calls:
+                            turn_duration_ms = (time.time() - turn_start_time) * 1000
+                            add_span_attributes({
+                                "agent.turn_duration_ms": turn_duration_ms,
+                                "agent.final_turn": True
+                            })
+                            add_span_event("Final turn completed (no tool calls)", {
+                                "duration_ms": turn_duration_ms,
+                                "content_length": len(content) if content else 0
+                            })
+                            messages.append({"role": "assistant", "content": content or ""})
+                            
+                            # Add overall interaction summary
+                            add_span_attributes({
+                                "agent.total_turns": iteration,
+                                "agent.completed": True
+                            })
+                            return  # Exit generator
+                        
+                        # Add assistant message with tool calls
+                        messages.append({
+                            "role": "assistant",
+                            "content": content or "",
+                            "tool_calls": tool_calls
+                        })
+                        
+                        add_span_event("Tool calls requested", {
+                            "tool_count": len(tool_calls),
+                            "tools": [tc["function"]["name"] for tc in tool_calls]
+                        })
+                        
+                        # Step 2: Execute tools and get result messages
+                        tool_messages = []
+                        async for event in self._execute_tools_step(
+                            tool_calls=tool_calls,
+                            context=context,
+                            on_tool_call_start=on_tool_call_start,
+                            on_tool_call_complete=on_tool_call_complete
+                        ):
+                            # Check if it's the result marker or SSE event
+                            if isinstance(event, tuple) and event[0] == "__tool_messages__":
+                                _, tool_messages = event
+                            else:
+                                # Forward SSE event
+                                yield event
+                        
+                        # Add tool results to messages
+                        messages.extend(tool_messages)
+                        
+                        turn_duration_ms = (time.time() - turn_start_time) * 1000
+                        add_span_attributes({
+                            "agent.turn_duration_ms": turn_duration_ms
+                        })
+                        add_span_event(f"Turn {iteration} completed", {
+                            "duration_ms": turn_duration_ms,
+                            "tool_calls_executed": len(tool_calls)
+                        })
+                        
+                        # Show thinking before next iteration
+                        if on_thinking:
+                            async for event in on_thinking():
+                                yield event
+                        
+                        # Loop continues...
+            
+            except Exception as e:
+                logger.error(f"{agent_name} streaming error: {str(e)}")
+                add_span_attributes({
+                    "agent.error": True,
+                    "agent.error_message": str(e)
                 })
-                
-                # Step 2: Execute tools and get result messages
-                tool_messages = []
-                async for event in self._execute_tools_step(
-                    tool_calls=tool_calls,
-                    context=context,
-                    on_tool_call_start=on_tool_call_start,
-                    on_tool_call_complete=on_tool_call_complete
-                ):
-                    # Check if it's the result marker or SSE event
-                    if isinstance(event, tuple) and event[0] == "__tool_messages__":
-                        _, tool_messages = event
-                    else:
-                        # Forward SSE event
-                        yield event
-                
-                # Add tool results to messages
-                messages.extend(tool_messages)
-                
-                # Show thinking before next iteration
-                if on_thinking:
-                    async for event in on_thinking():
-                        yield event
-                
-                # Loop continues...
-        
-        except Exception as e:
-            print(f"❌ {self.__class__.__name__} streaming error: {str(e)}", flush=True)
-            raise
+                raise
     
     async def run_tool_loop(
         self,
@@ -412,10 +482,11 @@ class BaseAgent(ABC):
                         func_args = json.loads(tc.function.arguments)
                         
                         result = await tool_runner.execute(
-                        tool_name=func_name,
-                        arguments=func_args,
-                        user_id=context.user_id,
-                        resource_manager=context.resource_manager,
+                            tool_name=func_name,
+                            arguments=func_args,
+                            user_id=context.user_id,
+                            stream_handler=context.stream_handler,  # Pass through stream handler
+                            resource_manager=context.resource_manager,
                             chat_id=context.chat_id
                         )
                         
@@ -426,7 +497,7 @@ class BaseAgent(ABC):
                             "result": result
                         }
                     
-                    print(f"🔧 {self.__class__.__name__} executing {len(response_message.tool_calls)} tool(s) in parallel", flush=True)
+                    logger.info(f"{self.__class__.__name__} executing {len(response_message.tool_calls)} tool(s) in parallel")
                     
                     # Run all tools concurrently
                     execution_results = await asyncio.gather(
@@ -475,7 +546,7 @@ class BaseAgent(ABC):
             }
         
         except Exception as e:
-            print(f"❌ {self.__class__.__name__} error: {str(e)}", flush=True)
+            logger.error(f"{self.__class__.__name__} error: {str(e)}")
             return {
                 "success": False,
                 "message": f"Agent error: {str(e)}",
@@ -536,14 +607,14 @@ class BaseAgent(ABC):
         try:
             result_str = json.dumps(result)
         except Exception as e:
-            print(f"❌ Error serializing tool result: {e}", flush=True)
+            logger.error(f"Error serializing tool result: {e}")
             return json.dumps({
                 "success": False,
                 "error": f"Failed to serialize: {str(e)}"
             })
         
         if len(result_str) > max_size:
-            print(f"⚠️ Tool result too large ({len(result_str)} bytes), truncating", flush=True)
+            logger.warning(f"Tool result too large ({len(result_str)} bytes), truncating")
             
             # Intelligent truncation for arrays
             if "data" in result and isinstance(result["data"], list):

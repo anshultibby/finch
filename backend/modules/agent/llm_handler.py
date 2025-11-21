@@ -5,15 +5,22 @@ Wraps litellm's acompletion to add:
 - Debug logging (save requests/responses to disk when enabled)
 - Centralized error handling
 - Request/response inspection
+- OpenTelemetry tracing for performance monitoring
 """
 from typing import Dict, Any, Optional, AsyncGenerator
 from litellm import acompletion
 import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
 from config import Config
+from utils.logger import get_logger
+from utils.tracing import get_tracer, add_span_attributes, add_span_event, record_exception
+
+logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 class LLMHandler:
@@ -42,11 +49,11 @@ class LLMHandler:
             backend_dir = Path(__file__).parent.parent.parent
             self.debug_dir = backend_dir / "resources" / self.user_id
             self.debug_dir.mkdir(parents=True, exist_ok=True)
-            print(f"🐛 Debug mode enabled. Logging LLM calls to: {self.debug_dir}", flush=True)
+            logger.info(f"Debug mode enabled. Logging LLM calls to: {self.debug_dir}")
     
     async def acompletion(self, **kwargs) -> Any:
         """
-        Call LiteLLM's acompletion with optional debug logging.
+        Call LiteLLM's acompletion with optional debug logging and tracing.
         
         Args:
             **kwargs: All arguments passed to litellm.acompletion
@@ -58,41 +65,105 @@ class LLMHandler:
         call_num = self.call_counter
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Log request if debug enabled
-        if self.debug_enabled:
-            self._log_request(timestamp, call_num, kwargs)
-        
-        # Determine if streaming
+        # Extract model and other metadata for tracing
+        model = kwargs.get("model", "unknown")
         is_streaming = kwargs.get("stream", False)
+        message_count = len(kwargs.get("messages", []))
+        has_tools = "tools" in kwargs and len(kwargs.get("tools", [])) > 0
         
-        if is_streaming:
-            # For streaming, wrap the async generator to log the complete response
-            return self._acompletion_streaming(timestamp, call_num, kwargs)
-        else:
-            # For non-streaming, just log the response
-            response = await acompletion(**kwargs)
+        # Start tracing span
+        with tracer.start_as_current_span(f"llm.call") as span:
+            start_time = time.time()
             
+            # Add attributes for Jaeger
+            add_span_attributes({
+                "llm.model": model,
+                "llm.streaming": is_streaming,
+                "llm.message_count": message_count,
+                "llm.has_tools": has_tools,
+                "llm.call_number": call_num,
+                "user.id": self.user_id
+            })
+            
+            add_span_event("LLM request started", {
+                "model": model,
+                "streaming": is_streaming
+            })
+            
+            # Log request if debug enabled
             if self.debug_enabled:
-                self._log_response(timestamp, call_num, response)
+                self._log_request(timestamp, call_num, kwargs)
             
-            return response
+            try:
+                if is_streaming:
+                    # For streaming, wrap the async generator to log the complete response
+                    return self._acompletion_streaming(timestamp, call_num, kwargs, start_time)
+                else:
+                    # For non-streaming, just log the response
+                    response = await acompletion(**kwargs)
+                    duration_ms = (time.time() - start_time) * 1000
+                    
+                    # Extract token usage if available
+                    usage = getattr(response, 'usage', None)
+                    if usage:
+                        add_span_attributes({
+                            "llm.tokens.prompt": getattr(usage, 'prompt_tokens', 0),
+                            "llm.tokens.completion": getattr(usage, 'completion_tokens', 0),
+                            "llm.tokens.total": getattr(usage, 'total_tokens', 0)
+                        })
+                    
+                    add_span_attributes({"llm.duration_ms": duration_ms})
+                    add_span_event("LLM response received", {
+                        "duration_ms": duration_ms,
+                        "streaming": False
+                    })
+                    
+                    if self.debug_enabled:
+                        self._log_response(timestamp, call_num, response)
+                    
+                    logger.info(f"LLM call completed in {duration_ms:.0f}ms (model={model})")
+                    return response
+                    
+            except Exception as e:
+                duration_ms = (time.time() - start_time) * 1000
+                record_exception(e)
+                add_span_attributes({
+                    "llm.duration_ms": duration_ms,
+                    "error": True
+                })
+                logger.error(f"LLM call failed after {duration_ms:.0f}ms: {str(e)}")
+                raise
     
     async def _acompletion_streaming(
         self, 
         timestamp: str, 
         call_num: int, 
-        kwargs: Dict[str, Any]
+        kwargs: Dict[str, Any],
+        start_time: float
     ) -> AsyncGenerator:
         """
-        Handle streaming completion with response logging.
+        Handle streaming completion with response logging and tracing.
         
         Yields chunks as they arrive, but also accumulates them for logging.
         """
         stream = await acompletion(**kwargs)
+        first_chunk_time = None
+        chunk_count = 0
         
         accumulated_chunks = []
         
         async for chunk in stream:
+            chunk_count += 1
+            
+            # Track time to first chunk
+            if first_chunk_time is None:
+                first_chunk_time = time.time()
+                ttfb_ms = (first_chunk_time - start_time) * 1000
+                add_span_event("First chunk received (TTFB)", {
+                    "ttfb_ms": ttfb_ms
+                })
+                logger.debug(f"LLM first chunk received in {ttfb_ms:.0f}ms")
+            
             # Yield chunk immediately for real-time streaming
             yield chunk
             
@@ -100,7 +171,19 @@ class LLMHandler:
             if self.debug_enabled:
                 accumulated_chunks.append(chunk)
         
-        # After stream completes, log the full response
+        # After stream completes, log the full response and timing
+        total_duration_ms = (time.time() - start_time) * 1000
+        add_span_attributes({
+            "llm.duration_ms": total_duration_ms,
+            "llm.chunk_count": chunk_count,
+            "llm.ttfb_ms": (first_chunk_time - start_time) * 1000 if first_chunk_time else 0
+        })
+        add_span_event("Stream completed", {
+            "duration_ms": total_duration_ms,
+            "chunk_count": chunk_count
+        })
+        logger.info(f"LLM streaming completed in {total_duration_ms:.0f}ms ({chunk_count} chunks)")
+        
         if self.debug_enabled:
             self._log_streaming_response(timestamp, call_num, accumulated_chunks)
     
@@ -165,10 +248,10 @@ class LLMHandler:
                         if params.get('properties'):
                             f.write(f"  Parameters: {list(params['properties'].keys())}\n")
             
-            print(f"📝 Saved request to: {request_file.name}", flush=True)
+            logger.debug(f"Saved request to: {request_file.name}")
         
         except Exception as e:
-            print(f"⚠️ Failed to log request: {e}", flush=True)
+            logger.warning(f"Failed to log request: {e}")
     
     def _log_response(self, timestamp: str, call_num: int, response: Any):
         """Log the LLM response (non-streaming) to disk"""
@@ -215,10 +298,10 @@ class LLMHandler:
                     f.write(f"Completion tokens: {response.usage.completion_tokens}\n")
                     f.write(f"Total tokens: {response.usage.total_tokens}\n")
             
-            print(f"📝 Saved response to: {response_file.name}", flush=True)
+            logger.debug(f"Saved response to: {response_file.name}")
         
         except Exception as e:
-            print(f"⚠️ Failed to log response: {e}", flush=True)
+            logger.warning(f"Failed to log response: {e}")
     
     def _log_streaming_response(self, timestamp: str, call_num: int, chunks: list):
         """Log accumulated streaming response to disk"""
@@ -293,8 +376,8 @@ class LLMHandler:
                 f.write("\n" + "-" * 80 + "\n")
                 f.write(f"Total chunks received: {len(chunks)}\n")
             
-            print(f"📝 Saved streaming response to: {response_file.name}", flush=True)
+            logger.debug(f"Saved streaming response to: {response_file.name}")
         
         except Exception as e:
-            print(f"⚠️ Failed to log streaming response: {e}", flush=True)
+            logger.warning(f"Failed to log streaming response: {e}")
 

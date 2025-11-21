@@ -1,6 +1,5 @@
 """
-Configuration module for Finch backend
-Loads environment variables from .env file
+Configuration settings for the backend
 """
 import os
 from dotenv import load_dotenv
@@ -12,61 +11,37 @@ load_dotenv()
 class Config:
     """Application configuration"""
     
-    # LLM Configuration (works with any provider via LiteLLM)
-    # Supported models: gpt-4o, gpt-4, claude-3-5-sonnet-20241022, gemini-pro, etc.
+    # Database
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/finch")
+    
+    # OpenAI
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
     
-    # SnapTrade Configuration
+    # SnapTrade
     SNAPTRADE_CLIENT_ID = os.getenv("SNAPTRADE_CLIENT_ID")
     SNAPTRADE_CONSUMER_KEY = os.getenv("SNAPTRADE_CONSUMER_KEY")
     
-    # Financial Modeling Prep Configuration
+    # FMP (Financial Modeling Prep)
     FMP_API_KEY = os.getenv("FMP_API_KEY")
     
-    # Database Configuration (Supabase PostgreSQL)
-    DATABASE_URL = os.getenv("DATABASE_URL")
-    
-    # Encryption Configuration
-    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Encryption key for sensitive data
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+    
+    # Debug mode
+    DEBUG_LLM_CALLS = os.getenv("DEBUG_LLM_CALLS", "false").lower() == "true"
+    
+    # Performance monitoring (backend only - not sent to frontend)
+    ENABLE_TIMING_LOGS = os.getenv("ENABLE_TIMING_LOGS", "true").lower() == "true"
     
     # API Configuration
     API_HOST = os.getenv("API_HOST", "0.0.0.0")
     API_PORT = int(os.getenv("API_PORT", "8000"))
     
-    # CORS Configuration
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    # CORS
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
     
-    # Debug Configuration
-    DEBUG_LLM_CALLS = os.getenv("DEBUG_LLM_CALLS", "false").lower() in ("true", "1", "yes")
-    
-    # Validate required configuration
-    @classmethod
-    def validate(cls):
-        """Validate that required configuration is present"""
-        if not cls.OPENAI_API_KEY:
-            raise ValueError(
-                "OPENAI_API_KEY is required. Please add it to your .env file.\n"
-                "Get your API key from: https://platform.openai.com/api-keys"
-            )
-        
-        if not cls.SNAPTRADE_CLIENT_ID or not cls.SNAPTRADE_CONSUMER_KEY:
-            raise ValueError(
-                "SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY are required.\n"
-                "Get your API keys from: https://snaptrade.com/dashboard"
-            )
-        
-        # FMP API key is optional - insider trading features won't work without it
-        # if not cls.FMP_API_KEY:
-        #     print("⚠️  Warning: FMP_API_KEY not set. Insider trading features will be disabled.")
-    
-    @classmethod
-    def is_snaptrade_configured(cls):
-        """Check if SnapTrade credentials are configured"""
-        return bool(cls.SNAPTRADE_CLIENT_ID and cls.SNAPTRADE_CONSUMER_KEY)
-
-
-# Validate configuration on import
-Config.validate()
-
+    # LangFuse (optional - for LLM observability)
+    LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+    LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+    LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")

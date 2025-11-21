@@ -8,6 +8,9 @@ import asyncio
 
 from models import ChatMessage, ChatResponse
 from modules import ChatService
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -53,8 +56,8 @@ async def send_chat_message_stream(chat_message: ChatMessage):
             except Exception as e:
                 import traceback
                 error_msg = str(e)
-                print(f"❌ ERROR in stream: {error_msg}", flush=True)
-                print(f"❌ Traceback:\n{traceback.format_exc()}", flush=True)
+                logger.error(f"ERROR in stream: {error_msg}")
+                logger.debug(f"Traceback:\n{traceback.format_exc()}")
                 # Send error event
                 import json
                 yield f"event: error\ndata: {json.dumps({'error': error_msg})}\n\n"
@@ -74,8 +77,8 @@ async def send_chat_message_stream(chat_message: ChatMessage):
     except Exception as e:
         import traceback
         error_msg = str(e)
-        print(f"❌ ERROR in stream endpoint: {error_msg}", flush=True)
-        print(f"❌ Traceback:\n{traceback.format_exc()}", flush=True)
+        logger.error(f"ERROR in stream endpoint: {error_msg}")
+        logger.debug(f"Traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

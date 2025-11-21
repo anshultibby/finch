@@ -8,7 +8,8 @@ import asyncio
 
 from config import Config
 from modules.tools.clients.snaptrade import snaptrade_tools
-from modules.tools import tool_registry, tool_runner, ToolStreamHandler
+from modules.tools import tool_registry, tool_runner
+from modules.tools.stream_handler import ToolStreamHandler
 from .context import AgentContext
 from models.sse import (
     SSEEvent,
@@ -33,6 +34,9 @@ from .message_processor import (
     clean_incomplete_tool_calls,
     track_pending_tool_calls
 )
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Import tool_definitions to register all tools
 import modules.tools.definitions  # This will auto-register all tools
@@ -45,7 +49,7 @@ class ChatAgent(BaseAgent):
     """
     
     def get_model(self) -> str:
-        """Use configured OpenAI model"""
+        """Use GPT-5 for main chat agent"""
         return Config.OPENAI_MODEL
     
     def get_tool_names(self) -> Optional[List[str]]:
@@ -108,24 +112,29 @@ class ChatAgent(BaseAgent):
         # Store events from tools to yield them
         tool_events_queue = []
         
-        # Create stream_handler callback that captures events
-        async def stream_callback(event: Dict[str, Any]):
-            """
-            Generic callback that converts ANY tool event to SSE
-            Tools can emit any event type and it will be forwarded to frontend
-            """
-            event_type = event.get("type")
+        # Create stream_handler factory for each tool (to add metadata)
+        def create_stream_handler(tool_call_id: str, tool_name: str) -> ToolStreamHandler:
+            """Create a stream handler for a specific tool call"""
+            async def stream_callback(event: Dict[str, Any]):
+                """
+                Generic callback that converts ANY tool event to SSE
+                Tools can emit any event type and it will be forwarded to frontend
+                """
+                event_type = event.get("type")
+                
+                # Add tool metadata to the event
+                event["tool_call_id"] = tool_call_id
+                event["tool_name"] = tool_name
+                
+                # Forward all tool events as SSE with event name prefixed with "tool_"
+                # This allows any tool to stream any type of event
+                sse_event = SSEEvent(
+                    event=f"tool_{event_type}",
+                    data=event
+                )
+                tool_events_queue.append(sse_event)
             
-            # Forward all tool events as SSE with event name prefixed with "tool_"
-            # This allows any tool to stream any type of event
-            sse_event = SSEEvent(
-                event=f"tool_{event_type}",
-                data=event
-            )
-            tool_events_queue.append(sse_event)
-        
-        # Create stream handler
-        stream_handler = ToolStreamHandler(callback=stream_callback)
+            return ToolStreamHandler(callback=stream_callback)
         
         # Parse arguments upfront
         parsed_calls = []
@@ -151,13 +160,16 @@ class ChatAgent(BaseAgent):
         # Execute all tools in parallel
         async def execute_single_tool(call: Dict[str, Any]) -> Dict[str, Any]:
             """Execute one tool and return result with metadata"""
+            # Create a stream handler specifically for this tool
+            stream_handler = create_stream_handler(call["id"], call["name"])
+            
             result = await tool_runner.execute(
                 tool_name=call["name"],
                 arguments=call["args"],
                 user_id=context.user_id,
                 resource_manager=context.resource_manager,
                 chat_id=context.chat_id,
-                stream_handler=stream_handler  # Pass stream handler
+                stream_handler=stream_handler  # Pass tool-specific stream handler
             )
             return {
                 "tool_call_id": call["id"],
@@ -167,8 +179,9 @@ class ChatAgent(BaseAgent):
             }
         
         # Run all tools concurrently
-        print(f"🔧 Executing {len(parsed_calls)} tool(s) in parallel", flush=True)
-        results = await asyncio.gather(*[execute_single_tool(call) for call in parsed_calls])
+        logger.info(f"Executing {len(parsed_calls)} tool(s) in parallel")
+        results = await asyncio.gather(*[  
+            execute_single_tool(call) for call in parsed_calls])
         
         # Yield any tool events that were emitted (like options)
         for sse_event in tool_events_queue:
@@ -233,12 +246,50 @@ class ChatAgent(BaseAgent):
             agent_context: AgentContext with user_id, chat_id, resource_manager
         """
         needs_auth = [False]  # Mutable to capture in closures
+        tool_events_queue = []  # Queue for SSE events from tool stream handler
         
         try:
-            print(f"\n{'='*80}", flush=True)
-            print(f"📨 STREAMING MESSAGE for user: {agent_context.user_id}", flush=True)
-            print(f"📨 Current message: {message}", flush=True)
-            print(f"{'='*80}\n", flush=True)
+            logger.info(f"Streaming message for user: {agent_context.user_id}")
+            logger.debug(f"Message: {message}")
+            
+            # Create stream handler for tool progress updates
+            async def stream_callback(event: Dict[str, Any]):
+                """Convert tool events to SSE events and queue them"""
+                event_type = event.get("type")
+                
+                if event_type == "status":
+                    # Queue tool_status SSE event
+                    tool_events_queue.append(SSEEvent(
+                        event="tool_status",
+                        data={
+                            "status": event.get("status"),
+                            "message": event.get("message"),
+                            "timestamp": event.get("timestamp")
+                        }
+                    ))
+                elif event_type == "log":
+                    # Queue tool_log SSE event
+                    tool_events_queue.append(SSEEvent(
+                        event="tool_log",
+                        data={
+                            "level": event.get("level"),
+                            "message": event.get("message"),
+                            "timestamp": event.get("timestamp")
+                        }
+                    ))
+                elif event_type == "progress":
+                    # Queue tool_progress SSE event
+                    tool_events_queue.append(SSEEvent(
+                        event="tool_progress",
+                        data={
+                            "percent": event.get("percent"),
+                            "message": event.get("message"),
+                            "timestamp": event.get("timestamp")
+                        }
+                    ))
+            
+            stream_handler = ToolStreamHandler(callback=stream_callback)
+            agent_context.stream_handler = stream_handler
             
             # Build initial messages
             initial_messages = self._build_messages_for_api(
@@ -255,6 +306,46 @@ class ChatAgent(BaseAgent):
             
             async def on_tool_call_start(info: Dict[str, Any]):
                 """Yield SSE event for tool call start"""
+                tool_name = info["tool_name"]
+                
+                # Emit detailed status based on tool type
+                status_message = f"Calling {tool_name.replace('_', ' ')}..."
+                if tool_name == "analyze_financials":
+                    args = info.get("arguments", {})
+                    symbols = args.get("symbols", [])
+                    if symbols:
+                        symbols_str = ", ".join(symbols[:3])
+                        if len(symbols) > 3:
+                            symbols_str += f" +{len(symbols)-3} more"
+                        status_message = f"Analyzing {symbols_str}..."
+                    else:
+                        status_message = "Starting financial analysis..."
+                elif tool_name == "get_fmp_data":
+                    args = info.get("arguments", {})
+                    endpoint = args.get("endpoint", "")
+                    params = args.get("params", {})
+                    symbol = params.get("symbol", "") if params else ""
+                    endpoint_readable = endpoint.replace("_", " ").title()
+                    if symbol:
+                        status_message = f"Fetching {endpoint_readable} for {symbol}..."
+                    else:
+                        status_message = f"Fetching {endpoint_readable}..."
+                elif tool_name == "get_portfolio":
+                    status_message = "Retrieving your portfolio..."
+                elif tool_name == "create_plot":
+                    status_message = "Creating visualization..."
+                
+                # Emit status
+                yield SSEEvent(
+                    event="tool_status",
+                    data={
+                        "status": "executing",
+                        "message": status_message,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                # Emit standard tool_call_start
                 yield SSEEvent(
                     event="tool_call_start",
                     data=ToolCallStartEvent(
@@ -268,8 +359,43 @@ class ChatAgent(BaseAgent):
             async def on_tool_call_complete(info: Dict[str, Any]):
                 """Yield SSE event for tool call complete"""
                 result = info["result"]
+                tool_name = info["tool_name"]
+                
                 if result.get("needs_auth"):
                     needs_auth[0] = True
+                
+                # Emit completion status
+                if result.get("success"):
+                    completion_message = f"✓ {tool_name.replace('_', ' ').title()} completed"
+                    
+                    # Add specific details if available
+                    if tool_name == "analyze_financials":
+                        completion_message = "✓ Financial analysis completed"
+                    elif tool_name == "get_fmp_data":
+                        data = result.get("data", [])
+                        if isinstance(data, list) and len(data) > 0:
+                            completion_message = f"✓ Retrieved {len(data)} records"
+                    elif tool_name == "get_portfolio":
+                        completion_message = "✓ Portfolio retrieved"
+                    
+                    yield SSEEvent(
+                        event="tool_status",
+                        data={
+                            "status": "completed",
+                            "message": completion_message,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+                else:
+                    error_msg = result.get("error", "Unknown error")
+                    yield SSEEvent(
+                        event="tool_status",
+                        data={
+                            "status": "error",
+                            "message": f"✗ {tool_name}: {error_msg}",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
                 
                 # Regular tool completion event
                 yield SSEEvent(
@@ -277,16 +403,27 @@ class ChatAgent(BaseAgent):
                     data=ToolCallCompleteEvent(
                         tool_call_id=info["tool_call_id"],
                         tool_name=info["tool_name"],
-                        status="completed",
+                        status="completed" if result.get("success") else "error",
                         timestamp=datetime.now().isoformat()
                     ).model_dump()
                 )
             
             async def on_thinking():
                 """Yield SSE event for thinking indicator"""
+                # More descriptive thinking message based on context
                 yield SSEEvent(
                     event="thinking",
-                    data=ThinkingEvent(message="Analyzing results...").model_dump()
+                    data=ThinkingEvent(message="Processing results and formulating response...").model_dump()
+                )
+                
+                # Also emit as status
+                yield SSEEvent(
+                    event="tool_status",
+                    data={
+                        "status": "thinking",
+                        "message": "Analyzing data and preparing response...",
+                        "timestamp": datetime.now().isoformat()
+                    }
                 )
             
             # Create LLM configuration
@@ -305,6 +442,11 @@ class ChatAgent(BaseAgent):
             ):
                 # Forward all events from BaseAgent
                 yield event
+                
+                # Also yield any queued tool events (status, log, progress)
+                while tool_events_queue:
+                    tool_event = tool_events_queue.pop(0)
+                    yield tool_event
             
             # Yield final assistant message (after streaming completes)
             new_messages = self.get_new_messages()
@@ -328,9 +470,9 @@ class ChatAgent(BaseAgent):
             )
             
         except Exception as e:
-            print(f"❌ Error: {str(e)}", flush=True)
+            logger.error(f"Error: {str(e)}")
             import traceback
-            print(f"❌ Traceback: {traceback.format_exc()}", flush=True)
+            logger.debug(f"Traceback: {traceback.format_exc()}")
             
             yield SSEEvent(
                 event="error",

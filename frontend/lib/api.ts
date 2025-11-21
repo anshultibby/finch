@@ -88,10 +88,37 @@ export interface SSEOptionsEvent {
   timestamp: string;
 }
 
+export interface SSEToolStatusEvent {
+  tool_call_id?: string;
+  tool_name?: string;
+  status: string;
+  message?: string;
+  timestamp: string;
+}
+
+export interface SSEToolProgressEvent {
+  tool_call_id?: string;
+  tool_name?: string;
+  percent: number;
+  message?: string;
+  timestamp: string;
+}
+
+export interface SSEToolLogEvent {
+  tool_call_id?: string;
+  tool_name?: string;
+  level: 'debug' | 'info' | 'warning' | 'error';
+  message: string;
+  timestamp: string;
+}
+
 // Callback types for SSE event handlers
 export interface SSEEventHandlers {
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
   onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
+  onToolStatus?: (event: SSEToolStatusEvent) => void;
+  onToolProgress?: (event: SSEToolProgressEvent) => void;
+  onToolLog?: (event: SSEToolLogEvent) => void;
   onThinking?: (event: SSEThinkingEvent) => void;
   onAssistantMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onAssistantMessage?: (event: SSEAssistantMessageEvent) => void;
@@ -250,6 +277,15 @@ export const chatApi = {
                   break;
                 case 'tool_call_complete':
                   handlers.onToolCallComplete?.(eventData as SSEToolCallCompleteEvent);
+                  break;
+                case 'tool_status':
+                  handlers.onToolStatus?.(eventData as SSEToolStatusEvent);
+                  break;
+                case 'tool_progress':
+                  handlers.onToolProgress?.(eventData as SSEToolProgressEvent);
+                  break;
+                case 'tool_log':
+                  handlers.onToolLog?.(eventData as SSEToolLogEvent);
                   break;
                 case 'thinking':
                   handlers.onThinking?.(eventData as SSEThinkingEvent);

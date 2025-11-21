@@ -18,6 +18,9 @@ import {
   SSEToolCallCompleteEvent,
   SSEAssistantMessageEvent,
   SSEOptionsEvent,
+  SSEToolStatusEvent,
+  SSEToolProgressEvent,
+  SSEToolLogEvent,
   OptionButton
 } from '@/lib/api';
 
@@ -37,6 +40,7 @@ export default function ChatContainer() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
+  const [toolStatusMessages, setToolStatusMessages] = useState<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Use Supabase user ID
@@ -248,6 +252,44 @@ export default function ChatContainer() {
               toolCallStatus.error = event.error;
               setEphemeralToolCalls(Array.from(toolCallsMap.values()));
             }
+            
+            // Clear status message for this tool
+            setToolStatusMessages((prev) => {
+              const next = new Map(prev);
+              next.delete(event.tool_call_id);
+              return next;
+            });
+          },
+          
+          onToolStatus: (event: SSEToolStatusEvent) => {
+            console.log('📊 Tool status:', event.tool_name, event.status, event.message);
+            const toolCallId = event.tool_call_id;
+            if (toolCallId) {
+              const statusText = event.message || event.status;
+              setToolStatusMessages((prev) => {
+                const next = new Map(prev);
+                next.set(toolCallId, statusText);
+                return next;
+              });
+            }
+          },
+          
+          onToolProgress: (event: SSEToolProgressEvent) => {
+            console.log('📈 Tool progress:', event.tool_name, `${event.percent}%`, event.message);
+            const toolCallId = event.tool_call_id;
+            if (toolCallId) {
+              const progressText = event.message || `${Math.round(event.percent)}%`;
+              setToolStatusMessages((prev) => {
+                const next = new Map(prev);
+                next.set(toolCallId, progressText);
+                return next;
+              });
+            }
+          },
+          
+          onToolLog: (event: SSEToolLogEvent) => {
+            console.log(`🔍 Tool log [${event.level}]:`, event.tool_name, event.message);
+            // You can optionally show logs in UI if needed
           },
           
           onThinking: (event) => {
@@ -385,6 +427,44 @@ export default function ChatContainer() {
               toolCallStatus.error = event.error;
               setEphemeralToolCalls(Array.from(toolCallsMap.values()));
             }
+            
+            // Clear status message for this tool
+            setToolStatusMessages((prev) => {
+              const next = new Map(prev);
+              next.delete(event.tool_call_id);
+              return next;
+            });
+          },
+          
+          onToolStatus: (event: SSEToolStatusEvent) => {
+            console.log('📊 Tool status:', event.tool_name, event.status, event.message);
+            const toolCallId = event.tool_call_id;
+            if (toolCallId) {
+              const statusText = event.message || event.status;
+              setToolStatusMessages((prev) => {
+                const next = new Map(prev);
+                next.set(toolCallId, statusText);
+                return next;
+              });
+            }
+          },
+          
+          onToolProgress: (event: SSEToolProgressEvent) => {
+            console.log('📈 Tool progress:', event.tool_name, `${event.percent}%`, event.message);
+            const toolCallId = event.tool_call_id;
+            if (toolCallId) {
+              const progressText = event.message || `${Math.round(event.percent)}%`;
+              setToolStatusMessages((prev) => {
+                const next = new Map(prev);
+                next.set(toolCallId, progressText);
+                return next;
+              });
+            }
+          },
+          
+          onToolLog: (event: SSEToolLogEvent) => {
+            console.log(`🔍 Tool log [${event.level}]:`, event.tool_name, event.message);
+            // You can optionally show logs in UI if needed
           },
           
           onThinking: (event) => {
@@ -891,33 +971,46 @@ export default function ChatContainer() {
                 ) : ephemeralToolCalls.length > 0 ? (
                   /* Show tool calls if no thinking or streaming */
                   <div className="space-y-2 px-2">
-                    {ephemeralToolCalls.map((toolCall) => (
-                      <div
-                        key={toolCall.tool_call_id}
-                        className={`flex justify-start items-center gap-2 ${
-                          toolCall.status === 'calling' ? 'animate-pulse' : 'animate-fadeOut'
-                        }`}
-                      >
-                        <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
-                        <p className="text-sm text-gray-500 font-medium">
-                          {toolCall.tool_name.replace(/_/g, ' ')}
-                          {toolCall.status === 'calling' && '...'}
-                          {toolCall.status === 'completed' && ' ✓'}
-                          {toolCall.status === 'error' && ` ✗`}
-                        </p>
-                        {toolCall.resource_id && (
-                          <button
-                            onClick={async () => {
-                              const resource = await resourcesApi.getResource(toolCall.resource_id!);
-                              handleSelectResource(resource);
-                            }}
-                            className="text-sm text-blue-500 hover:text-blue-700 font-medium underline"
-                          >
-                            view
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                    {ephemeralToolCalls.map((toolCall) => {
+                      const statusMessage = toolStatusMessages.get(toolCall.tool_call_id);
+                      return (
+                        <div
+                          key={toolCall.tool_call_id}
+                          className={`${
+                            toolCall.status === 'calling' ? 'animate-pulse' : 'animate-fadeOut'
+                          }`}
+                        >
+                          <div className="flex justify-start items-center gap-2">
+                            <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
+                            <p className="text-sm text-gray-500 font-medium">
+                              {toolCall.tool_name.replace(/_/g, ' ')}
+                              {toolCall.status === 'calling' && '...'}
+                              {toolCall.status === 'completed' && ' ✓'}
+                              {toolCall.status === 'error' && ` ✗`}
+                            </p>
+                            {toolCall.resource_id && (
+                              <button
+                                onClick={async () => {
+                                  const resource = await resourcesApi.getResource(toolCall.resource_id!);
+                                  handleSelectResource(resource);
+                                }}
+                                className="text-sm text-blue-500 hover:text-blue-700 font-medium underline"
+                              >
+                                view
+                              </button>
+                            )}
+                          </div>
+                          {/* Show detailed status message if available */}
+                          {statusMessage && (
+                            <div className="ml-8 mt-1">
+                              <p className="text-xs text-gray-400 italic">
+                                {statusMessage}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>
