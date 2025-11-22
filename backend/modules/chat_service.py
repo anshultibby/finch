@@ -1,15 +1,14 @@
 """
 Chat service for managing chat sessions and interactions
 """
-from typing import List, Any, Dict, AsyncGenerator
-import io
-import pandas as pd
+from typing import List, AsyncGenerator
 from .agent import ChatAgent
 from .context_manager import context_manager
 from .resource_manager import ResourceManager
 from database import SessionLocal, AsyncSessionLocal
 from modules.agent.context import AgentContext
 from modules.tools.stream_handler import ToolStreamHandler
+from models.chat_history import ChatHistory
 from crud import chat as chat_crud
 from crud import chat_async
 from utils.logger import get_logger
@@ -59,7 +58,9 @@ class ChatService:
                 if not db_chat:
                     await chat_async.create_chat(db, chat_id, user_id)
                 
+                # Load chat history using ChatHistory model
                 db_messages = await chat_async.get_chat_messages(db, chat_id)
+                history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
                 context = context_manager.get_all_context(user_id)
                 
                 # Load resources
@@ -79,7 +80,7 @@ class ChatService:
                 )
                 
                 # Save user message FIRST before streaming
-                start_sequence = len(db_messages)
+                start_sequence = len(history)
                 await chat_async.create_message(
                     db=db,
                     chat_id=chat_id,
@@ -88,42 +89,20 @@ class ChatService:
                     sequence=start_sequence
                 )
                 
-                # Process chat history
-                chat_history = []
-                for msg in db_messages:
-                    # Reconstruct message from database columns (OpenAI format)
-                    message_dict = {
-                        "role": msg.role,
-                        "content": msg.content,
-                        "timestamp": msg.timestamp.isoformat()
-                    }
-                    
-                    # Add tool_calls for assistant messages that call tools
-                    if msg.role == "assistant" and msg.tool_calls:
-                        message_dict["tool_calls"] = msg.tool_calls
-                    
-                    # Add tool result metadata for tool role messages
-                    if msg.role == "tool":
-                        if msg.tool_call_id:
-                            message_dict["tool_call_id"] = msg.tool_call_id
-                        if msg.name:
-                            message_dict["name"] = msg.name
-                        if msg.resource_id:
-                            message_dict["resource_id"] = msg.resource_id
-                    
-                    chat_history.append(message_dict)
+                # Add user message to history
+                history.add_user_message(message)
                 
                 # Stream events from agent (LLM calls auto-traced by OpenTelemetry)
                 with tracer.start_as_current_span("agent_processing"):
                     async for event in agent.process_message_stream(
                         message=message,
-                        chat_history=chat_history,
+                        chat_history=history,
                         agent_context=agent_context
                     ):
                         # Yield the SSE formatted event
                         yield event.to_sse_format()
                 
-                # After streaming, save messages to database
+                # After streaming, save new messages to database
                 new_messages = agent.get_new_messages()
                 logger.info(f"Saving {len(new_messages)} messages to database")
                 
@@ -152,171 +131,42 @@ class ChatService:
                 sequence = start_sequence + 1
                 
                 for msg in new_messages:
-                    role = msg["role"]
-                    content = msg.get("content", "")
-                    tool_calls = msg.get("tool_calls") if role == "assistant" else None
-                    tool_call_id = msg.get("tool_call_id") if role == "tool" else None
-                    name = msg.get("name") if role == "tool" else None
+                    content = msg.content or ""
                     
                     # Append plot references to final assistant message
-                    if role == "assistant" and content and plot_resources and msg == new_messages[-1]:
+                    if msg.role == "assistant" and content and plot_resources and msg == new_messages[-1]:
                         # This is the final assistant message, append plot markers
                         for plot_title in plot_resources:
                             content += f"\n\n[plot:{plot_title}]"
                     
                     # Link tool result messages to resources
-                    resource_id = None
-                    if role == "tool" and tool_call_id:
-                        resource_id = tool_call_to_resource.get(tool_call_id)
+                    resource_id = msg.resource_id
+                    if msg.role == "tool" and msg.tool_call_id and not resource_id:
+                        resource_id = tool_call_to_resource.get(msg.tool_call_id)
                     
+                    # Convert to DB format and save
                     await chat_async.create_message(
                         db=db,
                         chat_id=chat_id,
-                        role=role,
+                        role=msg.role,
                         content=content,
                         sequence=sequence,
                         resource_id=resource_id,
-                        tool_calls=tool_calls,
-                        tool_call_id=tool_call_id,
-                        name=name
+                        tool_calls=[tc.model_dump() for tc in msg.tool_calls] if msg.tool_calls else None,
+                        tool_call_id=msg.tool_call_id,
+                        name=msg.name
                     )
                     sequence += 1
                 
                 logger.info("Saved conversation history")
-    
-    def _extract_table_data(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extract core table data from wrapped API responses
-        Converts nested structures to flat arrays for better table display
-        
-        Returns:
-            Simplified data structure optimized for table display
-        """
-        # Handle plot data specially - keep plotly_json intact
-        if "plotly_json" in result_data:
-            return result_data
-        
-        # If it's already a simple array, return as-is
-        if isinstance(result_data, list):
-            return {"data": result_data}
-        
-        # Handle CSV-formatted portfolio holdings (efficient format)
-        if "holdings_csv" in result_data and isinstance(result_data["holdings_csv"], str):
-            try:
-                # Parse CSV string to DataFrame
-                df = pd.read_csv(io.StringIO(result_data["holdings_csv"]))
-                # Convert to list of dicts for JSON serialization
-                holdings_array = df.to_dict('records')
-                return {"data": holdings_array}
-            except Exception as e:
-                logger.warning(f"Error parsing CSV portfolio data: {e}")
-                # Fall back to returning full result
-                return result_data
-        
-        # Extract the main data array from common wrapper structures
-        if "mentions" in result_data and isinstance(result_data["mentions"], list):
-            return {"data": result_data["mentions"]}
-        elif "trades" in result_data and isinstance(result_data["trades"], list):
-            return {"data": result_data["trades"]}
-        elif "holdings" in result_data and isinstance(result_data["holdings"], list):
-            return {"data": result_data["holdings"]}
-        elif "positions" in result_data and isinstance(result_data["positions"], list):
-            return {"data": result_data["positions"]}
-        elif "portfolio_activity" in result_data:
-            # Flatten portfolio insider activity
-            activities = []
-            for ticker, activity_list in result_data.get("portfolio_activity", {}).items():
-                for activity in activity_list:
-                    activities.append({"ticker": ticker, **activity})
-            return {"data": activities}
-        elif "results" in result_data and isinstance(result_data["results"], list):
-            return {"data": result_data["results"]}
-        
-        # If no recognizable array structure, return the whole thing
-        return result_data
-    
-    def _get_resource_metadata(
-        self, 
-        tool_name: str, 
-        arguments: Dict[str, Any],
-        result_data: Dict[str, Any]
-    ) -> tuple[str, str]:
-        """
-        Determine resource type and title based on tool name and results
-        
-        Returns:
-            Tuple of (resource_type, title)
-        """
-        if tool_name == "get_portfolio":
-            return "portfolio", "Portfolio Holdings"
-        elif tool_name == "get_reddit_trending_stocks":
-            limit = arguments.get("limit", 10)
-            return "reddit_trends", f"Top {limit} Trending Stocks on Reddit"
-        elif tool_name == "get_reddit_ticker_sentiment":
-            ticker = arguments.get("ticker", "").upper()
-            return "reddit_sentiment", f"Reddit Sentiment for {ticker}"
-        elif tool_name == "compare_reddit_sentiment":
-            tickers = arguments.get("tickers", [])
-            return "reddit_comparison", f"Reddit Comparison: {', '.join(tickers)}"
-        elif tool_name == "get_recent_senate_trades":
-            limit = arguments.get("limit", 50)
-            return "senate_trades", f"Recent Senate Trades (Last {limit})"
-        elif tool_name == "get_recent_house_trades":
-            limit = arguments.get("limit", 50)
-            return "house_trades", f"Recent House Trades (Last {limit})"
-        elif tool_name == "get_recent_insider_trades":
-            limit = arguments.get("limit", 100)
-            return "insider_trades", f"Recent Insider Trades (Last {limit})"
-        elif tool_name == "search_ticker_insider_activity":
-            ticker = arguments.get("ticker", "").upper()
-            return "ticker_insider_activity", f"Insider Activity: {ticker}"
-        elif tool_name == "get_portfolio_insider_activity":
-            return "portfolio_insider_activity", "Insider Activity in Portfolio"
-        elif tool_name == "get_insider_trading_statistics":
-            symbol = arguments.get("symbol", "").upper()
-            return "insider_statistics", f"Insider Statistics: {symbol}"
-        elif tool_name == "search_insider_trades":
-            symbol = arguments.get("symbol", "").upper() if arguments.get("symbol") else "Multiple"
-            return "insider_search", f"Insider Trades Search: {symbol}"
-        elif tool_name == "create_plot":
-            # Extract title from result data if available
-            title = result_data.get("title", "Interactive Chart")
-            return "plot", title
-        else:
-            return "other", tool_name.replace("_", " ").title()
     
     def get_chat_history(self, chat_id: str) -> List[dict]:
         """Get chat history for a chat, including tool calls (OpenAI format)"""
         db = SessionLocal()
         try:
             messages = chat_crud.get_chat_messages(db, chat_id)
-            history = []
-            for msg in messages:
-                # Reconstruct message from database columns (OpenAI format)
-                message_dict = {
-                    "role": msg.role,
-                    "content": msg.content,
-                    "timestamp": msg.timestamp.isoformat()
-                }
-                
-                # Add tool_calls for assistant messages
-                if msg.role == "assistant":
-                    if msg.tool_calls:
-                        message_dict["tool_calls"] = msg.tool_calls
-                    if msg.latency_ms is not None:
-                        message_dict["latency_ms"] = msg.latency_ms
-                
-                # Add tool result metadata for tool role messages
-                if msg.role == "tool":
-                    if msg.tool_call_id:
-                        message_dict["tool_call_id"] = msg.tool_call_id
-                    if msg.name:
-                        message_dict["name"] = msg.name
-                    if msg.resource_id:
-                        message_dict["resource_id"] = msg.resource_id
-                
-                history.append(message_dict)
-            return history
+            history = ChatHistory.from_db_messages(messages, chat_id, user_id=None)
+            return history.to_openai_format()
         finally:
             db.close()
     

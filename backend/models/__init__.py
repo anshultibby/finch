@@ -40,7 +40,21 @@ from .sse import (
     ThinkingEvent,
     AssistantMessageEvent,
     DoneEvent,
-    ErrorEvent
+    ErrorEvent,
+    OptionButton,
+    OptionsEvent,
+    ToolStatusEvent,
+    ToolProgressEvent,
+    ToolLogEvent,
+    LLMStartEvent,
+    LLMEndEvent,
+    ToolsEndEvent
+)
+from .chat_history import (
+    ChatHistory,
+    ChatMessage as HistoryChatMessage,
+    ToolCall,
+    ChatTurn
 )
 
 __all__ = [
@@ -74,6 +88,18 @@ __all__ = [
     "ThinkingEvent",
     "AssistantMessageEvent",
     "DoneEvent",
-    "ErrorEvent"
+    "ErrorEvent",
+    "OptionButton",
+    "OptionsEvent",
+    "ToolStatusEvent",
+    "ToolProgressEvent",
+    "ToolLogEvent",
+    "LLMStartEvent",
+    "LLMEndEvent",
+    "ToolsEndEvent",
+    "ChatHistory",
+    "HistoryChatMessage",
+    "ToolCall",
+    "ChatTurn"
 ]
 

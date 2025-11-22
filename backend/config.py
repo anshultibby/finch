@@ -28,8 +28,9 @@ class Config:
     # Encryption key for sensitive data
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
     
-    # Debug mode
+    # Debug settings
     DEBUG_LLM_CALLS = os.getenv("DEBUG_LLM_CALLS", "false").lower() == "true"
+    DEBUG_CHAT_LOGS = os.getenv("DEBUG_CHAT_LOGS", "false").lower() == "true"
     
     # Performance monitoring (backend only - not sent to frontend)
     ENABLE_TIMING_LOGS = os.getenv("ENABLE_TIMING_LOGS", "true").lower() == "true"

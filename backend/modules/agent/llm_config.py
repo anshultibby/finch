@@ -83,7 +83,7 @@ class LLMConfig(BaseModel):
         # OpenAI o1/o3 series (reasoning models)
         if model_lower.startswith(("gpt-5", "o1", "o3")):
             return {
-                "reasoning_effort": "low",
+                "reasoning_effort": "medium",
                 "caching": True,
                 "seed": 42,
             }

@@ -1,10 +1,13 @@
 """
 Main ChatAgent class - refactored to use BaseAgent
 """
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from typing import List, Dict, Any, Optional, AsyncGenerator, TYPE_CHECKING
 from datetime import datetime
 import json
 import asyncio
+
+if TYPE_CHECKING:
+    from models.chat_history import ChatHistory
 
 from config import Config
 from modules.tools.clients.snaptrade import snaptrade_tools
@@ -19,8 +22,6 @@ from models.sse import (
     AssistantMessageEvent,
     DoneEvent,
     ErrorEvent,
-    OptionsEvent,
-    OptionButton
 )
 
 from .prompts import (
@@ -54,8 +55,7 @@ class ChatAgent(BaseAgent):
     
     def get_tool_names(self) -> Optional[List[str]]:
         """
-        Main agent uses high-level tools and delegates to specialized agents.
-        Individual FMP tools are excluded - use analyze_financials instead.
+        Main agent has access to all tools directly.
         """
         return [
             # Portfolio tools
@@ -67,37 +67,22 @@ class ChatAgent(BaseAgent):
             'get_reddit_ticker_sentiment',
             'compare_reddit_sentiment',
             
-            # Financial analysis (delegated to FMP agent)
-            # Note: get_fmp_data (universal FMP tool including insider trading)
-            # is NOT included here - main agent delegates via analyze_financials instead
-            'analyze_financials',
+            # Financial analysis (FMP)
+            'get_fmp_data',
             
-            # Visualization (delegated to plotting agent)
-            'create_plot',
+            # Visualization
+            'create_chart',
             
             # Interactive options
             'present_options'
         ]
     
-    def get_system_prompt(self, user_id: Optional[str] = None, **kwargs) -> str:
+    def get_system_prompt(self, **kwargs) -> str:
         """
-        Build system prompt with auth status
-        
-        Args:
-            user_id: Used to check auth status
+        Return fixed system prompt.
+        No dynamic content - auth status and tool availability are handled at runtime.
         """
-        # Check connection status
-        has_connection = snaptrade_tools.has_active_connection(user_id) if user_id else False
-        
-        # Build system prompt
-        system_prompt = FINCH_SYSTEM_PROMPT
-        system_prompt += AUTH_STATUS_CONNECTED if has_connection else AUTH_STATUS_NOT_CONNECTED
-        
-        # Add tool descriptions
-        tool_descriptions = tool_registry.get_tool_descriptions_for_prompt()
-        system_prompt += f"\n\n{tool_descriptions}"
-        
-        return system_prompt
+        return FINCH_SYSTEM_PROMPT
     
     async def _execute_tools_step(
         self,
@@ -109,8 +94,8 @@ class ChatAgent(BaseAgent):
         """
         Override to add stream_handler for tool event streaming (like present_options)
         """
-        # Store events from tools to yield them
-        tool_events_queue = []
+        # Use asyncio.Queue for real-time event streaming
+        tool_events_queue = asyncio.Queue()
         
         # Create stream_handler factory for each tool (to add metadata)
         def create_stream_handler(tool_call_id: str, tool_name: str) -> ToolStreamHandler:
@@ -121,20 +106,14 @@ class ChatAgent(BaseAgent):
                 Tools can emit any event type and it will be forwarded to frontend
                 """
                 event_type = event.get("type")
-                
-                # Add tool metadata to the event
-                event["tool_call_id"] = tool_call_id
-                event["tool_name"] = tool_name
-                
-                # Forward all tool events as SSE with event name prefixed with "tool_"
-                # This allows any tool to stream any type of event
                 sse_event = SSEEvent(
                     event=f"tool_{event_type}",
                     data=event
                 )
-                tool_events_queue.append(sse_event)
+                # Put event in queue for real-time streaming
+                await tool_events_queue.put(sse_event)
             
-            return ToolStreamHandler(callback=stream_callback)
+            return ToolStreamHandler(callback=stream_callback, tool_call_id=tool_call_id, tool_name=tool_name)
         
         # Parse arguments upfront
         parsed_calls = []
@@ -178,14 +157,38 @@ class ChatAgent(BaseAgent):
                 "result": result
             }
         
-        # Run all tools concurrently
+        # Run all tools concurrently while streaming events in real-time
         logger.info(f"Executing {len(parsed_calls)} tool(s) in parallel")
-        results = await asyncio.gather(*[  
-            execute_single_tool(call) for call in parsed_calls])
         
-        # Yield any tool events that were emitted (like options)
-        for sse_event in tool_events_queue:
-            yield sse_event
+        # Wrap gather in an async function so we can use create_task
+        async def run_all_tools():
+            return await asyncio.gather(*[execute_single_tool(call) for call in parsed_calls])
+        
+        # Create task for executing all tools
+        tools_task = asyncio.create_task(run_all_tools())
+        
+        # Stream events in real-time as they arrive
+        while True:
+            # Check if tools are done
+            if tools_task.done():
+                # Drain remaining events from queue
+                while not tool_events_queue.empty():
+                    try:
+                        sse_event = tool_events_queue.get_nowait()
+                        yield sse_event
+                    except asyncio.QueueEmpty:
+                        break
+                # Get results and break
+                results = await tools_task
+                break
+            
+            # Try to get events from queue with timeout
+            try:
+                sse_event = await asyncio.wait_for(tool_events_queue.get(), timeout=0.1)
+                yield sse_event
+            except asyncio.TimeoutError:
+                # No events yet, continue waiting
+                continue
         
         # Process results and emit complete events
         tool_messages = []
@@ -234,7 +237,7 @@ class ChatAgent(BaseAgent):
     async def process_message_stream(
         self,
         message: str,
-        chat_history: List[Dict[str, Any]],
+        chat_history: "ChatHistory",  # Use ChatHistory model
         agent_context: AgentContext  # Always required
     ) -> AsyncGenerator[SSEEvent, None]:
         """
@@ -246,52 +249,9 @@ class ChatAgent(BaseAgent):
             agent_context: AgentContext with user_id, chat_id, resource_manager
         """
         needs_auth = [False]  # Mutable to capture in closures
-        tool_events_queue = []  # Queue for SSE events from tool stream handler
         
         try:
-            logger.info(f"Streaming message for user: {agent_context.user_id}")
-            logger.debug(f"Message: {message}")
-            
-            # Create stream handler for tool progress updates
-            async def stream_callback(event: Dict[str, Any]):
-                """Convert tool events to SSE events and queue them"""
-                event_type = event.get("type")
-                
-                if event_type == "status":
-                    # Queue tool_status SSE event
-                    tool_events_queue.append(SSEEvent(
-                        event="tool_status",
-                        data={
-                            "status": event.get("status"),
-                            "message": event.get("message"),
-                            "timestamp": event.get("timestamp")
-                        }
-                    ))
-                elif event_type == "log":
-                    # Queue tool_log SSE event
-                    tool_events_queue.append(SSEEvent(
-                        event="tool_log",
-                        data={
-                            "level": event.get("level"),
-                            "message": event.get("message"),
-                            "timestamp": event.get("timestamp")
-                        }
-                    ))
-                elif event_type == "progress":
-                    # Queue tool_progress SSE event
-                    tool_events_queue.append(SSEEvent(
-                        event="tool_progress",
-                        data={
-                            "percent": event.get("percent"),
-                            "message": event.get("message"),
-                            "timestamp": event.get("timestamp")
-                        }
-                    ))
-            
-            stream_handler = ToolStreamHandler(callback=stream_callback)
-            agent_context.stream_handler = stream_handler
-            
-            # Build initial messages
+
             initial_messages = self._build_messages_for_api(
                 message, chat_history, agent_context
             )
@@ -310,17 +270,7 @@ class ChatAgent(BaseAgent):
                 
                 # Emit detailed status based on tool type
                 status_message = f"Calling {tool_name.replace('_', ' ')}..."
-                if tool_name == "analyze_financials":
-                    args = info.get("arguments", {})
-                    symbols = args.get("symbols", [])
-                    if symbols:
-                        symbols_str = ", ".join(symbols[:3])
-                        if len(symbols) > 3:
-                            symbols_str += f" +{len(symbols)-3} more"
-                        status_message = f"Analyzing {symbols_str}..."
-                    else:
-                        status_message = "Starting financial analysis..."
-                elif tool_name == "get_fmp_data":
+                if tool_name == "get_fmp_data":
                     args = info.get("arguments", {})
                     endpoint = args.get("endpoint", "")
                     params = args.get("params", {})
@@ -332,7 +282,7 @@ class ChatAgent(BaseAgent):
                         status_message = f"Fetching {endpoint_readable}..."
                 elif tool_name == "get_portfolio":
                     status_message = "Retrieving your portfolio..."
-                elif tool_name == "create_plot":
+                elif tool_name == "create_chart":
                     status_message = "Creating visualization..."
                 
                 # Emit status
@@ -369,14 +319,15 @@ class ChatAgent(BaseAgent):
                     completion_message = f"✓ {tool_name.replace('_', ' ').title()} completed"
                     
                     # Add specific details if available
-                    if tool_name == "analyze_financials":
-                        completion_message = "✓ Financial analysis completed"
-                    elif tool_name == "get_fmp_data":
+                    if tool_name == "get_fmp_data":
                         data = result.get("data", [])
                         if isinstance(data, list) and len(data) > 0:
                             completion_message = f"✓ Retrieved {len(data)} records"
                     elif tool_name == "get_portfolio":
                         completion_message = "✓ Portfolio retrieved"
+                    elif tool_name == "create_chart":
+                        title = result.get("title", "Chart")
+                        completion_message = f"✓ Created: {title}"
                     
                     yield SSEEvent(
                         event="tool_status",
@@ -442,22 +393,16 @@ class ChatAgent(BaseAgent):
             ):
                 # Forward all events from BaseAgent
                 yield event
-                
-                # Also yield any queued tool events (status, log, progress)
-                while tool_events_queue:
-                    tool_event = tool_events_queue.pop(0)
-                    yield tool_event
             
             # Yield final assistant message (after streaming completes)
             new_messages = self.get_new_messages()
             if new_messages:
                 last_message = new_messages[-1]
-                if last_message.get("role") == "assistant":
-                    content = last_message.get("content", "")
+                if last_message.role == "assistant":
                     yield SSEEvent(
                         event="assistant_message",
                         data=AssistantMessageEvent(
-                            content=content,
+                            content=last_message.content or "",
                             timestamp=datetime.now().isoformat(),
                             needs_auth=needs_auth[0]
                         ).model_dump()
@@ -482,7 +427,7 @@ class ChatAgent(BaseAgent):
     def _build_messages_for_api(
         self,
         message: str,
-        chat_history: List[Dict[str, Any]],
+        chat_history: "ChatHistory",
         agent_context: AgentContext
     ) -> List[Dict[str, Any]]:
         """Build message list for LLM API"""

@@ -32,16 +32,20 @@ class LLMHandler:
         resources/<user_id>/<timestamp>_<call_number>_response.txt
     """
     
-    def __init__(self, user_id: Optional[str] = None):
+    def __init__(self, user_id: Optional[str] = None, chat_id: Optional[str] = None):
         """
         Initialize LLM handler
         
         Args:
             user_id: User ID for organizing debug logs
+            chat_id: Chat ID for organizing chat logs
         """
         self.user_id = user_id or "unknown"
+        self.chat_id = chat_id or "unknown"
         self.call_counter = 0
+        self.turn_counter = 0
         self.debug_enabled = Config.DEBUG_LLM_CALLS
+        self.chat_log_enabled = Config.DEBUG_CHAT_LOGS
         
         # Create resources directory if debug is enabled
         if self.debug_enabled:
@@ -50,6 +54,13 @@ class LLMHandler:
             self.debug_dir = backend_dir / "resources" / self.user_id
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Debug mode enabled. Logging LLM calls to: {self.debug_dir}")
+        
+        # Create chat logs directory if chat logging is enabled
+        if self.chat_log_enabled:
+            backend_dir = Path(__file__).parent.parent.parent
+            self.chat_log_dir = backend_dir / "chat_logs" / self.user_id / self.chat_id
+            self.chat_log_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Chat logging enabled. Saving conversations to: {self.chat_log_dir}")
     
     async def acompletion(self, **kwargs) -> Any:
         """
@@ -121,6 +132,9 @@ class LLMHandler:
                     if self.debug_enabled:
                         self._log_response(timestamp, call_num, response)
                     
+                    # Log chat conversation if enabled
+                    self._log_chat_turn(kwargs, response)
+                    
                     logger.info(f"LLM call completed in {duration_ms:.0f}ms (model={model})")
                     return response
                     
@@ -152,6 +166,15 @@ class LLMHandler:
         
         accumulated_chunks = []
         
+        # Accumulate complete response for chat logging
+        accumulated_response = {
+            "content": "",
+            "reasoning_content": "",
+            "tool_calls": {},
+            "role": "assistant",
+            "finish_reason": None
+        }
+        
         async for chunk in stream:
             chunk_count += 1
             
@@ -168,8 +191,46 @@ class LLMHandler:
             yield chunk
             
             # Accumulate for logging
-            if self.debug_enabled:
+            if self.debug_enabled or self.chat_log_enabled:
                 accumulated_chunks.append(chunk)
+                
+                # Build complete response object from streaming chunks
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    
+                    # Accumulate regular content
+                    if hasattr(delta, "content") and delta.content:
+                        accumulated_response["content"] += delta.content
+                    
+                    # For reasoning models (o1-series), accumulate reasoning content separately
+                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                        accumulated_response["reasoning_content"] += delta.reasoning_content
+                    
+                    # Accumulate tool calls
+                    if hasattr(delta, "tool_calls") and delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in accumulated_response["tool_calls"]:
+                                accumulated_response["tool_calls"][idx] = {
+                                    "id": tc_delta.id or "",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "",
+                                        "arguments": ""
+                                    }
+                                }
+                            if tc_delta.id:
+                                accumulated_response["tool_calls"][idx]["id"] = tc_delta.id
+                            if hasattr(tc_delta, "function") and tc_delta.function:
+                                if hasattr(tc_delta.function, "name") and tc_delta.function.name:
+                                    accumulated_response["tool_calls"][idx]["function"]["name"] = tc_delta.function.name
+                                if hasattr(tc_delta.function, "arguments") and tc_delta.function.arguments:
+                                    accumulated_response["tool_calls"][idx]["function"]["arguments"] += tc_delta.function.arguments
+                    
+                    # Capture finish reason
+                    if hasattr(choice, "finish_reason") and choice.finish_reason:
+                        accumulated_response["finish_reason"] = choice.finish_reason
         
         # After stream completes, log the full response and timing
         total_duration_ms = (time.time() - start_time) * 1000
@@ -185,7 +246,148 @@ class LLMHandler:
         logger.info(f"LLM streaming completed in {total_duration_ms:.0f}ms ({chunk_count} chunks)")
         
         if self.debug_enabled:
+            logger.debug(f"Writing debug logs to: {self.debug_dir}")
             self._log_streaming_response(timestamp, call_num, accumulated_chunks)
+        
+        # Log chat turn for streaming responses
+        if self.chat_log_enabled:
+            content_preview = accumulated_response["content"][:100] if accumulated_response["content"] else "(empty)"
+            logger.debug(f"Writing chat log (streaming) - content: '{content_preview}', {len(accumulated_response['tool_calls'])} tool calls")
+            self._log_chat_turn_streaming(kwargs, accumulated_response)
+    
+    def _log_chat_turn(self, kwargs: Dict[str, Any], response: Any = None):
+        """Log chat conversation turn to JSON for analysis"""
+        if not self.chat_log_enabled:
+            return
+        
+        try:
+            self.turn_counter += 1
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_turn_{self.turn_counter:03d}.json"
+            filepath = self.chat_log_dir / filename
+            
+            messages = kwargs.get("messages", [])
+            
+            # Extract user message (last message before this call)
+            user_message = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                    break
+            
+            # Extract assistant response if available
+            assistant_message = ""
+            tool_calls = []
+            if response:
+                if hasattr(response, "choices") and len(response.choices) > 0:
+                    message = response.choices[0].message
+                    assistant_message = message.content or ""
+                    if hasattr(message, "tool_calls") and message.tool_calls:
+                        for tc in message.tool_calls:
+                            tool_calls.append({
+                                "id": tc.id,
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            })
+            
+            log_data = {
+                "timestamp": datetime.now().isoformat(),
+                "user_id": self.user_id,
+                "chat_id": self.chat_id,
+                "turn_number": self.turn_counter,
+                "model": kwargs.get("model", "unknown"),
+                "user_message": user_message,
+                "assistant_message": assistant_message,
+                "tool_calls": tool_calls,
+                "full_conversation": messages,
+                "config": {
+                    "temperature": kwargs.get("temperature"),
+                    "max_tokens": kwargs.get("max_tokens"),
+                    "reasoning_effort": kwargs.get("reasoning_effort"),
+                }
+            }
+            
+            with open(filepath, "w") as f:
+                json.dump(log_data, f, indent=2)
+            
+            logger.info(f"💾 Saved chat turn to: {filename}")
+        
+        except Exception as e:
+            logger.error(f"Failed to log chat turn: {e}", exc_info=True)
+    
+    def _log_chat_turn_streaming(self, kwargs: Dict[str, Any], accumulated_response: Dict[str, Any]):
+        """Log chat conversation turn from streaming response - saves complete raw response"""
+        if not self.chat_log_enabled:
+            return
+        
+        content_len = len(accumulated_response.get("content", ""))
+        reasoning_len = len(accumulated_response.get("reasoning_content", ""))
+        tool_call_count = len(accumulated_response.get("tool_calls", {}))
+        logger.debug(f"_log_chat_turn_streaming called: content={content_len} chars, reasoning={reasoning_len} chars, tool_calls={tool_call_count}")
+        
+        try:
+            self.turn_counter += 1
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_turn_{self.turn_counter:03d}.json"
+            filepath = self.chat_log_dir / filename
+            
+            messages = kwargs.get("messages", [])
+            
+            # Extract user message (last message before this call)
+            user_message = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                    break
+            
+            # Convert tool_calls dict to list format (for JSON serialization)
+            tool_calls_list = []
+            for tc_data in accumulated_response.get("tool_calls", {}).values():
+                if tc_data.get("id"):
+                    tool_calls_list.append(tc_data)
+            
+            log_data = {
+                "timestamp": datetime.now().isoformat(),
+                "user_id": self.user_id,
+                "chat_id": self.chat_id,
+                "turn_number": self.turn_counter,
+                "model": kwargs.get("model", "unknown"),
+                "streaming": True,
+                "user_message": user_message,
+                
+                # Full raw response (everything the model returned)
+                "assistant_response": {
+                    "role": accumulated_response.get("role", "assistant"),
+                    "content": accumulated_response.get("content", ""),
+                    "reasoning_content": accumulated_response.get("reasoning_content", ""),
+                    "tool_calls": tool_calls_list if tool_calls_list else None,
+                    "finish_reason": accumulated_response.get("finish_reason")
+                },
+                
+                # Also keep backward-compatible top-level fields
+                "assistant_message": accumulated_response.get("content", ""),
+                "reasoning_trace": accumulated_response.get("reasoning_content", ""),
+                "tool_calls": tool_calls_list,
+                
+                # Full conversation context
+                "full_conversation": messages,
+                
+                # Config used for this call
+                "config": {
+                    "temperature": kwargs.get("temperature"),
+                    "max_tokens": kwargs.get("max_tokens"),
+                    "reasoning_effort": kwargs.get("reasoning_effort"),
+                    "stream": kwargs.get("stream", False),
+                }
+            }
+            
+            with open(filepath, "w") as f:
+                json.dump(log_data, f, indent=2)
+            
+            logger.info(f"💾 Saved chat turn (streaming) to: {filename}")
+        
+        except Exception as e:
+            logger.error(f"Failed to log chat turn (streaming): {e}", exc_info=True)
     
     def _log_request(self, timestamp: str, call_num: int, kwargs: Dict[str, Any]):
         """Log the LLM request to disk"""
@@ -317,6 +519,7 @@ class LLMHandler:
                 
                 # Accumulate content and tool calls
                 content = ""
+                reasoning_content = ""
                 tool_calls = {}
                 
                 for chunk in chunks:
@@ -325,7 +528,11 @@ class LLMHandler:
                     
                     delta = chunk.choices[0].delta
                     
-                    # Accumulate content
+                    # Accumulate reasoning content (for o1/o3 models with extended thinking)
+                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                        reasoning_content += delta.reasoning_content
+                    
+                    # Accumulate regular content
                     if hasattr(delta, "content") and delta.content:
                         content += delta.content
                     
@@ -351,7 +558,13 @@ class LLMHandler:
                                 if hasattr(tc_delta.function, "arguments") and tc_delta.function.arguments:
                                     tool_calls[idx]["arguments"] += tc_delta.function.arguments
                 
-                # Write content
+                # Write reasoning content (for o1/o3 models)
+                if reasoning_content:
+                    f.write("REASONING CONTENT (Extended Thinking):\n")
+                    f.write("-" * 80 + "\n")
+                    f.write(f"{reasoning_content}\n\n")
+                
+                # Write regular content
                 if content:
                     f.write("CONTENT:\n")
                     f.write("-" * 80 + "\n")

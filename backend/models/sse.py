@@ -102,3 +102,23 @@ class ToolLogEvent(BaseModel):
     message: str
     timestamp: str = datetime.now().isoformat()
 
+
+# Internal agent loop events (similar to LangChain's event system)
+class LLMStartEvent(BaseModel):
+    """Event when LLM call starts"""
+    message_count: int
+    timestamp: str = datetime.now().isoformat()
+
+
+class LLMEndEvent(BaseModel):
+    """Event when LLM call completes - includes accumulated results"""
+    content: str
+    tool_calls: List[Dict[str, Any]]
+    timestamp: str = datetime.now().isoformat()
+
+
+class ToolsEndEvent(BaseModel):
+    """Event when all tool executions complete - includes tool messages for conversation"""
+    tool_messages: List[Dict[str, Any]]
+    timestamp: str = datetime.now().isoformat()
+

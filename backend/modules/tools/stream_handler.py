@@ -36,15 +36,19 @@ class ToolStreamHandler:
             return {"success": True, "data": results}
     """
     
-    def __init__(self, callback: Optional[Callable] = None):
+    def __init__(self, callback: Optional[Callable] = None, tool_call_id: Optional[str] = None, tool_name: Optional[str] = None):
         """
         Initialize stream handler
         
         Args:
             callback: Optional async callback that receives events
                       Signature: async def callback(event: Dict[str, Any])
+            tool_call_id: Optional tool call ID to include in all events
+            tool_name: Optional tool name to include in all events
         """
         self.callback = callback
+        self.tool_call_id = tool_call_id
+        self.tool_name = tool_name
         self._events = []  # Store events if no callback
     
     async def emit(self, event_type: str, data: Dict[str, Any]):
@@ -60,6 +64,12 @@ class ToolStreamHandler:
             "timestamp": datetime.now().isoformat(),
             **data
         }
+        
+        # Add tool_call_id and tool_name if available
+        if self.tool_call_id:
+            event["tool_call_id"] = self.tool_call_id
+        if self.tool_name:
+            event["tool_name"] = self.tool_name
         
         if self.callback:
             await self.callback(event)

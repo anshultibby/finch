@@ -27,7 +27,11 @@ def accumulate_stream_chunk(
     
     delta = chunk.choices[0].delta
     
-    # Accumulate content
+    # Accumulate reasoning content (for o1/o3 models with extended thinking)
+    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+        full_content += delta.reasoning_content
+    
+    # Accumulate regular content
     if hasattr(delta, 'content') and delta.content:
         full_content += delta.content
     
