@@ -25,19 +25,29 @@ import {
   OptionButton
 } from '@/lib/api';
 
+// Track tool calls per turn
+type TurnToolCalls = {
+  turnId: string;
+  toolCalls: ToolCallStatus[];
+  expanded: boolean;
+  messageIndex: number; // Which message (by index) this belongs to
+};
+
 export default function ChatContainer() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatId, setChatId] = useState<string | null>(null); // Per-session - for chat history
+  const [chatId, setChatId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
-  const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
+  const [toolCallHistory, setToolCallHistory] = useState<TurnToolCalls[]>([]);
+  const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
+  const [currentToolCalls, setCurrentToolCalls] = useState<ToolCallStatus[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
-  const streamingMessageRef = useRef<string>('');  // Track streaming content
+  const streamingMessageRef = useRef<string>('');
   const [resources, setResources] = useState<Resource[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
@@ -225,7 +235,9 @@ export default function ChatContainer() {
     setMessages((prev) => [...prev, userMessage]);
     
     setIsLoading(true);
-    setEphemeralToolCalls([]);
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setCurrentTurnId(turnId);
+    setCurrentToolCalls([]);
     setIsThinking(false);
     setStreamingMessage('');
     streamingMessageRef.current = '';
@@ -255,14 +267,14 @@ export default function ChatContainer() {
     try {
       chatApi.sendMessageStream(option.label, userId, chatId, {
         onToolCallStart: (event: SSEToolCallStartEvent) => {
-          saveStreamingMessage();  // Save any accumulated content before tools
+          saveStreamingMessage();
           const toolCallStatus: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
             status: 'calling',
           };
           toolCallsMap.set(event.tool_call_id, toolCallStatus);
-          setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+          setCurrentToolCalls(Array.from(toolCallsMap.values()));
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
@@ -271,7 +283,7 @@ export default function ChatContainer() {
             toolCallStatus.status = event.status;
             toolCallStatus.resource_id = event.resource_id;
             toolCallStatus.error = event.error;
-            setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+            setCurrentToolCalls(Array.from(toolCallsMap.values()));
           }
           setToolStatusMessages((prev) => {
             const next = new Map(prev);
@@ -327,8 +339,23 @@ export default function ChatContainer() {
         },
         
         onDone: async () => {
-          saveStreamingMessage();  // Save any final content
+          saveStreamingMessage();
+          
+          // Save tool calls to history if any were made
+          if (currentTurnId && Array.from(toolCallsMap.values()).length > 0) {
+            setToolCallHistory((prev) => [
+              ...prev,
+              {
+                turnId: currentTurnId,
+                toolCalls: Array.from(toolCallsMap.values()),
+                expanded: true,
+              },
+            ]);
+          }
+          
           setIsLoading(false);
+          setCurrentTurnId(null);
+          setCurrentToolCalls([]);
           
           try {
             const chatResources = await resourcesApi.getChatResources(chatId);
@@ -340,8 +367,6 @@ export default function ChatContainer() {
           if (needsAuth && !isPortfolioConnected) {
             await handleBrokerageConnection();
           }
-          
-          setTimeout(() => setEphemeralToolCalls([]), 5000);
         },
         
         onError: (event) => {
@@ -381,7 +406,9 @@ export default function ChatContainer() {
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
-    setEphemeralToolCalls([]);
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setCurrentTurnId(turnId);
+    setCurrentToolCalls([]);
     setIsThinking(false);
     setStreamingMessage('');
     streamingMessageRef.current = '';
@@ -413,7 +440,7 @@ export default function ChatContainer() {
             status: 'calling',
           };
           toolCallsMap.set(event.tool_call_id, toolCallStatus);
-          setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+          setCurrentToolCalls(Array.from(toolCallsMap.values()));
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
@@ -422,7 +449,7 @@ export default function ChatContainer() {
             toolCallStatus.status = event.status;
             toolCallStatus.resource_id = event.resource_id;
             toolCallStatus.error = event.error;
-            setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+            setCurrentToolCalls(Array.from(toolCallsMap.values()));
           }
           setToolStatusMessages((prev) => {
             const next = new Map(prev);
@@ -478,8 +505,23 @@ export default function ChatContainer() {
         },
         
         onDone: async () => {
-          saveStreamingMessage();  // Save any final content
+          saveStreamingMessage();
+          
+          // Save tool calls to history if any were made
+          if (currentTurnId && Array.from(toolCallsMap.values()).length > 0) {
+            setToolCallHistory((prev) => [
+              ...prev,
+              {
+                turnId: currentTurnId,
+                toolCalls: Array.from(toolCallsMap.values()),
+                expanded: true,
+              },
+            ]);
+          }
+          
           setIsLoading(false);
+          setCurrentTurnId(null);
+          setCurrentToolCalls([]);
           
           try {
             const chatResources = await resourcesApi.getChatResources(chatId);
@@ -491,8 +533,6 @@ export default function ChatContainer() {
           if (needsAuth && !isPortfolioConnected) {
             await handleBrokerageConnection();
           }
-          
-          setTimeout(() => setEphemeralToolCalls([]), 5000);
         },
         
         onError: (event) => {
@@ -585,18 +625,17 @@ export default function ChatContainer() {
   };
 
   const handleClearChat = async () => {
-    // Create a NEW chat (don't delete the old one - preserve history)
     setMessages([]);
     setResources([]);
-    setEphemeralToolCalls([]);
+    setToolCallHistory([]);
+    setCurrentToolCalls([]);
+    setCurrentTurnId(null);
     
-    // Generate new chat ID (user ID stays the same)
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     console.log('📝 Starting new chat:', newChatId);
     setChatId(newChatId);
     
     setError(null);
-    // Keep portfolio connected - user doesn't need to reconnect
   };
 
   const handleSelectResource = (resource: Resource) => {
@@ -608,7 +647,85 @@ export default function ChatContainer() {
     if (toolName.includes('reddit')) return '📱';
     if (toolName.includes('senate') || toolName.includes('house')) return '🏛️';
     if (toolName.includes('insider')) return '💼';
+    if (toolName.includes('fmp')) return '📈';
     return '🔧';
+  };
+
+  const formatToolName = (toolName: string) => {
+    // Convert tool names to more readable format
+    const nameMap: Record<string, string> = {
+      'get_fmp_company_data': 'company data',
+      'get_fmp_quote': 'stock quote',
+      'get_fmp_historical_prices': 'historical prices',
+      'get_fmp_financial_statements': 'financial statements',
+      'get_portfolio_positions': 'portfolio positions',
+      'get_reddit_trending': 'reddit trends',
+      'get_house_trades': 'house trades',
+      'get_senate_trades': 'senate trades',
+      'get_insider_trades': 'insider trades',
+    };
+
+    return nameMap[toolName] || toolName.replace(/_/g, ' ').replace('get ', '');
+  };
+
+  const renderToolActivity = (turnId: string) => {
+    const turn = toolCallHistory.find(t => t.turnId === turnId);
+    if (!turn || turn.toolCalls.length === 0) return null;
+
+    // Group tool calls by name
+    const grouped = turn.toolCalls.reduce((acc, toolCall) => {
+      const name = toolCall.tool_name;
+      if (!acc[name]) {
+        acc[name] = [];
+      }
+      acc[name].push(toolCall);
+      return acc;
+    }, {} as Record<string, ToolCallStatus[]>);
+
+    return (
+      <div className="mb-3 px-2">
+        <button
+          onClick={() => {
+            setToolCallHistory((prev) => 
+              prev.map((t) => 
+                t.turnId === turnId 
+                  ? { ...t, expanded: !t.expanded }
+                  : t
+              )
+            );
+          }}
+          className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1.5"
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${
+              turn.expanded ? 'rotate-90' : ''
+            }`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span>Activity</span>
+        </button>
+
+        {turn.expanded && (
+          <div className="mt-2 ml-5 space-y-1">
+            {Object.entries(grouped).map(([toolName, calls]) => (
+              <div key={toolName} className="text-xs text-gray-500">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{getToolIcon(toolName)}</span>
+                  <span>{formatToolName(toolName)}</span>
+                  {calls.length > 1 && (
+                    <span className="text-gray-400">×{calls.length}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -809,22 +926,28 @@ export default function ChatContainer() {
           <>
             {messages.map((message, index) => {
               // Find resources created around the time of this message
-              // Resources are created when tools complete, so match by timestamp proximity
               const messageTime = message.timestamp ? new Date(message.timestamp).getTime() : 0;
               const messageResources = resources.filter(r => {
                 const resourceTime = new Date(r.created_at).getTime();
-                // Match resources created within 5 seconds of this message
                 return Math.abs(resourceTime - messageTime) < 5000;
               });
               
+              // Check if this is an assistant message
+              const isAssistant = message.role === 'assistant';
+              // Find tool activity for this message (it's the Nth assistant message)
+              const assistantIndex = messages.slice(0, index + 1).filter(m => m.role === 'assistant').length - 1;
+              const turnForThis = isAssistant && assistantIndex >= 0 ? toolCallHistory[assistantIndex] : null;
+              
               return (
-                <ChatMessage
-                  key={index}
-                  role={message.role}
-                  content={message.content}
-                  timestamp={message.timestamp}
-                  resources={messageResources}
-                />
+                <React.Fragment key={index}>
+                  <ChatMessage
+                    role={message.role}
+                    content={message.content}
+                    timestamp={message.timestamp}
+                    resources={messageResources}
+                  />
+                  {turnForThis && renderToolActivity(turnForThis.turnId)}
+                </React.Fragment>
               );
             })}
             {/* Options Display - Inline with messages */}
@@ -889,74 +1012,110 @@ export default function ChatContainer() {
               </div>
             )}
             
-            {/* Status Area - All indicators occupy the same space and overwrite each other */}
-            {(ephemeralToolCalls.length > 0 || isThinking || streamingMessage) && (
+            {/* Streaming message */}
+            {streamingMessage && (
               <div className="mb-4">
-                {/* Show streaming message first if available */}
-                {streamingMessage ? (
-                  <ChatMessage
-                    role="assistant"
-                    content={streamingMessage}
-                    timestamp={new Date().toISOString()}
-                  />
-                ) : isThinking ? (
-                  /* Show thinking indicator if no streaming message */
-                  <div className="flex justify-start px-2">
-                    <div className="flex items-center gap-2 animate-pulse">
-                      <span className="text-lg">🤔</span>
-                      <p className="text-sm text-gray-500 font-medium">
-                        analyzing results...
-                      </p>
-                    </div>
-                  </div>
-                ) : ephemeralToolCalls.length > 0 ? (
-                  /* Show tool calls if no thinking or streaming */
-                  <div className="space-y-2 px-2">
-                    {ephemeralToolCalls.map((toolCall) => {
-                      const statusMessage = toolStatusMessages.get(toolCall.tool_call_id);
-                      return (
-                        <div
-                          key={toolCall.tool_call_id}
-                          className={`${
-                            toolCall.status === 'calling' ? 'animate-pulse' : 'animate-fadeOut'
-                          }`}
-                        >
-                          <div className="flex justify-start items-center gap-2">
-                            <span className="text-lg">{getToolIcon(toolCall.tool_name)}</span>
-                            <p className="text-sm text-gray-500 font-medium">
-                              {toolCall.tool_name.replace(/_/g, ' ')}
-                              {toolCall.status === 'calling' && '...'}
-                              {toolCall.status === 'completed' && ' ✓'}
-                              {toolCall.status === 'error' && ` ✗`}
-                            </p>
-                            {toolCall.resource_id && (
-                              <button
-                                onClick={async () => {
-                                  const resource = await resourcesApi.getResource(toolCall.resource_id!);
-                                  handleSelectResource(resource);
-                                }}
-                                className="text-sm text-blue-500 hover:text-blue-700 font-medium underline"
-                              >
-                                view
-                              </button>
-                            )}
-                          </div>
-                          {/* Show detailed status message if available */}
-                          {statusMessage && (
-                            <div className="ml-8 mt-1">
-                              <p className="text-xs text-gray-400 italic">
-                                {statusMessage}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                <ChatMessage
+                  role="assistant"
+                  content={streamingMessage}
+                  timestamp={new Date().toISOString()}
+                />
               </div>
             )}
-            {isLoading && (
+
+            {/* Thinking indicator */}
+            {isThinking && !streamingMessage && (
+              <div className="flex justify-start mb-4 px-2">
+                <div className="flex items-center gap-2 animate-pulse">
+                  <span className="text-lg">🤔</span>
+                  <p className="text-sm text-gray-500 font-medium">
+                    analyzing results...
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Current Tool Activity - Minimal collapsible text */}
+            {currentToolCalls.length > 0 && (
+              <div className="mb-3 px-2">
+                <button
+                  onClick={() => {
+                    if (currentTurnId) {
+                      setToolCallHistory((prev) => 
+                        prev.map((turn) => 
+                          turn.turnId === currentTurnId 
+                            ? { ...turn, expanded: !turn.expanded }
+                            : turn
+                        )
+                      );
+                    }
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1.5"
+                >
+                  <svg
+                    className={`w-3 h-3 transition-transform ${
+                      toolCallHistory.find(t => t.turnId === currentTurnId)?.expanded ? 'rotate-90' : ''
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span>Activity</span>
+                </button>
+
+                {/* Expandable content */}
+                {toolCallHistory.find(t => t.turnId === currentTurnId)?.expanded && (
+                  <div className="mt-2 ml-5 space-y-1">
+                    {(() => {
+                      // Group tool calls by name
+                      const grouped = currentToolCalls.reduce((acc, toolCall) => {
+                        const name = toolCall.tool_name;
+                        if (!acc[name]) {
+                          acc[name] = [];
+                        }
+                        acc[name].push(toolCall);
+                        return acc;
+                      }, {} as Record<string, ToolCallStatus[]>);
+
+                      return Object.entries(grouped).map(([toolName, calls]) => {
+                        const anyCalling = calls.some(c => c.status === 'calling');
+                        
+                        return (
+                          <div key={toolName} className="text-xs text-gray-500">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm">{getToolIcon(toolName)}</span>
+                              <span>{formatToolName(toolName)}</span>
+                              {calls.length > 1 && (
+                                <span className="text-gray-400">×{calls.length}</span>
+                              )}
+                              {anyCalling && <span className="text-blue-500 animate-pulse">●</span>}
+                            </div>
+                            
+                            {/* Show status messages for active calls */}
+                            {calls.map((call) => {
+                              const statusMsg = toolStatusMessages.get(call.tool_call_id);
+                              if (statusMsg && call.status === 'calling') {
+                                return (
+                                  <div key={call.tool_call_id} className="ml-6 text-gray-400 italic">
+                                    {statusMsg}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Loading dots - only show when no tool activity */}
+            {isLoading && currentToolCalls.length === 0 && !streamingMessage && !isThinking && (
               <div className="flex justify-start mb-4 px-2">
                 <div className="flex space-x-2">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
