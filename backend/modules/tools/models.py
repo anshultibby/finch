@@ -1,12 +1,7 @@
 """
 Models for tool system
 """
-from typing import Any, Dict, Optional, Callable, Awaitable, Union, TYPE_CHECKING
-from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from .stream_handler import ToolStreamHandler
-
+from typing import Any, Dict, Optional, Callable
 
 class Tool:
     """

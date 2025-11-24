@@ -413,7 +413,7 @@ class ToolExecutor:
             
             # Execute all tools concurrently
             tool_results = await asyncio.gather(*[execute_and_collect(call) for call in tool_calls])
-            
+        
             # Stream events if enabled, then build results
             for call, tool_events, final_result in tool_results:
                 if enable_tool_streaming:
@@ -451,7 +451,7 @@ class ToolExecutor:
             logger.info(f"🌊 Tool streaming complete: {event_count} events emitted")
         
         # Emit complete events (optional callbacks for custom handling)
-        # Note: Tools should emit their own completion status via stream_handler
+        # Note: Tools emit their own SSE events directly during execution
         if on_tool_complete:
             for result in results:
                 async for event in on_tool_complete({

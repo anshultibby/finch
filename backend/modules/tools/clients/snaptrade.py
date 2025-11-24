@@ -7,7 +7,7 @@ SECURITY NOTES:
 - Users connect their brokerages securely through SnapTrade's Connection Portal
 """
 from snaptrade_client import SnapTrade
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, AsyncGenerator, Union
 from datetime import datetime
 from pydantic import BaseModel
 from config import Config
@@ -18,7 +18,7 @@ from models.snaptrade import (
     Position, Account, AggregatedHolding, Portfolio,
     SnapTradePositionResponse, SnapTradeAccountResponse
 )
-from modules.tools.stream_handler import ToolStreamHandler
+from models.sse import SSEEvent
 import asyncio
 
 
@@ -129,11 +129,8 @@ class SnapTradeTools:
         finally:
             db.close()
     
-    async def _get_accounts(self, user_id: str, user_secret: str, stream_handler: Optional[ToolStreamHandler] = None) -> List[SnapTradeAccountResponse]:
+    async def _get_accounts(self, user_id: str, user_secret: str) -> List[SnapTradeAccountResponse]:
         """Get user's accounts from SnapTrade and parse with Pydantic"""
-        if stream_handler:
-            await stream_handler.emit_status("fetching", "Connecting to brokerage...")
-        
         # Run the synchronous API call in executor to avoid blocking
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
@@ -155,16 +152,10 @@ class SnapTradeTools:
                 print(f"⚠️ Error parsing account: {e}", flush=True)
                 continue
         
-        if stream_handler and parsed_accounts:
-            await stream_handler.emit_log("info", f"✓ Connected to {len(parsed_accounts)} account(s)")
-        
         return parsed_accounts
     
-    async def _get_positions_for_account(self, user_id: str, user_secret: str, account_id: str, stream_handler: Optional[ToolStreamHandler] = None) -> List[Position]:
+    async def _get_positions_for_account(self, user_id: str, user_secret: str, account_id: str) -> List[Position]:
         """Get positions for a specific account and parse with Pydantic"""
-        if stream_handler:
-            await stream_handler.emit_status("processing", f"Fetching positions for account {account_id[:8]}...")
-        
         # Run the synchronous API call in executor to avoid blocking
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
@@ -680,6 +671,44 @@ class SnapTradeTools:
         has_connection = session is not None and session.is_connected
         print(f"🔍 has_active_connection({user_id}): {has_connection}", flush=True)
         return has_connection
+    
+    async def get_portfolio_streaming(self, user_id: str) -> AsyncGenerator[Union[SSEEvent, Dict[str, Any]], None]:
+        """
+        Streaming version of get_portfolio that yields SSE events
+        
+        Args:
+            user_id: User ID (Supabase UUID)
+            
+        Yields:
+            SSEEvent objects followed by final result dict
+        """
+        # Yield status event
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "fetching",
+                "message": "Connecting to brokerage..."
+            }
+        )
+        
+        # Call sync method in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, self.get_portfolio, user_id)
+        
+        # Yield success event
+        if result.get("success"):
+            total_value = result.get("data", {}).get("total_value", 0)
+            num_accounts = len(result.get("data", {}).get("accounts", []))
+            yield SSEEvent(
+                event="tool_log",
+                data={
+                    "level": "info",
+                    "message": f"✓ Retrieved portfolio: {num_accounts} account(s), ${total_value:,.2f} total value"
+                }
+            )
+        
+        # Yield final result
+        yield result
 
 
 # Tool definitions for LiteLLM

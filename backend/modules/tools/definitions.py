@@ -38,26 +38,25 @@ from modules.tools.descriptions import (
 async def get_portfolio(
     *,
     context: AgentContext
-) -> Dict[str, Any]:
+):
     """Get user's portfolio holdings"""
     if not context.user_id:
-        return {
+        yield {
             "success": False,
             "message": "User ID required",
             "needs_auth": True
         }
+        return
     
-    # Pass stream_handler to the client so it can emit progress during API calls
-    result = await snaptrade_tools.get_portfolio(
-        user_id=context.user_id,
-        stream_handler=context.stream_handler
-    )
-    
-    return result
+    # Call client which will yield SSE events and then result
+    async for item in snaptrade_tools.get_portfolio_streaming(
+        user_id=context.user_id
+    ):
+        yield item
 
 
 @tool(
-description=REQUEST_BROKERAGE_CONNECTION_DESC,
+    description=REQUEST_BROKERAGE_CONNECTION_DESC,
     category="portfolio",
     requires_auth=False
 )
@@ -224,29 +223,62 @@ async def get_fmp_data(
     symbol_str = params.get('symbol', '') if params else ''
     
     if symbol_str:
-        await context.stream_handler.emit_status("executing", f"Starting {endpoint_name} fetch for {symbol_str}...")
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "executing",
+                "message": f"Starting {endpoint_name} fetch for {symbol_str}..."
+            }
+        )
     else:
-        await context.stream_handler.emit_status("executing", f"Starting {endpoint_name} data fetch...")
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "executing",
+                "message": f"Starting {endpoint_name} data fetch..."
+            }
+        )
     
-    # Pass stream_handler to the FMP client for detailed progress updates
-    result = await fmp_tools.get_fmp_data(
+    # Call FMP client - it will also yield SSE events  
+    async for item in fmp_tools.get_fmp_data_streaming(
         endpoint=endpoint, 
-        params=params or {}, 
-        stream_handler=context.stream_handler
-    )
+        params=params or {}
+    ):
+        if isinstance(item, SSEEvent):
+            yield item
+        else:
+            result = item
     
     # Emit final status based on result
     if result.get("success"):
         count = result.get("count", 0)
         if count > 0:
-            await context.stream_handler.emit_status("completed", f"✓ Retrieved {count} {endpoint_name.lower()} records")
+            yield SSEEvent(
+                event="tool_status",
+                data={
+                    "status": "completed",
+                    "message": f"✓ Retrieved {count} {endpoint_name.lower()} records"
+                }
+            )
         else:
-            await context.stream_handler.emit_status("completed", f"✓ {endpoint_name} data retrieved successfully")
+            yield SSEEvent(
+                event="tool_status",
+                data={
+                    "status": "completed",
+                    "message": f"✓ {endpoint_name} data retrieved successfully"
+                }
+            )
     else:
         error_msg = result.get("message", "Unknown error")
-        await context.stream_handler.emit_status("error", f"✗ {error_msg}")
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "error",
+                "message": f"✗ {error_msg}"
+            }
+        )
     
-    return result
+    yield result
 
 
 # ============================================================================
@@ -290,22 +322,25 @@ async def present_options(
     *,
     context: AgentContext,
     params: PresentOptionsInput
-) -> Dict[str, Any]:
+):
     """
     Present option buttons to the user
     
     Args:
         params: PresentOptionsInput containing question and option buttons
     """
-    # Emit options event through stream_handler
-    await context.stream_handler.emit("options", {
+    # Yield options event
+    yield SSEEvent(
+        event="tool_options",
+        data={
         "question": params.question,
         "options": [opt.model_dump() for opt in params.options]
-    })
+        }
+    )
     
-    # Return result indicating options were presented
+    # Yield final result indicating options were presented
     # The conversation should pause here waiting for user selection
-    return {
+    yield {
         "success": True,
         "message": "Options presented to user. Waiting for user selection.",
         "question": params.question,

@@ -254,8 +254,8 @@ class FMPTools:
         self.api_key = Config.FMP_API_KEY
         self.api_enabled = bool(self.api_key)
     
-    async def _fetch_api_data(self, endpoint, params, data_key=None, path_param=None, stream_handler=None):
-        """Low-level method to fetch from API"""
+    async def _fetch_api_data(self, endpoint, params, data_key=None, path_param=None):
+        """Low-level method to fetch from API (no streaming events)"""
         if not self.api_enabled:
             raise ValueError(
                 "Financial data features require a Financial Modeling Prep API key. "
@@ -283,19 +283,8 @@ class FMPTools:
             if period:
                 param_details.append(f"period={period}")
             
-            param_str = f" ({', '.join(param_details)})" if param_details else ""
-            await stream_handler.emit_status("fetching", f"Connecting to FMP API: {endpoint}{param_str}")
-            
             response = await self.client.get(url, params=params)
             response.raise_for_status()
-            
-            # Get content length for progress info
-            content_length = response.headers.get('content-length', 'unknown')
-            if content_length != 'unknown':
-                size_kb = int(content_length) / 1024
-                await stream_handler.emit_status("processing", f"Receiving {size_kb:.1f}KB of data from FMP API...")
-            else:
-                await stream_handler.emit_status("processing", f"Receiving data from FMP API...")
             
             data = response.json()
             
@@ -306,11 +295,9 @@ class FMPTools:
             
         except httpx.HTTPError as e:
             print(f"❌ HTTP error fetching {endpoint}: {str(e)}", flush=True)
-            await stream_handler.emit_log("error", f"✗ HTTP error on {endpoint}: {str(e)}")
             raise
         except Exception as e:
             print(f"❌ Error fetching {endpoint}: {str(e)}", flush=True)
-            await stream_handler.emit_log("error", f"✗ API error on {endpoint}: {str(e)}")
             raise
     
     async def get_fmp_data(
@@ -321,8 +308,7 @@ class FMPTools:
         expect_list=None,
         result_key=None,
         log_prefix="📊",
-        item_name=None,
-        stream_handler=None
+        item_name=None
     ):
         """
         *** MAIN METHOD - Use this for ALL FMP endpoints ***
@@ -336,7 +322,6 @@ class FMPTools:
             result_key: Optional key name for results (e.g., "quote", "earnings")
             log_prefix: Emoji for logging
             item_name: Name for logging (auto-generated if not provided)
-            stream_handler: Optional SSE stream handler for status updates
         
         Returns:
             Dict with success, data/data_csv, message, etc.
@@ -375,12 +360,12 @@ class FMPTools:
                 endpoint, params, model_class, data_key=data_key,
                 path_param=path_param,
                 log_prefix=log_prefix, item_name=item_name or endpoint,
-                expect_list=expect_list, stream_handler=stream_handler
+                expect_list=expect_list
             )
         
         # Otherwise simple fetch
         try:
-            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param, stream_handler=stream_handler)
+            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param)
             result = {"success": True}
             
             if result_key:
@@ -408,10 +393,9 @@ class FMPTools:
         path_param=None,
         log_prefix="📊",
         item_name="items",
-        expect_list=True,
-        stream_handler=None
+        expect_list=True
     ):
-        """Parse data using Pydantic models"""
+        """Parse data using Pydantic models (no streaming events)"""
         # Get symbol before it might be removed by path_param processing
         symbol = params.get("symbol", "N/A")
         period = params.get("period", "")
@@ -422,12 +406,9 @@ class FMPTools:
             limit_str = f" (limit: {limit})" if limit != "all available" else ""
             print(f"{log_prefix} Fetching {period_str}{item_name} for {symbol}...", flush=True)
             
-            await stream_handler.emit_status("fetching", f"Requesting {period_str}{item_name} for {symbol} from FMP API{limit_str}...")
-            
-            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param, stream_handler=stream_handler)
+            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param)
             
             if not data:
-                await stream_handler.emit_log("warning", f"⚠ No {item_name} data returned for {symbol} from FMP API")
                 return {
                     "success": False,
                     "message": f"No {item_name} found for {symbol}"
@@ -437,8 +418,6 @@ class FMPTools:
             data_list = data if isinstance(data, list) else [data]
             total_items = len(data_list)
             
-            await stream_handler.emit_status("processing", f"Parsing {total_items} {item_name} records for {symbol}...")
-            
             # Parse using Pydantic models
             parsed_items = []
             failed_items = 0
@@ -446,24 +425,12 @@ class FMPTools:
                 try:
                     item = model_class(**item_data)
                     parsed_items.append(item)
-                    
-                    # Emit progress for large datasets
-                    if total_items > 20 and idx % 10 == 0:
-                        progress = (idx / total_items) * 100
-                        await stream_handler.emit_progress(
-                            progress, 
-                            f"Parsed {idx}/{total_items} {item_name} records for {symbol}"
-                        )
                 except Exception as e:
                     print(f"⚠️ Error parsing {item_name} record {idx}: {e}", flush=True)
                     failed_items += 1
                     continue
             
-            if failed_items > 0:
-                await stream_handler.emit_log("warning", f"⚠ Failed to parse {failed_items} of {total_items} records for {symbol}")
-            
             if not parsed_items:
-                await stream_handler.emit_log("error", f"✗ Could not parse any {item_name} records for {symbol}")
                 return {
                     "success": False,
                     "message": f"Could not parse {item_name} for {symbol}"
@@ -471,8 +438,6 @@ class FMPTools:
             
             # Handle single vs list returns
             if expect_list:
-                await stream_handler.emit_status("processing", f"Converting {len(parsed_items)} {item_name} records to CSV format for {symbol}...")
-                
                 # Return as CSV for list data
                 if hasattr(model_class, 'list_to_df'):
                     df = model_class.list_to_df(parsed_items)
@@ -485,8 +450,6 @@ class FMPTools:
                     csv_size_kb = len(data_csv) / 1024
                 
                 print(f"✅ Found {len(parsed_items)} {item_name} for {symbol}", flush=True)
-                
-                await stream_handler.emit_log("info", f"✓ Successfully retrieved {len(parsed_items)} {period_str}{item_name} records for {symbol} ({csv_size_kb:.1f}KB CSV)")
                 
                 result = {
                     "success": True,
@@ -505,8 +468,6 @@ class FMPTools:
                 item = parsed_items[0]
                 print(f"✅ Found {item_name} for {symbol}", flush=True)
                 
-                await stream_handler.emit_log("info", f"✓ Successfully retrieved {item_name} for {symbol}")
-                
                 return {
                     "success": True,
                     "symbol": symbol,
@@ -516,7 +477,6 @@ class FMPTools:
             
         except Exception as e:
             print(f"❌ Error fetching {item_name}: {str(e)}", flush=True)
-            await stream_handler.emit_log("error", f"✗ Failed to fetch {item_name} for {symbol}: {str(e)}")
             return {
                 "success": False,
                 "message": f"Failed to fetch {item_name}: {str(e)}"
@@ -525,6 +485,34 @@ class FMPTools:
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()
+    
+    async def get_fmp_data_streaming(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Streaming wrapper around get_fmp_data that yields SSE events
+        
+        For now, it just calls the existing method and yields the final result.
+        
+        Args:
+            endpoint: FMP API endpoint
+            params: Query parameters
+            
+        Yields:
+            SSEEvent objects followed by final result dict
+        """
+        from models.sse import SSEEvent
+        
+        # Call the existing method (no streaming in internal methods)
+        result = await self.get_fmp_data(
+            endpoint=endpoint,
+            params=params
+        )
+        
+        # Yield final result
+        yield result
 
 
 # Global tools instance

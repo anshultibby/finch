@@ -4,7 +4,6 @@ Tool system for defining and managing LLM-callable tools
 from .decorator import tool
 from .registry import ToolRegistry, tool_registry
 from .runner import ToolRunner, tool_runner
-from .stream_handler import ToolStreamHandler, ToolStreamHandlerBuilder
 from .responses import (
     ToolResponse,
     ToolSuccess,
@@ -30,8 +29,6 @@ __all__ = [
     "tool_registry",
     "ToolRunner",
     "tool_runner",
-    "ToolStreamHandler",
-    "ToolStreamHandlerBuilder",
     "ToolResponse",
     "ToolSuccess",
     "ToolError",
