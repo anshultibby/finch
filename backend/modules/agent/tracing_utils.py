@@ -4,16 +4,35 @@ Agent-specific tracing utilities - clean abstractions for instrumentation
 This separates instrumentation from business logic, making the core agent loop cleaner.
 """
 from typing import Dict, Any, Optional, List
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import time
-from utils.tracing import get_tracer, add_span_attributes, add_span_event, record_exception
+from utils.tracing import get_tracer, add_span_attributes, add_span_event, record_exception, set_span_status
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
 
-class AgentTracer:
+class BaseTracer:
+    """
+    Base class for tracing with common functionality.
+    
+    Provides common attributes and helper methods for all tracers.
+    """
+    
+    def __init__(self, user_id: str, chat_id: Optional[str] = None):
+        self.user_id = user_id
+        self.chat_id = chat_id
+    
+    def _get_base_attributes(self) -> Dict[str, Any]:
+        """Get base attributes common to all traces"""
+        return {
+            "user.id": self.user_id,
+            "chat.id": self.chat_id or "unknown"
+        }
+
+
+class AgentTracer(BaseTracer):
     """
     Clean tracing abstraction for agent operations.
     
@@ -28,9 +47,8 @@ class AgentTracer:
     """
     
     def __init__(self, agent_name: str, user_id: str, chat_id: Optional[str] = None, model: str = "gpt-4"):
+        super().__init__(user_id, chat_id)
         self.agent_name = agent_name
-        self.user_id = user_id
-        self.chat_id = chat_id
         self.model = model
         self._turn_start_time = None
     
@@ -38,13 +56,13 @@ class AgentTracer:
     async def interaction(self, max_iterations: int):
         """Trace an entire agent interaction (all turns)"""
         with tracer.start_as_current_span(f"agent.{self.agent_name}.interaction"):
-            add_span_attributes({
+            attributes = self._get_base_attributes()
+            attributes.update({
                 "agent.name": self.agent_name,
                 "agent.model": self.model,
-                "agent.max_iterations": max_iterations,
-                "user.id": self.user_id,
-                "chat.id": self.chat_id or "unknown"
+                "agent.max_iterations": max_iterations
             })
+            add_span_attributes(attributes)
             try:
                 yield
                 # Mark as completed if no exception
@@ -132,6 +150,84 @@ async def trace_agent_interaction(
     agent_tracer = AgentTracer(agent_name, user_id, chat_id, model)
     async with agent_tracer.interaction(max_iterations):
         yield agent_tracer
+
+
+class ToolTracer(BaseTracer):
+    """
+    Clean tracing abstraction for tool execution.
+    
+    Usage:
+        tool_tracer = ToolTracer(user_id=user_id, chat_id=chat_id)
+        
+        with tool_tracer.execution(tool_name="get_portfolio", category="data"):
+            # Execute tool
+            result = await tool.handler(**kwargs)
+            tool_tracer.record_success(duration_ms=100)
+    """
+    
+    def __init__(self, user_id: str, chat_id: Optional[str] = None):
+        super().__init__(user_id, chat_id)
+        self._start_time = None
+    
+    @contextmanager
+    def execution(self, tool_name: str, category: str, is_async: bool, arguments: Dict[str, Any]):
+        """Trace a single tool execution"""
+        with tracer.start_as_current_span(f"tool.{tool_name}"):
+            self._start_time = time.time()
+            
+            attributes = self._get_base_attributes()
+            attributes.update({
+                "tool.name": tool_name,
+                "tool.category": category,
+                "tool.async": is_async
+            })
+            add_span_attributes(attributes)
+            
+            # Add arguments as event (useful for debugging)
+            add_span_event("Tool invoked", {
+                "arguments": str(arguments)[:500]  # Truncate long args
+            })
+            
+            try:
+                yield
+            except Exception as e:
+                # Record exception
+                record_exception(e)
+                duration_ms = (time.time() - self._start_time) * 1000 if self._start_time else 0
+                add_span_attributes({
+                    "tool.duration_ms": duration_ms,
+                    "tool.success": False,
+                    "error.type": type(e).__name__,
+                    "error.message": str(e)
+                })
+                set_span_status(False, str(e))
+                raise
+    
+    def record_success(self, success: bool, events_count: int = 0, error_message: Optional[str] = None):
+        """Record tool execution result"""
+        if not self._start_time:
+            return
+        
+        duration_ms = (time.time() - self._start_time) * 1000
+        
+        add_span_attributes({
+            "tool.duration_ms": duration_ms,
+            "tool.success": success
+        })
+        
+        if success:
+            add_span_event("Tool completed", {
+                "duration_ms": duration_ms,
+                "success": True,
+                "events_count": events_count
+            })
+            set_span_status(True)
+        else:
+            add_span_event("Tool completed with failure", {
+                "duration_ms": duration_ms,
+                "error": error_message or "Unknown error"
+            })
+            set_span_status(False, error_message or "Tool returned success=False")
 
 
 class TracedAgentMixin:

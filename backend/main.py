@@ -11,6 +11,9 @@ from utils.tracing import setup_tracing
 configure_logging()
 logger = get_logger(__name__)
 
+# Import tool definitions to register all tools
+from modules.tools import definitions  # noqa: F401 - imported for side effects (tool registration)
+
 app = FastAPI(
     title="Finch Portfolio Chatbot API",
     description="AI-powered portfolio assistant with SnapTrade brokerage integration",

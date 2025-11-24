@@ -8,8 +8,11 @@ from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator, AsyncGenerator
 from config import Config
 
+# Get the appropriate database URL based on USE_POOLER setting
+database_url = Config.get_database_url()
+
 # Create async SQLAlchemy engine (for async operations)
-async_database_url = Config.DATABASE_URL.replace('postgresql://', 'postgresql+asyncpg://')
+async_database_url = database_url.replace('postgresql://', 'postgresql+asyncpg://')
 async_engine = create_async_engine(
     async_database_url,
     pool_pre_ping=True,
@@ -29,7 +32,7 @@ AsyncSessionLocal = async_sessionmaker(
 
 # Keep sync engine for migrations and initial setup
 engine = create_engine(
-    Config.DATABASE_URL,
+    database_url,
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10

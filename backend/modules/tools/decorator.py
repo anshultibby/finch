@@ -2,10 +2,16 @@
 Tool decorator for converting functions into LLM-callable tools
 """
 import inspect
-from typing import Callable, Optional, List, Any, Dict, get_type_hints, get_origin, get_args
+from typing import Callable, Optional, List, Any, Dict, get_type_hints, get_origin, get_args, AsyncGenerator, Union
 from functools import wraps
 
-from .models import Tool, ToolContext
+from .models import Tool
+from modules.agent.context import AgentContext
+from .responses import ToolResponse, ToolSuccess, ToolError
+from models.sse import SSEEvent
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def tool(
@@ -25,7 +31,7 @@ def tool(
         )
         async def get_portfolio(
             *,  # Force keyword args
-            context: ToolContext,  # NOT visible to LLM
+            context: AgentContext,  # NOT visible to LLM
             include_closed: bool = False  # Visible to LLM
         ) -> Dict[str, Any]:
             # Implementation
@@ -33,13 +39,13 @@ def tool(
     
     Requirements:
     - Function must accept keyword-only arguments (use * separator)
-    - Function must have a 'context' parameter of type ToolContext
+    - Function must have a 'context' parameter of type AgentContext
     - Function must return Dict[str, Any]
     - The 'context' parameter is EXCLUDED from OpenAI schema (hidden from LLM)
     - All other parameters will be exposed to the LLM in the tool schema
     
     Security Note:
-    - The 'context' parameter contains user_id, and other secure data
+    - The 'context' parameter contains user_id, chat_id, and other secure data
     - It is passed by the tool executor, NOT by the LLM
     - It never appears in the OpenAI tool schema
     
@@ -69,7 +75,7 @@ def tool(
         # Check for context parameter
         if 'context' not in sig.parameters:
             raise ValueError(
-                f"Tool function '{tool_name}' must have a 'context' parameter of type ToolContext"
+                f"Tool function '{tool_name}' must have a 'context' parameter of type AgentContext"
             )
         
         # Build OpenAI parameters schema directly
@@ -133,17 +139,30 @@ def tool(
         # Attach tool to function for registry
         func._tool = tool_obj
         
-        # Return wrapped function that can still be called normally
+        # Check if function is async generator (yields events)
+        is_async_gen = inspect.isasyncgenfunction(func)
+        
+        # Return wrapped function that handles both regular returns and async generators
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
-            return await func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            # If async generator, return as-is (runner will iterate and collect events)
+            if inspect.isasyncgen(result):
+                return result
+            # Otherwise await the result
+            result = await result
+            # Enforce ToolResponse format
+            return _ensure_tool_response(result, tool_name)
         
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            # Sync tools don't support yielding (must be async)
+            return _ensure_tool_response(result, tool_name)
         
-        wrapper = async_wrapper if is_async else sync_wrapper
+        wrapper = async_wrapper if is_async or is_async_gen else sync_wrapper
         wrapper._tool = tool_obj
+        wrapper._is_async_gen = is_async_gen  # Mark if it's a generator
         
         return wrapper
     
@@ -253,4 +272,46 @@ def _extract_param_description(func: Callable, param_name: str) -> str:
                 return parts[1].strip()
     
     return f"Parameter: {param_name}"
+
+
+def _ensure_tool_response(result: Any, tool_name: str) -> ToolResponse:
+    """
+    Ensure tool returns a ToolResponse (enforced format).
+    
+    If not, wrap it or raise error.
+    """
+    # Already a ToolResponse - good!
+    if isinstance(result, ToolResponse):
+        return result
+    
+    # Legacy dict format - auto-convert with warning
+    if isinstance(result, dict):
+        logger.warning(
+            f"Tool '{tool_name}' returned dict instead of ToolResponse. "
+            "Please update tool to use ToolSuccess or ToolError."
+        )
+        
+        # Try to convert to ToolResponse
+        success = result.get("success", True)
+        if success:
+            return ToolSuccess(
+                data=result.get("data"),
+                message=result.get("message")
+            )
+        else:
+            return ToolError(
+                error=result.get("error", "Unknown error"),
+                message=result.get("message"),
+                data=result.get("data")
+            )
+    
+    # Invalid format - return error
+    logger.error(
+        f"Tool '{tool_name}' returned invalid type: {type(result).__name__}. "
+        "Tools must return ToolResponse (ToolSuccess or ToolError)."
+    )
+    return ToolError(
+        error=f"Tool returned invalid type: {type(result).__name__}",
+        message="Internal tool error - invalid response format"
+    )
 

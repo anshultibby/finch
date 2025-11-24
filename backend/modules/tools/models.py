@@ -2,27 +2,10 @@
 Models for tool system
 """
 from typing import Any, Dict, Optional, Callable, Awaitable, Union, TYPE_CHECKING
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from .stream_handler import ToolStreamHandler
-    from modules.resource_manager import ResourceManager
-
-
-class ToolContext(BaseModel):
-    """
-    Context passed to tools (not visible to LLM)
-    Contains secure information like user_id, API keys, etc.
-    """
-    user_id: Optional[str] = None  # Supabase user ID (OAuth identifier)
-    stream_handler: Optional[Any] = None  # ToolStreamHandler (optional for tool streaming)
-    resource_manager: Optional[Any] = None  # ResourceManager (for accessing and registering resources)
-    chat_id: Optional[str] = None  # Chat ID for resource context
-    # Add more context fields as needed
-    
-    class Config:
-        validate_assignment = True
-        arbitrary_types_allowed = True
 
 
 class Tool:

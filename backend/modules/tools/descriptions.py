@@ -47,7 +47,7 @@ AVAILABLE ENDPOINTS:
 
 **Market Data:**
 - quote: Real-time quote - current price, volume, day range (params: symbol)
-- historical-price-eod/full: Historical prices - OHLCV data (params: symbol, from, to, limit)
+- historical-price-full: Historical OHLCV price data (params: symbol [required], from [YYYY-MM-DD], to [YYYY-MM-DD], limit [optional])
 
 **Analyst Data:**
 - grade: Analyst recommendations over time (params: symbol, limit)
@@ -97,6 +97,7 @@ AVAILABLE ENDPOINTS:
 EXAMPLES:
 - Get AAPL profile: get_fmp_data(endpoint="profile", params={"symbol": "AAPL"})
 - Get income statement: get_fmp_data(endpoint="income-statement", params={"symbol": "AAPL", "period": "annual", "limit": 10})
+- Get historical prices: get_fmp_data(endpoint="historical-price-full", params={"symbol": "AAPL", "from": "2024-01-01", "to": "2024-12-31"})
 - Get market gainers: get_fmp_data(endpoint="biggest-gainers", params={})
 - Get Senate trades: get_fmp_data(endpoint="senate-latest", params={"page": 0, "limit": 50})
 - Search AAPL insider trades: get_fmp_data(endpoint="insider-trading-search", params={"symbol": "AAPL", "limit": 50})

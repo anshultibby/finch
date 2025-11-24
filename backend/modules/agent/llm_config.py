@@ -122,6 +122,28 @@ class LLMConfig(BaseModel):
             }
     
     @staticmethod
+    def _get_api_key_for_model(model: str) -> Optional[str]:
+        """
+        Get the appropriate API key based on model provider
+        
+        Args:
+            model: Model name (e.g., "gpt-5", "claude-sonnet-4-20250514")
+        
+        Returns:
+            API key for the model's provider
+        """
+        from config import Config
+        
+        model_lower = model.lower()
+        
+        # Anthropic Claude models
+        if model_lower.startswith("claude"):
+            return Config.ANTHROPIC_API_KEY
+        
+        # OpenAI models (default)
+        return Config.OPENAI_API_KEY
+    
+    @staticmethod
     def from_config(
         model: Optional[str] = None,
         stream: bool = False,
@@ -134,7 +156,7 @@ class LLMConfig(BaseModel):
         Auto-detects model-specific settings (e.g., reasoning_effort for o1/o3 models).
         
         Args:
-            model: Model name (default: from Config.OPENAI_MODEL)
+            model: Model name (default: from Config.LLM_MODEL)
             stream: Enable streaming (default: False)
             temperature: Sampling temperature (default: 1.0)
             **overrides: Override any LLMConfig field
@@ -145,6 +167,9 @@ class LLMConfig(BaseModel):
             
             # Specify model (auto-detects o1 defaults)
             LLMConfig.from_config(model="gpt-5", stream=True)
+            
+            # Use Claude 4.5 Sonnet
+            LLMConfig.from_config(model="claude-sonnet-4-5-20250929", stream=True)
             
             # Override specific fields
             LLMConfig.from_config(
@@ -157,15 +182,18 @@ class LLMConfig(BaseModel):
         from config import Config
         
         # Determine model
-        selected_model = model or Config.OPENAI_MODEL
+        selected_model = model or Config.LLM_MODEL
         
         # Get model-specific defaults
         model_defaults = LLMConfig._get_model_defaults(selected_model)
         
+        # Get the correct API key for this model
+        api_key = LLMConfig._get_api_key_for_model(selected_model)
+        
         # Base config
         defaults = {
             "model": selected_model,
-            "api_key": Config.OPENAI_API_KEY,
+            "api_key": api_key,
             "temperature": temperature,
             "stream": stream,
             "stream_options": {"include_usage": False} if stream else None,

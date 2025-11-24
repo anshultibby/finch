@@ -6,7 +6,8 @@ These are LOW-LEVEL tools used by the plotting agent.
 """
 from typing import List, Optional, Dict, Any, Literal, Union, Tuple
 from pydantic import BaseModel, Field
-from modules.tools import tool, ToolContext
+from modules.tools import tool
+from modules.agent.context import AgentContext
 
 try:
     import plotly.graph_objects as go
@@ -412,14 +413,14 @@ class CreateChartParams(BaseModel):
 )
 async def create_chart(
     *,
-    context: ToolContext,
+    context: AgentContext,
     params: CreateChartParams
 ) -> Dict[str, Any]:
     """
     Create an interactive chart with optional trendlines
     
     Args:
-        context: Tool context with resource_manager
+        context: Agent context with user_id and chat_id
         params: Chart parameters including data_series, plot_type, config, and optional trendline
     
     Returns:
@@ -703,34 +704,29 @@ class PlotFromResourceParams(BaseModel):
 )
 async def plot_from_resource(
     *,
-    context: ToolContext,
+    context: AgentContext,
     params: PlotFromResourceParams
 ) -> Dict[str, Any]:
     """
     Create a chart from an existing resource
     
     Args:
-        context: Tool context with resource_manager
+        context: Agent context
         params: Parameters specifying which resource to plot and how
     
     Returns:
         Result with new chart resource_id
     """
     try:
-        # Get the resource from database
-        if not context.resource_manager:
-            return {
-                "success": False,
-                "message": "Resource manager not available"
-            }
-        
+        # Get the resource from database using CRUD operations
         from database import SessionLocal
+        from crud.resource import get_resource
         
-        resource_data = None
+        resource_db = None
         with SessionLocal() as db:
-            resource_data = context.resource_manager.get_resource(params.resource_id, db=db)
+            resource_db = get_resource(db, params.resource_id)
         
-        if not resource_data:
+        if not resource_db:
             return {
                 "success": False,
                 "message": f"Resource not found: {params.resource_id}"
@@ -738,7 +734,7 @@ async def plot_from_resource(
         
         # Extract data array from resource
         data_array = None
-        resource = resource_data["data"]  # Get the data field
+        resource = resource_db.data  # Get the data field
         if isinstance(resource, dict):
             if "data" in resource and isinstance(resource["data"], list):
                 data_array = resource["data"]

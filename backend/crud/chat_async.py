@@ -161,6 +161,18 @@ async def get_message_count(db: AsyncSession, chat_id: str) -> int:
     return len(list(result.scalars().all()))
 
 
+async def get_next_sequence(db: AsyncSession, chat_id: str) -> int:
+    """Get the next sequence number for a chat"""
+    result = await db.execute(
+        select(ChatMessage.sequence)
+        .where(ChatMessage.chat_id == chat_id)
+        .order_by(ChatMessage.sequence.desc())
+        .limit(1)
+    )
+    max_seq = result.scalar_one_or_none()
+    return 0 if max_seq is None else max_seq + 1
+
+
 async def clear_chat_messages(db: AsyncSession, chat_id: str) -> int:
     """Clear all messages from a chat"""
     result = await db.execute(

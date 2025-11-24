@@ -3,7 +3,8 @@ Tool registry for managing and executing tools
 """
 from typing import Dict, List, Optional, Any, Callable
 
-from .models import Tool, ToolContext
+from .models import Tool
+from modules.agent.context import AgentContext
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -119,7 +120,7 @@ class ToolRegistry:
         self,
         tool_name: str,
         arguments: Dict[str, Any],
-        context: ToolContext
+        context: AgentContext
     ) -> Dict[str, Any]:
         """
         Execute a tool with given arguments and context

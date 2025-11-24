@@ -18,6 +18,8 @@ from models.snaptrade import (
     Position, Account, AggregatedHolding, Portfolio,
     SnapTradePositionResponse, SnapTradeAccountResponse
 )
+from modules.tools.stream_handler import ToolStreamHandler
+import asyncio
 
 
 class SnapTradeSession(BaseModel):
@@ -127,11 +129,19 @@ class SnapTradeTools:
         finally:
             db.close()
     
-    def _get_accounts(self, user_id: str, user_secret: str) -> List[SnapTradeAccountResponse]:
+    async def _get_accounts(self, user_id: str, user_secret: str, stream_handler: Optional[ToolStreamHandler] = None) -> List[SnapTradeAccountResponse]:
         """Get user's accounts from SnapTrade and parse with Pydantic"""
-        response = self.client.account_information.list_user_accounts(
-            user_id=user_id,
-            user_secret=user_secret
+        if stream_handler:
+            await stream_handler.emit_status("fetching", "Connecting to brokerage...")
+        
+        # Run the synchronous API call in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.account_information.list_user_accounts(
+                user_id=user_id,
+                user_secret=user_secret
+            )
         )
         accounts_data = response.body if hasattr(response, 'body') else response
         
@@ -145,14 +155,25 @@ class SnapTradeTools:
                 print(f"⚠️ Error parsing account: {e}", flush=True)
                 continue
         
+        if stream_handler and parsed_accounts:
+            await stream_handler.emit_log("info", f"✓ Connected to {len(parsed_accounts)} account(s)")
+        
         return parsed_accounts
     
-    def _get_positions_for_account(self, user_id: str, user_secret: str, account_id: str) -> List[Position]:
+    async def _get_positions_for_account(self, user_id: str, user_secret: str, account_id: str, stream_handler: Optional[ToolStreamHandler] = None) -> List[Position]:
         """Get positions for a specific account and parse with Pydantic"""
-        response = self.client.account_information.get_user_account_positions(
-            user_id=user_id,
-            user_secret=user_secret,
-            account_id=account_id
+        if stream_handler:
+            await stream_handler.emit_status("processing", f"Fetching positions for account {account_id[:8]}...")
+        
+        # Run the synchronous API call in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.account_information.get_user_account_positions(
+                user_id=user_id,
+                user_secret=user_secret,
+                account_id=account_id
+            )
         )
         positions_data = response.body if hasattr(response, 'body') else response
         
@@ -432,7 +453,7 @@ class SnapTradeTools:
                 "message": f"Failed to get login URL: {error_str}"
             }
     
-    def handle_connection_callback(self, user_id: str) -> Dict[str, Any]:
+    async def handle_connection_callback(self, user_id: str) -> Dict[str, Any]:
         """
         Handle the callback after user connects via SnapTrade Portal
         
@@ -460,7 +481,7 @@ class SnapTradeTools:
             print(f"✅ Found session, fetching accounts...", flush=True)
             
             # Get and parse accounts using helper method
-            accounts = self._get_accounts(user_id, session.snaptrade_user_secret)
+            accounts = await self._get_accounts(user_id, session.snaptrade_user_secret)
             
             if not accounts:
                 print(f"⚠️ No accounts found after OAuth", flush=True)

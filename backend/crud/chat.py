@@ -134,6 +134,16 @@ def get_chat_messages(db: Session, chat_id: str) -> List[ChatMessage]:
     ).all()
 
 
+def get_next_sequence(db: Session, chat_id: str) -> int:
+    """Get the next sequence number for a chat"""
+    max_seq = db.query(ChatMessage.sequence).filter(
+        ChatMessage.chat_id == chat_id
+    ).order_by(
+        ChatMessage.sequence.desc()
+    ).limit(1).scalar()
+    return 0 if max_seq is None else max_seq + 1
+
+
 def get_message_count(db: Session, chat_id: str) -> int:
     """Get the number of messages in a chat"""
     return db.query(ChatMessage).filter(ChatMessage.chat_id == chat_id).count()

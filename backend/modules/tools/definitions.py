@@ -5,8 +5,9 @@ All LLM-callable tools are defined here using the @tool decorator
 import json
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
-from modules.tools import tool, ToolContext, tool_registry
-from models.sse import OptionButton
+from modules.tools import tool, tool_registry
+from modules.agent.context import AgentContext
+from models.sse import OptionButton, SSEEvent
 
 # Import business logic modules (API clients)
 from modules.tools.clients.snaptrade import snaptrade_tools
@@ -36,7 +37,7 @@ from modules.tools.descriptions import (
 )
 async def get_portfolio(
     *,
-    context: ToolContext
+    context: AgentContext
 ) -> Dict[str, Any]:
     """Get user's portfolio holdings"""
     if not context.user_id:
@@ -46,29 +47,23 @@ async def get_portfolio(
             "needs_auth": True
         }
     
-    await context.stream_handler.emit_status("fetching", "Retrieving portfolio from connected brokerage...")
-    
-    result = snaptrade_tools.get_portfolio(user_id=context.user_id)
-    
-    if result.get("success"):
-        holdings_csv = result.get("data", {}).get("holdings_csv", "")
-        if holdings_csv:
-            # Count lines in CSV (minus header)
-            position_count = len(holdings_csv.split('\n')) - 2  # -1 for header, -1 for empty last line
-            if position_count > 0:
-                await context.stream_handler.emit_log("info", f"✓ Found {position_count} positions in your portfolio")
+    # Pass stream_handler to the client so it can emit progress during API calls
+    result = await snaptrade_tools.get_portfolio(
+        user_id=context.user_id,
+        stream_handler=context.stream_handler
+    )
     
     return result
 
 
 @tool(
-    description=REQUEST_BROKERAGE_CONNECTION_DESC,
+description=REQUEST_BROKERAGE_CONNECTION_DESC,
     category="portfolio",
     requires_auth=False
 )
 def request_brokerage_connection(
     *,
-    context: ToolContext
+    context: AgentContext
 ) -> Dict[str, Any]:
     """Request user to connect their brokerage account"""
     return {
@@ -89,24 +84,39 @@ def request_brokerage_connection(
 )
 async def get_reddit_trending_stocks(
     *,
-    context: ToolContext,
+    context: AgentContext,
     limit: int = 10
-) -> Dict[str, Any]:
+):
     """
     Get trending stocks from Reddit communities
     
     Args:
         limit: Number of trending stocks to return (default 10, max 50)
     """
-    await context.stream_handler.emit_status("fetching", f"Scanning r/wallstreetbets for top {limit} trending stocks...")
+    # Yield status event
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "fetching",
+            "message": f"Scanning r/wallstreetbets for top {limit} trending stocks..."
+        }
+    )
     
     result = await apewisdom_tools.get_trending_stocks(limit=limit)
     
     if result.get("success"):
         mentions = result.get("data", {}).get("mentions", [])
-        await context.stream_handler.emit_log("info", f"Found {len(mentions)} trending stocks")
+        # Yield log event
+        yield SSEEvent(
+            event="tool_log",
+            data={
+                "level": "info",
+                "message": f"Found {len(mentions)} trending stocks"
+            }
+        )
     
-    return result
+    # Yield final result
+    yield result
 
 
 @tool(
@@ -115,7 +125,7 @@ async def get_reddit_trending_stocks(
 )
 async def get_reddit_ticker_sentiment(
     *,
-    context: ToolContext,
+    context: AgentContext,
     ticker: str
 ) -> Dict[str, Any]:
     """
@@ -142,7 +152,7 @@ async def get_reddit_ticker_sentiment(
 )
 async def compare_reddit_sentiment(
     *,
-    context: ToolContext,
+    context: AgentContext,
     tickers: List[str]
 ) -> Dict[str, Any]:
     """
@@ -173,7 +183,7 @@ async def compare_reddit_sentiment(
 )
 async def get_fmp_data(
     *,
-    context: ToolContext,
+    context: AgentContext,
     endpoint: str,
     params: Optional[Dict[str, Any]] = None
 ):
@@ -254,7 +264,7 @@ IMPORTANT: Do NOT generate any follow-up text after calling this tool. The conve
 )
 async def present_options(
     *,
-    context: ToolContext,
+    context: AgentContext,
     params: PresentOptionsInput
 ) -> Dict[str, Any]:
     """

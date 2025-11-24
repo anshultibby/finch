@@ -110,6 +110,11 @@ class LLMStartEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
+class AssistantMessageDeltaEvent(BaseModel):
+    """Event sent for each content delta during streaming"""
+    delta: str  # The incremental content
+
+
 class LLMEndEvent(BaseModel):
     """Event when LLM call completes - includes accumulated results"""
     content: str
@@ -120,5 +125,6 @@ class LLMEndEvent(BaseModel):
 class ToolsEndEvent(BaseModel):
     """Event when all tool executions complete - includes tool messages for conversation"""
     tool_messages: List[Dict[str, Any]]
+    execution_results: Optional[List[Dict[str, Any]]] = None  # Optional: detailed results for tracking
     timestamp: str = datetime.now().isoformat()
 

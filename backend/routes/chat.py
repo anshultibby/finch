@@ -88,7 +88,7 @@ async def get_chat_history(chat_id: str):
     Retrieve chat history for a specific chat
     """
     try:
-        messages = chat_service.get_chat_history(chat_id)
+        messages = await chat_service.get_chat_history(chat_id)
         return {
             "chat_id": chat_id,
             "messages": messages
@@ -102,7 +102,7 @@ async def clear_chat_history(chat_id: str):
     """
     Clear chat history for a specific chat
     """
-    success = chat_service.clear_chat(chat_id)
+    success = await chat_service.clear_chat(chat_id)
     return {"message": "Chat history cleared" if success else "Chat not found or already cleared"}
 
 
@@ -112,7 +112,7 @@ async def list_user_chats(user_id: str, limit: int = 50):
     List all chats for a user
     """
     try:
-        chats = chat_service.get_user_chats(user_id, limit)
+        chats = await chat_service.get_user_chats(user_id, limit)
         return {
             "user_id": user_id,
             "chats": chats

@@ -28,16 +28,16 @@ def configure_logging(level: Optional[str] = None):
     
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR). 
-               Defaults to INFO in production, DEBUG if DEBUG_LLM_CALLS is enabled
+               Defaults to INFO. DEBUG_LLM_CALLS only controls file saving, not console verbosity.
     """
     global _configured
     
     if _configured:
         return
     
-    # Determine log level
+    # Determine log level (default to INFO - DEBUG_LLM_CALLS only affects file saving, not console)
     if level is None:
-        level = "DEBUG" if Config.DEBUG_LLM_CALLS else "INFO"
+        level = "INFO"
     
     # Configure root logger
     logging.basicConfig(
@@ -56,6 +56,10 @@ def configure_logging(level: Optional[str] = None):
     # LiteLLM can be very noisy, control it
     logging.getLogger("LiteLLM").setLevel(logging.WARNING)
     logging.getLogger("litellm").setLevel(logging.WARNING)
+    
+    # Suppress verbose OpenAI SDK HTTP logs
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
     
     _configured = True
     

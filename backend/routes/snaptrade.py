@@ -52,7 +52,7 @@ async def handle_callback(request: SnapTradeCallbackRequest):
     Verifies the connection and fetches connected account information.
     """
     try:
-        result = snaptrade_tools.handle_connection_callback(
+        result = await snaptrade_tools.handle_connection_callback(
             user_id=request.user_id
         )
         

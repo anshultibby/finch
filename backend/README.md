@@ -38,22 +38,28 @@ The agent (`agent.py`) uses **LiteLLM** for conversational AI, which provides a 
 
 Simply change the model name in your `.env`:
 
+**Anthropic Claude 4.5 (Default):**
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+LLM_MODEL=claude-sonnet-4-5-20250929
+```
+
 **OpenAI GPT-5:**
 ```env
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-5
+LLM_MODEL=gpt-5
 ```
 
-**Anthropic Claude:**
+**Anthropic Claude 3.5:**
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_MODEL=claude-3-5-sonnet-20241022
+LLM_MODEL=claude-3-5-sonnet-20241022
 ```
 
 **Google Gemini:**
 ```env
 GOOGLE_API_KEY=...
-OPENAI_MODEL=gemini-pro
+LLM_MODEL=gemini-pro
 ```
 
 No code changes needed! LiteLLM handles all the differences.
@@ -67,10 +73,10 @@ No code changes needed! LiteLLM handles all the differences.
 
 ## Environment Variables
 
+- `LLM_MODEL` - Model to use (default: claude-sonnet-4-20250514)
+- `ANTHROPIC_API_KEY` - Required for Claude models
 - `OPENAI_API_KEY` - Required for OpenAI models
-- `OPENAI_MODEL` - Model to use (default: gpt-5)
-- `ANTHROPIC_API_KEY` - Optional, for Claude models
-- `GOOGLE_API_KEY` - Optional, for Gemini models
+- `GOOGLE_API_KEY` - Required for Gemini models
 - `API_HOST` - Server host (default: 0.0.0.0)
 - `API_PORT` - Server port (default: 8000)
 - `CORS_ORIGINS` - Allowed CORS origins
@@ -95,7 +101,7 @@ LiteLLM supports 100+ models. Popular ones:
 - `gpt-5`, `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`
 
 ### Anthropic
-- `claude-3-5-sonnet-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`
+- `claude-sonnet-4-5-20250929` (Claude 4.5 Sonnet), `claude-3-5-sonnet-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`
 
 ### Google
 - `gemini-pro`, `gemini-1.5-pro`

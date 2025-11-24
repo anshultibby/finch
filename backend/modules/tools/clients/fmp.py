@@ -91,11 +91,12 @@ ENDPOINTS = {
         "list": False,
         "description": "Get real-time quote data"
     },
-    "historical-price-eod/full": {
+    "historical-price-full": {
         "params": ["symbol", "from", "to", "limit"],
         "data_key": "historical",
         "model": HistoricalPrice,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get historical end-of-day prices"
     },
     
@@ -253,7 +254,7 @@ class FMPTools:
         self.api_key = Config.FMP_API_KEY
         self.api_enabled = bool(self.api_key)
     
-    async def _fetch_api_data(self, endpoint, params, data_key=None, stream_handler=None):
+    async def _fetch_api_data(self, endpoint, params, data_key=None, path_param=None, stream_handler=None):
         """Low-level method to fetch from API"""
         if not self.api_enabled:
             raise ValueError(
@@ -263,11 +264,18 @@ class FMPTools:
             )
         
         try:
-            url = f"{self.BASE_URL}/{endpoint}"
+            # Handle path parameters (e.g., /historical-price-full/SYMBOL)
+            path_value = None
+            if path_param and path_param in params:
+                path_value = params.pop(path_param)
+                url = f"{self.BASE_URL}/{endpoint}/{path_value}"
+            else:
+                url = f"{self.BASE_URL}/{endpoint}"
+            
             params["apikey"] = self.api_key
             
             # Build detailed status message with endpoint and key params
-            symbol = params.get('symbol', '')
+            symbol = params.get('symbol', path_value if (path_param == 'symbol' and path_value) else '')
             period = params.get('period', '')
             param_details = []
             if symbol:
@@ -357,6 +365,7 @@ class FMPTools:
         if expect_list is None:
             expect_list = endpoint_info.get("list", True)
         data_key = endpoint_info.get("data_key")
+        path_param = endpoint_info.get("path_param")
         if model_class is None:
             model_class = endpoint_info.get("model")
         
@@ -364,13 +373,14 @@ class FMPTools:
         if model_class:
             return await self._fetch_and_parse(
                 endpoint, params, model_class, data_key=data_key,
+                path_param=path_param,
                 log_prefix=log_prefix, item_name=item_name or endpoint,
                 expect_list=expect_list, stream_handler=stream_handler
             )
         
         # Otherwise simple fetch
         try:
-            data = await self._fetch_api_data(endpoint, params, data_key, stream_handler=stream_handler)
+            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param, stream_handler=stream_handler)
             result = {"success": True}
             
             if result_key:
@@ -395,12 +405,14 @@ class FMPTools:
         params,
         model_class,
         data_key=None,
+        path_param=None,
         log_prefix="📊",
         item_name="items",
         expect_list=True,
         stream_handler=None
     ):
         """Parse data using Pydantic models"""
+        # Get symbol before it might be removed by path_param processing
         symbol = params.get("symbol", "N/A")
         period = params.get("period", "")
         limit = params.get("limit", "all available")
@@ -412,7 +424,7 @@ class FMPTools:
             
             await stream_handler.emit_status("fetching", f"Requesting {period_str}{item_name} for {symbol} from FMP API{limit_str}...")
             
-            data = await self._fetch_api_data(endpoint, params, data_key, stream_handler=stream_handler)
+            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param, stream_handler=stream_handler)
             
             if not data:
                 await stream_handler.emit_log("warning", f"⚠ No {item_name} data returned for {symbol} from FMP API")

@@ -13,10 +13,20 @@ class Config:
     
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/finch")
+    DATABASE_URL_POOLER = os.getenv("DATABASE_URL_POOLER", "")
+    USE_POOLER = os.getenv("USE_POOLER", "false").lower() == "true"
     
-    # OpenAI
+    @classmethod
+    def get_database_url(cls) -> str:
+        """Get the appropriate database URL based on USE_POOLER setting"""
+        if cls.USE_POOLER and cls.DATABASE_URL_POOLER:
+            return cls.DATABASE_URL_POOLER
+        return cls.DATABASE_URL
+    
+    # LLM API Keys and Model
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
+    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+    LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-5-20250929")
     
     # SnapTrade
     SNAPTRADE_CLIENT_ID = os.getenv("SNAPTRADE_CLIENT_ID")

@@ -3,20 +3,19 @@ Tool Runner - Handles execution of tools
 
 Separates execution logic from registry (storage) and agents (orchestration)
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union, AsyncGenerator
 import traceback
 import inspect
 import time
 
 from pydantic import BaseModel
-from .models import ToolContext
+from modules.agent.context import AgentContext
+from modules.agent.tracing_utils import ToolTracer
 from .registry import tool_registry
-from .stream_handler import ToolStreamHandler
+from models.sse import SSEEvent
 from utils.logger import get_logger
-from utils.tracing import get_tracer, add_span_attributes, add_span_event, record_exception, set_span_status
 
 logger = get_logger(__name__)
-tracer = get_tracer(__name__)
 
 
 class ToolRunner:
@@ -43,78 +42,43 @@ class ToolRunner:
         self,
         tool_name: str,
         arguments: Dict[str, Any],
-        context: Optional[ToolContext] = None,
-        user_id: Optional[str] = None,
-        stream_handler: Optional[ToolStreamHandler] = None,
-        resource_manager: Optional[Any] = None,
-        chat_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+        context: AgentContext
+    ) -> AsyncGenerator[Union[SSEEvent, Dict[str, Any]], None]:
         """
         Execute a tool with given arguments
+        
+        This is an async generator that yields:
+        1. SSE events from the tool (if tool yields them) - streamed in real-time
+        2. Final result dict as the last item
         
         Args:
             tool_name: Name of the tool to execute
             arguments: Arguments from LLM (keyword args for the function)
-            context: Pre-built context (if provided, ignores other parameters)
-            user_id: User ID (if context not provided)
-            stream_handler: Optional stream handler for tool progress updates
-            resource_manager: Optional resource manager for accessing/registering resources
-            chat_id: Optional chat ID for resource context
+            context: Agent context with user_id, chat_id, etc.
         
-        Returns:
-            Tool execution result with standard format:
-            {
-                "success": bool,
-                "data": Any,  # Tool-specific result
-                "message": str,  # Optional message
-                "error": str  # Error details if failed
-            }
+        Yields:
+            SSEEvent objects (if tool yields them), followed by final result dict
         """
-        # Build context if not provided
-        if context is None:
-            context = ToolContext(
-                user_id=user_id,
-                stream_handler=stream_handler,
-                resource_manager=resource_manager,
-                chat_id=chat_id
-            )
-        else:
-            # Update context with any provided values that aren't already set
-            if stream_handler and not context.stream_handler:
-                context.stream_handler = stream_handler
-            if resource_manager and not context.resource_manager:
-                context.resource_manager = resource_manager
-            if chat_id and not context.chat_id:
-                context.chat_id = chat_id
-            if user_id and not context.user_id:
-                context.user_id = user_id
-        
         # Get tool from registry
         tool = self.registry.get_tool(tool_name)
         if not tool:
-            return {
+            yield {
                 "success": False,
                 "error": f"Unknown tool: {tool_name}",
                 "message": f"Tool '{tool_name}' not found in registry"
             }
+            return
+        
+        # Create tool tracer for clean instrumentation
+        tool_tracer = ToolTracer(user_id=context.user_id, chat_id=context.chat_id)
         
         # Start tracing span for this tool execution
-        with tracer.start_as_current_span(f"tool.{tool_name}") as span:
-            start_time = time.time()
-            
-            # Add attributes for better visibility in Jaeger
-            add_span_attributes({
-                "tool.name": tool_name,
-                "tool.category": tool.category,
-                "tool.async": tool.is_async,
-                "user.id": context.user_id if context else user_id,
-                "chat.id": context.chat_id if context and context.chat_id else chat_id
-            })
-            
-            # Add arguments as event (useful for debugging)
-            add_span_event("Tool invoked", {
-                "arguments": str(arguments)[:500]  # Truncate long args
-            })
+        with tool_tracer.execution(
+            tool_name=tool_name,
+            category=tool.category,
+            is_async=tool.is_async,
+            arguments=arguments
+        ):
             
             try:
                 logger.info(f"Executing tool: {tool_name}")
@@ -164,8 +128,26 @@ class ToolRunner:
                     kwargs.update(arguments)
                 
                 # Execute tool (async or sync)
+                event_count = 0
                 if tool.is_async:
-                    result = await tool.handler(**kwargs)
+                    result = tool.handler(**kwargs)
+                    # Check if it's an async generator (tool yields events)
+                    if inspect.isasyncgen(result):
+                        logger.debug(f"Tool {tool_name} is async generator, streaming events")
+                        final_result = None
+                        async for item in result:
+                            if isinstance(item, SSEEvent):
+                                # Yield SSE event immediately for real-time streaming
+                                event_count += 1
+                                logger.debug(f"Tool {tool_name} streaming SSE event: {item.event}")
+                                yield item
+                            else:
+                                # Assume last non-SSEEvent item is the final result
+                                final_result = item
+                        result = final_result
+                    else:
+                        # Regular async function
+                        result = await result
                 else:
                     result = tool.handler(**kwargs)
                 
@@ -178,89 +160,37 @@ class ToolRunner:
                 if "success" not in result:
                     result["success"] = True
                 
-                # Calculate duration
-                duration_ms = (time.time() - start_time) * 1000
-                
-                # Add timing to span
-                add_span_attributes({
-                    "tool.duration_ms": duration_ms,
-                    "tool.success": result.get("success")
-                })
-                
-                if result.get("success"):
-                    logger.info(f"Tool {tool_name} completed successfully in {duration_ms:.0f}ms")
-                    add_span_event("Tool completed", {
-                        "duration_ms": duration_ms,
-                        "success": True
-                    })
-                    set_span_status(True)
+                # Record trace result
+                success = result.get("success", True)
+                if success:
+                    logger.info(f"Tool {tool_name} completed successfully, streamed {event_count} events")
+                    tool_tracer.record_success(success=True, events_count=event_count)
                 else:
                     logger.warning(f"Tool {tool_name} returned success=False: {result.get('message', 'No message')}")
-                    add_span_event("Tool completed with failure", {
-                        "duration_ms": duration_ms,
-                        "error": result.get("error", "Unknown error")
-                    })
-                    set_span_status(False, result.get("message", "Tool returned success=False"))
+                    tool_tracer.record_success(
+                        success=False,
+                        error_message=result.get("message", "Tool returned success=False")
+                    )
                 
-                return result
+                # Yield final result as last item
+                yield result
             
             except Exception as e:
                 error_msg = str(e)
                 error_trace = traceback.format_exc()
-                duration_ms = (time.time() - start_time) * 1000
                 
                 logger.error(f"Error executing tool {tool_name}: {error_msg}")
                 logger.debug(f"Traceback:\n{error_trace}")
                 
-                # Record exception in span
-                record_exception(e)
-                add_span_attributes({
-                    "tool.duration_ms": duration_ms,
-                    "tool.success": False,
-                    "error.type": type(e).__name__,
-                    "error.message": error_msg
-                })
+                # ToolTracer.execution() context manager already recorded the exception
                 
-                return {
+                # Yield error result
+                yield {
                     "success": False,
                     "error": error_msg,
                     "message": f"Tool execution failed: {error_msg}",
                     "traceback": error_trace
                 }
-    
-    async def execute_multiple(
-        self,
-        tool_calls: list[Dict[str, Any]],
-        context: Optional[ToolContext] = None,
-        user_id: Optional[str] = None
-    ) -> list[Dict[str, Any]]:
-        """
-        Execute multiple tool calls in sequence
-        
-        Args:
-            tool_calls: List of tool calls with format:
-                [
-                    {"tool_name": "get_portfolio", "arguments": {...}},
-                    {"tool_name": "create_chart", "arguments": {...}}
-                ]
-            context: Pre-built context
-            user_id: User ID
-        
-        Returns:
-            List of results in same order as tool_calls
-        """
-        results = []
-        
-        for tool_call in tool_calls:
-            result = await self.execute(
-                tool_name=tool_call["tool_name"],
-                arguments=tool_call.get("arguments", {}),
-                context=context,
-                user_id=user_id
-            )
-            results.append(result)
-        
-        return results
     
     def validate_arguments(
         self,
