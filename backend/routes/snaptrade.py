@@ -106,3 +106,68 @@ async def disconnect(user_id: str):
         "message": "Disconnected successfully"
     }
 
+
+@router.get("/accounts/{user_id}")
+async def get_accounts(user_id: str):
+    """
+    Get list of user's connected brokerage accounts
+    """
+    result = await snaptrade_tools.get_connected_accounts(user_id)
+    return result
+
+
+@router.get("/brokerages")
+async def get_brokerages():
+    """
+    Get list of available brokerages that can be connected
+    """
+    result = snaptrade_tools.get_available_brokerages()
+    return result
+
+
+@router.post("/connect/broker")
+async def connect_broker(request: dict):
+    """
+    Initiate connection to a specific brokerage
+    
+    Request body:
+    {
+        "user_id": str,
+        "redirect_uri": str,
+        "broker_id": str (optional - if not provided, shows all brokers)
+    }
+    """
+    user_id = request.get("user_id")
+    redirect_uri = request.get("redirect_uri")
+    broker_id = request.get("broker_id")
+    
+    if not user_id or not redirect_uri:
+        raise HTTPException(status_code=400, detail="user_id and redirect_uri are required")
+    
+    result = snaptrade_tools.get_login_redirect_uri_for_broker(
+        user_id=user_id,
+        redirect_uri=redirect_uri,
+        broker_id=broker_id
+    )
+    
+    if result["success"]:
+        return SnapTradeConnectionResponse(
+            success=True,
+            message="Connection URL generated successfully",
+            redirect_uri=result["redirect_uri"]
+        )
+    else:
+        return SnapTradeConnectionResponse(
+            success=False,
+            message=result.get("message", "Failed to generate connection URL")
+        )
+
+
+@router.delete("/accounts/{user_id}/{account_id}")
+async def disconnect_account(user_id: str, account_id: str):
+    """
+    Disconnect a specific brokerage account
+    """
+    result = await snaptrade_tools.disconnect_account(user_id, account_id)
+    return result
+

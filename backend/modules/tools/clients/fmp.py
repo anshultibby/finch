@@ -30,6 +30,7 @@ from models.fmp import (
     AnalystRecommendation, FinancialGrowth
 )
 from config import Config
+from typing import Optional, Dict, Any
 
 
 # ===================================================================================

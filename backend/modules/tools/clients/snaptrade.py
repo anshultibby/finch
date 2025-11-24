@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from config import Config
 from database import SessionLocal
 from crud import snaptrade_user as snaptrade_crud
+from crud import brokerage_account as brokerage_crud
 from models.db import SnapTradeUser as DBSnapTradeUser
 from models.snaptrade import (
     Position, Account, AggregatedHolding, Portfolio,
@@ -298,7 +299,10 @@ class SnapTradeTools:
     
     def get_login_redirect_uri(self, user_id: str, redirect_uri: str) -> Dict[str, Any]:
         """
-        Get the SnapTrade Connection Portal URL for OAuth login
+        Get the SnapTrade Connection Portal URL for OAuth login (shows all brokerages)
+        
+        This is the legacy method that shows all brokerages. For connecting to a specific
+        broker, use get_login_redirect_uri_for_broker() instead.
         
         Args:
             user_id: User ID (Supabase UUID, also used as SnapTrade user_id)
@@ -307,142 +311,8 @@ class SnapTradeTools:
         Returns:
             Dictionary with redirect URL
         """
-        print(f"🌐 get_login_redirect_uri called with redirect_uri: {redirect_uri}", flush=True)
-        try:
-            # Get or load session
-            session = self._get_session(user_id)
-            
-            # If no session exists, register user
-            if not session:
-                register_result = self.register_user(user_id)
-                if not register_result["success"]:
-                    return register_result
-                session = self._get_session(user_id)
-            if not session or not session.snaptrade_user_secret:
-                return {
-                    "success": False,
-                    "message": "User not registered properly. Please try again."
-                }
-            
-            # Get login redirect URI from SnapTrade
-            print(f"📡 Calling SnapTrade API with customRedirect: {redirect_uri}", flush=True)
-            response = self.client.authentication.login_snap_trade_user(
-                user_id=user_id,
-                user_secret=session.snaptrade_user_secret,
-                body={
-                    "broker": "ROBINHOOD",  # Specify Robinhood
-                    "immediateRedirect": True,
-                    "customRedirect": redirect_uri,
-                    "reconnect": "",
-                    "connectionType": "read",
-                    "connectionPortalVersion": "v3"
-                }
-            )
-            
-            # SnapTrade SDK returns an ApiResponse object
-            response_data = response.body if hasattr(response, 'body') else response
-            redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
-            
-            print(f"📡 SnapTrade returned redirect URL: {redirect_url}", flush=True)
-            
-            if not redirect_url:
-                return {
-                    "success": False,
-                    "message": "Failed to get redirect URL from SnapTrade"
-                }
-            
-            return {
-                "success": True,
-                "redirect_uri": redirect_url
-            }
-        except Exception as e:
-            error_str = str(e)
-            print(f"❌ Error getting login redirect: {error_str}", flush=True)
-            
-            # Check if it's an invalid credentials error (401 or code 1083)
-            # This happens when API keys are changed (e.g., test -> production)
-            if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
-                print(f"⚠️ Invalid credentials detected, clearing old session and re-registering...", flush=True)
-                
-                # Delete the old database record
-                db = SessionLocal()
-                try:
-                    from crud import snaptrade_user as snaptrade_crud
-                    snaptrade_crud.delete_user(db, user_id)
-                    print(f"✅ Deleted old SnapTrade user from database", flush=True)
-                finally:
-                    db.close()
-                
-                # Clear from cache
-                if user_id in self._sessions:
-                    del self._sessions[user_id]
-                
-                # Try to delete from SnapTrade API (may fail, that's okay)
-                try:
-                    self.client.authentication.delete_snap_trade_user(user_id=user_id)
-                    print(f"✅ Deleted old SnapTrade user from API", flush=True)
-                except Exception as delete_error:
-                    print(f"⚠️ Could not delete from SnapTrade API: {str(delete_error)}", flush=True)
-                
-                # Re-register with new credentials
-                print(f"🔄 Re-registering user with new API credentials...", flush=True)
-                register_result = self.register_user(user_id)
-                if not register_result["success"]:
-                    return {
-                        "success": False,
-                        "message": "Credentials were invalid (possibly due to API key change). Failed to re-register. Please try again."
-                    }
-                
-                # Retry getting the login URL with new credentials
-                session = self._get_session(user_id)
-                if not session or not session.snaptrade_user_secret:
-                    return {
-                        "success": False,
-                        "message": "Failed to re-register. Please try again."
-                    }
-                
-                try:
-                    print(f"📡 Retry: Calling SnapTrade API with customRedirect: {redirect_uri}", flush=True)
-                    response = self.client.authentication.login_snap_trade_user(
-                        user_id=user_id,
-                        user_secret=session.snaptrade_user_secret,
-                        body={
-                            "broker": "ROBINHOOD",
-                            "immediateRedirect": True,
-                            "customRedirect": redirect_uri,
-                            "reconnect": "",
-                            "connectionType": "read",
-                            "connectionPortalVersion": "v3"
-                        }
-                    )
-                    
-                    response_data = response.body if hasattr(response, 'body') else response
-                    redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
-                    
-                    print(f"📡 Retry: SnapTrade returned redirect URL: {redirect_url}", flush=True)
-                    
-                    if not redirect_url:
-                        return {
-                            "success": False,
-                            "message": "Failed to get redirect URL after re-registration"
-                        }
-                    
-                    print(f"✅ Successfully re-registered and got login URL", flush=True)
-                    return {
-                        "success": True,
-                        "redirect_uri": redirect_url
-                    }
-                except Exception as retry_error:
-                    print(f"❌ Error after re-registration: {str(retry_error)}", flush=True)
-                    return {
-                        "success": False,
-                        "message": f"Re-registered but failed to get login URL: {str(retry_error)}"
-                    }
-            
-            return {
-                "success": False,
-                "message": f"Failed to get login URL: {error_str}"
-            }
+        # Use the new method without specifying a broker (shows all)
+        return self.get_login_redirect_uri_for_broker(user_id, redirect_uri, broker_id=None)
     
     async def handle_connection_callback(self, user_id: str) -> Dict[str, Any]:
         """
@@ -539,6 +409,312 @@ class SnapTradeTools:
         """Disconnect user session"""
         if user_id in self._sessions:
             del self._sessions[user_id]
+    
+    async def get_connected_accounts(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get list of user's connected brokerage accounts with details
+        
+        Args:
+            user_id: User ID (Supabase UUID)
+            
+        Returns:
+            Dictionary with list of connected accounts
+        """
+        try:
+            session = self._get_session(user_id)
+            if not session or not session.is_connected:
+                return {
+                    "success": True,
+                    "accounts": [],
+                    "message": "No connected accounts"
+                }
+            
+            # Get accounts from SnapTrade
+            accounts = await self._get_accounts(user_id, session.snaptrade_user_secret)
+            
+            # Format account details
+            account_list = []
+            for acc in accounts:
+                account_list.append({
+                    "id": acc.id,
+                    "name": acc.name or "Unknown Account",
+                    "number": acc.number or "",
+                    "institution": acc.institution_name or "Unknown",
+                    "type": acc.get_account_type(),
+                    "balance": acc.get_balance()
+                })
+            
+            return {
+                "success": True,
+                "accounts": account_list,
+                "message": f"Found {len(account_list)} connected account(s)"
+            }
+        except Exception as e:
+            print(f"❌ Error getting connected accounts: {str(e)}", flush=True)
+            return {
+                "success": False,
+                "accounts": [],
+                "message": f"Error fetching accounts: {str(e)}"
+            }
+    
+    def get_available_brokerages(self) -> Dict[str, Any]:
+        """
+        Get list of available brokerages that can be connected
+        
+        Returns:
+            Dictionary with list of supported brokerages
+        """
+        # List of major brokerages supported by SnapTrade
+        # This is a curated list of the most popular ones
+        brokerages = [
+            {"id": "ROBINHOOD", "name": "Robinhood", "logo": "🏹"},
+            {"id": "ALPACA", "name": "Alpaca", "logo": "🦙"},
+            {"id": "TRADIER", "name": "Tradier", "logo": "📊"},
+            {"id": "QUESTRADE", "name": "Questrade", "logo": "🍁"},
+            {"id": "INTERACTIVE_BROKERS", "name": "Interactive Brokers", "logo": "🌐"},
+            {"id": "TD", "name": "TD Ameritrade", "logo": "🏦"},
+            {"id": "SCHWAB", "name": "Charles Schwab", "logo": "💼"},
+            {"id": "ETRADE", "name": "E*TRADE", "logo": "📈"},
+            {"id": "FIDELITY", "name": "Fidelity", "logo": "🏛️"},
+            {"id": "WEBULL", "name": "Webull", "logo": "🐂"},
+            {"id": "MOOMOO", "name": "Moomoo", "logo": "🐄"},
+            {"id": "WEALTHSIMPLE", "name": "Wealthsimple", "logo": "🇨🇦"},
+        ]
+        
+        return {
+            "success": True,
+            "brokerages": brokerages,
+            "message": f"{len(brokerages)} brokerages available"
+        }
+    
+    def get_login_redirect_uri_for_broker(self, user_id: str, redirect_uri: str, broker_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get the SnapTrade Connection Portal URL for OAuth login for a specific broker
+        
+        Args:
+            user_id: User ID (Supabase UUID, also used as SnapTrade user_id)
+            redirect_uri: Where to redirect after successful connection
+            broker_id: Optional broker ID (e.g., "ROBINHOOD", "ALPACA"). If None, shows all brokers
+            
+        Returns:
+            Dictionary with redirect URL
+        """
+        print(f"🌐 get_login_redirect_uri_for_broker called with broker: {broker_id}, redirect_uri: {redirect_uri}", flush=True)
+        try:
+            # Get or load session
+            session = self._get_session(user_id)
+            
+            # If no session exists, register user
+            if not session:
+                register_result = self.register_user(user_id)
+                if not register_result["success"]:
+                    return register_result
+                session = self._get_session(user_id)
+            if not session or not session.snaptrade_user_secret:
+                return {
+                    "success": False,
+                    "message": "User not registered properly. Please try again."
+                }
+            
+            # Build request body
+            body = {
+                "immediateRedirect": True,
+                "customRedirect": redirect_uri,
+                "reconnect": "",
+                "connectionType": "read",
+                "connectionPortalVersion": "v3"
+            }
+            
+            # Add broker if specified
+            if broker_id:
+                body["broker"] = broker_id
+            
+            # Get login redirect URI from SnapTrade
+            print(f"📡 Calling SnapTrade API with broker={broker_id}, customRedirect: {redirect_uri}", flush=True)
+            response = self.client.authentication.login_snap_trade_user(
+                user_id=user_id,
+                user_secret=session.snaptrade_user_secret,
+                body=body
+            )
+            
+            # SnapTrade SDK returns an ApiResponse object
+            response_data = response.body if hasattr(response, 'body') else response
+            redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
+            
+            print(f"📡 SnapTrade returned redirect URL: {redirect_url}", flush=True)
+            
+            if not redirect_url:
+                return {
+                    "success": False,
+                    "message": "Failed to get redirect URL from SnapTrade"
+                }
+            
+            return {
+                "success": True,
+                "redirect_uri": redirect_url,
+                "broker_id": broker_id
+            }
+        except Exception as e:
+            error_str = str(e)
+            print(f"❌ Error getting login redirect: {error_str}", flush=True)
+            
+            # Check if it's an invalid credentials error (401 or code 1083)
+            if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
+                print(f"⚠️ Invalid credentials detected, clearing old session and re-registering...", flush=True)
+                
+                # Delete the old database record
+                db = SessionLocal()
+                try:
+                    from crud import snaptrade_user as snaptrade_crud
+                    snaptrade_crud.delete_user(db, user_id)
+                    print(f"✅ Deleted old SnapTrade user from database", flush=True)
+                finally:
+                    db.close()
+                
+                # Clear from cache
+                if user_id in self._sessions:
+                    del self._sessions[user_id]
+                
+                # Try to delete from SnapTrade API (may fail, that's okay)
+                try:
+                    self.client.authentication.delete_snap_trade_user(user_id=user_id)
+                    print(f"✅ Deleted old SnapTrade user from API", flush=True)
+                except Exception as delete_error:
+                    print(f"⚠️ Could not delete from SnapTrade API: {str(delete_error)}", flush=True)
+                
+                # Re-register with new credentials
+                print(f"🔄 Re-registering user with new API credentials...", flush=True)
+                register_result = self.register_user(user_id)
+                if not register_result["success"]:
+                    return {
+                        "success": False,
+                        "message": "Credentials were invalid. Failed to re-register. Please try again."
+                    }
+                
+                # Retry getting the login URL with new credentials
+                session = self._get_session(user_id)
+                if not session or not session.snaptrade_user_secret:
+                    return {
+                        "success": False,
+                        "message": "Failed to re-register. Please try again."
+                    }
+                
+                try:
+                    body = {
+                        "immediateRedirect": True,
+                        "customRedirect": redirect_uri,
+                        "reconnect": "",
+                        "connectionType": "read",
+                        "connectionPortalVersion": "v3"
+                    }
+                    if broker_id:
+                        body["broker"] = broker_id
+                    
+                    print(f"📡 Retry: Calling SnapTrade API with broker={broker_id}", flush=True)
+                    response = self.client.authentication.login_snap_trade_user(
+                        user_id=user_id,
+                        user_secret=session.snaptrade_user_secret,
+                        body=body
+                    )
+                    
+                    response_data = response.body if hasattr(response, 'body') else response
+                    redirect_url = response_data.get('redirectURI') or response_data.get('redirect')
+                    
+                    print(f"📡 Retry: SnapTrade returned redirect URL: {redirect_url}", flush=True)
+                    
+                    if not redirect_url:
+                        return {
+                            "success": False,
+                            "message": "Failed to get redirect URL after re-registration"
+                        }
+                    
+                    print(f"✅ Successfully re-registered and got login URL", flush=True)
+                    return {
+                        "success": True,
+                        "redirect_uri": redirect_url,
+                        "broker_id": broker_id
+                    }
+                except Exception as retry_error:
+                    print(f"❌ Error after re-registration: {str(retry_error)}", flush=True)
+                    return {
+                        "success": False,
+                        "message": f"Re-registered but failed to get login URL: {str(retry_error)}"
+                    }
+            
+            return {
+                "success": False,
+                "message": f"Failed to get login URL: {error_str}"
+            }
+    
+    async def disconnect_account(self, user_id: str, account_id: str) -> Dict[str, Any]:
+        """
+        Disconnect a specific brokerage account
+        
+        Args:
+            user_id: User ID (Supabase UUID)
+            account_id: SnapTrade account ID to disconnect
+            
+        Returns:
+            Dictionary with success status
+        """
+        try:
+            session = self._get_session(user_id)
+            if not session:
+                return {
+                    "success": False,
+                    "message": "No active session found"
+                }
+            
+            # Call SnapTrade API to delete the authorization
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.client.account_information.delete_user_account(
+                        user_id=user_id,
+                        user_secret=session.snaptrade_user_secret,
+                        account_id=account_id
+                    )
+                )
+                print(f"✅ Deleted account from SnapTrade API: {account_id}", flush=True)
+            except Exception as api_error:
+                print(f"⚠️ Error calling SnapTrade API (continuing anyway): {str(api_error)}", flush=True)
+            
+            # Update database: mark account as disconnected
+            db = SessionLocal()
+            try:
+                success = brokerage_crud.disconnect_account(db, user_id, account_id)
+                if success:
+                    print(f"✅ Marked account as disconnected in DB: {account_id}", flush=True)
+                else:
+                    print(f"⚠️ Account not found in DB: {account_id}", flush=True)
+            finally:
+                db.close()
+            
+            # Update session: remove this account from the list
+            if session.account_ids and account_id in session.account_ids:
+                session.account_ids.remove(account_id)
+                
+                # If no accounts left, mark as not connected
+                if not session.account_ids:
+                    session.is_connected = False
+                
+                self._save_session(user_id, session)
+            
+            print(f"✅ Disconnected account {account_id}", flush=True)
+            return {
+                "success": True,
+                "message": "Account disconnected successfully"
+            }
+        except Exception as e:
+            error_str = str(e)
+            print(f"❌ Error disconnecting account: {error_str}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": f"Failed to disconnect account: {error_str}"
+            }
     
     def get_portfolio(self, user_id: str) -> Dict[str, Any]:
         """

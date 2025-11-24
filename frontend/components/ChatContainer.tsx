@@ -6,6 +6,7 @@ import ChatInput from './ChatInput';
 import ResourcesSidebar from './ResourcesSidebar';
 import ResourceViewer from './ResourceViewer';
 import ProfileDropdown from './ProfileDropdown';
+import AccountManagementModal from './AccountManagementModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   chatApi, 
@@ -41,6 +42,7 @@ export default function ChatContainer() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
   const [toolStatusMessages, setToolStatusMessages] = useState<Map<string, string>>(new Map());
+  const [showAccountModal, setShowAccountModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Use Supabase user ID
@@ -714,22 +716,13 @@ export default function ChatContainer() {
         </div>
         
         <div className="flex items-center space-x-3">
-          {/* Portfolio Connection Status/Button */}
+          {/* Manage Accounts Button */}
           <button
-            onClick={handleBrokerageConnection}
-            disabled={isConnecting}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-              isPortfolioConnected
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : isConnecting
-                ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            } disabled:opacity-50`}
+            onClick={() => setShowAccountModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white transition-all"
           >
-            <span className="text-lg">
-              {isConnecting ? '⏳' : isPortfolioConnected ? '🚀' : '🔗'}
-            </span>
-            {isConnecting ? 'Connecting...' : isPortfolioConnected ? 'Connected' : 'Connect Brokerage'}
+            <span className="text-lg">🏦</span>
+            Manage Accounts
           </button>
           
           {/* Resources Button - Always visible */}
@@ -1095,6 +1088,23 @@ export default function ChatContainer() {
         resource={selectedResource}
         isOpen={!!selectedResource}
         onClose={() => setSelectedResource(null)}
+      />
+
+      {/* Account Management Modal */}
+      <AccountManagementModal
+        isOpen={showAccountModal}
+        onClose={() => setShowAccountModal(false)}
+        onConnectionChange={async () => {
+          // Refresh connection status when accounts change
+          if (userId) {
+            try {
+              const status = await snaptradeApi.checkStatus(userId);
+              setIsPortfolioConnected(status.is_connected);
+            } catch (err) {
+              console.error('Error checking connection status:', err);
+            }
+          }
+        }}
       />
     </>
   );

@@ -152,3 +152,46 @@ class Resource(Base):
     def __repr__(self):
         return f"<Resource(id='{self.id}', type='{self.resource_type}', tool='{self.tool_name}')>"
 
+
+class BrokerageAccount(Base):
+    """
+    Stores individual brokerage account connections
+    
+    Each connected brokerage account is tracked separately with full metadata.
+    This allows users to connect multiple brokerages and manage them individually.
+    """
+    __tablename__ = "brokerage_accounts"
+    
+    # Primary key (UUID)
+    id = Column(String, primary_key=True, index=True)
+    
+    # User ID (Supabase UUID)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # SnapTrade account ID
+    account_id = Column(String, nullable=False, index=True)
+    
+    # Brokerage information
+    broker_id = Column(String, nullable=False)  # e.g., "ROBINHOOD", "ALPACA"
+    broker_name = Column(String, nullable=False)  # e.g., "Robinhood", "Alpaca"
+    
+    # Account details
+    account_name = Column(String, nullable=True)  # User-friendly name
+    account_number = Column(String, nullable=True)  # Masked account number
+    account_type = Column(String, nullable=True)  # e.g., "TFSA", "IRA Roth", "margin"
+    balance = Column(Integer, nullable=True)  # Balance in cents (for precision)
+    
+    # Additional metadata
+    account_metadata = Column(JSONB, nullable=True)
+    
+    # Status tracking
+    is_active = Column(Boolean, default=True, nullable=False)
+    
+    # Timestamps
+    connected_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    disconnected_at = Column(DateTime(timezone=True), nullable=True)
+    
+    def __repr__(self):
+        return f"<BrokerageAccount(id='{self.id}', user='{self.user_id}', broker='{self.broker_name}', active={self.is_active})>"
+

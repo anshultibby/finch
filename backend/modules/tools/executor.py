@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional, Callable, AsyncGenerator
 from enum import Enum
 import asyncio
 import json
+import inspect
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -243,7 +244,24 @@ class ToolExecutor:
                 pass
             else:
                 # Last non-SSEEvent item is the final result
-                raw_result = item
+                # Make sure it's not an async generator
+                if inspect.isasyncgen(item):
+                    logger.error(f"Tool {call.name} yielded an async generator instead of a result!")
+                    raw_result = {
+                        "success": False,
+                        "error": "Tool returned async generator instead of result",
+                        "message": f"Tool {call.name} implementation error"
+                    }
+                else:
+                    raw_result = item
+        
+        # Ensure we got a result
+        if raw_result is None:
+            raw_result = {
+                "success": False,
+                "error": "Tool did not return a result",
+                "message": f"Tool {call.name} completed but did not yield a final result"
+            }
         
         # Convert ToolResponse to LLM content using tool's own formatting
         if hasattr(raw_result, 'to_llm_content'):
@@ -286,6 +304,14 @@ class ToolExecutor:
         duration_ms: float
     ) -> ToolExecutionResult:
         """Build ToolExecutionResult from raw result dict"""
+        # Ensure we have a valid result
+        if raw_result is None:
+            raw_result = {
+                "success": False,
+                "error": "Tool did not return a result",
+                "message": f"Tool {call.name} completed but did not yield a final result"
+            }
+        
         # Convert ToolResponse to LLM content
         if hasattr(raw_result, 'to_llm_content'):
             llm_content = raw_result.to_llm_content()
@@ -408,12 +434,30 @@ class ToolExecutor:
                     if isinstance(item, SSEEvent):
                         tool_events.append(item)
                     else:
-                        final_result = item
+                        # Make sure it's not an async generator
+                        if inspect.isasyncgen(item):
+                            logger.error(f"Tool {call.name} yielded an async generator instead of a result!")
+                            final_result = {
+                                "success": False,
+                                "error": "Tool returned async generator instead of result",
+                                "message": f"Tool {call.name} implementation error"
+                            }
+                        else:
+                            final_result = item
+                
+                # Ensure we got a result
+                if final_result is None:
+                    final_result = {
+                        "success": False,
+                        "error": "Tool did not return a result",
+                        "message": f"Tool {call.name} completed but did not yield a final result"
+                    }
+                
                 return (call, tool_events, final_result)
             
             # Execute all tools concurrently
             tool_results = await asyncio.gather(*[execute_and_collect(call) for call in tool_calls])
-        
+            
             # Stream events if enabled, then build results
             for call, tool_events, final_result in tool_results:
                 if enable_tool_streaming:
@@ -439,7 +483,16 @@ class ToolExecutor:
                             event_count += 1
                             yield item
                     else:
-                        final_result = item
+                        # Make sure it's not an async generator
+                        if inspect.isasyncgen(item):
+                            logger.error(f"Tool {call.name} yielded an async generator instead of a result!")
+                            final_result = {
+                                "success": False,
+                                "error": "Tool returned async generator instead of result",
+                                "message": f"Tool {call.name} implementation error"
+                            }
+                        else:
+                            final_result = item
                 
                 end_time = asyncio.get_event_loop().time()
                 duration = (end_time - start_time) * 1000

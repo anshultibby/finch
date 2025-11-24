@@ -346,11 +346,51 @@ export const chatApi = {
   },
 };
 
+export interface BrokerageAccount {
+  id: string;
+  account_id: string;
+  broker_id: string;
+  broker_name: string;
+  name: string;
+  number: string;
+  type: string;
+  balance: number;
+  connected_at: string;
+  last_synced_at: string | null;
+}
+
+export interface Brokerage {
+  id: string;
+  name: string;
+  logo: string;
+}
+
+export interface BrokerageAccountsResponse {
+  success: boolean;
+  accounts: BrokerageAccount[];
+  message: string;
+}
+
+export interface BrokeragesResponse {
+  success: boolean;
+  brokerages: Brokerage[];
+  message: string;
+}
+
 export const snaptradeApi = {
   initiateConnection: async (userId: string, redirectUri: string): Promise<SnapTradeConnectionResponse> => {
     const response = await api.post<SnapTradeConnectionResponse>('/snaptrade/connect', {
       user_id: userId,
       redirect_uri: redirectUri,
+    });
+    return response.data;
+  },
+
+  connectBroker: async (userId: string, redirectUri: string, brokerId?: string): Promise<SnapTradeConnectionResponse> => {
+    const response = await api.post<SnapTradeConnectionResponse>('/snaptrade/connect/broker', {
+      user_id: userId,
+      redirect_uri: redirectUri,
+      broker_id: brokerId,
     });
     return response.data;
   },
@@ -364,6 +404,23 @@ export const snaptradeApi = {
 
   checkStatus: async (userId: string): Promise<SnapTradeStatusResponse> => {
     const response = await api.get<SnapTradeStatusResponse>(`/snaptrade/status/${userId}`);
+    return response.data;
+  },
+
+  getAccounts: async (userId: string): Promise<BrokerageAccountsResponse> => {
+    const response = await api.get<BrokerageAccountsResponse>(`/snaptrade/accounts/${userId}`);
+    return response.data;
+  },
+
+  getBrokerages: async (): Promise<BrokeragesResponse> => {
+    const response = await api.get<BrokeragesResponse>('/snaptrade/brokerages');
+    return response.data;
+  },
+
+  disconnectAccount: async (userId: string, accountId: string): Promise<{ success: boolean; message: string }> => {
+    const response = await api.delete<{ success: boolean; message: string }>(
+      `/snaptrade/accounts/${userId}/${accountId}`
+    );
     return response.data;
   },
 

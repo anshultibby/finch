@@ -142,25 +142,34 @@ def tool(
         # Check if function is async generator (yields events)
         is_async_gen = inspect.isasyncgenfunction(func)
         
-        # Return wrapped function that handles both regular returns and async generators
-        @wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            # If async generator, return as-is (runner will iterate and collect events)
-            if inspect.isasyncgen(result):
-                return result
-            # Otherwise await the result
-            result = await result
-            # Enforce ToolResponse format
-            return _ensure_tool_response(result, tool_name)
-        
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            # Sync tools don't support yielding (must be async)
-            return _ensure_tool_response(result, tool_name)
-        
-        wrapper = async_wrapper if is_async or is_async_gen else sync_wrapper
+        # Create appropriate wrapper based on function type
+        if is_async_gen:
+            # Async generator wrapper - yields from the underlying generator
+            @wraps(func)
+            async def async_gen_wrapper(*args, **kwargs):
+                # Call the async generator function and yield all items
+                async for item in func(*args, **kwargs):
+                    yield item
+            
+            wrapper = async_gen_wrapper
+        elif is_async:
+            # Regular async function wrapper
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                result = await func(*args, **kwargs)
+                # Enforce ToolResponse format
+                return _ensure_tool_response(result, tool_name)
+            
+            wrapper = async_wrapper
+        else:
+            # Sync function wrapper
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                # Sync tools don't support yielding (must be async)
+                return _ensure_tool_response(result, tool_name)
+            
+            wrapper = sync_wrapper
         wrapper._tool = tool_obj
         wrapper._is_async_gen = is_async_gen  # Mark if it's a generator
         
