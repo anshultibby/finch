@@ -54,29 +54,44 @@ export default function ChatContainer() {
     scrollToBottom();
   }, [messages]);
 
-  // Initialize chat ID (new each time - for chat history)
+  // Initialize chat ID: create a NEW chat on every page load (fresh conversation)
   useEffect(() => {
     if (!userId) return;
     
-    // Create new chat ID for this conversation (resets on page refresh)
+    // Always create a new chat on page refresh
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    console.log('📝 Starting new chat:', newChatId);
     setChatId(newChatId);
   }, [userId]);
 
-  // Load resources when chat ID changes
+  // Load chat history and resources when chat ID changes
   useEffect(() => {
-    const loadResources = async () => {
+    const loadChatData = async () => {
       if (!chatId) return;
       
       try {
+        // Load chat history
+        const history = await chatApi.getChatHistory(chatId);
+        // Filter out system messages and only show user/assistant messages
+        const userMessages = history.messages
+          .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
+          .map((msg: any) => ({
+            role: msg.role,
+            content: msg.content || '',
+            timestamp: msg.timestamp
+          }));
+        setMessages(userMessages);
+        
+        // Load resources
         const chatResources = await resourcesApi.getChatResources(chatId);
         setResources(chatResources);
       } catch (err) {
-        console.error('Error loading resources:', err);
+        console.error('Error loading chat data:', err);
+        // If chat doesn't exist yet, that's okay (it's a new chat)
       }
     };
     
-    loadResources();
+    loadChatData();
   }, [chatId]);
 
   // Check if user has an existing SnapTrade connection on mount
@@ -233,7 +248,21 @@ export default function ChatContainer() {
         {
           onToolCallStart: (event: SSEToolCallStartEvent) => {
             console.log('🔧 Tool call started:', event.tool_name);
-            setStreamingMessage('');
+            
+            // Save any accumulated streaming message before clearing it
+            setStreamingMessage((prev) => {
+              if (prev.trim()) {
+                console.log('💾 Saving streamed message before tool call:', prev.substring(0, 50));
+                const assistantMessage: Message = {
+                  role: 'assistant',
+                  content: prev,
+                  timestamp: new Date().toISOString(),
+                };
+                setMessages((msgs) => [...msgs, assistantMessage]);
+              }
+              return ''; // Clear streaming message
+            });
+            
             const toolCallStatus: ToolCallStatus = {
               tool_call_id: event.tool_call_id,
               tool_name: event.tool_name,
@@ -403,8 +432,19 @@ export default function ChatContainer() {
           onToolCallStart: (event: SSEToolCallStartEvent) => {
             console.log('🔧 Tool call started:', event.tool_name);
             
-            // Clear any streaming message if tool calls are starting
-            setStreamingMessage('');
+            // Save any accumulated streaming message before clearing it
+            setStreamingMessage((prev) => {
+              if (prev.trim()) {
+                console.log('💾 Saving streamed message before tool call:', prev.substring(0, 50));
+                const assistantMessage: Message = {
+                  role: 'assistant',
+                  content: prev,
+                  timestamp: new Date().toISOString(),
+                };
+                setMessages((msgs) => [...msgs, assistantMessage]);
+              }
+              return ''; // Clear streaming message
+            });
             
             // IMMEDIATELY show ephemeral message when tool call starts
             const toolCallStatus: ToolCallStatus = {
@@ -637,16 +677,18 @@ export default function ChatContainer() {
   };
 
   const handleClearChat = async () => {
-    // Just create a new chat - don't clear the current one or disconnect brokerage
+    // Create a NEW chat (don't delete the old one - preserve history)
     setMessages([]);
     setResources([]);
     setEphemeralToolCalls([]);
     
     // Generate new chat ID (user ID stays the same)
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    console.log('📝 Starting new chat:', newChatId);
     setChatId(newChatId);
+    
     setError(null);
-    // Keep portfolio connected
+    // Keep portfolio connected - user doesn't need to reconnect
   };
 
   const handleSelectResource = (resource: Resource) => {

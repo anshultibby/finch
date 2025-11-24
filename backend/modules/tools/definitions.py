@@ -127,23 +127,35 @@ async def get_reddit_ticker_sentiment(
     *,
     context: AgentContext,
     ticker: str
-) -> Dict[str, Any]:
+):
     """
     Get Reddit sentiment for a specific stock ticker
     
     Args:
         ticker: Stock ticker symbol (e.g., 'GME', 'TSLA', 'AAPL')
     """
-    await context.stream_handler.emit_status("analyzing", f"Analyzing Reddit sentiment for ${ticker.upper()} from r/wallstreetbets...")
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "analyzing",
+            "message": f"Analyzing Reddit sentiment for ${ticker.upper()} from r/wallstreetbets..."
+        }
+    )
     
     result = await apewisdom_tools.get_ticker_sentiment(ticker=ticker)
     
     if result.get("success"):
         data = result.get("data", {})
         mentions = data.get("mentions", 0)
-        await context.stream_handler.emit_log("info", f"Found {mentions} Reddit mentions")
+        yield SSEEvent(
+            event="tool_log",
+            data={
+                "level": "info",
+                "message": f"Found {mentions} Reddit mentions"
+            }
+        )
     
-    return result
+    yield result
 
 
 @tool(
@@ -154,7 +166,7 @@ async def compare_reddit_sentiment(
     *,
     context: AgentContext,
     tickers: List[str]
-) -> Dict[str, Any]:
+):
     """
     Compare Reddit sentiment for multiple tickers
     
@@ -162,14 +174,26 @@ async def compare_reddit_sentiment(
         tickers: List of ticker symbols to compare (e.g., ['GME', 'AMC', 'TSLA'])
     """
     tickers_str = ", ".join([t.upper() for t in tickers])
-    await context.stream_handler.emit_status("analyzing", f"Comparing Reddit sentiment: {tickers_str}")
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "analyzing",
+            "message": f"Comparing Reddit sentiment: {tickers_str}"
+        }
+    )
     
     result = await apewisdom_tools.compare_tickers_sentiment(tickers=tickers)
     
     if result.get("success"):
-        await context.stream_handler.emit_log("info", f"Compared {len(tickers)} tickers")
+        yield SSEEvent(
+            event="tool_log",
+            data={
+                "level": "info",
+                "message": f"Compared {len(tickers)} tickers"
+            }
+        )
     
-    return result
+    yield result
 
 
 # ============================================================================
