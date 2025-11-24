@@ -36,7 +36,8 @@ export default function ChatContainer() {
   const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
   const [ephemeralToolCalls, setEphemeralToolCalls] = useState<ToolCallStatus[]>([]);
   const [isThinking, setIsThinking] = useState(false);
-  const [streamingMessage, setStreamingMessage] = useState<string>('');  // Accumulate streaming tokens
+  const [streamingMessage, setStreamingMessage] = useState<string>('');
+  const streamingMessageRef = useRef<string>('');  // Track streaming content
   const [resources, setResources] = useState<Resource[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
@@ -214,11 +215,8 @@ export default function ChatContainer() {
   }, []);
 
   const handleOptionSelect = (option: OptionButton) => {
-    // Clear pending options
-    const selectedOptions = pendingOptions;
     setPendingOptions(null);
     
-    // Add a user message showing what they selected (using the nice label)
     const userMessage: Message = {
       role: 'user',
       content: option.label,
@@ -226,13 +224,12 @@ export default function ChatContainer() {
     };
     setMessages((prev) => [...prev, userMessage]);
     
-    // Send the option value to the backend (this is what the LLM sees)
     setIsLoading(true);
     setEphemeralToolCalls([]);
     setIsThinking(false);
     setStreamingMessage('');
+    streamingMessageRef.current = '';
     
-    // Track tool calls and resources
     const toolCallsMap = new Map<string, ToolCallStatus>();
     let needsAuth = false;
 
@@ -241,158 +238,129 @@ export default function ChatContainer() {
       return;
     }
 
+    const saveStreamingMessage = () => {
+      const content = streamingMessageRef.current.trim();
+      if (content) {
+        const assistantMessage: Message = {
+          role: 'assistant',
+          content,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, assistantMessage]);
+        streamingMessageRef.current = '';
+        setStreamingMessage('');
+      }
+    };
+
     try {
-      // Use streaming API - send the label to backend
-      const eventSource = chatApi.sendMessageStream(
-        option.label, // Backend gets the full label (e.g., "Short term (1-4 weeks)")
-        userId,
-        chatId,
-        {
-          onToolCallStart: (event: SSEToolCallStartEvent) => {
-            console.log('🔧 Tool call started:', event.tool_name);
-            
-            // Save any accumulated streaming message before clearing it
-            setStreamingMessage((prev) => {
-              if (prev.trim()) {
-                console.log('💾 Saving streamed message before tool call:', prev.substring(0, 50));
-                const assistantMessage: Message = {
-                  role: 'assistant',
-                  content: prev,
-                  timestamp: new Date().toISOString(),
-                };
-                setMessages((msgs) => [...msgs, assistantMessage]);
-              }
-              return ''; // Clear streaming message
-            });
-            
-            const toolCallStatus: ToolCallStatus = {
-              tool_call_id: event.tool_call_id,
-              tool_name: event.tool_name,
-              status: 'calling',
-            };
-            toolCallsMap.set(event.tool_call_id, toolCallStatus);
+      chatApi.sendMessageStream(option.label, userId, chatId, {
+        onToolCallStart: (event: SSEToolCallStartEvent) => {
+          saveStreamingMessage();  // Save any accumulated content before tools
+          const toolCallStatus: ToolCallStatus = {
+            tool_call_id: event.tool_call_id,
+            tool_name: event.tool_name,
+            status: 'calling',
+          };
+          toolCallsMap.set(event.tool_call_id, toolCallStatus);
+          setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+        },
+        
+        onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
+          const toolCallStatus = toolCallsMap.get(event.tool_call_id);
+          if (toolCallStatus) {
+            toolCallStatus.status = event.status;
+            toolCallStatus.resource_id = event.resource_id;
+            toolCallStatus.error = event.error;
             setEphemeralToolCalls(Array.from(toolCallsMap.values()));
-          },
-          
-          onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
-            console.log('✅ Tool call completed:', event.tool_name, event.status);
-            const toolCallStatus = toolCallsMap.get(event.tool_call_id);
-            if (toolCallStatus) {
-              toolCallStatus.status = event.status;
-              toolCallStatus.resource_id = event.resource_id;
-              toolCallStatus.error = event.error;
-              setEphemeralToolCalls(Array.from(toolCallsMap.values()));
-            }
-            
-            // Clear status message for this tool
+          }
+          setToolStatusMessages((prev) => {
+            const next = new Map(prev);
+            next.delete(event.tool_call_id);
+            return next;
+          });
+        },
+        
+        onToolStatus: (event: SSEToolStatusEvent) => {
+          if (event.tool_call_id && (event.message || event.status)) {
             setToolStatusMessages((prev) => {
               const next = new Map(prev);
-              next.delete(event.tool_call_id);
+              next.set(event.tool_call_id!, event.message || event.status || '');
               return next;
             });
-          },
-          
-          onToolStatus: (event: SSEToolStatusEvent) => {
-            console.log('📊 Tool status:', event.tool_name, event.status, event.message);
-            const toolCallId = event.tool_call_id;
-            if (toolCallId) {
-              const statusText = event.message || event.status;
-              setToolStatusMessages((prev) => {
-                const next = new Map(prev);
-                next.set(toolCallId, statusText);
-                return next;
-              });
-            }
-          },
-          
-          onToolProgress: (event: SSEToolProgressEvent) => {
-            console.log('📈 Tool progress:', event.tool_name, `${event.percent}%`, event.message);
-            const toolCallId = event.tool_call_id;
-            if (toolCallId) {
-              const progressText = event.message || `${Math.round(event.percent)}%`;
-              setToolStatusMessages((prev) => {
-                const next = new Map(prev);
-                next.set(toolCallId, progressText);
-                return next;
-              });
-            }
-          },
-          
-          onToolLog: (event: SSEToolLogEvent) => {
-            console.log(`🔍 Tool log [${event.level}]:`, event.tool_name, event.message);
-            // You can optionally show logs in UI if needed
-          },
-          
-          onThinking: (event) => {
-            console.log('🤔 AI is thinking:', event.message);
-            setIsThinking(true);
-          },
-          
-          onAssistantMessageDelta: (event) => {
-            console.log('💬 Streaming delta received:', event.delta.substring(0, 50));
-            setIsThinking(false);
-            setStreamingMessage((prev) => {
-              const newContent = prev + event.delta;
-              console.log('📝 Current streaming message length:', newContent.length);
-              return newContent;
+          }
+        },
+        
+        onToolProgress: (event: SSEToolProgressEvent) => {
+          if (event.tool_call_id) {
+            setToolStatusMessages((prev) => {
+              const next = new Map(prev);
+              next.set(event.tool_call_id!, event.message || `${Math.round(event.percent)}%`);
+              return next;
             });
-          },
+          }
+        },
+        
+        onToolLog: (event: SSEToolLogEvent) => {
+          // Optional: show logs in UI
+        },
+        
+        onThinking: (event) => {
+          setIsThinking(true);
+        },
+        
+        onAssistantMessageDelta: (event) => {
+          setIsThinking(false);
+          streamingMessageRef.current += event.delta;
+          setStreamingMessage(streamingMessageRef.current);
+        },
+        
+        onAssistantMessage: (event: SSEAssistantMessageEvent) => {
+          needsAuth = event.needs_auth;
+          setIsThinking(false);
+        },
+        
+        onOptions: (event: SSEOptionsEvent) => {
+          setPendingOptions(event);
+          setIsThinking(false);
+          streamingMessageRef.current = '';
+          setStreamingMessage('');
+        },
+        
+        onDone: async () => {
+          saveStreamingMessage();  // Save any final content
+          setIsLoading(false);
           
-          onAssistantMessage: (event: SSEAssistantMessageEvent) => {
-            console.log('💬 Assistant message received (complete)');
-            needsAuth = event.needs_auth;
-            setIsThinking(false);
-            setStreamingMessage('');
-            const shouldAddMessage = !event.content.includes('Successfully connected');
-            if (shouldAddMessage) {
-              const assistantMessage: Message = {
-                role: 'assistant',
-                content: event.content,
-                timestamp: event.timestamp,
-              };
-              setMessages((prev) => [...prev, assistantMessage]);
-            }
-          },
+          try {
+            const chatResources = await resourcesApi.getChatResources(chatId);
+            setResources(chatResources);
+          } catch (err) {
+            console.error('Error reloading resources:', err);
+          }
           
-          onOptions: (event: SSEOptionsEvent) => {
-            console.log('🔘 Options received:', event.question, event.options);
-            setPendingOptions(event);
-            setIsThinking(false);
-            setStreamingMessage('');
-          },
+          if (needsAuth && !isPortfolioConnected) {
+            await handleBrokerageConnection();
+          }
           
-          onDone: async () => {
-            console.log('✨ Stream complete');
-            setIsLoading(false);
-            try {
-              const chatResources = await resourcesApi.getChatResources(chatId);
-              setResources(chatResources);
-            } catch (err) {
-              console.error('Error reloading resources:', err);
-            }
-            if (needsAuth && !isPortfolioConnected) {
-              setIsPortfolioConnected(false);
-              await handleBrokerageConnection();
-            }
-            setTimeout(() => setEphemeralToolCalls([]), 5000);
-          },
-          
-          onError: (event) => {
-            console.error('❌ SSE error:', event.error);
-            setError(`Error: ${event.error}`);
-            setIsLoading(false);
-            setIsThinking(false);
-            setStreamingMessage('');
-            setMessages((prev) => prev.slice(0, -1));
-          },
-        }
-      );
+          setTimeout(() => setEphemeralToolCalls([]), 5000);
+        },
+        
+        onError: (event) => {
+          console.error('❌ SSE error:', event.error);
+          setError(`Error: ${event.error}`);
+          setIsLoading(false);
+          setIsThinking(false);
+          streamingMessageRef.current = '';
+          setStreamingMessage('');
+          setMessages((prev) => prev.slice(0, -1));
+        },
+      });
     } catch (err) {
       setError('Failed to send message. Please try again.');
       console.error('Error sending message:', err);
       setMessages((prev) => prev.slice(0, -1));
       setIsLoading(false);
       setIsThinking(false);
+      streamingMessageRef.current = '';
       setStreamingMessage('');
     }
   };
@@ -404,11 +372,8 @@ export default function ChatContainer() {
     }
     
     setError(null);
-    
-    // Clear pending options when sending a new message
     setPendingOptions(null);
     
-    // Add user message optimistically
     const userMessage: Message = {
       role: 'user',
       content,
@@ -418,195 +383,136 @@ export default function ChatContainer() {
     setIsLoading(true);
     setEphemeralToolCalls([]);
     setIsThinking(false);
-    setStreamingMessage(''); // Clear any previous streaming message
+    setStreamingMessage('');
+    streamingMessageRef.current = '';
 
-    // Track tool calls and resources
     const toolCallsMap = new Map<string, ToolCallStatus>();
     let needsAuth = false;
 
+    const saveStreamingMessage = () => {
+      const content = streamingMessageRef.current.trim();
+      if (content) {
+        const assistantMessage: Message = {
+          role: 'assistant',
+          content,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, assistantMessage]);
+        streamingMessageRef.current = '';
+        setStreamingMessage('');
+      }
+    };
+
     try {
-      // Use streaming API for real-time updates
-      const eventSource = chatApi.sendMessageStream(
-        content,
-        userId,
-        chatId,
-        {
-          onToolCallStart: (event: SSEToolCallStartEvent) => {
-            console.log('🔧 Tool call started:', event.tool_name);
-            
-            // Save any accumulated streaming message before clearing it
-            setStreamingMessage((prev) => {
-              if (prev.trim()) {
-                console.log('💾 Saving streamed message before tool call:', prev.substring(0, 50));
-                const assistantMessage: Message = {
-                  role: 'assistant',
-                  content: prev,
-                  timestamp: new Date().toISOString(),
-                };
-                setMessages((msgs) => [...msgs, assistantMessage]);
-              }
-              return ''; // Clear streaming message
-            });
-            
-            // IMMEDIATELY show ephemeral message when tool call starts
-            const toolCallStatus: ToolCallStatus = {
-              tool_call_id: event.tool_call_id,
-              tool_name: event.tool_name,
-              status: 'calling',
-            };
-            toolCallsMap.set(event.tool_call_id, toolCallStatus);
+      chatApi.sendMessageStream(content, userId, chatId, {
+        onToolCallStart: (event: SSEToolCallStartEvent) => {
+          saveStreamingMessage();  // Save any accumulated content before tools
+          const toolCallStatus: ToolCallStatus = {
+            tool_call_id: event.tool_call_id,
+            tool_name: event.tool_name,
+            status: 'calling',
+          };
+          toolCallsMap.set(event.tool_call_id, toolCallStatus);
+          setEphemeralToolCalls(Array.from(toolCallsMap.values()));
+        },
+        
+        onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
+          const toolCallStatus = toolCallsMap.get(event.tool_call_id);
+          if (toolCallStatus) {
+            toolCallStatus.status = event.status;
+            toolCallStatus.resource_id = event.resource_id;
+            toolCallStatus.error = event.error;
             setEphemeralToolCalls(Array.from(toolCallsMap.values()));
-          },
-          
-          onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
-            console.log('✅ Tool call completed:', event.tool_name, event.status);
-            
-            // Update ephemeral message with completion status
-            const toolCallStatus = toolCallsMap.get(event.tool_call_id);
-            if (toolCallStatus) {
-              toolCallStatus.status = event.status;
-              toolCallStatus.resource_id = event.resource_id;
-              toolCallStatus.error = event.error;
-              setEphemeralToolCalls(Array.from(toolCallsMap.values()));
-            }
-            
-            // Clear status message for this tool
+          }
+          setToolStatusMessages((prev) => {
+            const next = new Map(prev);
+            next.delete(event.tool_call_id);
+            return next;
+          });
+        },
+        
+        onToolStatus: (event: SSEToolStatusEvent) => {
+          if (event.tool_call_id && (event.message || event.status)) {
             setToolStatusMessages((prev) => {
               const next = new Map(prev);
-              next.delete(event.tool_call_id);
+              next.set(event.tool_call_id!, event.message || event.status || '');
               return next;
             });
-          },
-          
-          onToolStatus: (event: SSEToolStatusEvent) => {
-            console.log('📊 Tool status:', event.tool_name, event.status, event.message);
-            const toolCallId = event.tool_call_id;
-            if (toolCallId) {
-              const statusText = event.message || event.status;
-              setToolStatusMessages((prev) => {
-                const next = new Map(prev);
-                next.set(toolCallId, statusText);
-                return next;
-              });
-            }
-          },
-          
-          onToolProgress: (event: SSEToolProgressEvent) => {
-            console.log('📈 Tool progress:', event.tool_name, `${event.percent}%`, event.message);
-            const toolCallId = event.tool_call_id;
-            if (toolCallId) {
-              const progressText = event.message || `${Math.round(event.percent)}%`;
-              setToolStatusMessages((prev) => {
-                const next = new Map(prev);
-                next.set(toolCallId, progressText);
-                return next;
-              });
-            }
-          },
-          
-          onToolLog: (event: SSEToolLogEvent) => {
-            console.log(`🔍 Tool log [${event.level}]:`, event.tool_name, event.message);
-            // You can optionally show logs in UI if needed
-          },
-          
-          onThinking: (event) => {
-            console.log('🤔 AI is thinking:', event.message);
-            // Show thinking indicator
-            setIsThinking(true);
-          },
-          
-          onAssistantMessageDelta: (event) => {
-            console.log('💬 Streaming delta received:', event.delta.substring(0, 50));
-            
-            setIsThinking(false);
-            
-            setStreamingMessage((prev) => {
-              const newContent = prev + event.delta;
-              console.log('📝 Current streaming message length:', newContent.length);
-              return newContent;
+          }
+        },
+        
+        onToolProgress: (event: SSEToolProgressEvent) => {
+          if (event.tool_call_id) {
+            setToolStatusMessages((prev) => {
+              const next = new Map(prev);
+              next.set(event.tool_call_id!, event.message || `${Math.round(event.percent)}%`);
+              return next;
             });
-          },
+          }
+        },
+        
+        onToolLog: (event: SSEToolLogEvent) => {
+          // Optional: show logs in UI
+        },
+        
+        onThinking: (event) => {
+          setIsThinking(true);
+        },
+        
+        onAssistantMessageDelta: (event) => {
+          setIsThinking(false);
+          streamingMessageRef.current += event.delta;
+          setStreamingMessage(streamingMessageRef.current);
+        },
+        
+        onAssistantMessage: (event: SSEAssistantMessageEvent) => {
+          needsAuth = event.needs_auth;
+          setIsThinking(false);
+        },
+        
+        onOptions: (event: SSEOptionsEvent) => {
+          setPendingOptions(event);
+          setIsThinking(false);
+          streamingMessageRef.current = '';
+          setStreamingMessage('');
+        },
+        
+        onDone: async () => {
+          saveStreamingMessage();  // Save any final content
+          setIsLoading(false);
           
-          onAssistantMessage: (event: SSEAssistantMessageEvent) => {
-            console.log('💬 Assistant message received (complete)');
-            
-            needsAuth = event.needs_auth;
-            
-            // Hide thinking indicator
-            setIsThinking(false);
-            
-            // Clear streaming message
-            setStreamingMessage('');
-            
-            // Add assistant response (filter out standalone connection success messages)
-            const shouldAddMessage = !event.content.includes('Successfully connected');
-            
-            if (shouldAddMessage) {
-              const assistantMessage: Message = {
-                role: 'assistant',
-                content: event.content,
-                timestamp: event.timestamp,
-              };
-              setMessages((prev) => [...prev, assistantMessage]);
-            }
-          },
+          try {
+            const chatResources = await resourcesApi.getChatResources(chatId);
+            setResources(chatResources);
+          } catch (err) {
+            console.error('Error reloading resources:', err);
+          }
           
-          onOptions: (event: SSEOptionsEvent) => {
-            console.log('🔘 Options received:', event.question, event.options);
-            
-            // Store pending options to display
-            setPendingOptions(event);
-            
-            // Hide thinking and streaming indicators
-            setIsThinking(false);
-            setStreamingMessage('');
-          },
+          if (needsAuth && !isPortfolioConnected) {
+            await handleBrokerageConnection();
+          }
           
-          onDone: async () => {
-            console.log('✨ Stream complete');
-            setIsLoading(false);
-            
-            // Reload resources to include new ones
-            try {
-              const chatResources = await resourcesApi.getChatResources(chatId);
-              setResources(chatResources);
-            } catch (err) {
-              console.error('Error reloading resources:', err);
-            }
-            
-            // Check if connection is required
-            if (needsAuth && !isPortfolioConnected) {
-              setIsPortfolioConnected(false);
-              await handleBrokerageConnection();
-            }
-            
-            // Clear ephemeral tool calls after a delay
-            setTimeout(() => setEphemeralToolCalls([]), 5000);
-          },
-          
-          onError: (event) => {
-            console.error('❌ SSE error:', event.error);
-            setError(`Error: ${event.error}`);
-            setIsLoading(false);
-            setIsThinking(false);
-            setStreamingMessage(''); // Clear streaming message on error
-            // Remove the optimistic user message
-            setMessages((prev) => prev.slice(0, -1));
-          },
-        }
-      );
-
-      // Store event source for cleanup if needed
-      // (In case user navigates away)
-      
+          setTimeout(() => setEphemeralToolCalls([]), 5000);
+        },
+        
+        onError: (event) => {
+          console.error('❌ SSE error:', event.error);
+          setError(`Error: ${event.error}`);
+          setIsLoading(false);
+          setIsThinking(false);
+          streamingMessageRef.current = '';
+          setStreamingMessage('');
+          setMessages((prev) => prev.slice(0, -1));
+        },
+      });
     } catch (err) {
       setError('Failed to send message. Please try again.');
       console.error('Error sending message:', err);
-      // Remove the optimistic user message
       setMessages((prev) => prev.slice(0, -1));
       setIsLoading(false);
       setIsThinking(false);
-      setStreamingMessage(''); // Clear streaming message on error
+      streamingMessageRef.current = '';
+      setStreamingMessage('');
     }
   };
 

@@ -55,14 +55,9 @@ async def stream_llm_response(
     content = ""
     tool_calls = []
     reasoning_content = ""
-    chunk_count = 0
-    content_delta_count = 0
-    
-    logger.info("🌊 Started streaming LLM response")
     
     # Process stream
     async for chunk in stream_response:
-        chunk_count += 1
         if not hasattr(chunk, 'choices') or not chunk.choices:
             continue
             
@@ -71,15 +66,10 @@ async def stream_llm_response(
         # Handle reasoning content (o1/o3 models)
         if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
             reasoning_content += delta.reasoning_content
-            content_delta_count += 1
-            # Yield reasoning content delta
             yield SSEEvent(
                 event="assistant_message_delta",
-                data=AssistantMessageDeltaEvent(
-                    delta=delta.reasoning_content
-                ).model_dump()
+                data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
             )
-            # Also call optional callback
             if on_content_delta:
                 async for event in on_content_delta(delta.reasoning_content):
                     yield event
@@ -87,15 +77,10 @@ async def stream_llm_response(
         # Handle regular content
         if hasattr(delta, 'content') and delta.content:
             content += delta.content
-            content_delta_count += 1
-            # Yield content delta immediately
             yield SSEEvent(
                 event="assistant_message_delta",
-                data=AssistantMessageDeltaEvent(
-                    delta=delta.content
-                ).model_dump()
+                data=AssistantMessageDeltaEvent(delta=delta.content).model_dump()
             )
-            # Also call optional callback
             if on_content_delta:
                 async for event in on_content_delta(delta.content):
                     yield event
@@ -117,9 +102,6 @@ async def stream_llm_response(
                         tool_calls[idx]["function"]["name"] = tc.function.name
                     if tc.function.arguments:
                         tool_calls[idx]["function"]["arguments"] += tc.function.arguments
-    
-    # Log streaming summary
-    logger.info(f"🌊 Streaming complete: {chunk_count} chunks, {content_delta_count} content deltas sent")
     
     # Emit end event
     yield SSEEvent(

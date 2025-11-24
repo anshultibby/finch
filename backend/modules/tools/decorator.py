@@ -122,8 +122,8 @@ def tool(
             "required": required
         }
         
-        # Check if function is async
-        is_async = inspect.iscoroutinefunction(func)
+        # Check if function is async (includes both regular async and async generators)
+        is_async = inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)
         
         # Create tool
         tool_obj = Tool(

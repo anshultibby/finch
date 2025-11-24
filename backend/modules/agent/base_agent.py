@@ -110,12 +110,10 @@ class BaseAgent:
                 )
             )
         
-        # Use ToolExecutor - yields SSE events directly
+        # Use ToolExecutor - yields SSE events directly (simple!)
         async for event in self._tool_executor.execute_batch_streaming(
             tool_calls=tool_call_requests,
             context=context,
-            on_tool_start=None,  # No callbacks needed
-            on_tool_complete=None,  # No callbacks needed
             enable_tool_streaming=self.enable_tool_streaming
         ):
             # Extract execution results from tools_end event to populate tracking info
@@ -262,7 +260,7 @@ class BaseAgent:
             # Create LLM configuration
             llm_config = LLMConfig.from_config(stream=True)
             
-            # Stream all events directly from agent loop (no callbacks needed!)
+            # Stream all events directly from agent loop
             async for event in self.run_tool_loop_streaming(
                 initial_messages=initial_messages,
                 max_iterations=10,
@@ -270,20 +268,7 @@ class BaseAgent:
             ):
                 yield event
             
-            # Yield final assistant message
-            new_messages = self.get_new_messages()
-            if new_messages:
-                last_message = new_messages[-1]
-                if last_message.role == "assistant":
-                    yield SSEEvent(
-                        event="assistant_message",
-                        data=AssistantMessageEvent(
-                            content=last_message.content or "",
-                            timestamp=datetime.now().isoformat()
-                        ).model_dump()
-                    )
-            
-            # Done
+            # Done - frontend handles saving accumulated streaming content
             yield SSEEvent(
                 event="done",
                 data=DoneEvent().model_dump()

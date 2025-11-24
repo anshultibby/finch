@@ -374,101 +374,125 @@ class ToolExecutor:
         self,
         tool_calls: List[ToolCallRequest],
         context: AgentContext,
-        on_tool_start: Optional[Callable[[Dict[str, Any]], AsyncGenerator[SSEEvent, None]]] = None,
-        on_tool_complete: Optional[Callable[[Dict[str, Any]], AsyncGenerator[SSEEvent, None]]] = None,
-        enable_tool_streaming: bool = False
+        enable_tool_streaming: bool = True
     ) -> AsyncGenerator[SSEEvent, None]:
         """
-        Execute batch with streaming support - clean event-driven design.
+        Execute batch with streaming support - simple SSE design with real-time parallel streaming.
         
         Yields SSE events throughout execution:
-        1. Start events for all tools (via on_tool_start callback)
-        2. Real-time SSE events from tools (if enable_tool_streaming=True)
-        3. Complete events for all tools (via on_tool_complete callback)
-        4. Final 'tools_end' event with tool messages AND detailed results
+        1. tool_call_start events for each tool
+        2. Real-time SSE events from tools (tool_status, tool_log, tool_progress, etc.)
+        3. tool_call_complete events for each tool
+        4. Final tools_end event with tool messages and results
         
-        This is the ONLY method agents should use for tool execution.
+        In parallel mode, events from all tools stream in real-time as they're generated.
         
         Args:
             tool_calls: List of tools to execute
             context: Agent execution context
-            on_tool_start: Optional callback for start events
-            on_tool_complete: Optional callback for complete events
-            enable_tool_streaming: Whether to stream tool-emitted events (progress, status, etc.)
+            enable_tool_streaming: Whether to stream tool-emitted events (default: True)
         
         Yields:
             SSEEvent objects throughout execution
         """
-        # Log streaming mode
-        if enable_tool_streaming:
-            logger.info(f"🌊 Tool streaming ENABLED for {len(tool_calls)} tool(s)")
-        else:
-            logger.warning("⚠️ Tool streaming DISABLED")
+        logger.info(f"🌊 Executing {len(tool_calls)} tool(s) with streaming {'ENABLED' if enable_tool_streaming else 'DISABLED'}")
         
-        if on_tool_start:
-            for call in tool_calls:
-                async for event in on_tool_start({
+        # Emit tool_call_start events for all tools
+        for call in tool_calls:
+            yield SSEEvent(
+                event="tool_call_start",
+                data={
                     "tool_call_id": call.id,
                     "tool_name": call.name,
                     "arguments": call.arguments
-                }):
-                    yield event
+                }
+            )
         
         # Execute tools and collect results
-        # Tools now yield SSE events directly through runner.execute()
         results = []
         event_count = 0
         
         if self.execution_mode == ExecutionMode.PARALLEL:
-            # For parallel, we need to execute concurrently
-            # Each tool's generator will yield events and then final result
-            async def execute_and_collect(call: ToolCallRequest):
-                """Execute tool and collect events + result"""
-                tool_events = []
+            # Parallel execution with REAL-TIME event streaming using event queue
+            logger.info(f"📡 Using event queue for real-time parallel streaming")
+            
+            # Create event queue for real-time streaming
+            event_queue = asyncio.Queue()
+            
+            async def execute_and_stream(call: ToolCallRequest):
+                """Execute tool and stream events to queue in real-time"""
+                start_time = asyncio.get_event_loop().time()
                 final_result = None
-                async for item in self.runner.execute(
-                    tool_name=call.name,
-                    arguments=call.arguments,
-                    context=context
-                ):
-                    if isinstance(item, SSEEvent):
-                        tool_events.append(item)
-                    else:
-                        # Make sure it's not an async generator
-                        if inspect.isasyncgen(item):
-                            logger.error(f"Tool {call.name} yielded an async generator instead of a result!")
-                            final_result = {
-                                "success": False,
-                                "error": "Tool returned async generator instead of result",
-                                "message": f"Tool {call.name} implementation error"
-                            }
+                
+                try:
+                    async for item in self.runner.execute(
+                        tool_name=call.name,
+                        arguments=call.arguments,
+                        context=context
+                    ):
+                        if isinstance(item, SSEEvent):
+                            # Stream event to queue immediately
+                            await event_queue.put(("event", item))
                         else:
-                            final_result = item
-                
-                # Ensure we got a result
-                if final_result is None:
-                    final_result = {
+                            # Make sure it's not an async generator
+                            if inspect.isasyncgen(item):
+                                logger.error(f"Tool {call.name} yielded an async generator instead of a result!")
+                                final_result = {
+                                    "success": False,
+                                    "error": "Tool returned async generator instead of result",
+                                    "message": f"Tool {call.name} implementation error"
+                                }
+                            else:
+                                final_result = item
+                    
+                    # Ensure we got a result
+                    if final_result is None:
+                        final_result = {
+                            "success": False,
+                            "error": "Tool did not return a result",
+                            "message": f"Tool {call.name} completed but did not yield a final result"
+                        }
+                    
+                    end_time = asyncio.get_event_loop().time()
+                    duration = (end_time - start_time) * 1000
+                    
+                    # Signal completion with result
+                    await event_queue.put(("result", call, final_result, duration))
+                    
+                except Exception as e:
+                    logger.error(f"Error in tool {call.name}: {str(e)}")
+                    # Put error result in queue
+                    await event_queue.put(("result", call, {
                         "success": False,
-                        "error": "Tool did not return a result",
-                        "message": f"Tool {call.name} completed but did not yield a final result"
-                    }
+                        "error": str(e),
+                        "message": f"Tool execution failed: {str(e)}"
+                    }, 0.0))
+            
+            # Start all tools concurrently
+            tasks = [asyncio.create_task(execute_and_stream(call)) for call in tool_calls]
+            
+            # Stream events from queue as they arrive
+            completed_count = 0
+            while completed_count < len(tool_calls):
+                item = await event_queue.get()
                 
-                return (call, tool_events, final_result)
-            
-            # Execute all tools concurrently
-            tool_results = await asyncio.gather(*[execute_and_collect(call) for call in tool_calls])
-            
-            # Stream events if enabled, then build results
-            for call, tool_events, final_result in tool_results:
-                if enable_tool_streaming:
-                    for event in tool_events:
+                if item[0] == "event":
+                    # Real-time SSE event from a tool
+                    if enable_tool_streaming:
                         event_count += 1
-                        yield event
+                        yield item[1]
                 
-                # Build ToolExecutionResult
-                results.append(self._build_execution_result(call, final_result, 0.0))
+                elif item[0] == "result":
+                    # Tool completed - build result
+                    call, final_result, duration = item[1], item[2], item[3]
+                    results.append(self._build_execution_result(call, final_result, duration))
+                    completed_count += 1
+            
+            # Wait for all tasks to complete (should already be done)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
         else:
-            # Sequential - stream events as they come
+            # Sequential - stream events as they come (no change needed)
             for call in tool_calls:
                 start_time = asyncio.get_event_loop().time()
                 final_result = None
@@ -500,19 +524,19 @@ class ToolExecutor:
                 # Build ToolExecutionResult
                 results.append(self._build_execution_result(call, final_result, duration))
         
-        if enable_tool_streaming:
-            logger.info(f"🌊 Tool streaming complete: {event_count} events emitted")
+        logger.info(f"🌊 Tool execution complete: {event_count} SSE events streamed")
         
-        # Emit complete events (optional callbacks for custom handling)
-        # Note: Tools emit their own SSE events directly during execution
-        if on_tool_complete:
-            for result in results:
-                async for event in on_tool_complete({
+        # Emit tool_call_complete events for all tools
+        for result in results:
+            yield SSEEvent(
+                event="tool_call_complete",
+                data={
                     "tool_call_id": result.tool_call_id,
                     "tool_name": result.tool_name,
-                    "result": result.raw_result
-                }):
-                    yield event
+                    "status": "completed" if result.success else "error",
+                    "error": result.error
+                }
+            )
         
         # Build tool messages for conversation
         tool_messages = []

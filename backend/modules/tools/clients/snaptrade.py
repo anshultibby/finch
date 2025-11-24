@@ -716,7 +716,7 @@ class SnapTradeTools:
                 "message": f"Failed to disconnect account: {error_str}"
             }
     
-    def get_portfolio(self, user_id: str) -> Dict[str, Any]:
+    async def get_portfolio(self, user_id: str) -> Dict[str, Any]:
         """
         Get user's portfolio holdings using SnapTrade
         
@@ -745,7 +745,7 @@ class SnapTradeTools:
             
             # Verify connection and get accounts
             try:
-                accounts = self._get_accounts(user_id, session.snaptrade_user_secret)
+                accounts = await self._get_accounts(user_id, session.snaptrade_user_secret)
                 if not accounts:
                     session.is_connected = False
                     return {
@@ -809,7 +809,7 @@ class SnapTradeTools:
                 
                 status = None
                 try:
-                    positions_list = self._get_positions_for_account(user_id, session.snaptrade_user_secret, account_id)
+                    positions_list = await self._get_positions_for_account(user_id, session.snaptrade_user_secret, account_id)
                 except Exception as e:
                     error_str = str(e)
                     print(f"⚠️ Error fetching positions for account {account_id}: {error_str}", flush=True)
@@ -867,9 +867,8 @@ class SnapTradeTools:
             }
         )
         
-        # Call sync method in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, self.get_portfolio, user_id)
+        # Call async method directly
+        result = await self.get_portfolio(user_id)
         
         # Yield success event
         if result.get("success"):
