@@ -49,7 +49,7 @@ export default function ChatMessage({ role, content, timestamp, resources }: Cha
       // No plot markers, render as normal markdown
       return (
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
+          remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
           rehypePlugins={[rehypeKatex]}
         >
           {content}
@@ -120,7 +120,7 @@ export default function ChatMessage({ role, content, timestamp, resources }: Cha
         elements.push(
           <ReactMarkdown
             key={`content-${idx}`}
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
             rehypePlugins={[rehypeKatex]}
           >
             {part}

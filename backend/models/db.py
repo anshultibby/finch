@@ -1,10 +1,11 @@
 """
 SQLAlchemy database models
 """
-from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Numeric, Date, ARRAY, Float
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from database import Base
+import uuid
 
 
 class SnapTradeUser(Base):
@@ -194,4 +195,234 @@ class BrokerageAccount(Base):
     
     def __repr__(self):
         return f"<BrokerageAccount(id='{self.id}', user='{self.user_id}', broker='{self.broker_name}', active={self.is_active})>"
+
+
+class Transaction(Base):
+    """
+    Stores all user transactions - flexible JSON schema
+    MVP: Stocks only - options and crypto excluded
+    
+    Key fields are indexed for fast queries, all other data in JSONB
+    """
+    __tablename__ = "transactions"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    # User and account (indexed)
+    user_id = Column(String, nullable=False, index=True)
+    account_id = Column(String, nullable=False, index=True)
+    
+    # Key indexed fields for filtering
+    symbol = Column(String(20), nullable=False, index=True)
+    transaction_type = Column(String(20), nullable=False)  # BUY, SELL, DIVIDEND, FEE, TRANSFER, SPLIT
+    transaction_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    external_id = Column(String, nullable=True)  # SnapTrade ID for deduplication
+    
+    # All transaction data in JSONB (quantity, price, fee, P&L, etc.)
+    data = Column(JSONB, nullable=False)
+    
+    # Tracking
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Transaction(id='{self.id}', symbol='{self.symbol}', type='{self.transaction_type}')>"
+
+
+class TransactionSyncJob(Base):
+    """
+    Tracks sync operations - flexible JSON schema
+    """
+    __tablename__ = "transaction_sync_jobs"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    # User (indexed)
+    user_id = Column(String, nullable=False, index=True)
+    status = Column(String(20), nullable=False)  # pending, running, completed, failed
+    
+    # All job data in JSONB (account_id, dates, results, error_message, etc.)
+    data = Column(JSONB, nullable=False)
+    
+    # Timing
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    def __repr__(self):
+        return f"<TransactionSyncJob(id='{self.id}', user='{self.user_id}', status='{self.status}')>"
+
+
+class PortfolioSnapshot(Base):
+    """
+    Daily portfolio snapshots - flexible JSON schema
+    """
+    __tablename__ = "portfolio_snapshots"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    # User and date (indexed)
+    user_id = Column(String, nullable=False, index=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    
+    # All snapshot data in JSONB (value, cost_basis, P&L, holdings, etc.)
+    data = Column(JSONB, nullable=False)
+    
+    # Tracking
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<PortfolioSnapshot(id='{self.id}', user='{self.user_id}', date='{self.snapshot_date}')>"
+
+
+class TradeAnalytics(Base):
+    """
+    Cached analysis results for closed positions - flexible JSON schema
+    """
+    __tablename__ = "trade_analytics"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    # User, symbol, and exit date (indexed)
+    user_id = Column(String, nullable=False, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    exit_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    
+    # All analytics data in JSONB (prices, P&L, grades, AI commentary, etc.)
+    data = Column(JSONB, nullable=False)
+    
+    # Tracking
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<TradeAnalytics(id='{self.id}', symbol='{self.symbol}')>"
+
+
+class TradingStrategyDB(Base):
+    """
+    Stores user-created trading strategies - flexible JSON schema
+    Strategies are defined in natural language, parsed by LLM, and stored as structured JSON
+    """
+    __tablename__ = "trading_strategies"
+    
+    # Primary key
+    id = Column(String(36), primary_key=True, index=True)
+    
+    # User (indexed)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Strategy metadata
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    natural_language_input = Column(Text, nullable=False)  # Original user input
+    
+    # Full strategy definition in JSONB (TradingStrategy model)
+    strategy_definition = Column(JSONB, nullable=False)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<TradingStrategy(id='{self.id}', name='{self.name}', user='{self.user_id}')>"
+
+
+class StrategyBacktestDB(Base):
+    """
+    Stores backtest results for strategies - flexible JSON schema
+    """
+    __tablename__ = "strategy_backtests"
+    
+    # Primary key
+    backtest_id = Column(String(36), primary_key=True, index=True)
+    
+    # Strategy reference (indexed)
+    strategy_id = Column(String(36), nullable=False, index=True)
+    
+    # Backtest period
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    
+    # Full backtest results in JSONB (StrategyBacktest model)
+    backtest_results = Column(JSONB, nullable=False)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<StrategyBacktest(id='{self.backtest_id}', strategy='{self.strategy_id}')>"
+
+
+class StrategySignalDB(Base):
+    """
+    Stores live trade signals generated by strategies
+    """
+    __tablename__ = "strategy_signals"
+    
+    # Primary key
+    signal_id = Column(String(36), primary_key=True, index=True)
+    
+    # Strategy reference (indexed)
+    strategy_id = Column(String(36), nullable=False, index=True)
+    
+    # Signal details
+    ticker = Column(String(10), nullable=False, index=True)
+    signal_type = Column(String(10), nullable=False)  # entry/exit
+    generated_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    price_at_signal = Column(Numeric(precision=10, scale=2))
+    confidence_score = Column(Float)
+    reasoning = Column(Text)
+    data_snapshot = Column(JSONB)
+    
+    # User interaction tracking
+    user_acted = Column(Boolean, default=False)
+    outcome = Column(JSONB)  # If user took trade, track result
+    
+    def __repr__(self):
+        return f"<StrategySignal(id='{self.signal_id}', ticker='{self.ticker}', type='{self.signal_type}')>"
+
+
+class StrategyPerformanceDB(Base):
+    """
+    Tracks live performance of strategies
+    """
+    __tablename__ = "strategy_performance"
+    
+    # Primary key
+    id = Column(String(36), primary_key=True, index=True)
+    
+    # Strategy reference (indexed, unique)
+    strategy_id = Column(String(36), nullable=False, unique=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Signal tracking
+    signals_generated = Column(Integer, default=0)
+    signals_acted_on = Column(Integer, default=0)
+    
+    # Actual performance (user took trades)
+    actual_trades = Column(Integer, default=0)
+    actual_wins = Column(Integer, default=0)
+    actual_losses = Column(Integer, default=0)
+    actual_return_pct = Column(Float, default=0.0)
+    
+    # Hypothetical performance (if user took all signals)
+    hypothetical_trades = Column(Integer, default=0)
+    hypothetical_return_pct = Column(Float, default=0.0)
+    
+    # Last activity
+    last_signal_date = Column(DateTime(timezone=True))
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<StrategyPerformance(strategy='{self.strategy_id}', signals={self.signals_generated})>"
 

@@ -4,6 +4,7 @@ import time
 
 from config import Config
 from routes import chat_router, snaptrade_router, resources_router
+from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
 
@@ -57,6 +58,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(snaptrade_router)
 app.include_router(resources_router)
+app.include_router(analytics_router)
 
 
 @app.get("/")

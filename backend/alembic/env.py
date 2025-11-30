@@ -19,8 +19,8 @@ from models.db import SnapTradeUser  # Import all models here
 # this is the Alembic Config object
 config = context.config
 
-# Set the database URL from our Config
-config.set_main_option('sqlalchemy.url', Config.DATABASE_URL)
+# Set the database URL from our Config (respects USE_POOLER setting)
+config.set_main_option('sqlalchemy.url', Config.get_database_url())
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:
