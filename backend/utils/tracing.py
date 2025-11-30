@@ -58,6 +58,8 @@ def setup_tracing(app, engine=None):
     if not Config.ENABLE_TIMING_LOGS:
         return
     
+    logger = logging.getLogger(__name__)
+    
     # Create a tracer provider with service name and environment info
     resource = Resource.create({
         "service.name": "finch-api",
@@ -66,10 +68,32 @@ def setup_tracing(app, engine=None):
     })
     provider = TracerProvider(resource=resource)
     
-    # Export to Jaeger via OTLP
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-    otlp_exporter = OTLPSpanExporter(endpoint="http://localhost:4318/v1/traces")
-    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    # Try to export to Jaeger via OTLP if available
+    jaeger_endpoint = Config.JAEGER_ENDPOINT if hasattr(Config, 'JAEGER_ENDPOINT') else "http://localhost:4318/v1/traces"
+    
+    try:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        import httpx
+        
+        # Test if Jaeger is reachable with a quick timeout
+        try:
+            with httpx.Client() as client:
+                response = client.get("http://localhost:16686", timeout=1.0)
+            jaeger_available = True
+        except:
+            jaeger_available = False
+        
+        if jaeger_available:
+            otlp_exporter = OTLPSpanExporter(endpoint=jaeger_endpoint)
+            provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+            logger.info("🔍 OpenTelemetry tracing enabled with Jaeger export")
+            logger.info("📊 View traces at: http://localhost:16686")
+        else:
+            logger.info("🔍 OpenTelemetry tracing enabled (Jaeger not running - traces not exported)")
+            logger.info("💡 Start Jaeger with: ./start-jaeger.sh")
+    except Exception as e:
+        logger.warning(f"⚠️  Could not setup Jaeger exporter: {e}")
+        logger.info("🔍 OpenTelemetry tracing enabled (local only)")
     
     # Set as global tracer provider
     trace.set_tracer_provider(provider)
@@ -86,10 +110,6 @@ def setup_tracing(app, engine=None):
     
     # Auto-instrument HTTP clients (traces API calls to OpenAI, etc.)
     HTTPXClientInstrumentor().instrument()
-    
-    logger = logging.getLogger(__name__)
-    logger.info("🔍 OpenTelemetry tracing enabled with log correlation")
-    logger.info("📊 View traces at: http://localhost:16686")
 
 
 def get_tracer(name: str = "finch"):

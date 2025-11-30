@@ -343,14 +343,19 @@ export default function ChatContainer() {
           
           // Save tool calls to history if any were made
           if (currentTurnId && Array.from(toolCallsMap.values()).length > 0) {
-            setToolCallHistory((prev) => [
-              ...prev,
-              {
-                turnId: currentTurnId,
-                toolCalls: Array.from(toolCallsMap.values()),
-                expanded: true,
-              },
-            ]);
+            setMessages((msgs) => {
+              const messageIndex = msgs.length - 1;
+              setToolCallHistory((prev) => [
+                ...prev,
+                {
+                  turnId: currentTurnId,
+                  toolCalls: Array.from(toolCallsMap.values()),
+                  expanded: true,
+                  messageIndex,
+                },
+              ]);
+              return msgs;
+            });
           }
           
           setIsLoading(false);
@@ -509,14 +514,19 @@ export default function ChatContainer() {
           
           // Save tool calls to history if any were made
           if (currentTurnId && Array.from(toolCallsMap.values()).length > 0) {
-            setToolCallHistory((prev) => [
-              ...prev,
-              {
-                turnId: currentTurnId,
-                toolCalls: Array.from(toolCallsMap.values()),
-                expanded: true,
-              },
-            ]);
+            setMessages((msgs) => {
+              const messageIndex = msgs.length - 1;
+              setToolCallHistory((prev) => [
+                ...prev,
+                {
+                  turnId: currentTurnId,
+                  toolCalls: Array.from(toolCallsMap.values()),
+                  expanded: true,
+                  messageIndex,
+                },
+              ]);
+              return msgs;
+            });
           }
           
           setIsLoading(false);
@@ -694,10 +704,10 @@ export default function ChatContainer() {
               )
             );
           }}
-          className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1.5"
+          className="text-sm text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1.5"
         >
           <svg
-            className={`w-3 h-3 transition-transform ${
+            className={`w-3.5 h-3.5 transition-transform ${
               turn.expanded ? 'rotate-90' : ''
             }`}
             fill="none"
@@ -710,11 +720,11 @@ export default function ChatContainer() {
         </button>
 
         {turn.expanded && (
-          <div className="mt-2 ml-5 space-y-1">
+          <div className="mt-2 ml-6 space-y-1">
             {Object.entries(grouped).map(([toolName, calls]) => (
-              <div key={toolName} className="text-xs text-gray-500">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm">{getToolIcon(toolName)}</span>
+              <div key={toolName} className="text-sm text-gray-500">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{getToolIcon(toolName)}</span>
                   <span>{formatToolName(toolName)}</span>
                   {calls.length > 1 && (
                     <span className="text-gray-400">×{calls.length}</span>
@@ -932,11 +942,8 @@ export default function ChatContainer() {
                 return Math.abs(resourceTime - messageTime) < 5000;
               });
               
-              // Check if this is an assistant message
-              const isAssistant = message.role === 'assistant';
-              // Find tool activity for this message (it's the Nth assistant message)
-              const assistantIndex = messages.slice(0, index + 1).filter(m => m.role === 'assistant').length - 1;
-              const turnForThis = isAssistant && assistantIndex >= 0 ? toolCallHistory[assistantIndex] : null;
+              // Find tool activity for this specific message index
+              const turnForThis = toolCallHistory.find(t => t.messageIndex === index);
               
               return (
                 <React.Fragment key={index}>
@@ -1050,10 +1057,10 @@ export default function ChatContainer() {
                       );
                     }
                   }}
-                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1.5"
+                  className="text-sm text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1.5"
                 >
                   <svg
-                    className={`w-3 h-3 transition-transform ${
+                    className={`w-3.5 h-3.5 transition-transform ${
                       toolCallHistory.find(t => t.turnId === currentTurnId)?.expanded ? 'rotate-90' : ''
                     }`}
                     fill="none"
@@ -1067,7 +1074,7 @@ export default function ChatContainer() {
 
                 {/* Expandable content */}
                 {toolCallHistory.find(t => t.turnId === currentTurnId)?.expanded && (
-                  <div className="mt-2 ml-5 space-y-1">
+                  <div className="mt-2 ml-6 space-y-1">
                     {(() => {
                       // Group tool calls by name
                       const grouped = currentToolCalls.reduce((acc, toolCall) => {
@@ -1083,9 +1090,9 @@ export default function ChatContainer() {
                         const anyCalling = calls.some(c => c.status === 'calling');
                         
                         return (
-                          <div key={toolName} className="text-xs text-gray-500">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm">{getToolIcon(toolName)}</span>
+                          <div key={toolName} className="text-sm text-gray-500">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{getToolIcon(toolName)}</span>
                               <span>{formatToolName(toolName)}</span>
                               {calls.length > 1 && (
                                 <span className="text-gray-400">×{calls.length}</span>
@@ -1098,7 +1105,7 @@ export default function ChatContainer() {
                               const statusMsg = toolStatusMessages.get(call.tool_call_id);
                               if (statusMsg && call.status === 'calling') {
                                 return (
-                                  <div key={call.tool_call_id} className="ml-6 text-gray-400 italic">
+                                  <div key={call.tool_call_id} className="ml-7 text-sm text-gray-400 italic">
                                     {statusMsg}
                                   </div>
                                 );
