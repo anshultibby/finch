@@ -139,6 +139,11 @@ def tool(
         # Attach tool to function for registry
         func._tool = tool_obj
         
+        # AUTO-REGISTER: Register tool immediately when decorator is applied
+        # This eliminates the need for manual registration in definitions.py
+        from .registry import tool_registry
+        tool_registry.register(tool_obj)
+        
         # Check if function is async generator (yields events)
         is_async_gen = inspect.isasyncgenfunction(func)
         

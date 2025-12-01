@@ -58,7 +58,9 @@ class LLMHandler:
         # Create chat logs directory if chat logging is enabled
         if self.chat_log_enabled:
             backend_dir = Path(__file__).parent.parent.parent
-            self.chat_log_dir = backend_dir / "chat_logs" / self.user_id / self.chat_id
+            # Organize logs by date for easier management (YYYYMMDD)
+            date_str = datetime.now().strftime("%Y%m%d")
+            self.chat_log_dir = backend_dir / "chat_logs" / self.user_id / date_str
             self.chat_log_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Chat logging enabled. Saving conversations to: {self.chat_log_dir}")
     
@@ -300,6 +302,7 @@ class LLMHandler:
                 "assistant_message": assistant_message,
                 "tool_calls": tool_calls,
                 "full_conversation": messages,
+                "tools": kwargs.get("tools", []),  # Log tool schemas sent to LLM
                 "config": {
                     "temperature": kwargs.get("temperature"),
                     "max_tokens": kwargs.get("max_tokens"),
@@ -371,6 +374,7 @@ class LLMHandler:
                 
                 # Full conversation context
                 "full_conversation": messages,
+                "tools": kwargs.get("tools", []),  # Log tool schemas sent to LLM
                 
                 # Config used for this call
                 "config": {

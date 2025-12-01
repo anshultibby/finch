@@ -7,8 +7,8 @@ from typing import List, Optional
 from datetime import datetime
 import json
 
-from backend.models.db import TradingStrategyDB, StrategyBacktestDB, StrategySignalDB, StrategyPerformanceDB
-from backend.models.strategy import (
+from models.db import TradingStrategyDB, StrategyBacktestDB, StrategySignalDB, StrategyPerformanceDB
+from models.strategy import (
     TradingStrategy, StrategyBacktest, StrategySignal, 
     StrategyPerformance, StrategyComparison
 )

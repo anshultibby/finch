@@ -2,8 +2,8 @@
 Chat service for managing chat sessions and interactions
 """
 from typing import List, AsyncGenerator
-from .agent.base_agent import BaseAgent
 from .agent.prompts import FINCH_SYSTEM_PROMPT
+from .agent.agent_config import create_main_agent
 from config import Config
 from .context_manager import context_manager
 from database import AsyncSessionLocal
@@ -64,25 +64,11 @@ class ChatService:
                     data=context  # Additional context data (auth status, credentials, etc.)
                 )
                 
-                # Define tool list for main chat agent
-                tool_names = [
-                    'get_portfolio',
-                    'request_brokerage_connection',
-                    'get_reddit_trending_stocks',
-                    'get_reddit_ticker_sentiment',
-                    'compare_reddit_sentiment',
-                    'get_fmp_data',
-                    'create_chart',
-                    # 'present_options'
-                ]
-                
-                # Create agent with configuration (one per request to avoid state conflicts)
-                agent = BaseAgent(
+                # Create agent using centralized factory (one per request to avoid state conflicts)
+                agent = create_main_agent(
                     context=agent_context,
                     system_prompt=FINCH_SYSTEM_PROMPT,
-                    model=Config.LLM_MODEL,
-                    tool_names=tool_names,
-                    enable_tool_streaming=True  # Enable real-time tool events
+                    model=Config.LLM_MODEL
                 )
                 
                 # Save user message FIRST before streaming

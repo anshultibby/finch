@@ -426,3 +426,80 @@ class StrategyPerformanceDB(Base):
     def __repr__(self):
         return f"<StrategyPerformance(strategy='{self.strategy_id}', signals={self.signals_generated})>"
 
+
+# ============================================================================
+# V2 STRATEGY MODELS (Modern LLM-Native Framework)
+# ============================================================================
+
+class TradingStrategyV2DB(Base):
+    """V2 Strategy database model - LLM-native rule-based strategies"""
+    __tablename__ = "strategies_v2"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    
+    # Store rules as JSONB for flexibility
+    rules = Column(JSONB, nullable=False)
+    risk_parameters = Column(JSONB, nullable=False)
+    stock_universe = Column(JSONB, nullable=True)
+    
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<TradingStrategyV2(id='{self.id}', name='{self.name}')>"
+
+
+class StrategyDecisionDB(Base):
+    """Strategy decision database model - Records of LLM decisions"""
+    __tablename__ = "strategy_decisions"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    strategy_id = Column(String, nullable=False, index=True)
+    ticker = Column(String, nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
+    
+    action = Column(String, nullable=False)  # BUY/SELL/HOLD/SKIP
+    confidence = Column(Float)
+    reasoning = Column(Text)
+    
+    # Store as JSONB
+    rule_results = Column(JSONB)
+    data_snapshot = Column(JSONB)
+    
+    current_price = Column(Float)
+    
+    # User interaction
+    user_acted = Column(Boolean, default=False)
+    outcome = Column(JSONB, nullable=True)
+    
+    def __repr__(self):
+        return f"<StrategyDecision(ticker='{self.ticker}', action='{self.action}')>"
+
+
+class ForwardTestDB(Base):
+    """Forward test tracking database model"""
+    __tablename__ = "forward_tests"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    strategy_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    
+    is_active = Column(Boolean, default=True, index=True)
+    
+    # Metrics
+    total_signals = Column(Integer, default=0)
+    signals_acted_on = Column(Integer, default=0)
+    hypothetical_pnl = Column(Float, default=0.0)
+    actual_pnl = Column(Float, default=0.0)
+    
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<ForwardTest(strategy_id='{self.strategy_id}', signals={self.total_signals})>"
+
