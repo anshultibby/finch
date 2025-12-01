@@ -3,9 +3,14 @@ import React, { useState, KeyboardEvent } from 'react';
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }
 
-export default function ChatInput({ onSendMessage, disabled = false }: ChatInputProps) {
+export default function ChatInput({ 
+  onSendMessage, 
+  disabled = false,
+  placeholder = "Type your message..."
+}: ChatInputProps) {
   const [message, setMessage] = useState('');
 
   const handleSubmit = () => {
@@ -29,7 +34,7 @@ export default function ChatInput({ onSendMessage, disabled = false }: ChatInput
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="Ask about your portfolio..."
+          placeholder={placeholder}
           disabled={disabled}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-3 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"

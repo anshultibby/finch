@@ -21,6 +21,7 @@ export interface ToolCallStatus {
   status: 'calling' | 'completed' | 'error';
   resource_id?: string;
   error?: string;
+  result_summary?: string;
 }
 
 export interface ChatResponse {
@@ -45,6 +46,7 @@ export interface SSEToolCallCompleteEvent {
   status: 'completed' | 'error';
   resource_id?: string;
   error?: string;
+  result_summary?: string;
   timestamp: string;
 }
 
@@ -164,6 +166,7 @@ export interface UserChatsResponse {
     title: string | null;
     created_at: string;
     updated_at: string;
+    last_message?: string;
   }>;
 }
 
@@ -451,6 +454,127 @@ export const resourcesApi = {
 
   deleteResource: async (resourceId: string): Promise<void> => {
     await api.delete(`/resources/${resourceId}`);
+  },
+};
+
+// Strategy types
+export interface DataSource {
+  type: 'fmp' | 'reddit' | 'portfolio' | 'calculated';
+  endpoint: string;
+  parameters?: Record<string, any>;
+}
+
+export interface StrategyRule {
+  order: number;
+  description: string;
+  data_sources?: DataSource[];
+  decision_logic: string;
+  weight: number;
+}
+
+export interface CandidateSource {
+  type: 'universe' | 'reddit_trending' | 'custom' | 'sector' | 'tickers';
+  universe?: string;
+  tickers?: string[];
+  limit?: number;
+  sector?: string;
+}
+
+export interface RiskParameters {
+  position_size_pct: number;
+  max_positions: number;
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+  max_hold_days?: number;
+}
+
+export interface TradingStrategy {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  candidate_source: CandidateSource;
+  screening_rules: StrategyRule[];
+  management_rules: StrategyRule[];
+  risk_parameters: RiskParameters;
+  created_at: string;
+  updated_at: string;
+  is_active: boolean;
+}
+
+export interface StrategyDecision {
+  decision_id: string;
+  strategy_id: string;
+  ticker: string;
+  timestamp: string;
+  action: 'BUY' | 'SELL' | 'HOLD' | 'SKIP';
+  confidence: number;
+  reasoning: string;
+  rule_results: Array<Record<string, any>>;
+  data_snapshot: Record<string, any>;
+  current_price: number;
+  position_data?: Record<string, any>;
+}
+
+export interface StrategyPosition {
+  position_id: string;
+  strategy_id: string;
+  user_id: string;
+  ticker: string;
+  shares: number;
+  entry_price: number;
+  entry_date: string;
+  entry_decision_id: string;
+  current_price: number;
+  current_value: number;
+  pnl: number;
+  pnl_pct: number;
+  days_held: number;
+  exit_date?: string;
+  exit_price?: number;
+  exit_decision_id?: string;
+  is_open: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StrategyBudget {
+  strategy_id: string;
+  user_id: string;
+  total_budget: number;
+  cash_available: number;
+  position_value: number;
+  updated_at: string;
+}
+
+export interface StrategyExecutionResult {
+  strategy_id: string;
+  strategy_name: string;
+  timestamp: string;
+  screening_decisions: StrategyDecision[];
+  management_decisions: StrategyDecision[];
+  budget: StrategyBudget;
+  positions: StrategyPosition[];
+}
+
+export const strategiesApi = {
+  getStrategies: async (userId: string, activeOnly: boolean = true): Promise<TradingStrategy[]> => {
+    const response = await api.get<TradingStrategy[]>(`/api/strategies/${userId}`, {
+      params: { active_only: activeOnly },
+    });
+    return response.data;
+  },
+
+  getStrategy: async (userId: string, strategyId: string): Promise<TradingStrategy> => {
+    const response = await api.get<TradingStrategy>(`/api/strategies/${userId}/${strategyId}`);
+    return response.data;
+  },
+
+  executeStrategy: async (userId: string, strategyId: string): Promise<StrategyExecutionResult> => {
+    const response = await api.post<StrategyExecutionResult>(
+      `/api/strategies/${userId}/${strategyId}/execute`
+    );
+    return response.data;
   },
 };
 

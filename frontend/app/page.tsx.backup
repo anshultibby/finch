@@ -1,27 +1,11 @@
-'use client';
-
 import AuthGate from '@/components/PasswordGate';
 import AppLayout from '@/components/layout/AppLayout';
 import StrategiesView from '@/components/strategies/StrategiesView';
 import ChatView from '@/components/chat/ChatView';
-import FilesView from '@/components/files/FilesView';
 import { NavigationProvider } from '@/contexts/NavigationContext';
 import { ChatModeProvider } from '@/contexts/ChatModeContext';
-import { useState, useEffect } from 'react';
 
 export default function Home() {
-  const [chatId, setChatId] = useState<string>('');
-
-  useEffect(() => {
-    // Generate or retrieve chat ID
-    let id = localStorage.getItem('current_chat_id');
-    if (!id) {
-      id = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('current_chat_id', id);
-    }
-    setChatId(id);
-  }, []);
-
   return (
     <AuthGate>
       <NavigationProvider>
@@ -30,7 +14,6 @@ export default function Home() {
             <AppLayout
               strategiesView={<StrategiesView />}
               chatView={<ChatView />}
-              filesView={chatId ? <FilesView chatId={chatId} /> : <div>Loading...</div>}
               analyticsView={
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center">
@@ -47,3 +30,4 @@ export default function Home() {
     </AuthGate>
   );
 }
+
