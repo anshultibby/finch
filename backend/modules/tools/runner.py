@@ -82,6 +82,8 @@ class ToolRunner:
             
             try:
                 logger.info(f"Executing tool: {tool_name}")
+                logger.debug(f"Tool arguments: {arguments}")
+                logger.debug(f"Argument types: {[(k, type(v).__name__) for k, v in arguments.items()]}")
                 
                 # Inspect function signature to detect Pydantic model parameters
                 sig = inspect.signature(tool.handler)
@@ -111,14 +113,27 @@ class ToolRunner:
                     logger.debug(f"Detected Pydantic parameter: {param_name} of type {param_class.__name__}")
                     
                     # Check if arguments are already wrapped in the parameter name
-                    if param_name in arguments and isinstance(arguments[param_name], dict):
-                        # Already wrapped: {"params": {...}}
-                        logger.debug(f"Arguments already wrapped in '{param_name}'")
-                        kwargs[param_name] = param_class(**arguments[param_name])
-                    elif param_name in arguments:
-                        # Already wrapped but might already be a model instance
-                        logger.debug(f"Found existing '{param_name}' in arguments")
-                        kwargs[param_name] = arguments[param_name]
+                    if param_name in arguments:
+                        arg_value = arguments[param_name]
+                        
+                        # Check if it's already a Pydantic model instance
+                        if isinstance(arg_value, BaseModel):
+                            logger.debug(f"'{param_name}' is already a Pydantic model instance")
+                            kwargs[param_name] = arg_value
+                        # Check if it's a dict that needs to be converted to the model
+                        elif isinstance(arg_value, dict):
+                            logger.debug(f"Arguments already wrapped in '{param_name}', constructing {param_class.__name__}")
+                            try:
+                                kwargs[param_name] = param_class(**arg_value)
+                            except Exception as e:
+                                logger.error(f"Failed to construct {param_class.__name__} from dict: {e}", exc_info=True)
+                                raise
+                        else:
+                            # Invalid type - try to convert or raise error
+                            logger.error(f"Invalid type for '{param_name}': {type(arg_value).__name__}, expected dict or {param_class.__name__}")
+                            logger.error(f"Received arguments: {arguments}")
+                            logger.error(f"Expected schema for {param_class.__name__}: {param_class.model_json_schema()}")
+                            raise TypeError(f"Parameter '{param_name}' must be a dict or {param_class.__name__} instance, got {type(arg_value).__name__}. Received: {repr(arg_value)[:200]}")
                     else:
                         # Not wrapped, assume all arguments are for the model: {"data_series": ..., "plot_type": ...}
                         logger.debug(f"Arguments flattened, constructing {param_class.__name__} from: {list(arguments.keys())}")

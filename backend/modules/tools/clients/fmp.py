@@ -27,10 +27,10 @@ import pandas as pd
 from models.fmp import (
     CompanyProfile, IncomeStatement, BalanceSheet, CashFlowStatement,
     KeyMetrics, FinancialRatio, HistoricalPrice, Quote,
-    AnalystRecommendation, FinancialGrowth
+    AnalystRecommendation, FinancialGrowth, StockScreenerResult
 )
 from config import Config
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 # ===================================================================================
@@ -42,6 +42,7 @@ ENDPOINTS = {
         "params": ["symbol"],
         "model": CompanyProfile,
         "list": False,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get comprehensive company profile and information"
     },
     
@@ -50,18 +51,21 @@ ENDPOINTS = {
         "params": ["symbol", "period", "limit"],
         "model": IncomeStatement,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get income statement data (period: annual/quarter)"
     },
-    "balance-sheet": {
+    "balance-sheet-statement": {
         "params": ["symbol", "period", "limit"],
         "model": BalanceSheet,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get balance sheet data"
     },
     "cash-flow-statement": {
         "params": ["symbol", "period", "limit"],
         "model": CashFlowStatement,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get cash flow statement data"
     },
     
@@ -70,18 +74,21 @@ ENDPOINTS = {
         "params": ["symbol", "period", "limit"],
         "model": KeyMetrics,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get key metrics and valuation ratios"
     },
-    "financial-ratios": {
+    "ratios": {
         "params": ["symbol", "period", "limit"],
         "model": FinancialRatio,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get financial ratios (liquidity, profitability, etc.)"
     },
     "financial-growth": {
         "params": ["symbol", "period", "limit"],
         "model": FinancialGrowth,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get financial growth metrics"
     },
     
@@ -90,6 +97,7 @@ ENDPOINTS = {
         "params": ["symbol"],
         "model": Quote,
         "list": False,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get real-time quote data"
     },
     "historical-price-full": {
@@ -106,14 +114,17 @@ ENDPOINTS = {
         "params": ["symbol", "limit"],
         "model": AnalystRecommendation,
         "list": True,
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get analyst recommendations"
     },
     "price-target-consensus": {
         "params": ["symbol"],
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get analyst price target consensus"
     },
     "grades": {
         "params": ["symbol", "limit"],
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get analyst upgrades and downgrades"
     },
     
@@ -123,9 +134,20 @@ ENDPOINTS = {
         "description": "Search for stock symbols by query"
     },
     "company-screener": {
-        "params": ["marketCapMoreThan", "marketCapLowerThan", "priceMoreThan", 
-                   "priceLowerThan", "betaMoreThan", "betaLowerThan", "limit"],
-        "description": "Screen stocks based on criteria"
+        "params": [
+            "marketCapMoreThan", "marketCapLowerThan", 
+            "sector", "industry",
+            "betaMoreThan", "betaLowerThan",
+            "priceMoreThan", "priceLowerThan",
+            "dividendMoreThan", "dividendLowerThan",
+            "volumeMoreThan", "volumeLowerThan",
+            "exchange", "country",
+            "isEtf", "isFund", "isActivelyTrading",
+            "limit", "includeAllShareClasses"
+        ],
+        "model": StockScreenerResult,
+        "list": True,
+        "description": "Screen stocks based on market cap, price, volume, sector, industry, and more"
     },
     
     # Market Movers
@@ -181,6 +203,7 @@ ENDPOINTS = {
     },
     "splits": {
         "params": ["symbol"],
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get stock split history"
     },
     
@@ -197,6 +220,7 @@ ENDPOINTS = {
     # Peers & Comparisons
     "stock-peers": {
         "params": ["symbol"],
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get stock peer companies"
     },
     
@@ -213,29 +237,32 @@ ENDPOINTS = {
     # ESG
     "esg-ratings": {
         "params": ["symbol"],
+        "path_param": "symbol",  # Symbol goes in URL path
         "description": "Get ESG (Environmental, Social, Governance) score"
     },
     
-    # ============ Insider Trading ============
-    "senate-latest": {
-        "params": ["page", "limit"],
-        "description": "Get recent Senate trading disclosures"
-    },
-    "house-latest": {
-        "params": ["page", "limit"],
-        "description": "Get recent House trading disclosures"
-    },
-    "insider-trading/latest": {
-        "params": ["page", "limit"],
-        "description": "Get recent corporate insider trades (SEC Form 4)"
-    },
-    "insider-trading-search": {
+    # ============ Insider Trading (v4 API) ============
+    "insider-trading": {
         "params": ["symbol", "reportingCik", "companyCik", "transactionType", "limit", "page"],
-        "description": "Search insider trades with filters"
+        "description": "Search insider trades with filters (v4 endpoint)",
+        "api_version": "v4"
     },
-    "insider-trading-statistics": {
+    "insider-roster": {
         "params": ["symbol"],
-        "description": "Get quarterly insider trading statistics for a stock"
+        "description": "Get list of insiders for a company (v4 endpoint)",
+        "api_version": "v4"
+    },
+    
+    # ============ Government Trading (v4 API) ============
+    "senate-trading": {
+        "params": ["symbol", "limit"],
+        "description": "Get Senate stock trading disclosures for a symbol (v4 endpoint)",
+        "api_version": "v4"
+    },
+    "house-trading": {
+        "params": ["symbol", "limit"],
+        "description": "Get House of Representatives stock trading disclosures for a symbol (v4 endpoint)",
+        "api_version": "v4"
     },
 }
 
@@ -249,13 +276,21 @@ class FMPTools:
     """
     
     BASE_URL = "https://financialmodelingprep.com/api/v3"
+    BASE_URL_V4 = "https://financialmodelingprep.com/api/v4"
     
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self._client = None
         self.api_key = Config.FMP_API_KEY
         self.api_enabled = bool(self.api_key)
     
-    async def _fetch_api_data(self, endpoint, params, data_key=None, path_param=None):
+    @property
+    def client(self):
+        """Lazy-load HTTP client to avoid event loop issues"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=30.0)
+        return self._client
+    
+    async def _fetch_api_data(self, endpoint, params, data_key=None, path_param=None, api_version=None):
         """Low-level method to fetch from API (no streaming events)"""
         if not self.api_enabled:
             raise ValueError(
@@ -265,13 +300,16 @@ class FMPTools:
             )
         
         try:
+            # Choose base URL based on API version
+            base_url = self.BASE_URL_V4 if api_version == "v4" else self.BASE_URL
+            
             # Handle path parameters (e.g., /historical-price-full/SYMBOL)
             path_value = None
             if path_param and path_param in params:
                 path_value = params.pop(path_param)
-                url = f"{self.BASE_URL}/{endpoint}/{path_value}"
+                url = f"{base_url}/{endpoint}/{path_value}"
             else:
-                url = f"{self.BASE_URL}/{endpoint}"
+                url = f"{base_url}/{endpoint}"
             
             params["apikey"] = self.api_key
             
@@ -289,9 +327,28 @@ class FMPTools:
             
             data = response.json()
             
-            if data_key:
-                return data.get(data_key) if isinstance(data, dict) else None
+            # Log what we received for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            data_type = type(data).__name__
+            data_size = len(data) if isinstance(data, (list, dict)) else "N/A"
+            logger.info(f"📦 HTTP Response: {data_type} size={data_size} endpoint={endpoint} data_key={data_key}")
             
+            # Show sample if it's a list
+            if isinstance(data, list):
+                if data:
+                    logger.info(f"   ✅ List has {len(data)} items, first keys: {list(data[0].keys())[:10] if isinstance(data[0], dict) else 'N/A'}")
+                else:
+                    logger.warning(f"   ⚠️  Empty list returned from API")
+            
+            # Handle data_key extraction
+            if data_key:
+                logger.info(f"   Extracting data_key='{data_key}' from {data_type}")
+                extracted = data.get(data_key) if isinstance(data, dict) else None
+                logger.info(f"   Result after extraction: {type(extracted).__name__ if extracted else 'None'}")
+                return extracted
+            
+            logger.info(f"   ✅ Returning data as-is")
             return data
             
         except httpx.HTTPError as e:
@@ -352,6 +409,7 @@ class FMPTools:
             expect_list = endpoint_info.get("list", True)
         data_key = endpoint_info.get("data_key")
         path_param = endpoint_info.get("path_param")
+        api_version = endpoint_info.get("api_version")  # Get API version (v3 or v4)
         if model_class is None:
             model_class = endpoint_info.get("model")
         
@@ -359,20 +417,22 @@ class FMPTools:
         if model_class:
             return await self._fetch_and_parse(
                 endpoint, params, model_class, data_key=data_key,
-                path_param=path_param,
+                path_param=path_param, api_version=api_version,
                 log_prefix=log_prefix, item_name=item_name or endpoint,
                 expect_list=expect_list
             )
         
-        # Otherwise simple fetch
+        # Otherwise simple fetch (no model parsing)
         try:
-            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param)
-            result = {"success": True}
+            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param, api_version=api_version)
             
-            if result_key:
-                result[result_key] = data
-            else:
-                result["data"] = data
+            # Simple success check
+            success = bool(data) and (not isinstance(data, list) or len(data) > 0)
+            
+            result = {
+                "success": success,
+                "data": data if data is not None else []
+            }
                 
             if isinstance(data, list):
                 result["count"] = len(data)
@@ -381,9 +441,18 @@ class FMPTools:
             if "symbol" in params:
                 result["symbol"] = params["symbol"]
             
+            # Add helpful error message if no data
+            if not success:
+                symbol = params.get("symbol", "unknown")
+                result["message"] = f"No data found for {symbol}"
+            
             return result
         except Exception as e:
-            return {"success": False, "message": f"Failed: {str(e)}"}
+            return {
+                "success": False, 
+                "message": f"Failed: {str(e)}",
+                "data": []
+            }
     
     async def _fetch_and_parse(
         self,
@@ -392,11 +461,12 @@ class FMPTools:
         model_class,
         data_key=None,
         path_param=None,
+        api_version=None,
         log_prefix="📊",
         item_name="items",
         expect_list=True
     ):
-        """Parse data using Pydantic models (no streaming events)"""
+        """Parse data using Pydantic models - always returns 'data' key"""
         # Get symbol before it might be removed by path_param processing
         symbol = params.get("symbol", "N/A")
         period = params.get("period", "")
@@ -404,88 +474,67 @@ class FMPTools:
         
         try:
             period_str = f"{period} " if period else ""
-            limit_str = f" (limit: {limit})" if limit != "all available" else ""
             print(f"{log_prefix} Fetching {period_str}{item_name} for {symbol}...", flush=True)
             
-            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param)
+            data = await self._fetch_api_data(endpoint, params, data_key, path_param=path_param, api_version=api_version)
             
-            if not data:
+            # Simple check: is there any data?
+            if not data:  # Handles None, [], {}, "", 0, False
                 return {
                     "success": False,
-                    "message": f"No {item_name} found for {symbol}"
+                    "message": f"No {item_name} found for {symbol}",
+                    "data": []
                 }
             
             # Normalize data to list for processing
             data_list = data if isinstance(data, list) else [data]
-            total_items = len(data_list)
             
             # Parse using Pydantic models
             parsed_items = []
-            failed_items = 0
             for idx, item_data in enumerate(data_list, 1):
                 try:
                     item = model_class(**item_data)
-                    parsed_items.append(item)
+                    parsed_items.append(item.model_dump())
                 except Exception as e:
                     print(f"⚠️ Error parsing {item_name} record {idx}: {e}", flush=True)
-                    failed_items += 1
                     continue
             
             if not parsed_items:
                 return {
                     "success": False,
-                    "message": f"Could not parse {item_name} for {symbol}"
+                    "message": f"Could not parse {item_name} for {symbol}",
+                    "data": []
                 }
             
-            # Handle single vs list returns
-            if expect_list:
-                # Return as CSV for list data
-                if hasattr(model_class, 'list_to_df'):
-                    df = model_class.list_to_df(parsed_items)
-                    data_csv = df.to_csv(index=False)
-                    csv_size_kb = len(data_csv) / 1024
-                else:
-                    # Fallback: convert to dict list
-                    df = pd.DataFrame([item.model_dump() for item in parsed_items])
-                    data_csv = df.to_csv(index=False)
-                    csv_size_kb = len(data_csv) / 1024
-                
-                print(f"✅ Found {len(parsed_items)} {item_name} for {symbol}", flush=True)
-                
-                result = {
-                    "success": True,
-                    "symbol": symbol,
-                    "data_csv": data_csv,
-                    "count": len(parsed_items),
-                    "message": f"Found {len(parsed_items)} {period_str}{item_name} for {symbol}. Data is in CSV format."
-                }
-                
-                if period:
-                    result["period"] = period
-                
-                return result
-            else:
-                # Return single item as dict
-                item = parsed_items[0]
-                print(f"✅ Found {item_name} for {symbol}", flush=True)
-                
-                return {
-                    "success": True,
-                    "symbol": symbol,
-                    item_name.replace(" ", "_"): item.model_dump(),
-                    "message": f"Found {item_name} for {symbol}"
-                }
+            print(f"✅ Found {len(parsed_items)} {item_name} for {symbol}", flush=True)
+            
+            # Always return data as list for consistency (single item is a list of 1)
+            result = {
+                "success": True,
+                "data": parsed_items,
+                "count": len(parsed_items)
+            }
+            
+            if symbol != "N/A":
+                result["symbol"] = symbol
+            
+            if period:
+                result["period"] = period
+            
+            return result
             
         except Exception as e:
             print(f"❌ Error fetching {item_name}: {str(e)}", flush=True)
             return {
                 "success": False,
-                "message": f"Failed to fetch {item_name}: {str(e)}"
+                "message": f"Failed to fetch {item_name}: {str(e)}",
+                "data": []
             }
     
     async def close(self):
         """Close the HTTP client"""
-        await self.client.aclose()
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
     
     async def get_fmp_data_streaming(
         self,
@@ -518,4 +567,107 @@ class FMPTools:
 
 # Global tools instance
 fmp_tools = FMPTools()
+
+
+# ============================================================================
+# CANDIDATE LISTS - Get stock universes for screening
+# ============================================================================
+# FMP Endpoints (verified):
+# /api/v3/sp500_constituent
+# /api/v3/nasdaq_constituent  
+# /api/v3/dowjones_constituent
+
+async def get_sp500_tickers() -> List[str]:
+    """
+    Get all S&P 500 tickers from FMP
+    
+    Raises:
+        Exception: If API call fails
+    """
+    data = await fmp_tools._fetch_api_data("sp500_constituent", {})
+    if not data:
+        raise ValueError("No S&P 500 data returned from FMP")
+    return [item.get("symbol") for item in data if item.get("symbol")]
+
+
+async def get_nasdaq100_tickers() -> List[str]:
+    """
+    Get all NASDAQ 100 tickers from FMP
+    
+    Raises:
+        Exception: If API call fails
+    """
+    data = await fmp_tools._fetch_api_data("nasdaq_constituent", {})
+    if not data:
+        raise ValueError("No NASDAQ data returned from FMP")
+    return [item.get("symbol") for item in data if item.get("symbol")]
+
+
+async def get_dow30_tickers() -> List[str]:
+    """
+    Get all Dow Jones 30 tickers from FMP
+    
+    Raises:
+        Exception: If API call fails
+    """
+    data = await fmp_tools._fetch_api_data("dowjones_constituent", {})
+    if not data:
+        raise ValueError("No Dow Jones data returned from FMP")
+    return [item.get("symbol") for item in data if item.get("symbol")]
+
+
+async def get_candidates_from_source(candidate_source: dict) -> List[str]:
+    """
+    Get candidate tickers based on source configuration
+    
+    Args:
+        candidate_source: Dict with type, universe, tickers, etc.
+        
+    Returns:
+        List of ticker symbols
+        
+    Raises:
+        ValueError: If source configuration is invalid
+        Exception: If API calls fail
+    """
+    source_type = candidate_source.get("type")
+    if not source_type:
+        raise ValueError("candidate_source must have 'type' field")
+    
+    if source_type == "universe":
+        universe = candidate_source.get("universe", "sp500")
+        if universe == "sp500":
+            return await get_sp500_tickers()
+        elif universe == "nasdaq100":
+            return await get_nasdaq100_tickers()
+        elif universe == "dow30":
+            return await get_dow30_tickers()
+        else:
+            raise ValueError(f"Unknown universe: {universe}. Use sp500, nasdaq100, or dow30")
+    
+    elif source_type in ["custom", "tickers"]:  # Both mean the same thing
+        tickers = candidate_source.get("tickers")
+        if not tickers:
+            raise ValueError("custom/tickers source type requires 'tickers' list")
+        return tickers
+    
+    elif source_type == "reddit_trending":
+        from modules.tools.definitions import tool_registry
+        reddit_tool = tool_registry.get_tool("get_reddit_trending_stocks")
+        if not reddit_tool:
+            raise ValueError("Reddit trending tool not available")
+        
+        limit = candidate_source.get("limit", 50)
+        result = await reddit_tool.handler(limit=limit)
+        
+        if not result.get("success"):
+            raise ValueError(f"Reddit API failed: {result.get('error', 'Unknown error')}")
+        
+        if "tickers" not in result:
+            raise ValueError("Reddit API returned no tickers")
+        
+        return result["tickers"][:limit]
+    
+    else:
+        raise ValueError(f"Unknown candidate source type: {source_type}")
 

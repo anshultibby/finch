@@ -85,22 +85,46 @@ class ChatService:
                 # Add user message to history
                 history.add_user_message(message)
                 
+                # Track tool status messages to save them as assistant messages
+                tool_status_messages = []
+                
                 # Stream events from agent (LLM calls auto-traced by OpenTelemetry)
                 with tracer.start_as_current_span("agent_processing"):
                     async for event in agent.process_message_stream(
                         message=message,
                         chat_history=history
                     ):
+                        # Save tool_status events as messages (like Manus does with message_notify_user)
+                        if event.event == "tool_status" and isinstance(event.data, dict):
+                            status_msg = event.data.get("message", "")
+                            if status_msg:
+                                tool_status_messages.append(status_msg)
+                        
                         # Yield the SSE formatted event
                         yield event.to_sse_format()
                 
                 # After streaming, save new messages to database
                 new_messages = agent.get_new_messages()
-                logger.info(f"Saving {len(new_messages)} messages to database")
+                logger.info(f"Saving {len(new_messages)} messages + {len(tool_status_messages)} status messages to database")
                 
                 # Save messages with proper sequencing
                 sequence = start_sequence + 1
                 
+                # First, save tool status messages as assistant messages (like Manus progress updates)
+                for status_msg in tool_status_messages:
+                    await chat_async.create_message(
+                        db=db,
+                        chat_id=chat_id,
+                        role="assistant",
+                        content=status_msg,
+                        sequence=sequence,
+                        tool_calls=None,
+                        tool_call_id=None,
+                        name=None
+                    )
+                    sequence += 1
+                
+                # Then save the regular agent messages
                 for msg in new_messages:
                     content = msg.content or ""
                     
@@ -138,16 +162,22 @@ class ChatService:
             return await chat_async.get_chat(db, chat_id) is not None
     
     async def get_user_chats(self, user_id: str, limit: int = 50) -> List[dict]:
-        """Get all chats for a user"""
+        """Get all chats for a user with last message preview"""
         async with AsyncSessionLocal() as db:
             chats = await chat_async.get_user_chats(db, user_id, limit)
-            return [
-                {
+            result = []
+            
+            for chat in chats:
+                # Get the last user or assistant message for preview
+                last_message = await chat_async.get_last_message_preview(db, chat.chat_id)
+                
+                result.append({
                     "chat_id": chat.chat_id,
                     "title": chat.title,
                     "created_at": chat.created_at.isoformat(),
-                    "updated_at": chat.updated_at.isoformat()
-                }
-                for chat in chats
-            ]
+                    "updated_at": chat.updated_at.isoformat(),
+                    "last_message": last_message
+                })
+            
+            return result
 

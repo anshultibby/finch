@@ -88,18 +88,20 @@ AVAILABLE ENDPOINTS:
 - sec-filings-search/symbol: SEC filings (params: symbol, limit, from, to)
 
 **Insider Trading:**
-- senate-latest: Recent Senate trades (params: page, limit)
-- house-latest: Recent House trades (params: page, limit)
-- insider-trading/latest: Recent corporate insider trades (params: page, limit)
-- insider-trading-search: Search insider trades (params: symbol, reportingCik, companyCik, transactionType, limit, page)
-- insider-trading-statistics: Quarterly insider stats (params: symbol)
+- insider-trading: Search insider trades (params: symbol, reportingCik, companyCik, transactionType, limit, page)
+- insider-roster: Get list of insiders for a company (params: symbol)
+
+**Government Trading:**
+- senate-trading: Senate stock trading disclosures (params: symbol [required], limit)
+- house-trading: House stock trading disclosures (params: symbol [required], limit)
 
 EXAMPLES:
 - Get AAPL profile: get_fmp_data(endpoint="profile", params={"symbol": "AAPL"})
 - Get income statement: get_fmp_data(endpoint="income-statement", params={"symbol": "AAPL", "period": "annual", "limit": 10})
 - Get historical prices: get_fmp_data(endpoint="historical-price-full", params={"symbol": "AAPL", "from": "2024-01-01", "to": "2024-12-31"})
 - Get market gainers: get_fmp_data(endpoint="biggest-gainers", params={})
-- Get Senate trades: get_fmp_data(endpoint="senate-latest", params={"page": 0, "limit": 50})
-- Search AAPL insider trades: get_fmp_data(endpoint="insider-trading-search", params={"symbol": "AAPL", "limit": 50})
+- Search AAPL insider trades: get_fmp_data(endpoint="insider-trading", params={"symbol": "AAPL", "limit": 50})
+- Get Senate trades for AAPL: get_fmp_data(endpoint="senate-trading", params={"symbol": "AAPL", "limit": 50})
+- Get House trades for NVDA: get_fmp_data(endpoint="house-trading", params={"symbol": "NVDA", "limit": 50})
 
 Use this tool for ANY financial data request including insider trading - just specify the endpoint and parameters."""

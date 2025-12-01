@@ -19,6 +19,15 @@ from modules.tools.clients.plotting import create_chart
 # Tools are registered via @tool decorator on import
 import modules.tools.strategy_tools_v2  # noqa: F401
 
+# Import code-based strategy tools (code generation approach)
+import modules.tools.strategy_code_tools  # noqa: F401
+
+# Import financial code execution (Manus-style data analysis)
+import modules.tools.financial_code_tools  # noqa: F401
+
+# Import file tools (Manus-style file operations)
+import modules.tools.file_tools  # noqa: F401
+
 # Import tool descriptions
 from modules.tools.descriptions import (
     # Portfolio
@@ -648,7 +657,9 @@ async def identify_trading_patterns(
 # This file just imports all tool modules to trigger registration.
 
 # Import V2 strategy tools (auto-registers on import)
-import modules.tools.strategy_tools_v2  # noqa: F401
+import modules.tools.strategy_tools_v2
+# Import code-based strategy tools (auto-registers on import)
+import modules.tools.strategy_code_tools  # noqa: F401
 
 # All tools in this file are auto-registered when @tool decorator runs
 # Total tools: 17 (11 in this file + 6 from strategy_tools_v2)

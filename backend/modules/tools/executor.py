@@ -528,13 +528,20 @@ class ToolExecutor:
         
         # Emit tool_call_complete events for all tools
         for result in results:
+            # Get a brief summary of the result to show the user
+            result_summary = None
+            if result.success:
+                # Show first 500 chars of the truncated result as a preview
+                result_summary = result.truncated_result[:500] if len(result.truncated_result) > 500 else result.truncated_result
+            
             yield SSEEvent(
                 event="tool_call_complete",
                 data={
                     "tool_call_id": result.tool_call_id,
                     "tool_name": result.tool_name,
                     "status": "completed" if result.success else "error",
-                    "error": result.error
+                    "error": result.error,
+                    "result_summary": result_summary
                 }
             )
         

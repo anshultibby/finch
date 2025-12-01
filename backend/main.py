@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 
 from config import Config
-from routes import chat_router, snaptrade_router, resources_router
+from routes import chat_router, snaptrade_router, resources_router, strategies_router, chat_files_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
@@ -59,6 +59,9 @@ app.include_router(chat_router)
 app.include_router(snaptrade_router)
 app.include_router(resources_router)
 app.include_router(analytics_router)
+app.include_router(strategies_router)
+app.include_router(chat_files_router)
+app.include_router(chat_files_router)
 
 
 @app.get("/")

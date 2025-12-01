@@ -432,18 +432,24 @@ class StrategyPerformanceDB(Base):
 # ============================================================================
 
 class TradingStrategyV2DB(Base):
-    """V2 Strategy database model - LLM-native rule-based strategies"""
+    """V2 Strategy - Clean & Composable"""
     __tablename__ = "strategies_v2"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, nullable=False, index=True)
+    chat_id = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(Text)
     
-    # Store rules as JSONB for flexibility
-    rules = Column(JSONB, nullable=False)
+    # Candidates: where to find stocks
+    candidate_source = Column(JSONB, nullable=False)
+    
+    # Rules: all stored as JSONB
+    screening_rules = Column(JSONB, nullable=False)  # BUY/SKIP decisions
+    management_rules = Column(JSONB, nullable=True)  # BUY/HOLD/SELL decisions
+    
+    # Risk parameters
     risk_parameters = Column(JSONB, nullable=False)
-    stock_universe = Column(JSONB, nullable=True)
     
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
@@ -453,12 +459,67 @@ class TradingStrategyV2DB(Base):
         return f"<TradingStrategyV2(id='{self.id}', name='{self.name}')>"
 
 
+class StrategyPositionDB(Base):
+    """Track positions held by strategies"""
+    __tablename__ = "strategy_positions"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    strategy_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    chat_id = Column(String, nullable=False, index=True)
+    ticker = Column(String, nullable=False, index=True)
+    
+    # Entry
+    shares = Column(Float, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    entry_date = Column(DateTime(timezone=True), nullable=False)
+    entry_decision_id = Column(String, nullable=False)
+    
+    # Current state
+    current_price = Column(Float, default=0.0)
+    current_value = Column(Float, default=0.0)
+    pnl = Column(Float, default=0.0)
+    pnl_pct = Column(Float, default=0.0)
+    days_held = Column(Integer, default=0)
+    
+    # Exit
+    exit_date = Column(DateTime(timezone=True), nullable=True)
+    exit_price = Column(Float, nullable=True)
+    exit_decision_id = Column(String, nullable=True)
+    is_open = Column(Boolean, default=True, index=True)
+    
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<StrategyPosition(ticker='{self.ticker}', pnl={self.pnl_pct}%)>"
+
+
+class StrategyBudgetDB(Base):
+    """Track strategy budgets"""
+    __tablename__ = "strategy_budgets"
+    
+    strategy_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    chat_id = Column(String, nullable=False, index=True)
+    
+    total_budget = Column(Float, default=1000.0)
+    cash_available = Column(Float, nullable=False)
+    position_value = Column(Float, default=0.0)
+    
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+    
+    def __repr__(self):
+        return f"<StrategyBudget(cash=${self.cash_available}, positions=${self.position_value})>"
+
+
 class StrategyDecisionDB(Base):
-    """Strategy decision database model - Records of LLM decisions"""
+    """Strategy decision records"""
     __tablename__ = "strategy_decisions"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     strategy_id = Column(String, nullable=False, index=True)
+    chat_id = Column(String, nullable=False, index=True)
     ticker = Column(String, nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
     
@@ -466,40 +527,51 @@ class StrategyDecisionDB(Base):
     confidence = Column(Float)
     reasoning = Column(Text)
     
-    # Store as JSONB
     rule_results = Column(JSONB)
     data_snapshot = Column(JSONB)
+    position_data = Column(JSONB, nullable=True)
     
     current_price = Column(Float)
-    
-    # User interaction
-    user_acted = Column(Boolean, default=False)
-    outcome = Column(JSONB, nullable=True)
     
     def __repr__(self):
         return f"<StrategyDecision(ticker='{self.ticker}', action='{self.action}')>"
 
 
-class ForwardTestDB(Base):
-    """Forward test tracking database model"""
-    __tablename__ = "forward_tests"
+class ChatFile(Base):
+    """
+    Stores files created during chat sessions (Manus-inspired)
     
+    Files are scoped to chats and stored in database for:
+    - Multi-device access
+    - Persistence
+    - Proper chat context
+    - User visibility in UI
+    
+    Examples: generated Python code, todo.md, analysis results, CSV exports
+    """
+    __tablename__ = "chat_files"
+    
+    # Primary key
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    strategy_id = Column(String, nullable=False, index=True)
+    
+    # Chat scope (indexed)
+    chat_id = Column(String, nullable=False, index=True)
     user_id = Column(String, nullable=False, index=True)
-    start_date = Column(DateTime(timezone=True), nullable=False)
     
-    is_active = Column(Boolean, default=True, index=True)
+    # File metadata
+    filename = Column(String, nullable=False)  # e.g., "growth_analysis.py", "todo.md"
+    file_type = Column(String, nullable=False)  # "python", "markdown", "text", "csv"
+    content = Column(Text, nullable=False)  # File content (text)
+    size_bytes = Column(Integer, nullable=False)  # Content size
     
-    # Metrics
-    total_signals = Column(Integer, default=0)
-    signals_acted_on = Column(Integer, default=0)
-    hypothetical_pnl = Column(Float, default=0.0)
-    actual_pnl = Column(Float, default=0.0)
+    # Optional metadata
+    description = Column(String, nullable=True)  # Brief description
+    file_metadata = Column(JSONB, nullable=True)  # Extra data (function_name, data_sources, etc.)
     
-    created_at = Column(DateTime(timezone=True), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=False)
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<ForwardTest(strategy_id='{self.strategy_id}', signals={self.total_signals})>"
+        return f"<ChatFile(id='{self.id}', chat='{self.chat_id}', filename='{self.filename}')>"
 

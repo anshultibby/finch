@@ -231,25 +231,141 @@ def _get_list_item_type(annotation) -> str:
     return "string"
 
 
+def _clean_schema_for_claude(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove fields that are not compatible with Anthropic's JSON Schema requirements.
+    
+    Anthropic requires strict JSON Schema draft 2020-12 compliance, which means:
+    - No $schema, title, $defs, additionalProperties (unless explicitly needed)
+    - Clean, minimal schema structure
+    - Simplified Optional handling (anyOf -> simpler form)
+    
+    Args:
+        schema: Schema to clean
+    
+    Returns:
+        Cleaned schema
+    """
+    if not isinstance(schema, dict):
+        return schema
+    
+    # Fields to remove for Claude compatibility
+    fields_to_remove = ["$schema", "title", "additionalProperties", "$defs"]
+    
+    cleaned = {}
+    for key, value in schema.items():
+        if key in fields_to_remove:
+            continue
+        
+        # Simplify anyOf for Optional fields
+        # Pydantic generates {"anyOf": [{"type": "X"}, {"type": "null"}]} for Optional[X]
+        # Claude prefers simpler schemas, so we can mark as not required instead
+        if key == "anyOf" and isinstance(value, list):
+            # Check if this is an Optional pattern (has null type)
+            has_null = any(isinstance(item, dict) and item.get("type") == "null" for item in value)
+            non_null_schemas = [item for item in value if not (isinstance(item, dict) and item.get("type") == "null")]
+            
+            if has_null and len(non_null_schemas) == 1:
+                # This is Optional[X], just use X's schema
+                # The field being optional is handled by 'required' list at parent level
+                return _clean_schema_for_claude(non_null_schemas[0])
+        
+        # Recursively clean nested objects
+        if isinstance(value, dict):
+            cleaned[key] = _clean_schema_for_claude(value)
+        elif isinstance(value, list):
+            cleaned[key] = [_clean_schema_for_claude(item) if isinstance(item, dict) else item for item in value]
+        else:
+            cleaned[key] = value
+    
+    return cleaned
+
+
+def _resolve_refs(schema: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively resolve $ref references in a JSON schema.
+    
+    Anthropic/Claude requires schemas to not use $ref/$defs, so we inline all references.
+    
+    Args:
+        schema: The schema object to resolve
+        defs: The $defs dictionary containing definitions
+    
+    Returns:
+        Schema with all references resolved inline
+    """
+    if isinstance(schema, dict):
+        # Check if this is a reference
+        if "$ref" in schema:
+            ref_path = schema["$ref"]
+            # Extract definition name from ref (e.g., "#/$defs/DataSourceInput" -> "DataSourceInput")
+            if ref_path.startswith("#/$defs/"):
+                def_name = ref_path.replace("#/$defs/", "")
+                if def_name in defs:
+                    # Recursively resolve the referenced definition
+                    resolved = _resolve_refs(defs[def_name].copy(), defs)
+                    # Clean the resolved schema
+                    return _clean_schema_for_claude(resolved)
+            return schema
+        
+        # Recursively resolve all values in the dict
+        return {key: _resolve_refs(value, defs) for key, value in schema.items()}
+    
+    elif isinstance(schema, list):
+        # Recursively resolve all items in the list
+        return [_resolve_refs(item, defs) for item in schema]
+    
+    else:
+        # Primitive value, return as-is
+        return schema
+
+
 def _get_pydantic_schema(annotation) -> Optional[Dict[str, Any]]:
     """
     Get JSON schema from Pydantic model (best practice for complex types)
     Returns None if not a Pydantic model
+    
+    Handles nested models by resolving $ref references inline for Claude/Anthropic compatibility.
     """
     try:
         from pydantic import BaseModel
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            # Use Pydantic's built-in schema generation (OpenAI-compatible)
+            # Use Pydantic's built-in schema generation
             schema = annotation.model_json_schema()
-            # Return simplified schema for OpenAI (without title, etc.)
-            return {
-                "type": "object",
-                "properties": schema.get("properties", {}),
-                "required": schema.get("required", []),
-                "description": schema.get("description", "")
-            }
-    except:
-        pass
+            
+            # Check if schema has $defs (nested model definitions)
+            defs = schema.get("$defs", {})
+            
+            if defs:
+                # Resolve all $ref references inline to make schema Claude-compatible
+                resolved_schema = _resolve_refs(schema, defs)
+                # Clean the schema to remove incompatible fields
+                cleaned_schema = _clean_schema_for_claude(resolved_schema)
+                result = {
+                    "type": "object",
+                    "properties": cleaned_schema.get("properties", {}),
+                    "required": cleaned_schema.get("required", [])
+                }
+                # Only add description if it's not empty
+                if cleaned_schema.get("description"):
+                    result["description"] = cleaned_schema["description"]
+                logger.debug(f"Generated Pydantic schema for {annotation.__name__}: {result}")
+                return result
+            else:
+                # No nested models, simple schema - still clean it
+                cleaned_schema = _clean_schema_for_claude(schema)
+                result = {
+                    "type": "object",
+                    "properties": cleaned_schema.get("properties", {}),
+                    "required": cleaned_schema.get("required", [])
+                }
+                # Only add description if it's not empty
+                if cleaned_schema.get("description"):
+                    result["description"] = cleaned_schema["description"]
+                logger.debug(f"Generated Pydantic schema for {annotation.__name__}: {result}")
+                return result
+    except Exception as e:
+        logger.error(f"Error generating Pydantic schema: {e}", exc_info=True)
     return None
 
 

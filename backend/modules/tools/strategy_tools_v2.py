@@ -1,5 +1,8 @@
 """
-V2 Strategy Tools - Modern LLM-native trading strategies
+V2 Strategy Tools - Clean & Composable
+
+Screening rules: BUY/SKIP decisions on candidates
+Management rules: BUY/HOLD/SELL decisions on positions
 """
 from modules.tools import tool
 from modules.agent.context import AgentContext
@@ -14,95 +17,99 @@ logger = logging.getLogger(__name__)
 # Pydantic models for tool parameters
 
 class DataSourceInput(BaseModel):
-    type: str = Field(..., description="Source type: fmp, reddit, calculated, portfolio")
-    endpoint: str = Field(..., description="API endpoint name")
-    parameters: Dict[str, Any] = Field(default_factory=dict, description="API parameters")
+    type: str
+    endpoint: str
+    parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StrategyRuleInput(BaseModel):
-    order: int = Field(..., description="Execution order (1-based)")
-    description: str = Field(..., description="What this rule does")
+    order: int
+    description: str
     data_sources: List[DataSourceInput] = Field(default_factory=list)
-    decision_logic: str = Field(..., description="How to interpret data and decide")
-    weight: float = Field(1.0, ge=0, le=1, description="Rule importance 0-1")
+    decision_logic: str
+    weight: float = Field(1.0, ge=0, le=1)
+
+
+class CandidateSourceInput(BaseModel):
+    type: str = "universe"
+    universe: Optional[str] = "sp500"
+    tickers: Optional[List[str]] = None
+    limit: Optional[int] = 50
 
 
 class RiskParametersInput(BaseModel):
-    position_size_pct: float = Field(5.0, gt=0, le=100)
+    position_size_pct: float = Field(20.0, gt=0, le=100)
     max_positions: int = Field(5, gt=0)
-    stop_loss_pct: Optional[float] = Field(None, gt=0)
-    take_profit_pct: Optional[float] = Field(None, gt=0)
-    max_hold_days: Optional[int] = Field(None, gt=0)
+    stop_loss_pct: Optional[float] = Field(10.0, gt=0)
+    take_profit_pct: Optional[float] = Field(25.0, gt=0)
+    max_hold_days: Optional[int] = None
 
 
 class CreateStrategyV2Params(BaseModel):
     name: str
     description: str
-    rules: List[StrategyRuleInput]
-    risk_parameters: RiskParametersInput
-    stock_universe: Optional[List[str]] = None
+    candidate_source: CandidateSourceInput = Field(default_factory=CandidateSourceInput)
+    screening_rules: List[StrategyRuleInput]
+    management_rules: List[StrategyRuleInput] = Field(default_factory=list)
+    risk_parameters: RiskParametersInput = Field(default_factory=RiskParametersInput)
 
 
 # Tools
 
 @tool(
     name="create_trading_strategy",
-    description="""Create a modern rule-based trading strategy.
+    description="""Create a rule-based trading strategy with $1000 budget.
 
-A strategy consists of RULES - natural language descriptions that guide LLM decision-making.
-Each rule can fetch data and contribute to the final BUY/SELL/HOLD decision.
+**IMPORTANT: Use get_fmp_data BEFORE creating strategies to:**
+- Research realistic thresholds (check actual P/E ratios, growth rates, etc.)
+- Validate concepts with real market data
+- Identify which FMP endpoints to use in data_sources
 
-IMPORTANT: Structure the rules properly:
-1. Early rules should filter/validate (use "SKIP" to reject tickers)
-2. Middle rules should analyze data and provide signals (BULLISH/BEARISH/NEUTRAL)
-3. Final rule should aggregate and decide (BUY/SELL/HOLD)
+Screening rules: Evaluate candidates → BUY or SKIP
+Management rules: Evaluate positions → BUY/HOLD/SELL
 
-Example strategy:
+Candidate source options:
+- {"type": "universe", "universe": "sp500"}  (or nasdaq100, dow30)
+- {"type": "custom", "tickers": ["AAPL", "MSFT", "NVDA"]}
+- {"type": "reddit_trending", "limit": 50}
+
+**Best Practice Workflow:**
+1. User describes strategy idea
+2. Call get_fmp_data to research (e.g., check typical P/E ranges, revenue growth rates)
+3. Design rules with specific thresholds based on data
+4. Call create_trading_strategy with FMP endpoints in data_sources
+
+Example:
 {
-    "name": "Tech Growth + Sentiment",
-    "description": "Buy tech stocks with strong fundamentals and positive buzz",
-    "rules": [
+    "name": "Tech Growth",
+    "description": "Buy growing tech stocks",
+    "candidate_source": {"type": "universe", "universe": "sp500"},
+    "screening_rules": [
         {
             "order": 1,
-            "description": "Verify it's a technology stock",
-            "data_sources": [
-                {"type": "fmp", "endpoint": "company-profile", "parameters": {}}
-            ],
-            "decision_logic": "Check if sector is 'Technology'. If not, SKIP this stock.",
-            "weight": 0.2
+            "description": "Filter tech stocks",
+            "decision_logic": "If sector != Technology, SKIP",
+            "weight": 0.3
         },
         {
             "order": 2,
-            "description": "Check revenue growth (fundamental signal)",
-            "data_sources": [
-                {"type": "fmp", "endpoint": "income-statement", "parameters": {"period": "annual", "limit": 2}}
-            ],
-            "decision_logic": "Calculate YoY revenue growth. If >20%, signal is BULLISH (value: 0.8). If <0%, BEARISH (value: 0.2). Otherwise NEUTRAL (value: 0.5).",
-            "weight": 0.4
-        },
-        {
-            "order": 3,
-            "description": "Check Reddit sentiment (social signal)",
-            "data_sources": [
-                {"type": "reddit", "endpoint": "ticker_sentiment", "parameters": {"days": 7}}
-            ],
-            "decision_logic": "If sentiment score >0.7, BULLISH. If <0.3, BEARISH. Otherwise NEUTRAL.",
-            "weight": 0.4
+            "description": "Check growth",
+            "data_sources": [{"type": "fmp", "endpoint": "income-statement", "parameters": {"period": "annual", "limit": 2}}],
+            "decision_logic": "If revenue growth >20%, BULLISH. Aggregate: if BULLISH, BUY else SKIP",
+            "weight": 0.7
         }
     ],
-    "risk_parameters": {
-        "position_size_pct": 5.0,
-        "max_positions": 5,
-        "stop_loss_pct": 10.0,
-        "take_profit_pct": 25.0
-    }
+    "management_rules": [
+        {
+            "order": 1,
+            "description": "Exit rules",
+            "decision_logic": "If P&L >= 25%, SELL (profit). If P&L <= -10%, SELL (loss). Otherwise HOLD",
+            "weight": 1.0
+        }
+    ]
 }
 
-Available data sources:
-FMP: company-profile, income-statement, balance-sheet, cash-flow, insider-trading, quote, price-history, key-metrics
-Reddit: ticker_sentiment, trending_stocks
-Calculated: rsi, moving_average, volume_analysis
-""",
+Use FMP endpoints like: income-statement, balance-sheet, key-metrics, financial-ratios, financial-growth, insider-trading, etc.""",
     category="strategy"
 )
 async def create_trading_strategy_v2(
@@ -111,406 +118,270 @@ async def create_trading_strategy_v2(
     params: CreateStrategyV2Params
 ):
     """Create a rule-based trading strategy"""
-    from models.strategy_v2 import TradingStrategyV2, StrategyRule, DataSource, RiskParameters
-    from crud.strategy_v2 import create_strategy
+    from models.strategy_v2 import TradingStrategyV2, StrategyRule, DataSource, CandidateSource, RiskParameters, StrategyBudget
+    from crud.strategy_v2 import create_strategy, create_budget
     from database import SessionLocal
     import uuid
     
-    yield SSEEvent(
-        event="tool_status",
-        data={"status": "creating", "message": f"Creating strategy: {params.name}"}
-    )
+    yield SSEEvent(event="tool_status", data={"status": "creating", "message": f"Creating '{params.name}'..."})
     
     try:
-        # Convert to domain model
+        strategy_id = str(uuid.uuid4())
+        
         strategy = TradingStrategyV2(
-            id=str(uuid.uuid4()),
+            id=strategy_id,
             user_id=context.user_id,
             name=params.name,
             description=params.description,
-            rules=[
+            candidate_source=CandidateSource(**params.candidate_source.model_dump()),
+            screening_rules=[
                 StrategyRule(
-                    order=rule.order,
-                    description=rule.description,
-                    data_sources=[
-                        DataSource(**ds.model_dump())
-                        for ds in rule.data_sources
-                    ],
-                    decision_logic=rule.decision_logic,
-                    weight=rule.weight
+                    order=r.order,
+                    description=r.description,
+                    data_sources=[DataSource(**ds.model_dump()) for ds in r.data_sources],
+                    decision_logic=r.decision_logic,
+                    weight=r.weight
                 )
-                for rule in params.rules
+                for r in params.screening_rules
             ],
-            risk_parameters=RiskParameters(**params.risk_parameters.model_dump()),
-            stock_universe=params.stock_universe,
-            is_active=True
+            management_rules=[
+                StrategyRule(
+                    order=r.order,
+                    description=r.description,
+                    data_sources=[DataSource(**ds.model_dump()) for ds in r.data_sources],
+                    decision_logic=r.decision_logic,
+                    weight=r.weight
+                )
+                for r in params.management_rules
+            ],
+            risk_parameters=RiskParameters(**params.risk_parameters.model_dump())
         )
         
-        # Save to database
+        budget = StrategyBudget(
+            strategy_id=strategy_id,
+            user_id=context.user_id,
+            total_budget=1000.0,
+            cash_available=1000.0
+        )
+        
         with SessionLocal() as db:
-            db_strategy = create_strategy(db, strategy)
+            create_strategy(db, strategy)
+            create_budget(db, budget)
         
         yield {
             "success": True,
             "strategy_id": strategy.id,
-            "strategy_name": strategy.name,
-            "description": strategy.description,
-            "num_rules": len(strategy.rules),
-            "message": f"✓ Strategy '{params.name}' created with {len(strategy.rules)} rules! Use test_strategy to try it on a ticker."
+            "name": strategy.name,
+            "screening_rules": len(strategy.screening_rules),
+            "management_rules": len(strategy.management_rules),
+            "budget": 1000.0,
+            "message": f"✓ '{params.name}' created with $1000 budget!"
         }
         
     except Exception as e:
         logger.error(f"Error creating strategy: {str(e)}", exc_info=True)
-        yield {
-            "success": False,
-            "error": f"Failed to create strategy: {str(e)}",
-            "message": f"Error: {str(e)}"
-        }
+        yield {"success": False, "error": str(e)}
 
 
 @tool(
-    name="test_strategy",
-    description="""Test a strategy on a specific ticker to see how it would decide.
+    name="execute_strategy",
+    description="""Run strategy: screen candidates AND manage positions.
 
-This executes the strategy's rules step-by-step and shows:
-- What data was fetched
-- How each rule evaluated
-- The final decision (BUY/SELL/HOLD/SKIP)
-- Full reasoning
-
-Perfect for validating strategy logic before running it on many stocks.""",
+Returns BUY/SELL/HOLD signals with full reasoning.""",
     category="strategy"
 )
-async def test_strategy(
+async def execute_strategy(
     *,
     context: AgentContext,
     strategy_id: str,
-    ticker: str
+    limit_candidates: Optional[int] = None
 ):
-    """Test a strategy on one ticker"""
-    from crud.strategy_v2 import get_strategy
+    """Execute strategy"""
+    from crud.strategy_v2 import get_strategy, get_budget, get_positions
     from services.strategy_executor import StrategyExecutor
+    from modules.tools.clients.fmp import get_candidates_from_source
     from database import SessionLocal
     
-    yield SSEEvent(
-        event="tool_status",
-        data={"status": "testing", "message": f"Testing strategy on {ticker}..."}
-    )
+    # Debug logging for limit_candidates parameter
+    logger.info(f"execute_strategy called with limit_candidates={limit_candidates} (type: {type(limit_candidates)})")
+    
+    yield SSEEvent(event="tool_status", data={"status": "running", "message": "Executing strategy..."})
     
     try:
-        # Get strategy
         with SessionLocal() as db:
             strategy = get_strategy(db, strategy_id)
-        
-        if not strategy:
-            yield {
-                "success": False,
-                "error": f"Strategy {strategy_id} not found"
-            }
-            return
-        
-        # Check ownership
-        if strategy.user_id != context.user_id:
-            yield {
-                "success": False,
-                "error": "You don't have permission to access this strategy"
-            }
-            return
-        
-        # Execute strategy
-        executor = StrategyExecutor()
-        decision = await executor.execute_strategy(strategy, ticker)
-        
-        # Format response
-        yield {
-            "success": True,
-            "ticker": ticker,
-            "strategy_name": strategy.name,
-            "decision": {
-                "action": decision.action,
-                "confidence": decision.confidence,
-                "current_price": decision.current_price,
-                "reasoning": decision.reasoning
-            },
-            "rule_breakdown": decision.rule_results,
-            "message": f"✓ Strategy decided: {decision.action} {ticker} (confidence: {decision.confidence}%)"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error testing strategy: {str(e)}", exc_info=True)
-        yield {
-            "success": False,
-            "error": f"Failed to test strategy: {str(e)}",
-            "message": f"Error: {str(e)}"
-        }
-
-
-@tool(
-    name="scan_with_strategy",
-    description="""Scan multiple tickers with a strategy to find trading opportunities.
-
-Executes the strategy on each ticker and returns only BUY/SELL signals.
-Useful for finding opportunities across many stocks.
-
-Example: Scan the top 20 tech stocks to see which ones your strategy recommends.""",
-    category="strategy"
-)
-async def scan_with_strategy(
-    *,
-    context: AgentContext,
-    strategy_id: str,
-    tickers: List[str],
-    max_results: int = 10
-):
-    """Scan multiple tickers with a strategy"""
-    from crud.strategy_v2 import get_strategy, save_decision
-    from services.strategy_executor import StrategyExecutor
-    from database import SessionLocal
-    
-    yield SSEEvent(
-        event="tool_status",
-        data={"status": "scanning", "message": f"Scanning {len(tickers)} tickers..."}
-    )
-    
-    try:
-        # Get strategy
-        with SessionLocal() as db:
-            strategy = get_strategy(db, strategy_id)
-            
-            if not strategy:
-                yield {
-                    "success": False,
-                    "error": f"Strategy {strategy_id} not found"
-                }
+            if not strategy or strategy.user_id != context.user_id:
+                yield {"success": False, "error": "Strategy not found"}
                 return
             
-            # Check ownership
-            if strategy.user_id != context.user_id:
-                yield {
-                    "success": False,
-                    "error": "You don't have permission to access this strategy"
-                }
-                return
+            budget = get_budget(db, strategy_id)
+            positions = get_positions(db, strategy_id, open_only=True)
             
-            # Execute strategy on each ticker
             executor = StrategyExecutor()
-            signals = []
+            decisions = []
             
-            for ticker in tickers[:50]:  # Limit to 50 tickers max
+            # 1. Manage existing positions
+            if positions:
+                yield SSEEvent(event="tool_status", data={
+                    "status": "running", 
+                    "message": f"Managing {len(positions)} existing positions..."
+                })
                 try:
-                    decision = await executor.execute_strategy(strategy, ticker)
-                    
-                    # Save decision
-                    save_decision(db, decision)
-                    
-                    # Only include BUY/SELL signals
-                    if decision.action in ["BUY", "SELL"]:
-                        signals.append({
-                            "ticker": ticker,
-                            "action": decision.action,
-                            "confidence": decision.confidence,
-                            "current_price": decision.current_price,
-                            "reasoning": decision.reasoning
-                        })
-                    
-                    # Stream progress
-                    if len(signals) > 0 and len(signals) % 5 == 0:
-                        yield SSEEvent(
-                            event="tool_status",
-                            data={"status": "scanning", "message": f"Found {len(signals)} signals so far..."}
-                        )
-                    
-                    # Stop if we have enough
-                    if len(signals) >= max_results:
-                        break
-                        
+                    position_decisions = await executor.manage_positions_parallel(strategy, positions)
+                    decisions.extend([d.model_dump() for d in position_decisions])
+                    yield SSEEvent(event="tool_status", data={
+                        "status": "running",
+                        "message": f"✓ Managed {len(position_decisions)} positions"
+                    })
                 except Exception as e:
-                    logger.warning(f"Error scanning {ticker}: {str(e)}")
-                    continue
+                    logger.error(f"Error managing positions: {str(e)}", exc_info=True)
+                    yield SSEEvent(event="tool_status", data={
+                        "status": "error",
+                        "message": f"Error managing positions: {str(e)}"
+                    })
             
-            # Sort by confidence
-            signals.sort(key=lambda x: x["confidence"], reverse=True)
+            # 2. Screen candidates (if room for more positions)
+            if len(positions) < strategy.risk_parameters.max_positions and budget.cash_available > 0:
+                try:
+                    candidates = await get_candidates_from_source(strategy.candidate_source.model_dump())
+                    # Apply candidate limit if specified
+                    if limit_candidates is not None:
+                        try:
+                            limit = int(limit_candidates) if not isinstance(limit_candidates, int) else limit_candidates
+                            candidates = candidates[:limit]
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Invalid limit_candidates value: {limit_candidates} (type: {type(limit_candidates)}), ignoring limit")
+
+                    
+                    # Filter out tickers we already own
+                    candidates_to_screen = [
+                        ticker for ticker in candidates 
+                        if not any(p.ticker == ticker for p in positions)
+                    ]
+                    
+                    if candidates_to_screen:
+                        yield SSEEvent(event="tool_status", data={
+                            "status": "running",
+                            "message": f"Screening {len(candidates_to_screen)} candidates (max 3 concurrent)..."
+                        })
+                        candidate_decisions = await executor.screen_candidates_parallel(strategy, candidates_to_screen)
+                        # Only add BUY decisions
+                        buy_decisions = [d for d in candidate_decisions if d.action == "BUY"]
+                        decisions.extend([d.model_dump() for d in buy_decisions])
+                        yield SSEEvent(event="tool_status", data={
+                            "status": "running",
+                            "message": f"✓ Found {len(buy_decisions)} BUY signals from {len(candidate_decisions)} screened"
+                        })
+                except Exception as e:
+                    logger.error(f"Error screening candidates: {str(e)}", exc_info=True)
+                    yield SSEEvent(event="tool_status", data={
+                        "status": "error",
+                        "message": f"Error screening candidates: {str(e)}"
+                    })
+            
+            buy_sigs = [d for d in decisions if d['action'] == 'BUY']
+            sell_sigs = [d for d in decisions if d['action'] == 'SELL']
+            hold_sigs = [d for d in decisions if d['action'] == 'HOLD']
             
             yield {
                 "success": True,
                 "strategy_name": strategy.name,
-                "tickers_scanned": len(tickers),
-                "signals_found": len(signals),
-                "signals": signals[:max_results],
-                "message": f"✓ Found {len(signals)} trading signals from {len(tickers)} tickers"
+                "decisions": decisions,
+                "summary": {
+                    "buy_signals": len(buy_sigs),
+                    "sell_signals": len(sell_sigs),
+                    "hold_signals": len(hold_sigs),
+                    "positions": len(positions),
+                    "cash": budget.cash_available
+                },
+                "message": f"✓ {len(buy_sigs)} BUY, {len(sell_sigs)} SELL, {len(hold_sigs)} HOLD"
             }
-        
+            
     except Exception as e:
-        logger.error(f"Error scanning with strategy: {str(e)}", exc_info=True)
-        yield {
-            "success": False,
-            "error": f"Failed to scan: {str(e)}",
-            "message": f"Error: {str(e)}"
-        }
+        logger.error(f"Error executing strategy: {str(e)}", exc_info=True)
+        yield {"success": False, "error": str(e)}
 
 
 @tool(
     name="list_strategies",
-    description="Get all trading strategies created by the user",
+    description="List all strategies",
     category="strategy"
 )
-def list_strategies(
-    *,
-    context: AgentContext,
-    active_only: bool = True
-):
-    """List user's strategies"""
+def list_strategies(*, context: AgentContext, active_only: bool = True):
+    """List strategies"""
     from crud.strategy_v2 import get_user_strategies
     from database import SessionLocal
     
     try:
         with SessionLocal() as db:
             strategies = get_user_strategies(db, context.user_id, active_only)
-            
-            if not strategies:
-                return {
-                    "success": True,
-                    "strategies": [],
-                    "count": 0,
-                    "message": "No strategies found. Create one with create_trading_strategy!"
-                }
-            
-            strategy_list = [
-                {
-                    "strategy_id": s.id,
-                    "name": s.name,
-                    "description": s.description,
-                    "num_rules": len(s.rules),
-                    "created_at": s.created_at.isoformat(),
-                    "is_active": s.is_active
-                }
-                for s in strategies
-            ]
-            
             return {
                 "success": True,
-                "strategies": strategy_list,
-                "count": len(strategy_list),
-                "message": f"Found {len(strategy_list)} strategies"
+                "strategies": [
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "description": s.description,
+                        "screening_rules": len(s.screening_rules),
+                        "management_rules": len(s.management_rules)
+                    }
+                    for s in strategies
+                ],
+                "count": len(strategies)
             }
-    
     except Exception as e:
-        logger.error(f"Error listing strategies: {str(e)}", exc_info=True)
-        return {
-            "success": False,
-            "error": f"Failed to list strategies: {str(e)}"
-        }
+        logger.error(f"Error: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 
 @tool(
     name="get_strategy_details",
-    description="Get full details of a strategy including all rules",
+    description="Get strategy details",
     category="strategy"
 )
-def get_strategy_details(
-    *,
-    context: AgentContext,
-    strategy_id: str
-):
-    """Get strategy details"""
-    from crud.strategy_v2 import get_strategy
+def get_strategy_details(*, context: AgentContext, strategy_id: str):
+    """Get details"""
+    from crud.strategy_v2 import get_strategy, get_budget, get_positions
     from database import SessionLocal
     
     try:
         with SessionLocal() as db:
             strategy = get_strategy(db, strategy_id)
+            if not strategy or strategy.user_id != context.user_id:
+                return {"success": False, "error": "Not found"}
             
-            if not strategy:
-                return {
-                    "success": False,
-                    "error": f"Strategy {strategy_id} not found"
-                }
-            
-            if strategy.user_id != context.user_id:
-                return {
-                    "success": False,
-                    "error": "You don't have permission to access this strategy"
-                }
+            budget = get_budget(db, strategy_id)
+            positions = get_positions(db, strategy_id, open_only=True)
             
             return {
                 "success": True,
-                "strategy": {
-                    "id": strategy.id,
-                    "name": strategy.name,
-                    "description": strategy.description,
-                    "rules": [
-                        {
-                            "order": rule.order,
-                            "description": rule.description,
-                            "decision_logic": rule.decision_logic,
-                            "weight": rule.weight,
-                            "data_sources": [ds.model_dump() for ds in rule.data_sources]
-                        }
-                        for rule in strategy.rules
-                    ],
-                    "risk_parameters": strategy.risk_parameters.model_dump(),
-                    "stock_universe": strategy.stock_universe,
-                    "created_at": strategy.created_at.isoformat(),
-                    "is_active": strategy.is_active
-                }
+                "strategy": strategy.model_dump(),
+                "budget": budget.model_dump() if budget else {"total_budget": 1000, "cash_available": 1000},
+                "positions": [p.model_dump() for p in positions]
             }
-    
     except Exception as e:
-        logger.error(f"Error getting strategy details: {str(e)}", exc_info=True)
-        return {
-            "success": False,
-            "error": f"Failed to get strategy: {str(e)}"
-        }
+        logger.error(f"Error: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 
 @tool(
     name="delete_strategy",
-    description="Delete a trading strategy",
+    description="Delete strategy",
     category="strategy"
 )
-def delete_strategy_v2(
-    *,
-    context: AgentContext,
-    strategy_id: str
-):
-    """Delete a strategy"""
+def delete_strategy_v2(*, context: AgentContext, strategy_id: str):
+    """Delete"""
     from crud.strategy_v2 import get_strategy, delete_strategy
     from database import SessionLocal
     
     try:
         with SessionLocal() as db:
             strategy = get_strategy(db, strategy_id)
+            if not strategy or strategy.user_id != context.user_id:
+                return {"success": False, "error": "Not found"}
             
-            if not strategy:
-                return {
-                    "success": False,
-                    "error": f"Strategy {strategy_id} not found"
-                }
-            
-            if strategy.user_id != context.user_id:
-                return {
-                    "success": False,
-                    "error": "You don't have permission to delete this strategy"
-                }
-            
-            success = delete_strategy(db, strategy_id)
-            
-            if success:
-                return {
-                    "success": True,
-                    "strategy_id": strategy_id,
-                    "message": f"✓ Strategy '{strategy.name}' deleted successfully"
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": "Failed to delete strategy"
-                }
-    
+            delete_strategy(db, strategy_id)
+            return {"success": True, "message": f"Deleted '{strategy.name}'"}
     except Exception as e:
-        logger.error(f"Error deleting strategy: {str(e)}", exc_info=True)
-        return {
-            "success": False,
-            "error": f"Failed to delete strategy: {str(e)}"
-        }
-
+        logger.error(f"Error: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}

@@ -512,18 +512,18 @@ class Quote(BaseModel):
     day_high: Optional[float] = Field(None, description="Day high", alias="dayHigh")
     year_high: Optional[float] = Field(None, description="52-week high", alias="yearHigh")
     year_low: Optional[float] = Field(None, description="52-week low", alias="yearLow")
-    market_cap: Optional[int] = Field(None, description="Market cap", alias="marketCap")
+    market_cap: Optional[float] = Field(None, description="Market cap", alias="marketCap")
     price_avg_50: Optional[float] = Field(None, description="50-day MA", alias="priceAvg50")
     price_avg_200: Optional[float] = Field(None, description="200-day MA", alias="priceAvg200")
     exchange: Optional[str] = Field(None, description="Exchange")
-    volume: Optional[int] = Field(None, description="Volume")
-    avg_volume: Optional[int] = Field(None, description="Average volume", alias="avgVolume")
+    volume: Optional[float] = Field(None, description="Volume")
+    avg_volume: Optional[float] = Field(None, description="Average volume", alias="avgVolume")
     open: Optional[float] = Field(None, description="Opening price")
     previous_close: Optional[float] = Field(None, description="Previous close", alias="previousClose")
     eps: Optional[float] = Field(None, description="EPS")
     pe: Optional[float] = Field(None, description="P/E ratio")
     earnings_announcement: Optional[str] = Field(None, description="Earnings announcement date", alias="earningsAnnouncement")
-    shares_outstanding: Optional[int] = Field(None, description="Shares outstanding", alias="sharesOutstanding")
+    shares_outstanding: Optional[float] = Field(None, description="Shares outstanding", alias="sharesOutstanding")
     timestamp: Optional[int] = Field(None, description="Timestamp")
     
     class Config:
@@ -633,6 +633,54 @@ class FinancialGrowth(BaseModel):
                 "net_income_growth": g.net_income_growth,
                 "eps_growth": g.eps_growth,
                 "fcf_growth": g.free_cash_flow_growth
+            })
+        return pd.DataFrame(data)
+
+
+# ============================================================================
+# STOCK SCREENER
+# ============================================================================
+
+class StockScreenerResult(BaseModel):
+    """Stock screener result"""
+    symbol: str = Field(description="Stock ticker symbol")
+    company_name: str = Field(description="Company name", alias="companyName")
+    market_cap: Optional[float] = Field(None, description="Market capitalization", alias="marketCap")
+    sector: Optional[str] = Field(None, description="Sector")
+    industry: Optional[str] = Field(None, description="Industry")
+    beta: Optional[float] = Field(None, description="Beta (volatility measure)")
+    price: Optional[float] = Field(None, description="Current stock price")
+    last_annual_dividend: Optional[float] = Field(None, description="Last annual dividend", alias="lastAnnualDividend")
+    volume: Optional[int] = Field(None, description="Trading volume")
+    exchange: Optional[str] = Field(None, description="Stock exchange")
+    exchange_short_name: Optional[str] = Field(None, description="Exchange short name", alias="exchangeShortName")
+    country: Optional[str] = Field(None, description="Country")
+    is_etf: Optional[bool] = Field(None, description="Is ETF", alias="isEtf")
+    is_fund: Optional[bool] = Field(None, description="Is fund", alias="isFund")
+    is_actively_trading: Optional[bool] = Field(None, description="Is actively trading", alias="isActivelyTrading")
+    
+    class Config:
+        populate_by_name = True
+    
+    @classmethod
+    def list_to_df(cls, results: List['StockScreenerResult']) -> pd.DataFrame:
+        """Convert list of screener results to DataFrame"""
+        data = []
+        for r in results:
+            data.append({
+                "symbol": r.symbol,
+                "company_name": r.company_name,
+                "market_cap": r.market_cap,
+                "sector": r.sector,
+                "industry": r.industry,
+                "beta": r.beta,
+                "price": r.price,
+                "dividend": r.last_annual_dividend,
+                "volume": r.volume,
+                "exchange": r.exchange_short_name,
+                "country": r.country,
+                "is_etf": r.is_etf,
+                "is_actively_trading": r.is_actively_trading
             })
         return pd.DataFrame(data)
 

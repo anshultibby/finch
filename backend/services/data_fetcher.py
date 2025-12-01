@@ -3,8 +3,10 @@ Data Fetcher Service - Fetch data from various sources for strategy rules
 """
 from typing import Dict, Any, Optional
 from models.strategy_v2 import DataSource
-from modules.tools.clients.fmp import FMPClient
+from modules.tools.clients.fmp import fmp_tools
 import logging
+import asyncio
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +15,14 @@ class DataFetcherService:
     """Service to fetch data from various sources for strategy execution"""
     
     def __init__(self):
-        self.fmp_client = FMPClient()
+        self.fmp_client = fmp_tools
+        # Rate limiting: small delay between API calls to prevent overwhelming the API
+        self._last_call_time = None
+        self._min_delay_seconds = 0.1  # 100ms between calls
     
     async def fetch_data(self, source: DataSource, ticker: str) -> Dict[str, Any]:
         """
-        Fetch data from a source
+        Fetch data from a source with rate limiting
         
         Args:
             source: DataSource specification
@@ -26,6 +31,9 @@ class DataFetcherService:
         Returns:
             Dict containing the fetched data
         """
+        # Rate limiting: wait if needed
+        await self._rate_limit()
+        
         try:
             if source.type == "fmp":
                 return await self._fetch_fmp(source.endpoint, ticker, source.parameters)
@@ -37,70 +45,124 @@ class DataFetcherService:
                 return await self._fetch_portfolio(source.endpoint, ticker, source.parameters)
             else:
                 logger.error(f"Unknown data source type: {source.type}")
-                return {"error": f"Unknown source type: {source.type}"}
+                return {"success": False, "error": f"Unknown source type: {source.type}"}
         except Exception as e:
             logger.error(f"Error fetching data from {source.type}/{source.endpoint}: {str(e)}")
-            return {"error": str(e)}
+            return {"success": False, "error": str(e)}
+    
+    async def _rate_limit(self):
+        """Apply rate limiting between API calls"""
+        if self._last_call_time is not None:
+            elapsed = datetime.now().timestamp() - self._last_call_time
+            if elapsed < self._min_delay_seconds:
+                await asyncio.sleep(self._min_delay_seconds - elapsed)
+        self._last_call_time = datetime.now().timestamp()
     
     async def _fetch_fmp(self, endpoint: str, ticker: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Fetch data from Financial Modeling Prep API"""
         
+        # Map strategy endpoint names to FMP endpoint names
         endpoint_map = {
             # Financial statements
-            "income-statement": lambda: self.fmp_client.get_income_statement(
-                ticker, 
-                period=params.get("period", "annual"),
-                limit=params.get("limit", 4)
-            ),
-            "balance-sheet": lambda: self.fmp_client.get_balance_sheet(
-                ticker,
-                period=params.get("period", "annual"),
-                limit=params.get("limit", 4)
-            ),
-            "cash-flow": lambda: self.fmp_client.get_cash_flow_statement(
-                ticker,
-                period=params.get("period", "annual"),
-                limit=params.get("limit", 4)
-            ),
+            "income-statement": "income-statement",
+            "balance-sheet": "balance-sheet-statement",
+            "balance-sheet-statement": "balance-sheet-statement",  # Also accept full name
+            "cash-flow": "cash-flow-statement",
+            "cash-flow-statement": "cash-flow-statement",  # Also accept full name
             
             # Company info
-            "company-profile": lambda: self.fmp_client.get_company_profile(ticker),
+            "company-profile": "profile",
+            "profile": "profile",  # Also accept 'profile' directly
             
             # Trading data
-            "insider-trading": lambda: self.fmp_client.get_insider_trading(
-                ticker,
-                limit=params.get("limit", 100)
-            ),
-            "institutional-ownership": lambda: self.fmp_client.get_institutional_holders(ticker),
+            "insider-trading": "insider-trading-search",
             
             # Price data
-            "price-history": lambda: self.fmp_client.get_historical_price(
-                ticker,
-                from_date=params.get("from_date"),
-                to_date=params.get("to_date")
-            ),
-            "quote": lambda: self.fmp_client.get_quote(ticker),
+            "price-history": "historical-price-full",
+            "quote": "quote",
             
             # Metrics
-            "key-metrics": lambda: self.fmp_client.get_key_metrics(
-                ticker,
-                period=params.get("period", "annual"),
-                limit=params.get("limit", 4)
-            ),
-            "financial-ratios": lambda: self.fmp_client.get_financial_ratios(
-                ticker,
-                period=params.get("period", "annual"),
-                limit=params.get("limit", 4)
-            ),
+            "key-metrics": "key-metrics",
+            "financial-ratios": "ratios",
+            "financial-growth": "financial-growth",
+            
+            # Analyst data
+            "price-target-consensus": "price-target-consensus",
+            "analyst-recommendations": "grade",
+            
+            # Screening & Market data
+            "company-screener": "company-screener",
+            "sector-performance": "sector-performance-snapshot",
+            "market-movers": "biggest-gainers",
         }
         
         if endpoint not in endpoint_map:
             logger.warning(f"FMP endpoint not implemented: {endpoint}")
-            return {"error": f"Endpoint not implemented: {endpoint}"}
+            return {"success": False, "error": f"Endpoint not implemented: {endpoint}"}
         
         try:
-            data = await endpoint_map[endpoint]()
-            return {"success": True, "data": data, "source": "fmp", "endpoint": endpoint}
+            fmp_endpoint = endpoint_map[endpoint]
+            
+            # Endpoints that don't require a symbol
+            no_symbol_endpoints = ["company-screener", "sector-performance", "market-movers"]
+            
+            # Build FMP params
+            fmp_params = {}
+            
+            # Only add symbol if endpoint requires it
+            if endpoint not in no_symbol_endpoints and ticker and ticker.upper() not in ["N/A", "UNKNOWN", "NULL", ""]:
+                fmp_params["symbol"] = ticker
+            
+            # Add period and limit for financial data
+            if endpoint in ["income-statement", "balance-sheet", "balance-sheet-statement", "cash-flow", "cash-flow-statement", "key-metrics", "financial-ratios", "financial-growth"]:
+                fmp_params["period"] = params.get("period", "annual")
+                fmp_params["limit"] = params.get("limit", 4)
+            
+            # Add limit for insider trading
+            elif endpoint == "insider-trading":
+                fmp_params["limit"] = params.get("limit", 100)
+            
+            # Add date range for price history
+            elif endpoint == "price-history":
+                if params.get("from_date"):
+                    fmp_params["from"] = params.get("from_date")
+                if params.get("to_date"):
+                    fmp_params["to"] = params.get("to_date")
+                if params.get("limit"):
+                    fmp_params["limit"] = params.get("limit")
+            
+            # Add limit for analyst recommendations
+            elif endpoint == "analyst-recommendations":
+                fmp_params["limit"] = params.get("limit", 10)
+            
+            # Add screener params
+            elif endpoint == "company-screener":
+                # Pass through all screening params
+                for key in ["marketCapMoreThan", "marketCapLowerThan", "sector", "industry",
+                           "betaMoreThan", "betaLowerThan", "priceMoreThan", "priceLowerThan",
+                           "dividendMoreThan", "dividendLowerThan", "volumeMoreThan", "volumeLowerThan",
+                           "exchange", "country", "isEtf", "isFund", "isActivelyTrading", "limit"]:
+                    if key in params:
+                        fmp_params[key] = params[key]
+            
+            # Call FMP - it already returns {success, data/error, ...}
+            result = await self.fmp_client.get_fmp_data(fmp_endpoint, fmp_params)
+            
+            # Log the result
+            if result.get("success"):
+                data_preview = str(result.get("data", ""))[:200]
+                logger.info(f"✅ FMP {endpoint} for {ticker}: success, data preview: {data_preview}...")
+            else:
+                error_msg = result.get('error') or result.get('message') or 'Unknown error'
+                logger.warning(f"❌ FMP {endpoint} for {ticker}: {error_msg}")
+                logger.debug(f"Full FMP result: {result}")
+            
+            # Add metadata
+            result["source"] = "fmp"
+            result["endpoint"] = endpoint
+            
+            return result
+            
         except Exception as e:
             logger.error(f"FMP API error for {endpoint}: {str(e)}")
             return {"success": False, "error": str(e), "source": "fmp", "endpoint": endpoint}
@@ -134,8 +196,16 @@ class DataFetcherService:
         try:
             # First get price history
             days = params.get("days", 100)
-            price_data = await self.fmp_client.get_historical_price(ticker, limit=days)
+            result = await self.fmp_client.get_fmp_data(
+                "historical-price-full",
+                {"symbol": ticker, "limit": days}
+            )
             
+            if not result.get("success"):
+                return {"success": False, "error": "Failed to fetch price data"}
+            
+            # Extract price data - FMP returns it under "data" key
+            price_data = result.get("data")
             if not price_data:
                 return {"success": False, "error": "No price data available"}
             

@@ -31,13 +31,18 @@ MAIN_AGENT_TOOLS = [
     'analyze_portfolio_performance',
     'identify_trading_patterns',
     
-    # Custom Strategies (V2 - LLM-Native)
-    'create_trading_strategy',    # Create rule-based strategies
-    'test_strategy',               # Test strategy on a ticker
-    'scan_with_strategy',          # Scan multiple tickers for opportunities
-    'list_strategies',             # List all strategies
-    'get_strategy_details',        # Get strategy details
-    'delete_strategy',             # Delete a strategy
+    
+    # Financial Code Generation (NEW - Manus-inspired)
+    'generate_financial_code',     # Generate Python code from description
+    'execute_financial_code',      # Execute code on ticker
+    'batch_execute_code',          # Execute code on multiple tickers
+    
+    # File Management
+    'list_chat_files',             # List files in current chat
+    'write_chat_file',             # Write file to chat directory
+    'read_chat_file',              # Read file from chat directory
+    'replace_in_chat_file',        # Edit files (Manus-style)
+    'find_in_chat_file',           # Search files with regex
 ]
 
 

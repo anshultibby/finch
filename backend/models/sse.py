@@ -32,6 +32,7 @@ class ToolCallCompleteEvent(BaseModel):
     status: Literal["completed", "error"]
     resource_id: Optional[str] = None
     error: Optional[str] = None
+    result_summary: Optional[str] = None  # Brief summary of result for display to user
     timestamp: str = datetime.now().isoformat()
 
 

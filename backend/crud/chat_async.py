@@ -43,6 +43,29 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
     return list(result.scalars().all())
 
 
+async def get_last_message_preview(db: AsyncSession, chat_id: str, max_length: int = 100) -> Optional[str]:
+    """Get a preview of the last user or assistant message in a chat"""
+    from models.db import ChatMessage
+    
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.chat_id == chat_id)
+        .where(ChatMessage.role.in_(['user', 'assistant']))
+        .order_by(ChatMessage.sequence.desc())
+        .limit(1)
+    )
+    message = result.scalar_one_or_none()
+    
+    if message and message.content:
+        # Truncate and clean up the message for preview
+        content = message.content.strip()
+        if len(content) > max_length:
+            content = content[:max_length] + "..."
+        return content
+    
+    return None
+
+
 async def update_chat_title(db: AsyncSession, chat_id: str, title: str) -> Optional[Chat]:
     """Update a chat's title"""
     db_chat = await get_chat(db, chat_id)
