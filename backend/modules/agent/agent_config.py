@@ -31,18 +31,18 @@ MAIN_AGENT_TOOLS = [
     'analyze_portfolio_performance',
     'identify_trading_patterns',
     
+    # Custom ETF Builder
+    'build_custom_etf',            # Build custom ETF portfolios with weighting strategies
     
-    # Financial Code Generation (NEW - Manus-inspired)
-    'generate_financial_code',     # Generate Python code from description
-    'execute_financial_code',      # Execute code on ticker
-    'batch_execute_code',          # Execute code on multiple tickers
-    
-    # File Management
+    # File Management (OpenHands-style)
     'list_chat_files',             # List files in current chat
     'write_chat_file',             # Write file to chat directory
     'read_chat_file',              # Read file from chat directory
     'replace_in_chat_file',        # Edit files (Manus-style)
     'find_in_chat_file',           # Search files with regex
+    
+    # Code Execution
+    'execute_code',                # Execute Python code from file or inline
 ]
 
 

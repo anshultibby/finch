@@ -44,6 +44,8 @@ export default function ResourcesSidebar({
       case 'ticker_insider_activity':
       case 'portfolio_insider_activity':
         return '💼';
+      case 'file':
+        return '📝';
       default:
         return '📄';
     }

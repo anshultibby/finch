@@ -22,6 +22,7 @@ export interface ToolCallStatus {
   resource_id?: string;
   error?: string;
   result_summary?: string;
+  statusMessage?: string; // The detailed status/description of what the tool is doing
 }
 
 export interface ChatResponse {

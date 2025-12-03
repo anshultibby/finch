@@ -26,8 +26,10 @@ export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesMod
   const loadFiles = async () => {
     setLoading(true);
     try {
-      const files = await resourcesApi.getChatResources(chatId);
-      setResources(files);
+      const allResources = await resourcesApi.getChatResources(chatId);
+      // Only show actual file resources (not data resources like portfolio, Reddit trends, etc.)
+      const fileResources = allResources.filter(r => r.resource_type === 'file');
+      setResources(fileResources);
     } catch (error) {
       console.error('Error loading files:', error);
     } finally {
@@ -35,18 +37,23 @@ export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesMod
     }
   };
 
-  const getFileIcon = (type: string) => {
-    if (type.includes('chart') || type.includes('plot')) return Image;
-    if (type.includes('code') || type.includes('strategy')) return Code;
-    if (type.includes('link') || type.includes('url')) return LinkIcon;
+  const getFileIcon = (fileType: string) => {
+    const type = fileType.toLowerCase();
+    if (type === 'python' || type.includes('py')) return Code;
+    if (type === 'json' || type === 'csv' || type === 'txt') return FileText;
+    if (type === 'markdown' || type === 'md') return FileText;
+    if (type.includes('image') || type.includes('png') || type.includes('jpg')) return Image;
     return FileText;
   };
 
   const categorizeResource = (resource: Resource): FileCategory => {
-    const type = resource.resource_type.toLowerCase();
-    if (type.includes('chart') || type.includes('plot')) return 'images';
-    if (type.includes('code') || type.includes('strategy')) return 'code';
-    if (type.includes('link') || type.includes('url')) return 'links';
+    // For file resources, categorize by file type
+    const fileType = resource.data?.file_type || '';
+    const filename = resource.data?.filename || '';
+    
+    if (fileType === 'python' || filename.endsWith('.py')) return 'code';
+    if (filename.endsWith('.png') || filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'images';
+    if (fileType === 'json' || fileType === 'csv' || filename.endsWith('.json') || filename.endsWith('.csv')) return 'documents';
     return 'documents';
   };
 
@@ -126,9 +133,11 @@ export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesMod
           ) : (
             <div className="space-y-2">
               {filteredResources.map((resource) => {
-                const Icon = getFileIcon(resource.resource_type);
+                const Icon = getFileIcon(resource.data?.file_type || '');
                 const date = new Date(resource.created_at);
                 const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                const filename = resource.data?.filename || resource.title;
+                const fileType = resource.data?.file_type || '';
                 
                 return (
                   <div
@@ -140,9 +149,12 @@ export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesMod
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
-                        {resource.title}
+                        {filename}
                       </p>
-                      <p className="text-xs text-gray-500">{timeStr}</p>
+                      <p className="text-xs text-gray-500">
+                        {fileType && <span className="mr-2">{fileType}</span>}
+                        {timeStr}
+                      </p>
                     </div>
                     <button className="text-gray-400 hover:text-gray-600">
                       <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">

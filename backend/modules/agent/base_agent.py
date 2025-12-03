@@ -101,7 +101,14 @@ class BaseAgent:
         tool_call_requests = []
         for tc in tool_calls:
             func_name = tc["function"]["name"]
-            func_args = json.loads(tc["function"]["arguments"])
+            # Handle empty or invalid JSON arguments
+            args_str = tc["function"]["arguments"]
+            try:
+                func_args = json.loads(args_str) if args_str else {}
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse tool arguments for {func_name}: {args_str}")
+                func_args = {}
+            
             tool_call_requests.append(
                 ToolCallRequest(
                     id=tc["id"],

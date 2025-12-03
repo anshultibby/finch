@@ -370,6 +370,46 @@ class ToolExecutor:
         truncated = content[:policy.max_chars] + "... [TRUNCATED BY EXECUTOR]"
         return truncated, True
     
+    def _enrich_event_with_metadata(
+        self, 
+        event: SSEEvent, 
+        tool_call_id: str, 
+        tool_name: str
+    ) -> SSEEvent:
+        """
+        Enrich SSE events with tool metadata for frontend display.
+        
+        Tools emit generic events (tool_status, tool_progress, tool_log) without knowing
+        their call ID. This method adds the metadata so the frontend can associate events
+        with specific tool calls.
+        
+        Args:
+            event: Original SSE event from tool
+            tool_call_id: Unique ID for this tool call
+            tool_name: Name of the tool being executed
+        
+        Returns:
+            Enriched SSEEvent with tool_call_id and tool_name in data
+        """
+        # Events that should be enriched with tool metadata
+        events_to_enrich = {"tool_status", "tool_progress", "tool_log"}
+        
+        if event.event in events_to_enrich:
+            # Create a copy of the event data and add metadata
+            enriched_data = event.data.copy()
+            
+            # Add tool metadata if not already present
+            if "tool_call_id" not in enriched_data:
+                enriched_data["tool_call_id"] = tool_call_id
+            if "tool_name" not in enriched_data:
+                enriched_data["tool_name"] = tool_name
+            
+            # Return new event with enriched data
+            return SSEEvent(event=event.event, data=enriched_data)
+        
+        # Return original event for non-tool events
+        return event
+    
     async def execute_batch_streaming(
         self,
         tool_calls: List[ToolCallRequest],
@@ -431,8 +471,10 @@ class ToolExecutor:
                         context=context
                     ):
                         if isinstance(item, SSEEvent):
-                            # Stream event to queue immediately
-                            await event_queue.put(("event", item))
+                            # Enrich event with tool metadata for frontend
+                            enriched_event = self._enrich_event_with_metadata(item, call.id, call.name)
+                            # Stream enriched event to queue immediately
+                            await event_queue.put(("event", enriched_event))
                         else:
                             # Make sure it's not an async generator
                             if inspect.isasyncgen(item):
@@ -492,7 +534,7 @@ class ToolExecutor:
             await asyncio.gather(*tasks, return_exceptions=True)
             
         else:
-            # Sequential - stream events as they come (no change needed)
+            # Sequential - stream events as they come
             for call in tool_calls:
                 start_time = asyncio.get_event_loop().time()
                 final_result = None
@@ -505,7 +547,9 @@ class ToolExecutor:
                     if isinstance(item, SSEEvent):
                         if enable_tool_streaming:
                             event_count += 1
-                            yield item
+                            # Enrich event with tool metadata for frontend
+                            enriched_event = self._enrich_event_with_metadata(item, call.id, call.name)
+                            yield enriched_event
                     else:
                         # Make sure it's not an async generator
                         if inspect.isasyncgen(item):

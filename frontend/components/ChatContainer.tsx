@@ -7,7 +7,6 @@ import ResourcesSidebar from './ResourcesSidebar';
 import ResourceViewer from './ResourceViewer';
 import ProfileDropdown from './ProfileDropdown';
 import AccountManagementModal from './AccountManagementModal';
-import StrategyManagementModal from './StrategyManagementModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   chatApi, 
@@ -66,7 +65,6 @@ export default function ChatContainer() {
   const [toolStatusMessages, setToolStatusMessages] = useState<Map<string, string>>(new Map());
   const [toolStatusHistory, setToolStatusHistory] = useState<Map<string, ToolStatusHistory>>(new Map());
   const [showAccountModal, setShowAccountModal] = useState(false);
-  const [showStrategyModal, setShowStrategyModal] = useState(false);
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -1072,15 +1070,6 @@ export default function ChatContainer() {
             Manage Accounts
           </button>
           
-          {/* Manage Strategies Button */}
-          <button
-            onClick={() => setShowStrategyModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-purple-600 hover:bg-purple-700 text-white transition-all"
-          >
-            <span className="text-lg">📈</span>
-            Strategies
-          </button>
-          
           {/* Resources Button - Always visible */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1430,11 +1419,6 @@ export default function ChatContainer() {
         }}
       />
 
-      {/* Strategy Management Modal */}
-      <StrategyManagementModal
-        isOpen={showStrategyModal}
-        onClose={() => setShowStrategyModal(false)}
-      />
     </>
   );
 }

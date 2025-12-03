@@ -96,12 +96,13 @@ class ResourceManager:
     
     def write_chat_file(self, user_id: str, chat_id: str, filename: str, content: str) -> str:
         """
-        Write a file to chat (stored in database)
+        Write a file to chat (stored in database AND as a resource)
         
         Returns: File ID
         """
         from database import get_db
         from crud.chat_files import create_chat_file
+        from crud.resource import create_resource
         
         # Determine file type from extension
         file_type = "text"
@@ -116,6 +117,7 @@ class ResourceManager:
         
         db = next(get_db())
         try:
+            # Create chat file
             file_obj = create_chat_file(
                 db=db,
                 chat_id=chat_id,
@@ -124,6 +126,27 @@ class ResourceManager:
                 content=content,
                 file_type=file_type
             )
+            
+            # Also create a resource entry so it shows in the UI sidebar
+            create_resource(
+                db=db,
+                chat_id=chat_id,
+                user_id=user_id,
+                tool_name="write_chat_file",
+                resource_type="file",
+                title=filename,
+                data={
+                    "filename": filename,
+                    "file_type": file_type,
+                    "size_bytes": file_obj.size_bytes,
+                    "file_id": file_obj.id
+                },
+                resource_metadata={
+                    "file_type": file_type,
+                    "extension": filename.split('.')[-1] if '.' in filename else 'txt'
+                }
+            )
+            
             return file_obj.id
         finally:
             db.close()

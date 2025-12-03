@@ -15,17 +15,13 @@ from modules.tools.clients.apewisdom import apewisdom_tools
 from modules.tools.clients.fmp import fmp_tools  # Universal FMP tool (includes insider trading)
 from modules.tools.clients.plotting import create_chart
 
-# Import V2 strategy tools (new LLM-native framework)
-# Tools are registered via @tool decorator on import
-import modules.tools.strategy_tools_v2  # noqa: F401
+# Import code execution tool (OpenHands-style simple execution)
+import modules.tools.code_executor  # noqa: F401
 
-# Import code-based strategy tools (code generation approach)
-import modules.tools.strategy_code_tools  # noqa: F401
+# Import ETF builder tools (custom portfolio builder)
+import modules.tools.etf_builder_tools  # noqa: F401
 
-# Import financial code execution (Manus-style data analysis)
-import modules.tools.financial_code_tools  # noqa: F401
-
-# Import file tools (Manus-style file operations)
+# Import file tools (OpenHands-style file operations)
 import modules.tools.file_tools  # noqa: F401
 
 # Import tool descriptions
@@ -635,7 +631,7 @@ async def identify_trading_patterns(
 # ============================================================================
 # TRADING STRATEGY TOOLS - V2 (Modern LLM-Native Framework)
 # ============================================================================
-# Strategy tools moved to modules/tools/strategy_tools_v2.py
+# Strategy tools removed (no longer needed)
 # New LLM-native approach where strategies are natural language rules
 #
 # Available V2 tools (auto-imported):
@@ -656,11 +652,5 @@ async def identify_trading_patterns(
 # The agent_config.py controls which tools each agent can use (policy layer).
 # This file just imports all tool modules to trigger registration.
 
-# Import V2 strategy tools (auto-registers on import)
-import modules.tools.strategy_tools_v2
-# Import code-based strategy tools (auto-registers on import)
-import modules.tools.strategy_code_tools  # noqa: F401
-
 # All tools in this file are auto-registered when @tool decorator runs
-# Total tools: 17 (11 in this file + 6 from strategy_tools_v2)
 

@@ -407,7 +407,55 @@ class CreateChartParams(BaseModel):
 
 
 @tool(
-    description="Create an interactive line, scatter, bar, or area chart. You MUST structure the data properly with x and y arrays. Optionally add trendlines (linear, polynomial, exponential, moving average). The chart will be automatically saved as a resource and displayed to the user in the resources sidebar. Returns the resource ID for future reference.",
+    description="""Create an interactive line, scatter, bar, or area chart. 
+
+**Data Structure:**
+- data_series: List of series, each with name (str), x (array), y (array), optional color (str)
+- plot_type: "line", "scatter", "bar", or "area"
+- config: {title, x_label, y_label, width, height, grid}
+- trendline (optional): {type: "linear"|"polynomial"|"exponential"|"moving_average"}
+
+**NaN Handling:**
+NaN values in y arrays are automatically filtered out. Clean your data first: `df.dropna()` or `df.fillna(0)`
+
+**Color Palette (use consistently for professional look):**
+- Primary/Portfolio: "#3B82F6" (blue) - main data, portfolio
+- Success/Gains: "#10B981" (green) - positive metrics
+- Danger/Losses: "#EF4444" (red) - negative metrics
+- Benchmark/Secondary: "#6B7280" (gray) - benchmarks, comparisons
+- Accent: "#F59E0B" (amber) - highlights
+- Purple: "#8B5CF6" (purple) - alternative comparison
+
+**Chart Types by Use Case:**
+- Line: Time series, portfolio over time, price trends
+- Bar: Rankings, comparisons, categorical data
+- Scatter: Correlations, risk vs return
+- Area: Cumulative metrics, filled time series
+
+**Formatting Best Practices:**
+- Titles: Clear and specific ("Portfolio vs SPY Performance (2024-2025)")
+- Axis labels: Include units ("Value ($)", "Return (%)", "Date")
+- Limit series to 2-3 for clarity
+- Use readable date formats: "2024-12-03" not timestamps
+- Round numbers: 2 decimals for dollars, 1 for percentages
+- Grid: false (default, cleaner look)
+
+**Data Preparation:**
+- Filter NaN: `valid_data = [(x,y) for x,y in zip(xs, ys) if not pd.isna(y)]`
+- Limit points: Downsample 1000+ points to 200-300 for performance
+- Handle missing data before calling this tool
+
+**Example:**
+{
+  "data_series": [
+    {"name": "Portfolio", "x": ["2024-01-01", "2024-01-02"], "y": [10000, 10500], "color": "#3B82F6"},
+    {"name": "SPY", "x": ["2024-01-01", "2024-01-02"], "y": [10000, 10300], "color": "#6B7280"}
+  ],
+  "plot_type": "line",
+  "config": {"title": "Portfolio vs SPY Performance", "x_label": "Date", "y_label": "Value ($)", "grid": false}
+}
+
+Chart is auto-saved as a resource in sidebar. Returns resource ID.""",
     category="plotting",
     requires_auth=False
 )
@@ -439,9 +487,26 @@ async def create_chart(
         # Add each data series
         for i, series in enumerate(data_series):
             name = series.get("name", f"Series {i+1}")
-            x = series.get("x", [])
-            y = series.get("y", [])
+            x_raw = series.get("x", [])
+            y_raw = series.get("y", [])
             color = series.get("color")
+            
+            # Filter out NaN values (zip x and y, filter pairs, unzip)
+            import math
+            valid_pairs = [
+                (x_val, y_val) 
+                for x_val, y_val in zip(x_raw, y_raw) 
+                if not (isinstance(y_val, float) and math.isnan(y_val))
+            ]
+            
+            if not valid_pairs:
+                return {
+                    "success": False,
+                    "message": f"Series '{name}': All y-values are NaN after filtering"
+                }
+            
+            x, y = zip(*valid_pairs) if valid_pairs else ([], [])
+            x, y = list(x), list(y)
             
             # Validate lengths
             if len(x) != len(y):
@@ -776,7 +841,7 @@ async def plot_from_resource(
                 }
             
             # Create chart with single series
-            chart_title = params.title or f"{resource_data['title']} - {params.y_field} by {params.x_field}"
+            chart_title = params.title or f"{resource_db.title} - {params.y_field} by {params.x_field}"
             data_series = [{
                 "name": params.y_field,
                 "x": x_values,
@@ -804,7 +869,7 @@ async def plot_from_resource(
                 }
             
             # Create chart with multiple series
-            chart_title = params.title or f"{resource_data['title']} - {params.y_field} by {params.x_field} (grouped by {params.group_by})"
+            chart_title = params.title or f"{resource_db.title} - {params.y_field} by {params.x_field} (grouped by {params.group_by})"
             data_series = [
                 {
                     "name": str(group_name),

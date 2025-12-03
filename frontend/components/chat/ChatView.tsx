@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
-import ResourcesSidebar from '../ResourcesSidebar';
 import ResourceViewer from '../ResourceViewer';
 import ChatModeBanner from './ChatModeBanner';
 import ChatFilesModal from './ChatFilesModal';
@@ -52,7 +51,6 @@ export default function ChatView() {
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const streamingMessageRef = useRef<string>('');
   const [resources, setResources] = useState<Resource[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
   const [toolStatusMessages, setToolStatusMessages] = useState<Map<string, string>>(new Map());
@@ -215,6 +213,18 @@ export default function ChatView() {
     setIsThinking(false);
     setStreamingMessage('');
     streamingMessageRef.current = '';
+    
+    // Initialize turn in history BEFORE tools run (like ChatContainer.tsx does)
+    const assistantMessageIndex = messages.length + 1;
+    setToolCallHistory((prev) => [
+      ...prev,
+      {
+        turnId,
+        toolCalls: [],
+        expanded: false,  // Start collapsed, users can click to expand
+        messageIndex: assistantMessageIndex,
+      },
+    ]);
 
     const toolCallsMap = new Map<string, ToolCallStatus>();
     let needsAuth = false;
@@ -244,6 +254,17 @@ export default function ChatView() {
           };
           toolCallsMap.set(event.tool_call_id, toolCallStatus);
           setCurrentToolCalls(Array.from(toolCallsMap.values()));
+          
+          // Update ONLY the current turn in real-time (don't update frozen old turns)
+          if (turnId === currentTurnId) {
+            setToolCallHistory((prev) =>
+              prev.map((turn) =>
+                turn.turnId === turnId
+                  ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
+                  : turn
+              )
+            );
+          }
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
@@ -253,31 +274,80 @@ export default function ChatView() {
             toolCallStatus.resource_id = event.resource_id;
             toolCallStatus.error = event.error;
             setCurrentToolCalls(Array.from(toolCallsMap.values()));
+            
+            // Update ONLY the current turn in real-time (don't update frozen old turns)
+            if (turnId === currentTurnId) {
+              setToolCallHistory((prev) =>
+                prev.map((turn) =>
+                  turn.turnId === turnId
+                    ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
+                    : turn
+                )
+              );
+            }
           }
-          setToolStatusMessages((prev) => {
-            const next = new Map(prev);
-            next.delete(event.tool_call_id);
-            return next;
-          });
+          // Don't delete the status message - keep it for display even after completion
         },
         
         onToolStatus: (event: SSEToolStatusEvent) => {
           if (event.tool_call_id && (event.message || event.status)) {
+            const statusText = event.message || event.status || '';
+            
+            // Update the status messages map for real-time display
             setToolStatusMessages((prev) => {
               const next = new Map(prev);
-              next.set(event.tool_call_id!, event.message || event.status || '');
+              next.set(event.tool_call_id!, statusText);
               return next;
             });
+            
+            // Also persist it to the tool call object
+            const toolCallStatus = toolCallsMap.get(event.tool_call_id!);
+            if (toolCallStatus) {
+              toolCallStatus.statusMessage = statusText;
+              setCurrentToolCalls(Array.from(toolCallsMap.values()));
+              
+              // Update ONLY the current turn in real-time
+              if (turnId === currentTurnId) {
+                setToolCallHistory((prev) =>
+                  prev.map((turn) =>
+                    turn.turnId === turnId
+                      ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
+                      : turn
+                  )
+                );
+              }
+            }
           }
         },
         
         onToolProgress: (event: SSEToolProgressEvent) => {
           if (event.tool_call_id) {
+            const statusText = event.message || `${Math.round(event.percent)}%`;
+            
+            // Update the status messages map for real-time display
             setToolStatusMessages((prev) => {
               const next = new Map(prev);
-              next.set(event.tool_call_id!, event.message || `${Math.round(event.percent)}%`);
+              next.set(event.tool_call_id!, statusText);
               return next;
             });
+            
+            // Also persist it to the tool call object
+            const toolCallStatus = toolCallsMap.get(event.tool_call_id!);
+            if (toolCallStatus) {
+              toolCallStatus.statusMessage = statusText;
+              setCurrentToolCalls(Array.from(toolCallsMap.values()));
+              
+              // Update ONLY the current turn in real-time
+              if (turnId === currentTurnId) {
+                setToolCallHistory((prev) =>
+                  prev.map((turn) =>
+                    turn.turnId === turnId
+                      ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
+                      : turn
+                  )
+                );
+              }
+            }
           }
         },
         
@@ -310,20 +380,11 @@ export default function ChatView() {
         onDone: async () => {
           saveStreamingMessage();
           
-          if (currentTurnId && Array.from(toolCallsMap.values()).length > 0) {
-            setMessages((msgs) => {
-              const messageIndex = msgs.length - 1;
-              setToolCallHistory((prev) => [
-                ...prev,
-                {
-                  turnId: currentTurnId,
-                  toolCalls: Array.from(toolCallsMap.values()),
-                  expanded: false, // Start collapsed
-                  messageIndex,
-                },
-              ]);
-              return msgs;
-            });
+          // Tool call history was already updated in real-time
+          // Just clean up if no tools were called
+          if (turnId && Array.from(toolCallsMap.values()).length === 0) {
+            // No tool calls were made, remove the empty turn from history
+            setToolCallHistory((prev) => prev.filter((turn) => turn.turnId !== turnId));
           }
           
           setIsLoading(false);
@@ -494,55 +555,133 @@ export default function ChatView() {
     const turn = toolCallHistory.find(t => t.turnId === turnId);
     if (!turn || turn.toolCalls.length === 0) return null;
 
-    const grouped = turn.toolCalls.reduce((acc, toolCall) => {
-      const name = toolCall.tool_name;
-      if (!acc[name]) {
-        acc[name] = [];
-      }
-      acc[name].push(toolCall);
-      return acc;
-    }, {} as Record<string, ToolCallStatus[]>);
+    const isCurrentTurn = turnId === currentTurnId;
+    const allCompleted = turn.toolCalls.every(c => c.status === 'completed');
+    const anyError = turn.toolCalls.some(c => c.status === 'error');
+    const anyRunning = turn.toolCalls.some(c => c.status === 'calling');
+
+    // For current turn, always show expanded. For completed turns, respect the expanded state.
+    const shouldExpand = isCurrentTurn || turn.expanded;
 
     return (
-      <div className="mb-2 px-2">
+      <div className="mb-3 px-2">
+        {/* Expandable header */}
         <button
           onClick={() => {
-            setToolCallHistory((prev) => 
-              prev.map((t) => 
-                t.turnId === turnId 
-                  ? { ...t, expanded: !t.expanded }
-                  : t
-              )
-            );
+            if (!isCurrentTurn) {
+              setToolCallHistory((prev) => 
+                prev.map((t) => 
+                  t.turnId === turnId 
+                    ? { ...t, expanded: !t.expanded }
+                    : t
+                )
+              );
+            }
           }}
-          className="text-xs text-gray-400 hover:text-gray-500 transition-colors flex items-center gap-1"
+          className={`flex items-start gap-2 w-full text-left ${!isCurrentTurn ? 'group hover:bg-gray-50' : ''} -mx-2 px-2 py-1 rounded-lg transition-colors`}
         >
-          <svg
-            className={`w-3 h-3 transition-transform ${
-              turn.expanded ? 'rotate-90' : ''
-            }`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-          <span>Activity</span>
+          {/* Status Icon */}
+          <div className="mt-0.5 flex-shrink-0">
+            {allCompleted && !isCurrentTurn && (
+              <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            )}
+            {anyError && !anyRunning && (
+              <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            )}
+            {anyRunning && (
+              <svg className="w-4 h-4 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            )}
+          </div>
+          
+          {/* Summary text */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-600">
+                {anyRunning ? 'Running tools...' : allCompleted ? 'Completed' : 'Tool execution'}
+              </span>
+              {!isCurrentTurn && (
+                <svg
+                  className={`w-3 h-3 text-gray-400 transition-transform ${
+                    shouldExpand ? 'rotate-180' : ''
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              )}
+            </div>
+            <div className="text-[11px] text-gray-400 mt-0.5">
+              {turn.toolCalls.length} {turn.toolCalls.length === 1 ? 'action' : 'actions'}
+            </div>
+          </div>
         </button>
 
-        {turn.expanded && (
-          <div className="mt-1.5 ml-5 space-y-0.5">
-            {Object.entries(grouped).map(([toolName, calls]) => (
-              <div key={toolName} className="text-xs text-gray-500">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm">{getToolIcon(toolName)}</span>
-                  <span>{formatToolName(toolName)}</span>
-                  {calls.length > 1 && (
-                    <span className="text-gray-400">×{calls.length}</span>
-                  )}
+        {/* Expanded activity timeline */}
+        {shouldExpand && (
+          <div className="ml-1 mt-1.5 pl-3 border-l-2 border-dotted border-gray-200 space-y-2">
+            {turn.toolCalls.map((call, index) => {
+              const isCompleted = call.status === 'completed';
+              const isError = call.status === 'error';
+              const isRunning = call.status === 'calling';
+              const statusMsg = toolStatusMessages.get(call.tool_call_id);
+              
+              return (
+                <div key={call.tool_call_id} className="relative -ml-[9px]">
+                  {/* Activity item */}
+                  <div className="flex items-start gap-2 text-sm">
+                    {/* Icon - positioned on the border line */}
+                    <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-white">
+                      {isCompleted && (
+                        <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      {isError && (
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                      {isRunning && (
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                      )}
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium text-gray-700">
+                          {formatToolName(call.tool_name)}
+                        </span>
+                        <span className="text-[10px]">{getToolIcon(call.tool_name)}</span>
+                      </div>
+                      
+                      {/* Show detailed status/description - from persisted statusMessage or live map */}
+                      {(call.statusMessage || statusMsg) && (
+                        <div className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+                          {call.statusMessage || statusMsg}
+                        </div>
+                      )}
+                      
+                      {/* Show error */}
+                      {isError && call.error && (
+                        <div className="text-[11px] text-red-600 mt-0.5">
+                          Error: {call.error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -755,82 +894,6 @@ export default function ChatView() {
               </div>
             )}
 
-            {/* Current Tool Activity */}
-            {currentToolCalls.length > 0 && (
-              <div className="mb-2 px-2">
-                <button
-                  onClick={() => {
-                    if (currentTurnId) {
-                      setToolCallHistory((prev) => 
-                        prev.map((turn) => 
-                          turn.turnId === currentTurnId 
-                            ? { ...turn, expanded: !turn.expanded }
-                            : turn
-                        )
-                      );
-                    }
-                  }}
-                  className="text-xs text-gray-400 hover:text-gray-500 transition-colors flex items-center gap-1"
-                >
-                  <svg
-                    className={`w-3 h-3 transition-transform ${
-                      toolCallHistory.find(t => t.turnId === currentTurnId)?.expanded ? 'rotate-90' : ''
-                    }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <span>Activity</span>
-                </button>
-
-                {toolCallHistory.find(t => t.turnId === currentTurnId)?.expanded && (
-                  <div className="mt-1.5 ml-5 space-y-0.5">
-                    {(() => {
-                      const grouped = currentToolCalls.reduce((acc, toolCall) => {
-                        const name = toolCall.tool_name;
-                        if (!acc[name]) {
-                          acc[name] = [];
-                        }
-                        acc[name].push(toolCall);
-                        return acc;
-                      }, {} as Record<string, ToolCallStatus[]>);
-
-                      return Object.entries(grouped).map(([toolName, calls]) => {
-                        const anyCalling = calls.some(c => c.status === 'calling');
-                        
-                        return (
-                          <div key={toolName} className="text-xs text-gray-500">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm">{getToolIcon(toolName)}</span>
-                              <span>{formatToolName(toolName)}</span>
-                              {calls.length > 1 && (
-                                <span className="text-gray-400">×{calls.length}</span>
-                              )}
-                              {anyCalling && <span className="text-blue-500 animate-pulse text-xs">●</span>}
-                            </div>
-                            
-                            {calls.map((call) => {
-                              const statusMsg = toolStatusMessages.get(call.tool_call_id);
-                              if (statusMsg && call.status === 'calling') {
-                                return (
-                                  <div key={call.tool_call_id} className="ml-5 text-xs text-gray-400 italic">
-                                    {statusMsg}
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })}
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Loading dots */}
             {isLoading && currentToolCalls.length === 0 && !streamingMessage && !isThinking && (
               <div className="flex justify-start mb-4 px-2">
@@ -864,14 +927,6 @@ export default function ChatView() {
         </div>
       </div>
 
-      {/* Resources Sidebar */}
-      <ResourcesSidebar
-        resources={resources}
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        onSelectResource={handleSelectResource}
-      />
-
       {/* Resource Viewer Modal */}
       <ResourceViewer
         resource={selectedResource}
@@ -879,21 +934,7 @@ export default function ChatView() {
         onClose={() => setSelectedResource(null)}
       />
 
-      {/* Resources Button (Floating) */}
-      {resources.length > 0 && (
-        <button
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="fixed bottom-24 right-6 flex items-center gap-2 px-4 py-3 bg-blue-600 text-white font-medium rounded-full shadow-lg hover:bg-blue-700 transition-all hover:scale-105"
-        >
-          <span className="text-lg">📦</span>
-          <span>Resources</span>
-          <span className="bg-white text-blue-600 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-            {resources.length}
-          </span>
-        </button>
-      )}
-
-      {/* Files modal (Manus-style) */}
+      {/* Files modal */}
       {chatId && (
         <ChatFilesModal
           isOpen={isFilesModalOpen}
