@@ -47,10 +47,13 @@ class Config:
     
     # API Configuration
     API_HOST = os.getenv("API_HOST", "0.0.0.0")
-    API_PORT = int(os.getenv("API_PORT", "8000"))
+    API_PORT = int(os.getenv("PORT", os.getenv("API_PORT", "8000")))
     
-    # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
+    # CORS - Parse comma-separated origins, with production defaults
+    CORS_ORIGINS = os.getenv(
+        "CORS_ORIGINS", 
+        "http://localhost:3000,http://localhost:3001,https://finch-omega.vercel.app"
+    ).split(",")
     
     # LangFuse (optional - for LLM observability)
     LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
