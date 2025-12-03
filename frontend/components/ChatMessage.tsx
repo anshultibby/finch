@@ -18,14 +18,19 @@ interface ChatMessageProps {
   content: string;
   timestamp?: string;
   resources?: Resource[];
+  onFileClick?: (filename: string, chatId: string) => void;
+  chatId?: string;
 }
 
-export default function ChatMessage({ role, content, timestamp, resources }: ChatMessageProps) {
+export default function ChatMessage({ role, content, timestamp, resources, onFileClick, chatId }: ChatMessageProps) {
   const isUser = role === 'user';
   const [plotLoaded, setPlotLoaded] = useState(false);
   
   // Check for plot resources
   const plotResources = resources?.filter(r => r.resource_type === 'plot') || [];
+  
+  // Check for file resources
+  const fileResources = resources?.filter(r => r.resource_type === 'file') || [];
   
   useEffect(() => {
     // Wait for Plotly to load
@@ -40,13 +45,14 @@ export default function ChatMessage({ role, content, timestamp, resources }: Cha
     }
   }, [plotResources.length]);
   
-  // Parse content for plot references like [plot:title] or [chart:title]
+  // Parse content for plot references like [plot:title] or [chart:title], and file references like [file:filename]
   const renderContentWithPlots = () => {
-    // Check if content has plot markers
+    // Check if content has plot markers or file markers
     const hasPlotMarkers = /\[(?:plot|chart):[^\]]+\]/gi.test(content);
+    const hasFileMarkers = /\[file:[^\]]+\]/gi.test(content);
     
-    if (!hasPlotMarkers || !resources || resources.length === 0) {
-      // No plot markers, render as normal markdown
+    if (!hasPlotMarkers && !hasFileMarkers) {
+      // No special markers, render as normal markdown
       return (
         <ReactMarkdown
           remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
@@ -57,17 +63,47 @@ export default function ChatMessage({ role, content, timestamp, resources }: Cha
       );
     }
     
-    // Split content by plot markers
-    const parts = content.split(/(\[(?:plot|chart):[^\]]+\])/gi);
+    // Split content by plot markers and file markers
+    const parts = content.split(/(\[(?:plot|chart|file):[^\]]+\])/gi);
     const elements: (JSX.Element | string)[] = [];
     
     parts.forEach((part, idx) => {
       const plotMatch = part.match(/\[(?:plot|chart):([^\]]+)\]/i);
+      const fileMatch = part.match(/\[file:([^\]]+)\]/i);
       
-      if (plotMatch) {
+      if (fileMatch) {
+        // This is a file reference
+        const filename = fileMatch[1].trim();
+        const fileResource = fileResources.find(f => 
+          f.data?.filename === filename
+        );
+        
+        if (fileResource && onFileClick && chatId) {
+          // Render as clickable link with file icon
+          elements.push(
+            <button
+              key={`file-${idx}`}
+              onClick={() => onFileClick(filename, chatId)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 mx-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-blue-700 font-medium text-sm transition-all hover:shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              {filename}
+            </button>
+          );
+        } else {
+          // File not found or no click handler, render as text
+          elements.push(
+            <span key={`file-notfound-${idx}`} className="inline-flex items-center gap-1 mx-1 text-gray-500 text-sm italic">
+              📄 {filename}
+            </span>
+          );
+        }
+      } else if (plotMatch) {
         // This is a plot reference
         const plotTitle = plotMatch[1].trim();
-        const plotResource = resources.find(r => 
+        const plotResource = resources?.find(r => 
           r.resource_type === 'plot' && 
           r.title.toLowerCase().includes(plotTitle.toLowerCase())
         );

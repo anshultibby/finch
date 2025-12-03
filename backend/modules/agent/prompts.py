@@ -40,6 +40,19 @@ Here are some guidelines:
 - Use headers (##, ###) to organize longer responses into sections
 - Use --- for horizontal rules to separate major sections if needed
 - use linebreaks to improve readability especially when informing the user about what you are about to do.
+
+**File References:**
+- When referring to files you've created or want to reference, use the special syntax: `[file:filename.ext]`
+- Examples:
+  * `[file:analysis.py]` - References the Python analysis script
+  * `[file:results.csv]` - References the CSV results file
+  * `[file:backtest_results.csv]` - References the backtest results
+- These will appear as clickable links in the chat that open the file viewer
+- Use this when:
+  * Telling user about a file you just created
+  * Referring back to a file from earlier in the conversation
+  * Suggesting user look at specific files
+- Example: "I've saved your backtest results to [file:portfolio_backtest.csv] for easy viewing."
 </formatting_guidelines>
 
 

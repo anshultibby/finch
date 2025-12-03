@@ -523,6 +523,21 @@ export default function ChatView() {
     setSelectedResource(resource);
   };
 
+  const handleFileClick = (filename: string, chatId: string) => {
+    // Find the file resource matching the filename
+    const fileResource = resources.find(r => 
+      r.resource_type === 'file' && 
+      r.data?.filename === filename &&
+      r.chat_id === chatId
+    );
+    
+    if (fileResource) {
+      setSelectedResource(fileResource);
+    } else {
+      console.warn(`File resource not found: ${filename} in chat ${chatId}`);
+    }
+  };
+
   const getToolIcon = (toolName: string) => {
     if (toolName.includes('portfolio')) return '📊';
     if (toolName.includes('reddit')) return '📱';
@@ -828,6 +843,8 @@ export default function ChatView() {
                     content={message.content}
                     timestamp={message.timestamp}
                     resources={messageResources}
+                    onFileClick={handleFileClick}
+                    chatId={chatId || undefined}
                   />
                   {turnForThis && renderToolActivity(turnForThis.turnId)}
                 </React.Fragment>
@@ -874,6 +891,8 @@ export default function ChatView() {
                   role="assistant"
                   content={streamingMessage}
                   timestamp={new Date().toISOString()}
+                  onFileClick={handleFileClick}
+                  chatId={chatId || undefined}
                 />
               </div>
             )}

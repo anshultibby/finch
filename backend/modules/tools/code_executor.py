@@ -86,13 +86,37 @@ class VirtualFilesystem:
                 file_path = os.path.join(self.temp_dir, filename)
                 
                 # Create subdirectories if needed
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                file_dir = os.path.dirname(file_path)
+                if file_dir:
+                    os.makedirs(file_dir, exist_ok=True)
                 
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                # Detect if this is base64-encoded binary data
+                is_binary = False
+                try:
+                    # Try to detect base64 encoded binary files
+                    # Check if content looks like base64 (only alphanumeric, +, /, =)
+                    if len(content) > 100 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n' for c in content[:100]):
+                        # Try to decode as base64
+                        import base64
+                        try:
+                            binary_data = base64.b64decode(content)
+                            # If successful and looks like PNG/image, it's binary
+                            if binary_data[:4] == b'\x89PNG' or binary_data[:2] in [b'\xff\xd8', b'GIF', b'BM']:
+                                is_binary = True
+                                with open(file_path, 'wb') as f:
+                                    f.write(binary_data)
+                                self.file_hashes[filename] = hashlib.md5(binary_data).hexdigest()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 
-                # Track original hash
-                self.file_hashes[filename] = self._hash_content(content)
+                if not is_binary:
+                    # Regular text file
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    self.file_hashes[filename] = self._hash_content(content)
+                
                 mounted_count += 1
         
         if mounted_count > 0:
@@ -132,15 +156,21 @@ class VirtualFilesystem:
                 
                 current_files.add(relative_path)
                 
+                # Try to read as text first, then fall back to binary
+                is_binary = False
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
+                    current_hash = self._hash_content(content)
                 except UnicodeDecodeError:
-                    # Skip binary files or handle them separately
-                    logger.warning(f"Skipping binary file: {relative_path}")
-                    continue
-                
-                current_hash = self._hash_content(content)
+                    # Binary file - read as bytes and base64 encode
+                    is_binary = True
+                    with open(file_path, 'rb') as f:
+                        binary_content = f.read()
+                    import base64
+                    content = base64.b64encode(binary_content).decode('ascii')
+                    current_hash = hashlib.md5(binary_content).hexdigest()
+                    logger.info(f"Detected binary file: {relative_path} ({len(binary_content)} bytes)")
                 
                 # Check if new or modified
                 if relative_path not in self.file_hashes:
@@ -152,7 +182,8 @@ class VirtualFilesystem:
                         content
                     )
                     changes["new"].append(relative_path)
-                    logger.info(f"New file: {relative_path}")
+                    file_type = " (binary)" if is_binary else ""
+                    logger.info(f"New file{file_type}: {relative_path}")
                 
                 elif current_hash != self.file_hashes[relative_path]:
                     # Modified file
@@ -163,7 +194,8 @@ class VirtualFilesystem:
                         content
                     )
                     changes["modified"].append(relative_path)
-                    logger.info(f"Modified file: {relative_path}")
+                    file_type = " (binary)" if is_binary else ""
+                    logger.info(f"Modified file{file_type}: {relative_path}")
         
         # Check for deleted files
         for old_file in self.file_hashes.keys():
