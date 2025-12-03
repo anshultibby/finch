@@ -209,34 +209,195 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
     }
 
     const fileType = resource?.data?.file_type || 'text';
-    const getLanguageClass = () => {
-      switch (fileType) {
-        case 'python': return 'language-python';
-        case 'json': return 'language-json';
-        case 'markdown': return 'language-markdown';
-        case 'csv': return 'language-csv';
-        default: return 'language-text';
-      }
-    };
+    const filename = resource?.data?.filename || '';
+    
+    // CSV files - render as a table
+    if (fileType === 'csv' || filename.endsWith('.csv')) {
+      try {
+        const lines = fileContent.split('\n').filter(line => line.trim());
+        const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+        const rows = lines.slice(1).map(line => {
+          // Simple CSV parsing - doesn't handle quoted commas yet
+          return line.split(',').map(cell => cell.trim());
+        });
 
+        return (
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+            <div className="px-5 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900 text-sm">{filename}</h4>
+                    <p className="text-xs text-gray-600">{rows.length} rows × {headers.length} columns</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0 z-10">
+                  <tr>
+                    {headers.map((header, i) => (
+                      <th
+                        key={i}
+                        className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-200 last:border-r-0 whitespace-nowrap"
+                      >
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {rows.map((row, i) => (
+                    <tr key={i} className="hover:bg-blue-50 transition-colors">
+                      {row.map((cell, j) => (
+                        <td
+                          key={j}
+                          className="px-4 py-3 text-sm text-gray-900 border-r border-gray-100 last:border-r-0 whitespace-nowrap"
+                        >
+                          {cell || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } catch (error) {
+        console.error('Error parsing CSV:', error);
+        // Fall through to raw text view
+      }
+    }
+    
+    // JSON files - render with syntax highlighting
+    if (fileType === 'json' || filename.endsWith('.json')) {
+      try {
+        const parsed = JSON.parse(fileContent);
+        const formatted = JSON.stringify(parsed, null, 2);
+        
+        return (
+          <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-700">
+            <div className="px-5 py-3 bg-gray-800 border-b border-gray-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-900/50 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-white text-sm">{filename}</h4>
+                    <p className="text-xs text-gray-400">JSON Document</p>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-500 font-mono">
+                  {(resource?.data?.size_bytes || 0).toLocaleString()} bytes
+                </span>
+              </div>
+            </div>
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+              <pre className="text-gray-100 p-6 text-sm leading-relaxed">
+                <code className="language-json">{formatted}</code>
+              </pre>
+            </div>
+          </div>
+        );
+      } catch (error) {
+        console.error('Error parsing JSON:', error);
+        // Fall through to raw text view
+      }
+    }
+    
+    // Python files - render with syntax highlighting
+    if (fileType === 'python' || filename.endsWith('.py')) {
+      return (
+        <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-700">
+          <div className="px-5 py-3 bg-gray-800 border-b border-gray-700">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-900/50 rounded-lg flex items-center justify-center">
+                  <span className="text-2xl">🐍</span>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-white text-sm">{filename}</h4>
+                  <p className="text-xs text-gray-400">Python Script</p>
+                </div>
+              </div>
+              <span className="text-xs text-gray-500 font-mono">
+                {fileContent.split('\n').length} lines
+              </span>
+            </div>
+          </div>
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+            <pre className="text-gray-100 p-6 text-sm leading-relaxed font-mono">
+              <code className="language-python">{fileContent}</code>
+            </pre>
+          </div>
+        </div>
+      );
+    }
+    
+    // Markdown files - render with formatting
+    if (fileType === 'markdown' || filename.endsWith('.md')) {
+      return (
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+          <div className="px-5 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-gray-900 text-sm">{filename}</h4>
+                  <p className="text-xs text-gray-600">Markdown Document</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto p-6">
+            <pre className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap font-sans">
+              {fileContent}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
+    // Default - plain text with prettier styling
     return (
-      <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden">
-        <div className="px-4 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-gray-400">
-              {resource?.data?.filename}
-            </span>
-            <span className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">
-              {fileType}
+      <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-700">
+        <div className="px-5 py-3 bg-gray-800 border-b border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h4 className="font-semibold text-white text-sm">{filename}</h4>
+                <p className="text-xs text-gray-400 capitalize">{fileType || 'text'}</p>
+              </div>
+            </div>
+            <span className="text-xs text-gray-500 font-mono">
+              {(resource?.data?.size_bytes || 0).toLocaleString()} bytes
             </span>
           </div>
-          <span className="text-xs text-gray-500">
-            {(resource?.data?.size_bytes || 0)} bytes
-          </span>
         </div>
-        <pre className={`text-gray-100 p-6 text-sm overflow-x-auto leading-relaxed ${getLanguageClass()}`}>
-          <code>{fileContent}</code>
-        </pre>
+        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+          <pre className="text-gray-100 p-6 text-sm leading-relaxed font-mono">
+            <code>{fileContent}</code>
+          </pre>
+        </div>
       </div>
     );
   };

@@ -27,15 +27,6 @@ export default function Home() {
         <ChatModeProvider>
           <main className="min-h-screen bg-gray-50">
             <AppLayout
-              strategiesView={
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <div className="text-6xl mb-4">📈</div>
-                    <h3 className="text-2xl font-bold text-gray-900 mb-2">Strategies Coming Soon</h3>
-                    <p className="text-gray-600">Build and manage trading strategies</p>
-                  </div>
-                </div>
-              }
               chatView={<ChatView />}
               filesView={chatId ? <FilesView chatId={chatId} /> : <div>Loading...</div>}
               analyticsView={

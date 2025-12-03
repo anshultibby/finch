@@ -7,7 +7,6 @@ export default function TabNavigation() {
   const { currentView, navigateTo } = useNavigation();
 
   const tabs: { id: View; label: string; icon: string; color: string; disabled?: boolean }[] = [
-    { id: 'strategies', label: 'Strategies', icon: '📊', color: 'purple' },
     { id: 'chat', label: 'Chat', icon: '💬', color: 'blue' },
     { id: 'files', label: 'Files', icon: '📁', color: 'orange' },
     { id: 'analytics', label: 'Analytics', icon: '📈', color: 'green', disabled: true },

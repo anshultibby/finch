@@ -8,11 +8,12 @@ interface ChatFilesModalProps {
   isOpen: boolean;
   onClose: () => void;
   chatId: string;
+  onSelectResource: (resource: Resource) => void;
 }
 
 type FileCategory = 'all' | 'documents' | 'images' | 'code' | 'links';
 
-export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesModalProps) {
+export default function ChatFilesModal({ isOpen, onClose, chatId, onSelectResource }: ChatFilesModalProps) {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<FileCategory>('all');
@@ -142,6 +143,10 @@ export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesMod
                 return (
                   <div
                     key={resource.id}
+                    onClick={() => {
+                      onSelectResource(resource);
+                      onClose();
+                    }}
                     className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
                   >
                     <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -156,7 +161,13 @@ export default function ChatFilesModal({ isOpen, onClose, chatId }: ChatFilesMod
                         {timeStr}
                       </p>
                     </div>
-                    <button className="text-gray-400 hover:text-gray-600">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Future: Add menu options like download, delete, etc.
+                      }}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
                       <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                       </svg>

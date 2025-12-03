@@ -940,6 +940,7 @@ export default function ChatView() {
           isOpen={isFilesModalOpen}
           onClose={() => setIsFilesModalOpen(false)}
           chatId={chatId}
+          onSelectResource={handleSelectResource}
         />
       )}
       </div>

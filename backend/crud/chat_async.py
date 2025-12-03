@@ -43,6 +43,35 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
     return list(result.scalars().all())
 
 
+async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int = 50, max_length: int = 100) -> List[dict]:
+    """
+    Get all chats for a user with last message preview.
+    Simplified to avoid connection pool exhaustion with complex queries.
+    """
+    # Simple query - just get the chats
+    result = await db.execute(
+        select(Chat)
+        .where(Chat.user_id == user_id)
+        .order_by(Chat.updated_at.desc())
+        .limit(limit)
+    )
+    chats = result.scalars().all()
+    
+    # Format results - skip last message preview for now to avoid N+1 queries
+    # Frontend can fetch preview separately if needed
+    chats_list = []
+    for chat in chats:
+        chats_list.append({
+            "chat_id": chat.chat_id,
+            "title": chat.title,
+            "created_at": chat.created_at.isoformat(),
+            "updated_at": chat.updated_at.isoformat(),
+            "last_message": None  # Skip for performance - frontend can load on demand
+        })
+    
+    return chats_list
+
+
 async def get_last_message_preview(db: AsyncSession, chat_id: str, max_length: int = 100) -> Optional[str]:
     """Get a preview of the last user or assistant message in a chat"""
     from models.db import ChatMessage

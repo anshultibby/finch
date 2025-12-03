@@ -47,6 +47,7 @@ class ChatService:
         with tracer.start_as_current_span("chat_turn"):
             logger.info(f"Starting chat turn for user {user_id}")
             
+            # STEP 1: Load history and save user message (then close DB connection)
             async with AsyncSessionLocal() as db:
                 # Database calls are auto-traced by OpenTelemetry
                 db_chat = await chat_async.get_chat(db, chat_id)
@@ -56,20 +57,6 @@ class ChatService:
                 # Load chat history using ChatHistory model
                 db_messages = await chat_async.get_chat_messages(db, chat_id)
                 history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
-                context = context_manager.get_all_context(user_id)
-                
-                agent_context = AgentContext(
-                    user_id=user_id,
-                    chat_id=chat_id,
-                    data=context  # Additional context data (auth status, credentials, etc.)
-                )
-                
-                # Create agent using centralized factory (one per request to avoid state conflicts)
-                agent = create_main_agent(
-                    context=agent_context,
-                    system_prompt=FINCH_SYSTEM_PROMPT,
-                    model=Config.LLM_MODEL
-                )
                 
                 # Save user message FIRST before streaming
                 # Get next sequence from DB to avoid conflicts
@@ -81,28 +68,47 @@ class ChatService:
                     content=message,
                     sequence=start_sequence
                 )
-                
-                # Add user message to history
-                history.add_user_message(message)
-                
-                # Track tool status messages to save them as assistant messages
-                tool_status_messages = []
-                
-                # Stream events from agent (LLM calls auto-traced by OpenTelemetry)
-                with tracer.start_as_current_span("agent_processing"):
-                    async for event in agent.process_message_stream(
-                        message=message,
-                        chat_history=history
-                    ):
-                        # Save tool_status events as messages (like Manus does with message_notify_user)
-                        if event.event == "tool_status" and isinstance(event.data, dict):
-                            status_msg = event.data.get("message", "")
-                            if status_msg:
-                                tool_status_messages.append(status_msg)
-                        
-                        # Yield the SSE formatted event
-                        yield event.to_sse_format()
-                
+            # DB connection closed here - don't hold it during streaming!
+            
+            # STEP 2: Process message (no DB connection held)
+            context = context_manager.get_all_context(user_id)
+            
+            agent_context = AgentContext(
+                user_id=user_id,
+                chat_id=chat_id,
+                data=context  # Additional context data (auth status, credentials, etc.)
+            )
+            
+            # Create agent using centralized factory (one per request to avoid state conflicts)
+            agent = create_main_agent(
+                context=agent_context,
+                system_prompt=FINCH_SYSTEM_PROMPT,
+                model=Config.LLM_MODEL
+            )
+            
+            # Add user message to history
+            history.add_user_message(message)
+            
+            # Track tool status messages to save them as assistant messages
+            tool_status_messages = []
+            
+            # Stream events from agent (LLM calls auto-traced by OpenTelemetry)
+            with tracer.start_as_current_span("agent_processing"):
+                async for event in agent.process_message_stream(
+                    message=message,
+                    chat_history=history
+                ):
+                    # Save tool_status events as messages (like Manus does with message_notify_user)
+                    if event.event == "tool_status" and isinstance(event.data, dict):
+                        status_msg = event.data.get("message", "")
+                        if status_msg:
+                            tool_status_messages.append(status_msg)
+                    
+                    # Yield the SSE formatted event
+                    yield event.to_sse_format()
+            
+            # STEP 3: Save assistant messages (new DB connection)
+            async with AsyncSessionLocal() as db:
                 # After streaming, save new messages to database
                 new_messages = agent.get_new_messages()
                 logger.info(f"Saving {len(new_messages)} messages + {len(tool_status_messages)} status messages to database")
@@ -162,22 +168,8 @@ class ChatService:
             return await chat_async.get_chat(db, chat_id) is not None
     
     async def get_user_chats(self, user_id: str, limit: int = 50) -> List[dict]:
-        """Get all chats for a user with last message preview"""
+        """Get all chats for a user with last message preview (single optimized query)"""
         async with AsyncSessionLocal() as db:
-            chats = await chat_async.get_user_chats(db, user_id, limit)
-            result = []
-            
-            for chat in chats:
-                # Get the last user or assistant message for preview
-                last_message = await chat_async.get_last_message_preview(db, chat.chat_id)
-                
-                result.append({
-                    "chat_id": chat.chat_id,
-                    "title": chat.title,
-                    "created_at": chat.created_at.isoformat(),
-                    "updated_at": chat.updated_at.isoformat(),
-                    "last_message": last_message
-                })
-            
-            return result
+            # Use optimized function that gets chats and previews in a single query
+            return await chat_async.get_user_chats_with_preview(db, user_id, limit)
 

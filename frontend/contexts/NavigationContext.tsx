@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type View = 'strategies' | 'chat' | 'files' | 'analytics';
+export type View = 'chat' | 'files' | 'analytics';
 
 interface NavigationContextType {
   currentView: View;
@@ -12,7 +12,7 @@ interface NavigationContextType {
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
-  const [currentView, setCurrentView] = useState<View>('strategies');
+  const [currentView, setCurrentView] = useState<View>('chat');
 
   const navigateTo = (view: View) => {
     setCurrentView(view);

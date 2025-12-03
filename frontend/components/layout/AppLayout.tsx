@@ -9,14 +9,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { snaptradeApi } from '@/lib/api';
 
 interface AppLayoutProps {
-  strategiesView: ReactNode;
   chatView: ReactNode;
   filesView: ReactNode;
   analyticsView: ReactNode;
 }
 
 export default function AppLayout({ 
-  strategiesView, 
   chatView,
   filesView,
   analyticsView 
@@ -44,8 +42,6 @@ export default function AppLayout({
 
   const getCurrentView = () => {
     switch (currentView) {
-      case 'strategies':
-        return strategiesView;
       case 'chat':
         return chatView;
       case 'files':
@@ -53,7 +49,7 @@ export default function AppLayout({
       case 'analytics':
         return analyticsView;
       default:
-        return strategiesView;
+        return chatView;
     }
   };
 

@@ -1,13 +1,14 @@
 """
 Analytics API routes
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 from datetime import datetime
+from sqlalchemy.orm import Session
 from services.analytics import analytics_service
 from services.transaction_sync import transaction_sync_service
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
-from database import SessionLocal
+from database import get_db
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -83,7 +84,8 @@ async def get_transactions(
     symbol: Optional[str] = Query(None),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    limit: int = Query(100, le=500)
+    limit: int = Query(100, le=500),
+    db: Session = Depends(get_db)
 ):
     """
     Get transaction history
@@ -97,8 +99,6 @@ async def get_transactions(
     from crud import transactions as tx_crud
     
     try:
-        db = SessionLocal()
-        
         # Parse dates if provided
         start_dt = datetime.fromisoformat(start_date) if start_date else None
         end_dt = datetime.fromisoformat(end_date) if end_date else None
@@ -124,8 +124,6 @@ async def get_transactions(
                 "data": tx.data,
                 "created_at": tx.created_at.isoformat()
             })
-        
-        db.close()
         
         return {
             "transactions": formatted,
