@@ -213,6 +213,8 @@ async def write_chat_file(
             file_type = "csv"
         elif filename.endswith('.json'):
             file_type = "json"
+        elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
+            file_type = "image"
         
         # Emit SSE resource event so frontend shows the file
         yield SSEEvent(

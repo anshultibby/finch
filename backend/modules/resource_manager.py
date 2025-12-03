@@ -114,6 +114,8 @@ class ResourceManager:
             file_type = "csv"
         elif filename.endswith('.json'):
             file_type = "json"
+        elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
+            file_type = "image"
         
         db = next(get_db())
         try:

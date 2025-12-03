@@ -282,8 +282,9 @@ class BaseAgent:
             )
             
         except Exception as e:
-            logger.error(f"Error: {str(e)}")
-            logger.debug(f"Traceback: {traceback_module.format_exc()}")
+            error_msg = f"{type(e).__name__}: {str(e)}" if str(e) else f"{type(e).__name__} (no message)"
+            logger.error(f"Error in process_message_stream: {error_msg}")
+            logger.error(f"Traceback:\n{traceback_module.format_exc()}")
             
             yield SSEEvent(
                 event="error",

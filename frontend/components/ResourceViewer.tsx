@@ -211,6 +211,53 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
     const fileType = resource?.data?.file_type || 'text';
     const filename = resource?.data?.filename || '';
     
+    // Image files - render as image
+    const isImage = filename.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i);
+    if (isImage) {
+      // Check if content is base64 encoded (from binary files)
+      const isBase64 = fileContent.length > 100 && !fileContent.includes('\n') && 
+                       /^[A-Za-z0-9+/=]+$/.test(fileContent.substring(0, 100));
+      
+      const imageExtension = filename.split('.').pop()?.toLowerCase() || 'png';
+      const mimeType = imageExtension === 'svg' ? 'image/svg+xml' : `image/${imageExtension}`;
+      const imageSrc = isBase64 
+        ? `data:${mimeType};base64,${fileContent}`
+        : fileContent; // For SVG or already-formatted data URLs
+      
+      return (
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+          <div className="px-5 py-3 bg-gradient-to-r from-purple-50 to-pink-50 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-gray-900 text-sm">{filename}</h4>
+                  <p className="text-xs text-gray-600">Image • {imageExtension.toUpperCase()}</p>
+                </div>
+              </div>
+              <span className="text-xs text-gray-500 font-mono">
+                {(resource?.data?.size_bytes || 0).toLocaleString()} bytes
+              </span>
+            </div>
+          </div>
+          <div className="p-6 bg-gray-50 flex items-center justify-center">
+            <div className="max-w-full">
+              <img 
+                src={imageSrc} 
+                alt={filename}
+                className="max-w-full h-auto rounded-lg shadow-md border border-gray-200"
+                style={{ maxHeight: '70vh' }}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
     // CSV files - render as a table
     if (fileType === 'csv' || filename.endsWith('.csv')) {
       try {
