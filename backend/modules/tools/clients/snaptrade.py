@@ -878,7 +878,7 @@ class SnapTradeTools:
                 event="tool_log",
                 data={
                     "level": "info",
-                    "message": f"✓ Retrieved portfolio: {num_accounts} account(s), ${total_value:,.2f} total value"
+                    "message": f"Retrieved portfolio: {num_accounts} account(s), ${total_value:,.2f} total value"
                 }
             )
         

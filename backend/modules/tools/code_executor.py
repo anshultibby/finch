@@ -224,53 +224,41 @@ class VirtualFilesystem:
 
 @tool(
     name="execute_code",
-    description="""Execute Python code with persistent filesystem (60s timeout).
+    description="""Execute Python code with direct API access and persistent filesystem (60s timeout).
 
-**Persistent Filesystem:**
-- All files from previous executions are automatically available
-- Write files normally: `df.to_csv('data.csv')`
-- Read files from previous runs: `df = pd.read_csv('data.csv')`
-- Changes are automatically saved to your chat resources
-- Files persist across multiple code executions
-
-**What it does:**
-1. Mounts all your existing chat files into execution environment
-2. Runs your Python code
-3. Automatically saves any new/modified files
-4. Returns execution results
-
-**Examples:**
-
-First execution:
+**Direct API Access - Import finch_runtime:**
 ```python
-# Save some data
-df.to_csv('results.csv', index=False)
-print("Saved results")
+# Add at top of your code for direct API access
+from modules.tools.finch_runtime import fmp, reddit, fetch_multiple_stocks, combine_financial_data
+
+# Now use the clients
+quote = fmp.get_quote('AAPL')
+trades = fmp.get_insider_trading('NVDA', limit=50)
+trending = reddit.get_trending(limit=10)
+
+# Batch processing
+data = fetch_multiple_stocks(['AAPL', 'MSFT', 'GOOGL'], 'quote')
 ```
 
-Later execution (different execute_code call):
+**Available API Methods:**
+fmp: `fetch(endpoint, params)`, `get_quote(symbol)`, `get_income_statement(symbol)`, 
+     `get_balance_sheet(symbol)`, `get_key_metrics(symbol)`, `get_insider_trading(symbol)`,
+     `get_historical_prices(symbol, from_date, to_date)`
+reddit: `get_trending(limit)`, `get_ticker_sentiment(ticker)`
+
+**Persistent Filesystem:**
+Files persist across executions:
 ```python
-# Read the data from previous execution
+df.to_csv('results.csv')  # Save
+# Later execution can read it
 df = pd.read_csv('results.csv')
-print(f"Loaded {len(df)} rows")
 ```
 
 **Environment:**
-- FMP_API_KEY available as environment variable
-- Standard libraries: pandas, numpy, requests, matplotlib, plotly, etc.
-- All your previous files are accessible
-
-**Best Practices:**
-- Save intermediate results as CSV
-- Write visualization code separately from data processing
-- Use descriptive filenames (e.g., 'backtest_results.csv', not 'data.csv')
-- Print progress for long-running operations
-
-**Error Handling:**
-If execution fails:
-1. Check stderr for error message
-2. Fix the issue (use replace_in_chat_file to edit)
-3. Re-run execute_code""",
+- Standard libs: pandas, numpy, requests, matplotlib, plotly
+- FMP_API_KEY available in environment
+- All previous chat files mounted
+- Changes auto-saved to database""",
     category="code"
 )
 async def execute_code(
@@ -317,9 +305,20 @@ async def execute_code(
         })
         
         try:
-            # Write code to temp file
+            # Write code to temp file (no auto-imports - agent does this explicitly)
             with open(script_path, 'w') as f:
                 f.write(code)
+            
+            # Set up environment with proper PYTHONPATH for finch_runtime access
+            backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            env = os.environ.copy()
+            env['FMP_API_KEY'] = os.getenv('FMP_API_KEY', '')
+            
+            # Add backend directory to PYTHONPATH so "from modules.tools.finch_runtime import X" works
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{backend_dir}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = backend_dir
             
             # Execute with subprocess
             result = subprocess.run(
@@ -328,7 +327,7 @@ async def execute_code(
                 text=True,
                 timeout=60,
                 cwd=temp_dir,
-                env={**os.environ, 'FMP_API_KEY': os.getenv('FMP_API_KEY', '')}
+                env=env
             )
             
             # Sync changes back to database
@@ -368,9 +367,16 @@ async def execute_code(
                 stderr_truncated = stderr_truncated[:MAX_OUTPUT_SIZE] + "\n... [OUTPUT TRUNCATED]"
             
             if result.returncode != 0:
+                # Format error message with stderr for user
+                error_msg = f"Code failed with exit code {result.returncode}\n\n"
+                if stderr_truncated:
+                    error_msg += f"**Error output:**\n```\n{stderr_truncated}\n```"
+                if stdout_truncated:
+                    error_msg += f"\n\n**Standard output:**\n```\n{stdout_truncated}\n```"
+                
                 yield {
                     "success": False,
-                    "error": f"Code failed with exit code {result.returncode}",
+                    "error": error_msg,
                     "stderr": stderr_truncated,
                     "stdout": stdout_truncated,
                     "changes": changes
@@ -379,7 +385,7 @@ async def execute_code(
             
             yield SSEEvent(event="tool_status", data={
                 "status": "complete",
-                "message": f"✓ Execution complete{truncation_note}{files_msg}"
+                "message": f"Execution complete{truncation_note}{files_msg}"
             })
             
             yield {
@@ -387,7 +393,7 @@ async def execute_code(
                 "stdout": stdout_truncated,
                 "stderr": stderr_truncated,
                 "changes": changes,
-                "message": f"✓ Code executed successfully{truncation_note}{files_msg}"
+                "message": f"Code executed successfully{truncation_note}{files_msg}"
             }
         
         except subprocess.TimeoutExpired:

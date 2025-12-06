@@ -3,7 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Resource } from '@/lib/api';
+import { Resource, ToolCallStatus } from '@/lib/api';
+import ToolCallGroup from './ToolCallGroup';
 
 // Dynamic import for Plotly (client-side only)
 let Plot: any = null;
@@ -18,11 +19,12 @@ interface ChatMessageProps {
   content: string;
   timestamp?: string;
   resources?: Resource[];
+  toolCalls?: ToolCallStatus[];  // Tool calls that happened before this message
   onFileClick?: (filename: string, chatId: string) => void;
   chatId?: string;
 }
 
-export default function ChatMessage({ role, content, timestamp, resources, onFileClick, chatId }: ChatMessageProps) {
+export default function ChatMessage({ role, content, timestamp, resources, toolCalls, onFileClick, chatId }: ChatMessageProps) {
   const isUser = role === 'user';
   const [plotLoaded, setPlotLoaded] = useState(false);
   
@@ -177,7 +179,14 @@ export default function ChatMessage({ role, content, timestamp, resources, onFil
             <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
           </div>
         ) : (
-          /* AI messages: clean, readable markdown with subtle styling and inline plots */
+          /* AI messages: tool calls first, then content */
+          <>
+            {/* Tool Calls Group - shown before the message */}
+            {toolCalls && toolCalls.length > 0 && (
+              <ToolCallGroup toolCalls={toolCalls} timestamp={timestamp} />
+            )}
+            
+            {/* Message Content */}
           <div className="px-3 py-2">
             <div className="prose prose-sm prose-slate max-w-none
               prose-headings:font-semibold prose-headings:text-gray-900
@@ -196,6 +205,7 @@ export default function ChatMessage({ role, content, timestamp, resources, onFil
               {renderContentWithPlots()}
             </div>
           </div>
+          </>
         )}
       </div>
     </div>

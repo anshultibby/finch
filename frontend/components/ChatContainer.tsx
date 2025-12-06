@@ -97,15 +97,40 @@ export default function ChatContainer() {
       try {
         // Load chat history
         const history = await chatApi.getChatHistory(chatId);
+        
+        // Reconstruct tool call history from messages with tool_calls
+        const toolCallTurns: TurnToolCalls[] = [];
+        
         // Filter out system messages and only show user/assistant messages
         const userMessages = history.messages
           .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
-          .map((msg: any) => ({
-            role: msg.role,
-            content: msg.content || '',
-            timestamp: msg.timestamp
-          }));
+          .map((msg: any, index: number) => {
+            // If this assistant message has tool_calls, create a turn
+            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+              const toolCallStatuses: ToolCallStatus[] = msg.tool_calls.map((tc: any) => ({
+                tool_call_id: tc.id,
+                tool_name: tc.function?.name || 'unknown',
+                status: 'completed' as const, // Historical tool calls are always completed
+                statusMessage: tc.function?.arguments?.description || tc.function?.name || 'Tool execution',
+              }));
+              
+              toolCallTurns.push({
+                turnId: `historical-${index}`,
+                toolCalls: toolCallStatuses,
+                expanded: false,
+                messageIndex: index,
+              });
+            }
+            
+            return {
+              role: msg.role,
+              content: msg.content || '',
+              timestamp: msg.timestamp
+            };
+          });
+          
         setMessages(userMessages);
+        setToolCallHistory(toolCallTurns);
         
         // Load resources
         const chatResources = await resourcesApi.getChatResources(chatId);
@@ -299,6 +324,7 @@ export default function ChatContainer() {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
             status: 'calling',
+            statusMessage: event.user_description || event.tool_name, // Use LLM-provided description
           };
           toolCallsMap.set(event.tool_call_id, toolCallStatus);
           setCurrentToolCalls(Array.from(toolCallsMap.values()));
@@ -415,6 +441,28 @@ export default function ChatContainer() {
         onAssistantMessage: (event: SSEAssistantMessageEvent) => {
           needsAuth = event.needs_auth;
           setIsThinking(false);
+          
+          // Handle messages from message_notify_user and message_ask_user
+          // These are complete messages (not deltas) that should be added immediately
+          if (event.is_notification || event.is_question) {
+            // Clear any streaming message
+            streamingMessageRef.current = '';
+            setStreamingMessage('');
+            
+            // Add the notification/question as a complete message
+            const newMessage: Message = {
+              role: 'assistant',
+              content: event.content,
+              timestamp: event.timestamp,
+            };
+            
+            setMessages((prev) => [...prev, newMessage]);
+            
+            // If it's a question (message_ask_user), log it
+            if (event.is_question) {
+              console.log('Agent asked a question, waiting for user response');
+            }
+          }
         },
         
         onOptions: (event: SSEOptionsEvent) => {
@@ -669,6 +717,28 @@ export default function ChatContainer() {
         onAssistantMessage: (event: SSEAssistantMessageEvent) => {
           needsAuth = event.needs_auth;
           setIsThinking(false);
+          
+          // Handle messages from message_notify_user and message_ask_user
+          // These are complete messages (not deltas) that should be added immediately
+          if (event.is_notification || event.is_question) {
+            // Clear any streaming message
+            streamingMessageRef.current = '';
+            setStreamingMessage('');
+            
+            // Add the notification/question as a complete message
+            const newMessage: Message = {
+              role: 'assistant',
+              content: event.content,
+              timestamp: event.timestamp,
+            };
+            
+            setMessages((prev) => [...prev, newMessage]);
+            
+            // If it's a question (message_ask_user), log it
+            if (event.is_question) {
+              console.log('Agent asked a question, waiting for user response');
+            }
+          }
         },
         
         onOptions: (event: SSEOptionsEvent) => {
@@ -902,7 +972,7 @@ export default function ChatContainer() {
           </span>
           {completedCount > 0 && (
             <span className="text-xs text-green-600 font-medium">
-              {completedCount} ✓
+              {completedCount}
             </span>
           )}
           {errorCount > 0 && (
@@ -1256,17 +1326,17 @@ export default function ChatContainer() {
               
               // Find tool activity for this specific message index
               const turnForThis = toolCallHistory.find(t => t.messageIndex === index);
+              const toolCallsForMessage = turnForThis ? turnForThis.toolCalls : undefined;
               
               return (
-                <React.Fragment key={index}>
                   <ChatMessage
+                  key={index}
                     role={message.role}
                     content={message.content}
                     timestamp={message.timestamp}
                     resources={messageResources}
+                  toolCalls={toolCallsForMessage}
                   />
-                  {turnForThis && renderToolActivity(turnForThis.turnId)}
-                </React.Fragment>
               );
             })}
             {/* Options Display - Inline with messages */}

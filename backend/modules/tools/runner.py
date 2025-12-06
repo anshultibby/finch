@@ -89,10 +89,14 @@ class ToolRunner:
                 sig = inspect.signature(tool.handler)
                 kwargs = {"context": context}
                 
-                # Check if any parameter (excluding 'context') is a Pydantic model
+                # Strip out special parameters that shouldn't be passed to the tool
+                # 'description' is provided by LLM for user display, not for the tool function
+                tool_arguments = {k: v for k, v in arguments.items() if k != 'description'}
+                
+                # Check if any parameter (excluding 'context' and 'description') is a Pydantic model
                 pydantic_param = None
                 for param_name, param in sig.parameters.items():
-                    if param_name == 'context':
+                    if param_name in ('context', 'description'):
                         continue
                     
                     # Check if this parameter is a Pydantic BaseModel
@@ -136,11 +140,11 @@ class ToolRunner:
                             raise TypeError(f"Parameter '{param_name}' must be a dict or {param_class.__name__} instance, got {type(arg_value).__name__}. Received: {repr(arg_value)[:200]}")
                     else:
                         # Not wrapped, assume all arguments are for the model: {"data_series": ..., "plot_type": ...}
-                        logger.debug(f"Arguments flattened, constructing {param_class.__name__} from: {list(arguments.keys())}")
-                        kwargs[param_name] = param_class(**arguments)
+                        logger.debug(f"Arguments flattened, constructing {param_class.__name__} from: {list(tool_arguments.keys())}")
+                        kwargs[param_name] = param_class(**tool_arguments)
                 else:
-                    # No Pydantic models, just unpack arguments normally
-                    kwargs.update(arguments)
+                    # No Pydantic models, just unpack arguments normally (excluding 'description')
+                    kwargs.update(tool_arguments)
                 
                 # Execute tool (async or sync)
                 event_count = 0

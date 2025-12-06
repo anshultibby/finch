@@ -13,6 +13,13 @@ from typing import List
 
 # All tools available to the main Finch chat agent
 MAIN_AGENT_TOOLS = [
+    # Control
+    'idle',                        # Signal task completion and return to idle state
+    
+    # Communication (Manus-style - REQUIRED for all user interaction)
+    'message_notify_user',         # Send non-blocking progress updates/confirmations
+    'message_ask_user',            # Ask questions and wait for user response
+    
     # Portfolio & Brokerage
     'get_portfolio',
     'request_brokerage_connection',

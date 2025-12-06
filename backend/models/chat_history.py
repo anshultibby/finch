@@ -183,13 +183,19 @@ class ChatHistory(BaseModel):
         for db_msg in db_messages:
             self.add_message(ChatMessage.from_db(db_msg))
     
-    def to_openai_format(self) -> List[Dict[str, Any]]:
+    def to_openai_format(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Convert to OpenAI API format.
         
+        Args:
+            limit: Optional limit on number of messages to return (most recent N messages)
+        
         Returns list of dicts suitable for LLM API calls.
         """
-        return [msg.to_openai_format() for msg in self.messages]
+        messages = self.messages
+        if limit is not None and limit > 0:
+            messages = messages[-limit:]
+        return [msg.to_openai_format() for msg in messages]
     
     def to_db_format(self) -> List[Dict[str, Any]]:
         """

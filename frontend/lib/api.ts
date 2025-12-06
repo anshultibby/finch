@@ -38,6 +38,7 @@ export interface SSEToolCallStartEvent {
   tool_call_id: string;
   tool_name: string;
   arguments: Record<string, any>;
+  user_description?: string;  // User-friendly description for display
   timestamp: string;
 }
 
@@ -64,6 +65,9 @@ export interface SSEAssistantMessageEvent {
   content: string;
   timestamp: string;
   needs_auth: boolean;
+  is_notification?: boolean;  // True if from message_notify_user
+  is_question?: boolean;  // True if from message_ask_user
+  suggest_takeover?: string;  // For message_ask_user: "browser", etc.
 }
 
 export interface SSEDoneEvent {

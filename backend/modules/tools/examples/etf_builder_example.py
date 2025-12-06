@@ -48,7 +48,7 @@ async def example_equal_weight_etf():
             result = event
     
     if result and result.get("success"):
-        print("\n✓ ETF Built Successfully!\n")
+        print("\nETF Built Successfully!\n")
         print(f"Name: {result['etf_name']}")
         print(f"Total Stocks: {result['total_stocks']}")
         print(f"Weighting Method: {result['weighting_method']}")
@@ -103,7 +103,7 @@ async def example_market_cap_etf():
             result = event
     
     if result and result.get("success"):
-        print("\n✓ ETF Built Successfully!\n")
+        print("\nETF Built Successfully!\n")
         print(f"Name: {result['etf_name']}")
         print(f"Total Stocks: {result['total_stocks']}")
         print(f"Weighting Method: {result['weighting_method']}")
@@ -159,7 +159,7 @@ async def example_with_invalid_tickers():
             result = event
     
     if result and result.get("success"):
-        print("\n✓ ETF Built Successfully (with warnings)!\n")
+        print("\nETF Built Successfully (with warnings)!\n")
         print(f"Total Valid Stocks: {result['total_stocks']}")
         
         if result.get('failed_tickers'):

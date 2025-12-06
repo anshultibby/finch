@@ -31,26 +31,28 @@ def tool(
         )
         async def get_portfolio(
             *,  # Force keyword args
-            context: AgentContext,  # NOT visible to LLM
+            context: AgentContext,  # Hidden from LLM - injected by executor
             include_closed: bool = False  # Visible to LLM
         ) -> Dict[str, Any]:
-            # Implementation
+            # 'description' param is auto-injected into schema but NOT in function signature
+            # LLM provides it when calling: get_portfolio(description="...", include_closed=True)
+            # Executor strips it before calling this function
             pass
     
     Requirements:
     - Function must accept keyword-only arguments (use * separator)
     - Function must have a 'context' parameter of type AgentContext
-    - Function must return Dict[str, Any]
-    - The 'context' parameter is EXCLUDED from OpenAI schema (hidden from LLM)
+    - Function should NOT have a 'description' parameter (it's auto-injected into schema)
+    - The 'context' parameter is EXCLUDED from OpenAI schema
     - All other parameters will be exposed to the LLM in the tool schema
     
-    Security Note:
-    - The 'context' parameter contains user_id, chat_id, and other secure data
-    - It is passed by the tool executor, NOT by the LLM
-    - It never appears in the OpenAI tool schema
+    Special Parameters:
+    - 'context': AgentContext - Hidden from LLM, injected by executor, contains user_id, chat_id
+    - 'description': str - Auto-injected into ALL tool schemas for LLM to provide user-friendly text
+                          Extracted by executor before calling tool function (never reaches tool)
     
     Args:
-        description: Description of what the tool does (for LLM)
+        description: Description of what the tool does (for LLM documentation)
         name: Tool name (defaults to function name if not provided)
         category: Optional category for grouping tools
         requires_auth: Whether tool requires user authentication
@@ -84,8 +86,9 @@ def tool(
         required = []
         
         for param_name, param in sig.parameters.items():
-            if param_name == 'context':
-                continue  # Skip context - it's passed by code, not LLM
+            # Skip special hidden parameters
+            if param_name in ('context', 'description'):
+                continue  # Skip context and description - handled by executor
             
             # Check if parameter is a Pydantic model (best practice)
             param_schema = _get_pydantic_schema(param.annotation)
@@ -114,6 +117,15 @@ def tool(
             # Check if required (no default value)
             if param.default == inspect.Parameter.empty:
                 required.append(param_name)
+        
+        # Automatically inject 'description' parameter for most tools
+        # BUT exclude it for message_notify_user and message_ask_user (they ARE the description!)
+        if tool_name not in ('message_notify_user', 'message_ask_user'):
+            properties["description"] = {
+                "type": "string",
+                "description": "User-friendly description of what this specific tool call is doing (will be shown to the user)"
+            }
+            # Note: 'description' is NOT required, but encouraged
         
         # Build OpenAI parameters schema
         parameters_schema = {

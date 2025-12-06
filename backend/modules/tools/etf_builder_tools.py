@@ -153,7 +153,7 @@ async def build_custom_etf(
         
         yield SSEEvent(event="tool_status", data={
             "status": "complete",
-            "message": "✓ Custom ETF built successfully"
+            "message": "Custom ETF built successfully"
         })
         
         # Build result
@@ -172,7 +172,7 @@ async def build_custom_etf(
                 "total_market_cap": sum(c["market_cap"] for c in portfolio_components),
                 "average_weight": f"{(100.0 / len(portfolio_components)):.1f}%" if params.weighting_method == "equal_weight" else "varies"
             },
-            "message": f"✓ Built {etf_name} with {len(portfolio_components)} stocks" + 
+            "message": f"Built {etf_name} with {len(portfolio_components)} stocks" + 
                       (f" ({len(failed_tickers)} failed)" if failed_tickers else "")
         }
         
@@ -258,9 +258,9 @@ def backtest_custom_etf(portfolio_components, start_date, end_date):
             df["ticker"] = ticker
             df["weight"] = weight
             stock_data[ticker] = df
-            print(f"✓ {ticker}: {len(df)} trading days")
+            print(f"{ticker}: {len(df)} trading days")
         else:
-            print(f"✗ {ticker}: No data available")
+            print(f"{ticker}: No data available")
     
     if not stock_data:
         print("ERROR: No historical data available for any stocks")

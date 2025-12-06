@@ -439,12 +439,16 @@ class ToolExecutor:
         
         # Emit tool_call_start events for all tools
         for call in tool_calls:
+            # Extract user_description from arguments (provided by LLM)
+            user_description = call.arguments.get('description', None)
+            
             yield SSEEvent(
                 event="tool_call_start",
                 data={
                     "tool_call_id": call.id,
                     "tool_name": call.name,
-                    "arguments": call.arguments
+                    "arguments": call.arguments,
+                    "user_description": user_description
                 }
             )
         

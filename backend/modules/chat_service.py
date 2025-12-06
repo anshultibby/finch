@@ -96,7 +96,8 @@ class ChatService:
             with tracer.start_as_current_span("agent_processing"):
                 async for event in agent.process_message_stream(
                     message=message,
-                    chat_history=history
+                    chat_history=history,
+                    history_limit=Config.CHAT_HISTORY_LIMIT
                 ):
                     # Save tool_status events as messages (like Manus does with message_notify_user)
                     if event.event == "tool_status" and isinstance(event.data, dict):

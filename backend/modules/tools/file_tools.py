@@ -236,7 +236,7 @@ async def write_chat_file(
             "success": True,
             "file_id": file_id,
             "filename": filename,
-            "message": f"✓ Wrote {filename} to chat directory"
+            "message": f"Wrote {filename} to chat directory"
         }
     except Exception as e:
         logger.error(f"Error writing chat file: {str(e)}", exc_info=True)

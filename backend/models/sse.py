@@ -22,6 +22,7 @@ class ToolCallStartEvent(BaseModel):
     tool_call_id: str
     tool_name: str
     arguments: Dict[str, Any]
+    user_description: Optional[str] = None  # User-friendly description for display
     timestamp: str = datetime.now().isoformat()
 
 
@@ -47,6 +48,9 @@ class AssistantMessageEvent(BaseModel):
     content: str
     timestamp: str
     needs_auth: bool = False
+    is_notification: bool = False  # True if from message_notify_user
+    is_question: bool = False  # True if from message_ask_user
+    suggest_takeover: Optional[str] = None  # For message_ask_user: "browser", etc.
 
 
 class DoneEvent(BaseModel):

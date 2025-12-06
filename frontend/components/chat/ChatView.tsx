@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
 import ResourceViewer from '../ResourceViewer';
+import ToolCallGroup from '../ToolCallGroup';
 import ChatModeBanner from './ChatModeBanner';
 import ChatFilesModal from './ChatFilesModal';
 import ChatHistorySidebar from './ChatHistorySidebar';
@@ -107,14 +108,39 @@ export default function ChatView() {
       
       try {
         const history = await chatApi.getChatHistory(chatId);
+        
+        // Reconstruct tool call history from messages with tool_calls
+        const toolCallTurns: TurnToolCalls[] = [];
+        
         const userMessages = history.messages
           .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
-          .map((msg: any) => ({
-            role: msg.role,
-            content: msg.content || '',
-            timestamp: msg.timestamp
-          }));
+          .map((msg: any, index: number) => {
+            // If this assistant message has tool_calls, create a turn
+            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+              const toolCallStatuses: ToolCallStatus[] = msg.tool_calls.map((tc: any) => ({
+                tool_call_id: tc.id,
+                tool_name: tc.function?.name || 'unknown',
+                status: 'completed' as const, // Historical tool calls are always completed
+                statusMessage: tc.function?.arguments?.description || tc.function?.name || 'Tool execution',
+              }));
+              
+              toolCallTurns.push({
+                turnId: `historical-${index}`,
+                toolCalls: toolCallStatuses,
+                expanded: false,
+                messageIndex: index,
+              });
+            }
+            
+            return {
+              role: msg.role,
+              content: msg.content || '',
+              timestamp: msg.timestamp
+            };
+          });
+          
         setMessages(userMessages);
+        setToolCallHistory(toolCallTurns);
         
         const chatResources = await resourcesApi.getChatResources(chatId);
         setResources(chatResources);
@@ -214,17 +240,19 @@ export default function ChatView() {
     setStreamingMessage('');
     streamingMessageRef.current = '';
     
-    // Initialize turn in history BEFORE tools run (like ChatContainer.tsx does)
-    const assistantMessageIndex = messages.length + 1;
+    // Initialize turn in history BEFORE tools run
+    // Note: messageIndex will be updated as messages are added
     setToolCallHistory((prev) => [
       ...prev,
       {
         turnId,
         toolCalls: [],
         expanded: false,  // Start collapsed, users can click to expand
-        messageIndex: assistantMessageIndex,
+        messageIndex: -1,  // Will be updated when message is added
       },
     ]);
+    
+    console.log('Created turn:', turnId, 'Current messages:', messages.length);
 
     const toolCallsMap = new Map<string, ToolCallStatus>();
     let needsAuth = false;
@@ -251,6 +279,7 @@ export default function ChatView() {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
             status: 'calling',
+            statusMessage: event.user_description || event.tool_name, // Use LLM-provided description
           };
           toolCallsMap.set(event.tool_call_id, toolCallStatus);
           setCurrentToolCalls(Array.from(toolCallsMap.values()));
@@ -368,6 +397,44 @@ export default function ChatView() {
         onAssistantMessage: (event: SSEAssistantMessageEvent) => {
           needsAuth = event.needs_auth;
           setIsThinking(false);
+          
+          // Handle messages from message_notify_user and message_ask_user
+          // These are complete messages (not deltas) that should be added immediately
+          if (event.is_notification || event.is_question) {
+            // Clear any streaming message
+            streamingMessageRef.current = '';
+            setStreamingMessage('');
+            
+            // Add the notification/question as a complete message
+            const newMessage: Message = {
+              role: 'assistant',
+              content: event.content,
+              timestamp: event.timestamp,
+            };
+            
+            setMessages((prev) => {
+              const updatedMessages = [...prev, newMessage];
+              
+              // Update the tool call turn to point to this new message
+              if (turnId && Array.from(toolCallsMap.values()).length > 0) {
+                const newMessageIndex = updatedMessages.length - 1;
+                setToolCallHistory((prevHistory) =>
+                  prevHistory.map((turn) =>
+                    turn.turnId === turnId
+                      ? { ...turn, messageIndex: newMessageIndex }
+                      : turn
+                  )
+                );
+              }
+              
+              return updatedMessages;
+            });
+            
+            // If it's a question (message_ask_user), log it
+            if (event.is_question) {
+              console.log('Agent asked a question, waiting for user response');
+            }
+          }
         },
         
         onOptions: (event: SSEOptionsEvent) => {
@@ -380,16 +447,36 @@ export default function ChatView() {
         onDone: async () => {
           saveStreamingMessage();
           
-          // Tool call history was already updated in real-time
-          // Just clean up if no tools were called
-          if (turnId && Array.from(toolCallsMap.values()).length === 0) {
+          // Update the turn's messageIndex to point to the LAST message
+          // (tool calls should appear with the final assistant message)
+          if (turnId && Array.from(toolCallsMap.values()).length > 0) {
+            setMessages((currentMessages) => {
+              const finalMessageIndex = currentMessages.length - 1;
+              console.log(`onDone: Updating turn ${turnId} to messageIndex ${finalMessageIndex}, total messages: ${currentMessages.length}`);
+              setToolCallHistory((prev) => {
+                const updated = prev.map((turn) =>
+                  turn.turnId === turnId
+                    ? { ...turn, messageIndex: finalMessageIndex }
+                    : turn
+                );
+                console.log('Updated toolCallHistory:', updated);
+                return updated;
+              });
+              return currentMessages;
+            });
+          } else if (turnId) {
             // No tool calls were made, remove the empty turn from history
+            console.log(`onDone: Removing empty turn ${turnId}`);
             setToolCallHistory((prev) => prev.filter((turn) => turn.turnId !== turnId));
           }
           
           setIsLoading(false);
           setCurrentTurnId(null);
-          setCurrentToolCalls([]);
+          // Keep currentToolCalls visible briefly, then clear
+          // This gives users time to see the completed state before it moves to history
+          setTimeout(() => {
+            setCurrentToolCalls([]);
+          }, 500);
           
           try {
             const chatResources = await resourcesApi.getChatResources(chatId);
@@ -835,19 +922,24 @@ export default function ChatView() {
               });
               
               const turnForThis = toolCallHistory.find(t => t.messageIndex === index);
+              const toolCallsForMessage = turnForThis ? turnForThis.toolCalls : undefined;
+              
+              // Debug logging
+              if (toolCallsForMessage && toolCallsForMessage.length > 0) {
+                console.log(`Message ${index} has ${toolCallsForMessage.length} tool calls:`, toolCallsForMessage);
+              }
               
               return (
-                <React.Fragment key={index}>
-                  <ChatMessage
-                    role={message.role}
-                    content={message.content}
-                    timestamp={message.timestamp}
-                    resources={messageResources}
-                    onFileClick={handleFileClick}
-                    chatId={chatId || undefined}
-                  />
-                  {turnForThis && renderToolActivity(turnForThis.turnId)}
-                </React.Fragment>
+                <ChatMessage
+                  key={index}
+                  role={message.role}
+                  content={message.content}
+                  timestamp={message.timestamp}
+                  resources={messageResources}
+                  toolCalls={toolCallsForMessage}
+                  onFileClick={handleFileClick}
+                  chatId={chatId || undefined}
+                />
               );
             })}
 
@@ -897,8 +989,8 @@ export default function ChatView() {
               </div>
             )}
 
-            {/* Thinking indicator */}
-            {isThinking && !streamingMessage && (
+            {/* Thinking indicator - only show when NOT executing tools */}
+            {isThinking && !streamingMessage && currentToolCalls.length === 0 && (
               <div className="flex justify-start mb-3 px-2">
                 <div className="flex items-center gap-1.5">
                   <div className="flex space-x-1">

@@ -238,6 +238,21 @@ class BaseAgent:
                     for tool_msg in tool_messages:
                         self._new_messages.append(HistoryChatMessage.from_dict(tool_msg))
                     
+                    # Check if any tool requires user input (e.g., message_ask_user)
+                    # If so, pause the agent loop and wait for user response
+                    requires_user_input = False
+                    for tool_msg in tool_messages:
+                        content = tool_msg.get("content", "")
+                        if "requires_user_input" in content or "Waiting for user response" in content:
+                            requires_user_input = True
+                            break
+                    
+                    if requires_user_input:
+                        logger.info("⏸️  Tool requested user input - pausing agent loop")
+                        # Don't show thinking indicator, don't continue loop
+                        # Just end here and wait for next user message
+                        break
+                    
                     # Show thinking indicator before next LLM call (synthesizing results)
                     yield SSEEvent(
                         event="thinking",
@@ -249,7 +264,8 @@ class BaseAgent:
     async def process_message_stream(
         self,
         message: str,
-        chat_history: ChatHistory
+        chat_history: ChatHistory,
+        history_limit: int = 50
     ) -> AsyncGenerator[SSEEvent, None]:
         """
         Stream chat responses with SSE events.
@@ -257,12 +273,16 @@ class BaseAgent:
         Args:
             message: User message
             chat_history: Previous messages
+            history_limit: Maximum number of historical messages to include (default: 50)
         
         Yields:
             SSEEvent objects for streaming to frontend
         """
         try:
-            initial_messages = self.build_messages(chat_history=chat_history)
+            initial_messages = self.build_messages(
+                chat_history=chat_history,
+                history_limit=history_limit
+            )
             
             # Create LLM configuration
             llm_config = LLMConfig.from_config(stream=True)
@@ -294,11 +314,22 @@ class BaseAgent:
     def build_messages(
         self,
         chat_history: ChatHistory,
+        history_limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Build messages for OpenAI API with system prompt prepended."""
+        """
+        Build messages for OpenAI API with system prompt prepended.
+        
+        Args:
+            chat_history: ChatHistory object containing conversation
+            history_limit: Optional limit on number of historical messages to include
+                          (most recent N messages). System prompt is always included.
+        
+        Returns:
+            List of messages in OpenAI format
+        """
         # Prepend system message and convert to OpenAI format
         messages = [{"role": "system", "content": self.system_prompt}]
-        messages.extend(chat_history.to_openai_format())
+        messages.extend(chat_history.to_openai_format(limit=history_limit))
         
         return messages
 

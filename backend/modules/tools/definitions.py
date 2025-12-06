@@ -24,6 +24,10 @@ import modules.tools.etf_builder_tools  # noqa: F401
 # Import file tools (OpenHands-style file operations)
 import modules.tools.file_tools  # noqa: F401
 
+# Import message tools (Manus-style communication)
+import modules.tools.message_notify  # noqa: F401
+import modules.tools.message_ask  # noqa: F401
+
 # Import tool descriptions
 from modules.tools.descriptions import (
     # Portfolio
@@ -266,7 +270,7 @@ async def get_fmp_data(
                 event="tool_status",
                 data={
                     "status": "completed",
-                    "message": f"✓ Retrieved {count} {endpoint_name.lower()} records"
+                    "message": f"Retrieved {count} {endpoint_name.lower()} records"
                 }
             )
         else:
@@ -274,7 +278,7 @@ async def get_fmp_data(
                 event="tool_status",
                 data={
                     "status": "completed",
-                    "message": f"✓ {endpoint_name} data retrieved successfully"
+                    "message": f"{endpoint_name} data retrieved successfully"
                 }
             )
     else:
@@ -642,6 +646,40 @@ async def identify_trading_patterns(
 # - get_strategy_details: Get strategy details
 # - delete_strategy: Delete a strategy
 # ============================================================================
+
+# ============================================================================
+# CONTROL TOOLS
+# ============================================================================
+
+@tool(
+    description="""Signal that you have completed all tasks and are ready for the user's next input.
+    
+    Use this tool when:
+    - You have finished answering the user's question
+    - You have completed all requested tasks
+    - You are waiting for additional user input or clarification
+    - You have nothing more to add to the current conversation
+    
+    This helps the interface know when to return to an input-ready state.
+    
+    Do NOT use this tool if:
+    - You are still processing information
+    - You are waiting for tool results
+    - You have more analysis or information to provide
+    """,
+    category="control"
+)
+def idle(
+    *,
+    context: AgentContext
+) -> Dict[str, Any]:
+    """Signal completion and return to idle state"""
+    return {
+        "success": True,
+        "message": "Ready for next input",
+        "state": "idle"
+    }
+
 
 # ============================================================================
 # AUTO-REGISTRATION
