@@ -191,7 +191,7 @@ class ChatService:
                     display_messages.append({
                         "role": "user",
                         "content": msg.content,
-                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
                     })
                 
                 # Assistant messages with tool_calls
@@ -224,7 +224,7 @@ class ChatService:
                                     display_messages.append({
                                         "role": "assistant",
                                         "content": args["text"],
-                                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
                                     })
                             else:
                                 # Regular tool - add to current group
@@ -251,7 +251,7 @@ class ChatService:
                     display_messages.append({
                         "role": "assistant",
                         "content": msg.content,
-                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
                     })
             
             # Flush any remaining tool calls

@@ -45,7 +45,6 @@ export default function ChatView() {
   const [toolCallHistory, setToolCallHistory] = useState<TurnToolCalls[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
   const [currentToolCalls, setCurrentToolCalls] = useState<ToolCallStatus[]>([]);
-  const [isThinking, setIsThinking] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const streamingMessageRef = useRef<string>('');
   const [resources, setResources] = useState<Resource[]>([]);
@@ -103,126 +102,27 @@ export default function ChatView() {
       if (!chatId) return;
       
       try {
-        const history = await chatApi.getChatHistory(chatId);
+        // Use new backend endpoint that returns UI-ready data (no parsing needed!)
+        const displayData = await chatApi.getChatHistoryForDisplay(chatId);
         
-        // Simple: Extract user messages, assistant messages with content, and group tool calls
-        const userMessages: Message[] = [];
-        const toolCallTurns: TurnToolCalls[] = [];
-        const allToolCalls: ToolCallStatus[] = [];
+        // Convert to local format
+        const userMessages: Message[] = displayData.messages.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp || new Date().toISOString()
+        }));
         
-        for (const msg of history.messages as any[]) {
-          // Skip system and tool messages (internal only)
-          if (msg.role === 'system' || msg.role === 'tool') continue;
-          
-          // User message - add it
-          if (msg.role === 'user') {
-            // Flush accumulated tool calls before user message
-            if (allToolCalls.length > 0) {
-              toolCallTurns.push({
-                turnId: `turn-${toolCallTurns.length}`,
-                toolCalls: [...allToolCalls],
-                expanded: false,
-                messageIndex: userMessages.length,
-              });
-              allToolCalls.length = 0;
-            }
-            
-            userMessages.push({
-              role: 'user',
-              content: msg.content || '',
-              timestamp: msg.timestamp
-            });
-          }
-          // Assistant message with tool_calls
-          else if (msg.role === 'assistant' && msg.tool_calls?.length > 0) {
-            for (const tc of msg.tool_calls) {
-              // Skip 'idle' tool - it's just a control signal
-              if (tc.function?.name === 'idle') {
-                continue;
-              }
-              
-              let description = tc.function?.name || 'Tool execution';
-              let isUserMessage = false;
-              let userMessageText = '';
-              
-              try {
-                const args = typeof tc.function.arguments === 'string'
-                  ? JSON.parse(tc.function.arguments)
-                  : tc.function.arguments;
-                
-                // If this is message_notify_user or message_ask_user, extract the text as a message
-                if (tc.function?.name === 'message_notify_user' || tc.function?.name === 'message_ask_user') {
-                  if (args.text) {
-                    isUserMessage = true;
-                    userMessageText = args.text;
-                  }
-                }
-                
-                if (args.description) description = args.description;
-              } catch (e) {
-                // Keep default description
-              }
-              
-              // If this is a user-facing message tool, flush tools and add as assistant message
-              if (isUserMessage && userMessageText) {
-                // Flush accumulated tool calls first
-                if (allToolCalls.length > 0) {
-                  toolCallTurns.push({
-                    turnId: `turn-${toolCallTurns.length}`,
-                    toolCalls: [...allToolCalls],
-                    expanded: false,
-                    messageIndex: userMessages.length,
-                  });
-                  allToolCalls.length = 0;
-                }
-                
-                // Add as assistant message
-                userMessages.push({
-                  role: 'assistant',
-                  content: userMessageText,
-                  timestamp: msg.timestamp
-                });
-              } else {
-                // Regular tool call - accumulate it
-                allToolCalls.push({
-                  tool_call_id: tc.id,
-                  tool_name: tc.function?.name || 'unknown',
-                  status: 'completed',
-                  statusMessage: description,
-                });
-              }
-            }
-          }
-          // Assistant message with content (from message_notify_user) - add it
-          else if (msg.role === 'assistant' && msg.content?.trim()) {
-            // Flush accumulated tool calls before assistant message
-            if (allToolCalls.length > 0) {
-              toolCallTurns.push({
-                turnId: `turn-${toolCallTurns.length}`,
-                toolCalls: [...allToolCalls],
-                expanded: false,
-                messageIndex: userMessages.length,
-              });
-              allToolCalls.length = 0;
-            }
-            
-            userMessages.push({
-              role: 'assistant',
-              content: msg.content,
-              timestamp: msg.timestamp
-            });
-          }
-        }
-        
-        // Flush any remaining tool calls
-        if (allToolCalls.length > 0) {
-          toolCallTurns.push({
-            turnId: `turn-${toolCallTurns.length}`,
-            toolCalls: allToolCalls,
-            expanded: false,
-            messageIndex: userMessages.length,
-          });
-        }
+        const toolCallTurns: TurnToolCalls[] = displayData.tool_groups.map((group, idx) => ({
+          turnId: `turn-${idx}`,
+          toolCalls: group.tools.map(tool => ({
+            tool_call_id: tool.tool_call_id,
+            tool_name: tool.tool_name,
+            status: tool.status,
+            statusMessage: tool.description,
+          })),
+          expanded: false,
+          messageIndex: group.message_index,
+        }));
           
         setMessages(userMessages);
         setToolCallHistory(toolCallTurns);
@@ -321,7 +221,6 @@ export default function ChatView() {
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setCurrentTurnId(turnId);
     setCurrentToolCalls([]);
-    setIsThinking(false);
     setStreamingMessage('');
     streamingMessageRef.current = '';
     
@@ -359,11 +258,6 @@ export default function ChatView() {
         onToolCallStart: (event: SSEToolCallStartEvent) => {
           saveStreamingMessage();
           
-          // Skip 'idle' tool - it's just a control signal, not a real action
-          if (event.tool_name === 'idle') {
-            return;
-          }
-          
           const toolCallStatus: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
@@ -386,10 +280,9 @@ export default function ChatView() {
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
-          // Skip 'idle' tool
           const toolCallStatus = toolCallsMap.get(event.tool_call_id);
           if (!toolCallStatus) {
-            return; // Already filtered out (probably idle)
+            return; // Tool not found in map
           }
           
           toolCallStatus.status = event.status;
@@ -409,19 +302,13 @@ export default function ChatView() {
           }
         },
         
-        onThinking: (event) => {
-          setIsThinking(true);
-        },
-        
         onAssistantMessageDelta: (event) => {
-          setIsThinking(false);
           streamingMessageRef.current += event.delta;
           setStreamingMessage(streamingMessageRef.current);
         },
         
         onAssistantMessage: (event: SSEAssistantMessageEvent) => {
           needsAuth = event.needs_auth;
-          setIsThinking(false);
           
           // Handle messages from message_notify_user and message_ask_user
           // These are complete messages (not deltas) that should be added immediately
@@ -462,7 +349,6 @@ export default function ChatView() {
         
         onOptions: (event: SSEOptionsEvent) => {
           setPendingOptions(event);
-          setIsThinking(false);
           streamingMessageRef.current = '';
           setStreamingMessage('');
         },
@@ -481,7 +367,7 @@ export default function ChatView() {
                     ? { ...turn, messageIndex: finalMessageIndex }
                     : turn
                 )
-              );
+                );
               return currentMessages;
             });
           } else if (turnId) {
@@ -513,7 +399,6 @@ export default function ChatView() {
           console.error('❌ SSE error:', event.error);
           setError(`Error: ${event.error}`);
           setIsLoading(false);
-          setIsThinking(false);
           streamingMessageRef.current = '';
           setStreamingMessage('');
           setMessages((prev) => prev.slice(0, -1));
@@ -524,7 +409,6 @@ export default function ChatView() {
       console.error('Error sending message:', err);
       setMessages((prev) => prev.slice(0, -1));
       setIsLoading(false);
-      setIsThinking(false);
       streamingMessageRef.current = '';
       setStreamingMessage('');
     }
@@ -855,24 +739,8 @@ export default function ChatView() {
               </div>
             )}
 
-            {/* Thinking indicator - only show when NOT executing tools */}
-            {isThinking && !streamingMessage && currentToolCalls.length === 0 && (
-              <div className="flex justify-start mb-3 px-2">
-                <div className="flex items-center gap-1.5">
-                  <div className="flex space-x-1">
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    thinking...
-                  </p>
-                </div>
-              </div>
-            )}
-
             {/* Loading dots */}
-            {isLoading && currentToolCalls.length === 0 && !streamingMessage && !isThinking && (
+            {isLoading && currentToolCalls.length === 0 && !streamingMessage && (
               <div className="flex justify-start mb-4 px-2">
                 <div className="flex space-x-2">
                   <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>

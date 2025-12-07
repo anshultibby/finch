@@ -385,7 +385,7 @@ async def execute_code(
             
             yield SSEEvent(event="tool_status", data={
                 "status": "complete",
-                "message": f"Execution complete{truncation_note}{files_msg}"
+                "message": f"Execution complete{truncation_note}"
             })
             
             yield {
@@ -393,7 +393,7 @@ async def execute_code(
                 "stdout": stdout_truncated,
                 "stderr": stderr_truncated,
                 "changes": changes,
-                "message": f"Code executed successfully{truncation_note}{files_msg}"
+                "message": f"Code executed successfully{truncation_note}"
             }
         
         except subprocess.TimeoutExpired:

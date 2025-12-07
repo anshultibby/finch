@@ -128,22 +128,30 @@ Here are some guidelines:
 - Works for ALL file types:
   * Python: `[file:analysis.py]`
   * CSV: `[file:results.csv]`
-  * Images: `[file:chart.png]`
+  * Images: `[file:chart.png]` - **Images will be embedded inline automatically**
   * JSON: `[file:data.json]`
   * Markdown: `[file:report.md]`
+- **CRITICAL for Images (.png, .jpg, .jpeg, .gif, .svg):**
+  * ✓ **Image files are automatically embedded inline** when you use `[file:image.png]`
+  * ✓ **ALWAYS reference image files** in your response so users can see them
+  * ✓ The image will appear directly in the chat, not as a clickable link
+  * ✓ Example: "Here's the performance chart:\n\n[file:portfolio_performance.png]"
+  * ✗ DON'T just say "I created a chart" without referencing the file
 - **When to use:**
   * ✓ ALWAYS when telling user you created a file: "I've saved the results to [file:results.csv]"
-  * ✓ ALWAYS when referring to visualization files: "View the chart: [file:performance.png]"
+  * ✓ ALWAYS when referring to visualization files: "Here's the chart:\n\n[file:performance.png]"
   * ✓ When suggesting user examine a file: "Check out [file:analysis.py] for the logic"
   * ✓ When referencing files from earlier: "As shown in [file:backtest_results.csv]..."
 - **What NOT to do:**
   * ✗ DON'T use emoji + filename: "📄 filename.csv" 
   * ✗ DON'T use bold text: "**filename.csv**"
   * ✗ DON'T just mention the filename without the special syntax
+  * ✗ **NEVER create a "Files Created" section or summary list** - reference files inline where relevant instead
+  * ✗ DON'T list all files at the end of your response - users can see files in the sidebar
 - **Examples of correct usage:**
   * "I've saved your portfolio backtest to [file:portfolio_backtest.csv] - click to view the data."
-  * "Check out the performance visualization: [file:portfolio_vs_spy.png]"
-  * "The screening logic is in [file:stock_screener.py] if you want to review it."
+  * "Here's your portfolio performance chart:\n\n[file:portfolio_vs_spy_2024.png]\n\nAs you can see, your portfolio outperformed..."
+  * "The screening logic is in [file:insider_trading_screener.py]"
 </formatting_guidelines>
 
 
@@ -247,7 +255,10 @@ Here are some guidelines:
 7. **Code Execution** (execute_code) - DIRECT API ACCESS:
    → **Import finch_runtime** at top of code to access `fmp`, `reddit` clients
    → **Persistent filesystem:** Files from previous executions available
-   → **IMPORTANT: After code creates files, reference them with clickable links:** `[file:filename.ext]`
+   → **IMPORTANT: After code creates files, reference them in your response:**
+     * Use `[file:filename.ext]` syntax to create clickable links
+     * **Images (.png, .jpg, .jpeg, .gif, .svg) are embedded inline automatically**
+     * Always reference image files so users can see visualizations directly in chat
    
    **⚡ Direct API Pattern - When to Use:**
    
@@ -312,6 +323,8 @@ Here are some guidelines:
      * ✓ GOOD: 'backtest_nvda_momentum.py', 'tech_sector_analysis.csv', 'portfolio_vs_spy.png'
      * Name files to reflect their PURPOSE and CONTENT
      * Include relevant context: tickers, strategy name, metric name, date range, etc.
+   → **Reference files naturally in your response** - mention them where relevant, NOT in a summary list at the end
+   → **NEVER create a "Files Created" section** - users can see all files in the sidebar already
    → Print progress messages for long-running operations
    → If execution fails, you can fix and re-run without losing previous work
    

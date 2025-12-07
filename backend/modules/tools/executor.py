@@ -437,8 +437,15 @@ class ToolExecutor:
         """
         logger.info(f"🌊 Executing {len(tool_calls)} tool(s) with streaming {'ENABLED' if enable_tool_streaming else 'DISABLED'}")
         
-        # Emit tool_call_start events for all tools
+        # Emit tool_call_start events for all tools (skip hidden tools)
+        from modules.tools import tool_registry
+        
         for call in tool_calls:
+            # Check if tool is hidden from UI
+            tool_obj = tool_registry.get_tool(call.name)
+            if tool_obj and tool_obj.hidden_from_ui:
+                continue  # Don't emit event for hidden tools like 'idle'
+            
             # Extract user_description from arguments (provided by LLM)
             user_description = call.arguments.get('description', None)
             
@@ -574,8 +581,13 @@ class ToolExecutor:
         
         logger.info(f"🌊 Tool execution complete: {event_count} SSE events streamed")
         
-        # Emit tool_call_complete events for all tools
+        # Emit tool_call_complete events for all tools (skip hidden tools)
         for result in results:
+            # Check if tool is hidden from UI
+            tool_obj = tool_registry.get_tool(result.tool_name)
+            if tool_obj and tool_obj.hidden_from_ui:
+                continue  # Don't emit event for hidden tools like 'idle'
+            
             # Get a brief summary of the result to show the user
             result_summary = None
             if result.success:

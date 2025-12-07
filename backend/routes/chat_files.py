@@ -83,16 +83,26 @@ async def download_chat_file(
             "markdown": "text/markdown",
             "text": "text/plain",
             "csv": "text/csv",
-            "json": "application/json"
+            "json": "application/json",
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "gif": "image/gif",
+            "svg": "image/svg+xml",
+            "webp": "image/webp"
         }
         
         content_type = content_type_map.get(file_obj.file_type, "text/plain")
+        
+        # For images, use inline disposition so they display in browser
+        is_image = file_obj.file_type in ["png", "jpg", "jpeg", "gif", "svg", "webp"]
+        disposition = "inline" if is_image else "attachment"
         
         return Response(
             content=file_obj.content,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
+                "Content-Disposition": f'{disposition}; filename="{filename}"'
             }
         )
     

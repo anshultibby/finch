@@ -52,11 +52,6 @@ export interface SSEToolCallCompleteEvent {
   timestamp: string;
 }
 
-export interface SSEThinkingEvent {
-  message: string;
-  timestamp: string;
-}
-
 export interface SSEAssistantMessageDeltaEvent {
   delta: string;
 }
@@ -126,7 +121,6 @@ export interface SSEEventHandlers {
   onToolStatus?: (event: SSEToolStatusEvent) => void;
   onToolProgress?: (event: SSEToolProgressEvent) => void;
   onToolLog?: (event: SSEToolLogEvent) => void;
-  onThinking?: (event: SSEThinkingEvent) => void;
   onAssistantMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onAssistantMessage?: (event: SSEAssistantMessageEvent) => void;
   onOptions?: (event: SSEOptionsEvent) => void;
@@ -294,9 +288,6 @@ export const chatApi = {
                   break;
                 case 'tool_log':
                   handlers.onToolLog?.(eventData as SSEToolLogEvent);
-                  break;
-                case 'thinking':
-                  handlers.onThinking?.(eventData as SSEThinkingEvent);
                   break;
                 case 'assistant_message_delta':
                   handlers.onAssistantMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
