@@ -339,6 +339,27 @@ export const chatApi = {
     return response.data;
   },
 
+  getChatHistoryForDisplay: async (chatId: string): Promise<{
+    chat_id: string;
+    messages: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp?: string;
+    }>;
+    tool_groups: Array<{
+      tools: Array<{
+        tool_call_id: string;
+        tool_name: string;
+        description: string;
+        status: 'completed' | 'error';
+      }>;
+      message_index: number;
+    }>;
+  }> => {
+    const response = await api.get(`/chat/history/${chatId}/display`);
+    return response.data;
+  },
+
   clearChatHistory: async (chatId: string): Promise<void> => {
     await api.delete(`/chat/history/${chatId}`);
   },

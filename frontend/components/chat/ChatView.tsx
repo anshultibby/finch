@@ -21,9 +21,6 @@ import {
   SSEToolCallCompleteEvent,
   SSEAssistantMessageEvent,
   SSEOptionsEvent,
-  SSEToolStatusEvent,
-  SSEToolProgressEvent,
-  SSEToolLogEvent,
   OptionButton
 } from '@/lib/api';
 
@@ -54,7 +51,6 @@ export default function ChatView() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
-  const [toolStatusMessages, setToolStatusMessages] = useState<Map<string, string>>(new Map());
   const [isFilesModalOpen, setIsFilesModalOpen] = useState(false);
   const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(true); // Open by default
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -109,35 +105,124 @@ export default function ChatView() {
       try {
         const history = await chatApi.getChatHistory(chatId);
         
-        // Reconstruct tool call history from messages with tool_calls
+        // Simple: Extract user messages, assistant messages with content, and group tool calls
+        const userMessages: Message[] = [];
         const toolCallTurns: TurnToolCalls[] = [];
+        const allToolCalls: ToolCallStatus[] = [];
         
-        const userMessages = history.messages
-          .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
-          .map((msg: any, index: number) => {
-            // If this assistant message has tool_calls, create a turn
-            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-              const toolCallStatuses: ToolCallStatus[] = msg.tool_calls.map((tc: any) => ({
-                tool_call_id: tc.id,
-                tool_name: tc.function?.name || 'unknown',
-                status: 'completed' as const, // Historical tool calls are always completed
-                statusMessage: tc.function?.arguments?.description || tc.function?.name || 'Tool execution',
-              }));
-              
+        for (const msg of history.messages as any[]) {
+          // Skip system and tool messages (internal only)
+          if (msg.role === 'system' || msg.role === 'tool') continue;
+          
+          // User message - add it
+          if (msg.role === 'user') {
+            // Flush accumulated tool calls before user message
+            if (allToolCalls.length > 0) {
               toolCallTurns.push({
-                turnId: `historical-${index}`,
-                toolCalls: toolCallStatuses,
+                turnId: `turn-${toolCallTurns.length}`,
+                toolCalls: [...allToolCalls],
                 expanded: false,
-                messageIndex: index,
+                messageIndex: userMessages.length,
               });
+              allToolCalls.length = 0;
             }
             
-            return {
-              role: msg.role,
+            userMessages.push({
+              role: 'user',
               content: msg.content || '',
               timestamp: msg.timestamp
-            };
+            });
+          }
+          // Assistant message with tool_calls
+          else if (msg.role === 'assistant' && msg.tool_calls?.length > 0) {
+            for (const tc of msg.tool_calls) {
+              // Skip 'idle' tool - it's just a control signal
+              if (tc.function?.name === 'idle') {
+                continue;
+              }
+              
+              let description = tc.function?.name || 'Tool execution';
+              let isUserMessage = false;
+              let userMessageText = '';
+              
+              try {
+                const args = typeof tc.function.arguments === 'string'
+                  ? JSON.parse(tc.function.arguments)
+                  : tc.function.arguments;
+                
+                // If this is message_notify_user or message_ask_user, extract the text as a message
+                if (tc.function?.name === 'message_notify_user' || tc.function?.name === 'message_ask_user') {
+                  if (args.text) {
+                    isUserMessage = true;
+                    userMessageText = args.text;
+                  }
+                }
+                
+                if (args.description) description = args.description;
+              } catch (e) {
+                // Keep default description
+              }
+              
+              // If this is a user-facing message tool, flush tools and add as assistant message
+              if (isUserMessage && userMessageText) {
+                // Flush accumulated tool calls first
+                if (allToolCalls.length > 0) {
+                  toolCallTurns.push({
+                    turnId: `turn-${toolCallTurns.length}`,
+                    toolCalls: [...allToolCalls],
+                    expanded: false,
+                    messageIndex: userMessages.length,
+                  });
+                  allToolCalls.length = 0;
+                }
+                
+                // Add as assistant message
+                userMessages.push({
+                  role: 'assistant',
+                  content: userMessageText,
+                  timestamp: msg.timestamp
+                });
+              } else {
+                // Regular tool call - accumulate it
+                allToolCalls.push({
+                  tool_call_id: tc.id,
+                  tool_name: tc.function?.name || 'unknown',
+                  status: 'completed',
+                  statusMessage: description,
+                });
+              }
+            }
+          }
+          // Assistant message with content (from message_notify_user) - add it
+          else if (msg.role === 'assistant' && msg.content?.trim()) {
+            // Flush accumulated tool calls before assistant message
+            if (allToolCalls.length > 0) {
+              toolCallTurns.push({
+                turnId: `turn-${toolCallTurns.length}`,
+                toolCalls: [...allToolCalls],
+                expanded: false,
+                messageIndex: userMessages.length,
+              });
+              allToolCalls.length = 0;
+            }
+            
+            userMessages.push({
+              role: 'assistant',
+              content: msg.content,
+              timestamp: msg.timestamp
+            });
+          }
+        }
+        
+        // Flush any remaining tool calls
+        if (allToolCalls.length > 0) {
+          toolCallTurns.push({
+            turnId: `turn-${toolCallTurns.length}`,
+            toolCalls: allToolCalls,
+            expanded: false,
+            messageIndex: userMessages.length,
           });
+        }
           
         setMessages(userMessages);
         setToolCallHistory(toolCallTurns);
@@ -251,8 +336,6 @@ export default function ChatView() {
         messageIndex: -1,  // Will be updated when message is added
       },
     ]);
-    
-    console.log('Created turn:', turnId, 'Current messages:', messages.length);
 
     const toolCallsMap = new Map<string, ToolCallStatus>();
     let needsAuth = false;
@@ -275,6 +358,12 @@ export default function ChatView() {
       chatApi.sendMessageStream(content, userId, chatId, {
         onToolCallStart: (event: SSEToolCallStartEvent) => {
           saveStreamingMessage();
+          
+          // Skip 'idle' tool - it's just a control signal, not a real action
+          if (event.tool_name === 'idle') {
+            return;
+          }
+          
           const toolCallStatus: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
@@ -297,91 +386,27 @@ export default function ChatView() {
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
+          // Skip 'idle' tool
           const toolCallStatus = toolCallsMap.get(event.tool_call_id);
-          if (toolCallStatus) {
-            toolCallStatus.status = event.status;
-            toolCallStatus.resource_id = event.resource_id;
-            toolCallStatus.error = event.error;
-            setCurrentToolCalls(Array.from(toolCallsMap.values()));
-            
-            // Update ONLY the current turn in real-time (don't update frozen old turns)
-            if (turnId === currentTurnId) {
-              setToolCallHistory((prev) =>
-                prev.map((turn) =>
-                  turn.turnId === turnId
-                    ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
-                    : turn
-                )
-              );
-            }
+          if (!toolCallStatus) {
+            return; // Already filtered out (probably idle)
           }
-          // Don't delete the status message - keep it for display even after completion
-        },
-        
-        onToolStatus: (event: SSEToolStatusEvent) => {
-          if (event.tool_call_id && (event.message || event.status)) {
-            const statusText = event.message || event.status || '';
-            
-            // Update the status messages map for real-time display
-            setToolStatusMessages((prev) => {
-              const next = new Map(prev);
-              next.set(event.tool_call_id!, statusText);
-              return next;
-            });
-            
-            // Also persist it to the tool call object
-            const toolCallStatus = toolCallsMap.get(event.tool_call_id!);
-            if (toolCallStatus) {
-              toolCallStatus.statusMessage = statusText;
-              setCurrentToolCalls(Array.from(toolCallsMap.values()));
-              
-              // Update ONLY the current turn in real-time
-              if (turnId === currentTurnId) {
-                setToolCallHistory((prev) =>
-                  prev.map((turn) =>
-                    turn.turnId === turnId
-                      ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
-                      : turn
-                  )
-                );
-              }
-            }
+          
+          toolCallStatus.status = event.status;
+          toolCallStatus.resource_id = event.resource_id;
+          toolCallStatus.error = event.error;
+          setCurrentToolCalls(Array.from(toolCallsMap.values()));
+          
+          // Update ONLY the current turn in real-time (don't update frozen old turns)
+          if (turnId === currentTurnId) {
+            setToolCallHistory((prev) =>
+              prev.map((turn) =>
+                turn.turnId === turnId
+                  ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
+                  : turn
+              )
+            );
           }
-        },
-        
-        onToolProgress: (event: SSEToolProgressEvent) => {
-          if (event.tool_call_id) {
-            const statusText = event.message || `${Math.round(event.percent)}%`;
-            
-            // Update the status messages map for real-time display
-            setToolStatusMessages((prev) => {
-              const next = new Map(prev);
-              next.set(event.tool_call_id!, statusText);
-              return next;
-            });
-            
-            // Also persist it to the tool call object
-            const toolCallStatus = toolCallsMap.get(event.tool_call_id!);
-            if (toolCallStatus) {
-              toolCallStatus.statusMessage = statusText;
-              setCurrentToolCalls(Array.from(toolCallsMap.values()));
-              
-              // Update ONLY the current turn in real-time
-              if (turnId === currentTurnId) {
-                setToolCallHistory((prev) =>
-                  prev.map((turn) =>
-                    turn.turnId === turnId
-                      ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
-                      : turn
-                  )
-                );
-              }
-            }
-          }
-        },
-        
-        onToolLog: (event: SSEToolLogEvent) => {
-          // Optional: show logs in UI
         },
         
         onThinking: (event) => {
@@ -430,10 +455,8 @@ export default function ChatView() {
               return updatedMessages;
             });
             
-            // If it's a question (message_ask_user), log it
-            if (event.is_question) {
-              console.log('Agent asked a question, waiting for user response');
-            }
+            // If it's a question (message_ask_user), wait for user response
+            // The frontend will display this as a message and wait for the user to reply
           }
         },
         
@@ -452,21 +475,17 @@ export default function ChatView() {
           if (turnId && Array.from(toolCallsMap.values()).length > 0) {
             setMessages((currentMessages) => {
               const finalMessageIndex = currentMessages.length - 1;
-              console.log(`onDone: Updating turn ${turnId} to messageIndex ${finalMessageIndex}, total messages: ${currentMessages.length}`);
-              setToolCallHistory((prev) => {
-                const updated = prev.map((turn) =>
+              setToolCallHistory((prev) =>
+                prev.map((turn) =>
                   turn.turnId === turnId
                     ? { ...turn, messageIndex: finalMessageIndex }
                     : turn
-                );
-                console.log('Updated toolCallHistory:', updated);
-                return updated;
-              });
+                )
+              );
               return currentMessages;
             });
           } else if (turnId) {
             // No tool calls were made, remove the empty turn from history
-            console.log(`onDone: Removing empty turn ${turnId}`);
             setToolCallHistory((prev) => prev.filter((turn) => turn.turnId !== turnId));
           }
           
@@ -625,171 +644,6 @@ export default function ChatView() {
     }
   };
 
-  const getToolIcon = (toolName: string) => {
-    if (toolName.includes('portfolio')) return '📊';
-    if (toolName.includes('reddit')) return '📱';
-    if (toolName.includes('senate') || toolName.includes('house')) return '🏛️';
-    if (toolName.includes('insider')) return '💼';
-    if (toolName.includes('fmp')) return '📈';
-    if (toolName.includes('strategy')) return '🎯';
-    return '🔧';
-  };
-
-  const formatToolName = (toolName: string) => {
-    const nameMap: Record<string, string> = {
-      'get_fmp_company_data': 'company data',
-      'get_fmp_quote': 'stock quote',
-      'get_fmp_historical_prices': 'historical prices',
-      'get_fmp_financial_statements': 'financial statements',
-      'get_portfolio_positions': 'portfolio positions',
-      'get_reddit_trending': 'reddit trends',
-      'get_house_trades': 'house trades',
-      'get_senate_trades': 'senate trades',
-      'get_insider_trades': 'insider trades',
-      'create_strategy_v2': 'create strategy',
-      'execute_strategy_v2': 'execute strategy',
-    };
-
-    return nameMap[toolName] || toolName.replace(/_/g, ' ').replace('get ', '');
-  };
-
-  const renderToolActivity = (turnId: string) => {
-    const turn = toolCallHistory.find(t => t.turnId === turnId);
-    if (!turn || turn.toolCalls.length === 0) return null;
-
-    const isCurrentTurn = turnId === currentTurnId;
-    const allCompleted = turn.toolCalls.every(c => c.status === 'completed');
-    const anyError = turn.toolCalls.some(c => c.status === 'error');
-    const anyRunning = turn.toolCalls.some(c => c.status === 'calling');
-
-    // For current turn, always show expanded. For completed turns, respect the expanded state.
-    const shouldExpand = isCurrentTurn || turn.expanded;
-
-    return (
-      <div className="mb-3 px-2">
-        {/* Expandable header */}
-        <button
-          onClick={() => {
-            if (!isCurrentTurn) {
-              setToolCallHistory((prev) => 
-                prev.map((t) => 
-                  t.turnId === turnId 
-                    ? { ...t, expanded: !t.expanded }
-                    : t
-                )
-              );
-            }
-          }}
-          className={`flex items-start gap-2 w-full text-left ${!isCurrentTurn ? 'group hover:bg-gray-50' : ''} -mx-2 px-2 py-1 rounded-lg transition-colors`}
-        >
-          {/* Status Icon */}
-          <div className="mt-0.5 flex-shrink-0">
-            {allCompleted && !isCurrentTurn && (
-              <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            )}
-            {anyError && !anyRunning && (
-              <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            )}
-            {anyRunning && (
-              <svg className="w-4 h-4 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            )}
-          </div>
-          
-          {/* Summary text */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-600">
-                {anyRunning ? 'Running tools...' : allCompleted ? 'Completed' : 'Tool execution'}
-              </span>
-              {!isCurrentTurn && (
-                <svg
-                  className={`w-3 h-3 text-gray-400 transition-transform ${
-                    shouldExpand ? 'rotate-180' : ''
-                  }`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              )}
-            </div>
-            <div className="text-[11px] text-gray-400 mt-0.5">
-              {turn.toolCalls.length} {turn.toolCalls.length === 1 ? 'action' : 'actions'}
-            </div>
-          </div>
-        </button>
-
-        {/* Expanded activity timeline */}
-        {shouldExpand && (
-          <div className="ml-1 mt-1.5 pl-3 border-l-2 border-dotted border-gray-200 space-y-2">
-            {turn.toolCalls.map((call, index) => {
-              const isCompleted = call.status === 'completed';
-              const isError = call.status === 'error';
-              const isRunning = call.status === 'calling';
-              const statusMsg = toolStatusMessages.get(call.tool_call_id);
-              
-              return (
-                <div key={call.tool_call_id} className="relative -ml-[9px]">
-                  {/* Activity item */}
-                  <div className="flex items-start gap-2 text-sm">
-                    {/* Icon - positioned on the border line */}
-                    <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-white">
-                      {isCompleted && (
-                        <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                      {isError && (
-                        <svg className="w-3.5 h-3.5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                      {isRunning && (
-                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                      )}
-                    </div>
-                    
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-medium text-gray-700">
-                          {formatToolName(call.tool_name)}
-                        </span>
-                        <span className="text-[10px]">{getToolIcon(call.tool_name)}</span>
-                      </div>
-                      
-                      {/* Show detailed status/description - from persisted statusMessage or live map */}
-                      {(call.statusMessage || statusMsg) && (
-                        <div className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
-                          {call.statusMessage || statusMsg}
-                        </div>
-                      )}
-                      
-                      {/* Show error */}
-                      {isError && call.error && (
-                        <div className="text-[11px] text-red-600 mt-0.5">
-                          Error: {call.error}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const getPlaceholder = () => {
     switch (mode.type) {
       case 'create_strategy':
@@ -916,18 +770,20 @@ export default function ChatView() {
           <>
             {messages.map((message, index) => {
               const messageTime = message.timestamp ? new Date(message.timestamp).getTime() : 0;
+              // Pass all resources - ChatMessage will match by filename for files,
+              // and by time proximity for plots/charts
               const messageResources = resources.filter(r => {
+                // For file resources, include all (ChatMessage matches by filename)
+                if (r.resource_type === 'file') {
+                  return true;
+                }
+                // For other resources (plots, charts), use time-based matching
                 const resourceTime = new Date(r.created_at).getTime();
                 return Math.abs(resourceTime - messageTime) < 5000;
               });
               
               const turnForThis = toolCallHistory.find(t => t.messageIndex === index);
               const toolCallsForMessage = turnForThis ? turnForThis.toolCalls : undefined;
-              
-              // Debug logging
-              if (toolCallsForMessage && toolCallsForMessage.length > 0) {
-                console.log(`Message ${index} has ${toolCallsForMessage.length} tool calls:`, toolCallsForMessage);
-              }
               
               return (
                 <ChatMessage
@@ -942,6 +798,16 @@ export default function ChatView() {
                 />
               );
             })}
+
+            {/* Current Tool Calls - shown during streaming */}
+            {currentToolCalls.length > 0 && (
+              <div className="mb-4">
+                <ToolCallGroup 
+                  toolCalls={currentToolCalls}
+                  timestamp={new Date().toISOString()}
+                />
+              </div>
+            )}
 
             {/* Options Display */}
             {pendingOptions && (

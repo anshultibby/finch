@@ -667,7 +667,8 @@ async def identify_trading_patterns(
     - You are waiting for tool results
     - You have more analysis or information to provide
     """,
-    category="control"
+    category="control",
+    hidden_from_ui=True  # Don't show in chat UI - it's just a control signal
 )
 def idle(
     *,

@@ -18,7 +18,8 @@ def tool(
     description: str,
     name: Optional[str] = None,
     category: Optional[str] = None,
-    requires_auth: bool = False
+    requires_auth: bool = False,
+    hidden_from_ui: bool = False  # Mark tools that shouldn't appear in chat UI
 ):
     """
     Decorator to convert a function into an LLM-callable tool.
@@ -145,7 +146,8 @@ def tool(
             parameters_schema=parameters_schema,
             is_async=is_async,
             category=category,
-            requires_auth=requires_auth
+            requires_auth=requires_auth,
+            hidden_from_ui=hidden_from_ui
         )
         
         # Attach tool to function for registry

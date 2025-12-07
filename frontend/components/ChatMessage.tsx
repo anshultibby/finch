@@ -171,7 +171,7 @@ export default function ChatMessage({ role, content, timestamp, resources, toolC
   };
   
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-6`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
         {isUser ? (
           /* User messages: keep bubble style */

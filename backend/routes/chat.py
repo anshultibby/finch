@@ -97,6 +97,22 @@ async def get_chat_history(chat_id: str):
         raise HTTPException(status_code=404, detail="Chat not found")
 
 
+@router.get("/history/{chat_id}/display")
+async def get_chat_history_display(chat_id: str):
+    """
+    Retrieve chat history formatted for UI display.
+    Returns a structured format with grouped tool calls and filtered messages.
+    """
+    try:
+        display_data = await chat_service.get_chat_history_for_display(chat_id)
+        return {
+            "chat_id": chat_id,
+            **display_data
+        }
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+
 @router.delete("/history/{chat_id}")
 async def clear_chat_history(chat_id: str):
     """
