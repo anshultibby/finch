@@ -11,7 +11,7 @@ from modules.tools import (
     ToolCallRequest, 
     TruncationPolicy
 )
-from models.sse import SSEEvent, ToolsEndEvent, ThinkingEvent, AssistantMessageEvent, DoneEvent, ErrorEvent
+from models.sse import SSEEvent, ToolsEndEvent, ThinkingEvent, DoneEvent, ErrorEvent
 from models.chat_history import ChatHistory, ChatMessage as HistoryChatMessage
 from .llm_config import LLMConfig
 from .llm_stream import stream_llm_response
@@ -196,41 +196,44 @@ class BaseAgent:
                         # Forward LLM events (content deltas, llm_end, etc.)
                         yield event
                     
+                    # Emit message_end for content (before tools if any)
+                    if content:
+                        from models.sse import MessageEndEvent
+                        yield SSEEvent(
+                            event="message_end",
+                            data=MessageEndEvent(content=content, tool_calls=None).model_dump()
+                        )
+                    
                     # If no tool calls, we're done
                     if not tool_calls:
                         self._agent_tracer.record_final_turn(iteration, len(content) if content else 0)
                         assistant_msg = {"role": "assistant", "content": content or ""}
                         messages.append(assistant_msg)
-                        # Track new message for saving to DB
                         self._new_messages.append(HistoryChatMessage.from_dict(assistant_msg))
                         return  # Exit generator
                     
                     # Record tool calls requested
                     self._agent_tracer.record_tool_calls_requested(tool_calls)
                     
-                    # Add assistant message with tool calls
+                    # Add assistant message with tool calls to history
                     assistant_msg = {
                         "role": "assistant",
                         "content": content or "",
                         "tool_calls": tool_calls
                     }
                     messages.append(assistant_msg)
-                    # Track new message for saving to DB
                     self._new_messages.append(HistoryChatMessage.from_dict(assistant_msg))
                     
-                    # Step 2: Execute tools and get result messages
-                    # Tools will emit their own status events via stream_handler
-                    # Filter events to extract control flow data (pure event pattern)
+                    # Step 2: Execute tools
+                    # tool_call_start/complete events handle the display
+                    # tools_end signals frontend to save the tool container
                     tool_messages = []
                     async for event in self._execute_tools_step(
                         tool_calls=tool_calls,
                         context=self.context
                     ):
-                        # Extract tool messages from tools_end event
                         if event.event == "tools_end":
                             tool_messages = event.data.get("tool_messages", [])
-                        
-                        # Forward tool events (tool_progress, tool_status, tools_end, etc.)
                         yield event
                     
                     # Add tool results to messages and track for DB

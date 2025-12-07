@@ -126,7 +126,8 @@ def tool(
                 "type": "string",
                 "description": "User-friendly description of what this specific tool call is doing (will be shown to the user)"
             }
-            # Note: 'description' is NOT required, but encouraged
+            # Make description required for better UI display
+            required.append('description')
         
         # Build OpenAI parameters schema
         parameters_schema = {

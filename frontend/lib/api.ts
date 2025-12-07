@@ -22,7 +22,7 @@ export interface ToolCallStatus {
   resource_id?: string;
   error?: string;
   result_summary?: string;
-  statusMessage?: string; // The detailed status/description of what the tool is doing
+  statusMessage?: string; // User-friendly description provided by LLM via 'description' parameter
 }
 
 export interface ChatResponse {
@@ -54,15 +54,6 @@ export interface SSEToolCallCompleteEvent {
 
 export interface SSEAssistantMessageDeltaEvent {
   delta: string;
-}
-
-export interface SSEAssistantMessageEvent {
-  content: string;
-  timestamp: string;
-  needs_auth: boolean;
-  is_notification?: boolean;  // True if from message_notify_user
-  is_question?: boolean;  // True if from message_ask_user
-  suggest_takeover?: string;  // For message_ask_user: "browser", etc.
 }
 
 export interface SSEDoneEvent {
@@ -114,16 +105,31 @@ export interface SSEToolLogEvent {
   timestamp: string;
 }
 
+export interface SSEMessageEndEvent {
+  role: string;
+  content: string;
+  timestamp: string;
+}
+
+export interface SSEToolsEndEvent {
+  // tools_end signals to save current tool calls as a message
+}
+
 // Callback types for SSE event handlers
 export interface SSEEventHandlers {
-  onToolCallStart?: (event: SSEToolCallStartEvent) => void;
-  onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
-  onToolsEnd?: () => void; // Called when a batch of tool executions completes
+  // Message events
+  onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;  // Text streaming
+  onMessageEnd?: (event: SSEMessageEndEvent) => void;               // Save text message
+  
+  // Tool events
+  onToolCallStart?: (event: SSEToolCallStartEvent) => void;         // Tool begins
+  onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;   // Tool done
+  onToolsEnd?: () => void;                                          // All tools done - save tool container
   onToolStatus?: (event: SSEToolStatusEvent) => void;
   onToolProgress?: (event: SSEToolProgressEvent) => void;
   onToolLog?: (event: SSEToolLogEvent) => void;
-  onAssistantMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
-  onAssistantMessage?: (event: SSEAssistantMessageEvent) => void;
+  
+  // Other events
   onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
@@ -133,6 +139,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  toolCalls?: ToolCallStatus[]; // Tool calls that preceded this message
 }
 
 export interface ChatHistory {
@@ -275,6 +282,13 @@ export const chatApi = {
               
               // Call appropriate handler
               switch (eventType) {
+                case 'assistant_message_delta':
+                case 'message_delta':
+                  handlers.onMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
+                  break;
+                case 'message_end':
+                  handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
+                  break;
                 case 'tool_call_start':
                   handlers.onToolCallStart?.(eventData as SSEToolCallStartEvent);
                   break;
@@ -292,12 +306,6 @@ export const chatApi = {
                   break;
                 case 'tool_log':
                   handlers.onToolLog?.(eventData as SSEToolLogEvent);
-                  break;
-                case 'assistant_message_delta':
-                  handlers.onAssistantMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
-                  break;
-                case 'assistant_message':
-                  handlers.onAssistantMessage?.(eventData as SSEAssistantMessageEvent);
                   break;
                 case 'tool_options':
                   handlers.onOptions?.(eventData as SSEOptionsEvent);
@@ -362,6 +370,11 @@ export const chatApi = {
   getUserChats: async (userId: string): Promise<UserChatsResponse> => {
     const response = await api.get<UserChatsResponse>(`/chat/user/${userId}/chats`);
     return response.data;
+  },
+
+  createChat: async (userId: string): Promise<string> => {
+    const response = await api.post<{ chat_id: string }>('/chat/create', { user_id: userId });
+    return response.data.chat_id;
   },
 
   healthCheck: async (): Promise<{ status: string }> => {

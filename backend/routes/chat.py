@@ -136,3 +136,27 @@ async def list_user_chats(user_id: str, limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/create")
+async def create_new_chat(data: dict):
+    """
+    Create a new chat for a user
+    """
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    
+    try:
+        chat_id = str(uuid.uuid4())
+        # Actually create the chat in DB
+        from database import AsyncSessionLocal
+        from crud import chat_async
+        async with AsyncSessionLocal() as db:
+            await chat_async.create_chat(db, chat_id, user_id)
+        return {"chat_id": chat_id}
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to create chat: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+

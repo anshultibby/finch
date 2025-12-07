@@ -1,11 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
-import ResourceViewer from '../ResourceViewer';
 import ChatModeBanner from './ChatModeBanner';
-import ChatFilesModal from './ChatFilesModal';
 import ChatHistorySidebar from './ChatHistorySidebar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
@@ -18,7 +16,6 @@ import {
   Resource,
   SSEToolCallStartEvent,
   SSEToolCallCompleteEvent,
-  SSEAssistantMessageEvent,
   SSEOptionsEvent,
   OptionButton
 } from '@/lib/api';
@@ -26,59 +23,77 @@ import {
 export default function ChatView() {
   const { user } = useAuth();
   const { mode } = useChatMode();
+  
+  // Core state
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
-  const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
-  const [currentToolCalls, setCurrentToolCalls] = useState<ToolCallStatus[]>([]);
-  const [completedToolBatches, setCompletedToolBatches] = useState<ToolCallStatus[][]>([]); // Array of completed tool batches
-  const [streamingMessage, setStreamingMessage] = useState<string>('');
-  const streamingMessageRef = useRef<string>('');
+  
+  // Streaming state - use refs as source of truth to avoid React batching issues
+  const [streamingText, setStreamingText] = useState('');
+  const [streamingTools, setStreamingTools] = useState<ToolCallStatus[]>([]);
+  const streamingTextRef = useRef('');
+  const streamingToolsRef = useRef<ToolCallStatus[]>([]);
+  
+  // Other state
   const [resources, setResources] = useState<Resource[]>([]);
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
-  const [isFilesModalOpen, setIsFilesModalOpen] = useState(false);
-  const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(true); // Open by default
+  const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(true);
+  const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const userId = user?.id || null;
 
+  // Merge consecutive tool-only messages for cleaner display
+  const displayMessages = useMemo(() => {
+    const result: Message[] = [];
+    
+    for (const msg of messages) {
+      const isToolOnly = msg.role === 'assistant' && !msg.content && msg.toolCalls && msg.toolCalls.length > 0;
+      const lastMsg = result[result.length - 1];
+      const lastIsToolOnly = lastMsg && lastMsg.role === 'assistant' && !lastMsg.content && lastMsg.toolCalls && lastMsg.toolCalls.length > 0;
+      
+      // Merge consecutive tool-only messages
+      if (isToolOnly && lastIsToolOnly && lastMsg.toolCalls) {
+        lastMsg.toolCalls = [...lastMsg.toolCalls, ...msg.toolCalls!];
+      } else {
+        result.push({ ...msg });
+      }
+    }
+    
+    return result;
+  }, [messages]);
+
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Use setTimeout to ensure DOM has updated
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 0);
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, streamingText, streamingTools]);
 
-  // Initialize chat ID - load most recent chat or create new one
+  // Initialize chat
   useEffect(() => {
     const initializeChat = async () => {
       if (!userId) return;
       
       try {
-        // Try to load the user's most recent chat
         const response = await chatApi.getUserChats(userId);
-        
         if (response.chats && response.chats.length > 0) {
-          // Load the most recent chat
-          const mostRecentChat = response.chats[0];
-          console.log('📝 Loading most recent chat:', mostRecentChat.chat_id);
-          setChatId(mostRecentChat.chat_id);
+          setChatId(response.chats[0].chat_id);
         } else {
-          // No chats exist, create a new one
-          const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          console.log('📝 Creating first chat:', newChatId);
+          const newChatId = await chatApi.createChat(userId);
           setChatId(newChatId);
         }
       } catch (err) {
-        console.error('Error loading chats:', err);
-        // Fallback to creating a new chat
-        const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        console.log('📝 Creating fallback chat:', newChatId);
+        console.error('Error initializing chat:', err);
+        const newChatId = await chatApi.createChat(userId);
         setChatId(newChatId);
       }
     };
@@ -86,23 +101,20 @@ export default function ChatView() {
     initializeChat();
   }, [userId]);
 
-  // Load chat history and resources
+  // Load chat history
   useEffect(() => {
     const loadChatData = async () => {
       if (!chatId) return;
       
       try {
-        // Use new backend endpoint that returns UI-ready data (no parsing needed!)
         const displayData = await chatApi.getChatHistoryForDisplay(chatId);
-        
-        // Convert to local format
-        const userMessages: Message[] = displayData.messages.map(msg => ({
+        const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
           role: msg.role,
           content: msg.content,
-          timestamp: msg.timestamp || new Date().toISOString()
+          timestamp: msg.timestamp || new Date().toISOString(),
+          toolCalls: msg.tool_calls
         }));
-          
-        setMessages(userMessages);
+        setMessages(loadedMessages);
         
         const chatResources = await resourcesApi.getChatResources(chatId);
         setResources(chatResources);
@@ -116,160 +128,113 @@ export default function ChatView() {
 
   // Check portfolio connection
   useEffect(() => {
-    const checkExistingConnection = async () => {
+    const checkConnection = async () => {
       if (!userId) return;
-      
       try {
         const status = await snaptradeApi.checkStatus(userId);
         setIsPortfolioConnected(status.is_connected);
       } catch (err) {
-        console.error('Error checking connection status:', err);
         setIsPortfolioConnected(false);
       }
     };
-    
-    checkExistingConnection();
+    checkConnection();
   }, [userId]);
 
-  // When mode changes, add a system message to guide the conversation
-  useEffect(() => {
-    if (mode.type !== 'general' && messages.length === 0) {
-      const getModePrompt = () => {
-        switch (mode.type) {
-          case 'create_strategy':
-            return "Let's create a new trading strategy! I'll use real market data from FMP to help design a viable strategy with specific rules and thresholds. Tell me what type of stocks you're interested in or what kind of strategy you have in mind.";
-          case 'execute_strategy':
-            return `Ready to execute "${mode.metadata?.strategyName}". I'll screen candidates, apply your rules, and show you buy/sell decisions.`;
-          case 'edit_strategy':
-            return `What would you like to change about "${mode.metadata?.strategyName}"? You can modify screening rules, risk parameters, or any other settings.`;
-          case 'analyze_performance':
-            return "I'll analyze your trading performance and help identify patterns. What would you like to know?";
-          default:
-            return null;
-        }
-      };
-
-      const prompt = getModePrompt();
-      if (prompt) {
-        // Add initial assistant message
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: prompt,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages([assistantMessage]);
-      }
-    }
-  }, [mode.type]);
-
-  const handleOptionSelect = (option: OptionButton) => {
-    setPendingOptions(null);
-    
-    const userMessage: Message = {
-      role: 'user',
-      content: option.label,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMessage]);
-    
-    handleSendMessageInternal(option.label);
-  };
-
   const handleSendMessage = async (content: string) => {
-    handleSendMessageInternal(content);
-  };
+    if (!content.trim() || !userId || !chatId) return;
 
-  const handleSendMessageInternal = async (content: string) => {
-    if (!userId || !chatId) {
-      setError('Session not initialized. Please refresh the page.');
-      return;
-    }
-    
-    setError(null);
-    setPendingOptions(null);
-    
+    // Add user message
     const userMessage: Message = {
       role: 'user',
-      content,
+      content: content.trim(),
       timestamp: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
-    setCurrentToolCalls([]);
-    setCompletedToolBatches([]); // Clear completed batches for new turn
-    setStreamingMessage('');
-    streamingMessageRef.current = '';
+    setError(null);
+    
+    // Clear streaming state
+    streamingTextRef.current = '';
+    streamingToolsRef.current = [];
+    setStreamingText('');
+    setStreamingTools([]);
 
-    let needsAuth = false;
+    // Helper to save accumulated tools (reads and clears ref synchronously)
+    const saveAccumulatedTools = () => {
+      const tools = streamingToolsRef.current;
+      if (tools.length > 0) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '',
+          timestamp: new Date().toISOString(),
+          toolCalls: [...tools],
+        }]);
+        streamingToolsRef.current = [];
+        setStreamingTools([]);
+      }
+    };
 
     try {
       chatApi.sendMessageStream(content, userId, chatId, {
+        // TEXT STREAMING
+        onMessageDelta: (event) => {
+          streamingTextRef.current += event.delta;
+          setStreamingText(streamingTextRef.current);
+        },
+        
+        // TEXT COMPLETE - save text immediately (text comes before tools)
+        onMessageEnd: (event) => {
+          if (event.content) {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: event.content,
+              timestamp: event.timestamp,
+            }]);
+          }
+          streamingTextRef.current = '';
+          setStreamingText('');
+        },
+        
+        // TOOL START - accumulate in ref
         onToolCallStart: (event: SSEToolCallStartEvent) => {
-          // Add tool to current list
-          setCurrentToolCalls((prev) => [...prev, {
+          // Check for duplicates in ref
+          if (streamingToolsRef.current.some(t => t.tool_call_id === event.tool_call_id)) {
+            return;
+          }
+          const newTool: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
             status: 'calling',
             statusMessage: event.user_description || event.tool_name,
-          }]);
+          };
+          streamingToolsRef.current = [...streamingToolsRef.current, newTool];
+          setStreamingTools([...streamingToolsRef.current]);
         },
         
+        // TOOL COMPLETE - update in ref
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
-          // Update tool status
-          setCurrentToolCalls((prev) => 
-            prev.map((tc) => 
-              tc.tool_call_id === event.tool_call_id
-                ? { ...tc, status: event.status, resource_id: event.resource_id, error: event.error }
-                : tc
-            )
+          streamingToolsRef.current = streamingToolsRef.current.map(t =>
+            t.tool_call_id === event.tool_call_id
+              ? { ...t, status: event.status, error: event.error }
+              : t
           );
+          setStreamingTools([...streamingToolsRef.current]);
         },
         
+        // TOOLS END - save accumulated tools
         onToolsEnd: () => {
-          // Batch of tools completed - move to completed batches and start fresh
-          setCurrentToolCalls((currentTools) => {
-            if (currentTools.length > 0) {
-              // Save this batch to completed batches
-              setCompletedToolBatches((prev) => [...prev, currentTools]);
-            }
-            // Clear for next batch
-            return [];
-          });
-        },
-        
-        onAssistantMessageDelta: (event) => {
-          streamingMessageRef.current += event.delta;
-          setStreamingMessage(streamingMessageRef.current);
-        },
-        
-        onAssistantMessage: (event: SSEAssistantMessageEvent) => {
-          needsAuth = event.needs_auth;
-          // No longer needed - we don't use message_notify_user/message_ask_user
+          saveAccumulatedTools();
         },
         
         onOptions: (event: SSEOptionsEvent) => {
           setPendingOptions(event);
-          streamingMessageRef.current = '';
-          setStreamingMessage('');
         },
         
         onDone: async () => {
-          // Save streaming message
-          const content = streamingMessageRef.current.trim();
-          if (content) {
-            setMessages((prev) => [...prev, {
-              role: 'assistant',
-              content,
-              timestamp: new Date().toISOString(),
-            }]);
-            streamingMessageRef.current = '';
-            setStreamingMessage('');
-          }
-          
-          // Clear streaming state
           setIsLoading(false);
-          setCurrentToolCalls([]);
-          setCompletedToolBatches([]); // Clear completed batches too
+          
+          // Save any remaining accumulated tools
+          saveAccumulatedTools();
           
           // Reload resources
           try {
@@ -278,402 +243,182 @@ export default function ChatView() {
           } catch (err) {
             console.error('Error reloading resources:', err);
           }
-          
-          if (needsAuth && !isPortfolioConnected) {
-            await handleBrokerageConnection();
-          }
         },
         
         onError: (event) => {
-          console.error('❌ SSE error:', event.error);
-          setError(`Error: ${event.error}`);
+          console.error('SSE error:', event.error);
+          setError(event.error);
           setIsLoading(false);
-          streamingMessageRef.current = '';
-          setStreamingMessage('');
-          setMessages((prev) => prev.slice(0, -1));
         },
       });
     } catch (err) {
-      setError('Failed to send message. Please try again.');
-      console.error('Error sending message:', err);
-      setMessages((prev) => prev.slice(0, -1));
+      setError('Failed to send message');
       setIsLoading(false);
-      streamingMessageRef.current = '';
-      setStreamingMessage('');
     }
   };
 
-  const handleBrokerageConnection = async () => {
-    if (!userId) {
-      setError('No user ID available');
-      return;
-    }
-
-    setIsConnecting(true);
-    setError(null);
-    
-    try {
-      const redirectUri = `${window.location.origin}${window.location.pathname}?snaptrade_callback=true`;
-      const response = await snaptradeApi.initiateConnection(userId, redirectUri);
-      
-      if (response.success && response.redirect_uri) {
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        const width = 500;
-        const height = 700;
-        const left = (window.screen.width - width) / 2;
-        const top = (window.screen.height - height) / 2;
-        
-        const popup = window.open(
-          response.redirect_uri,
-          'SnapTrade Connection',
-          isMobile ? '_blank' : `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-        );
-        
-        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-          setConnectionUrl(response.redirect_uri);
-          setError(null);
-        }
-      } else {
-        setError(response.message || 'Failed to initiate connection');
-        setIsConnecting(false);
-      }
-    } catch (err: any) {
-      console.error('Error during connection:', err);
-      setError(err.message || 'Failed to connect to backend');
-      setIsConnecting(false);
-    }
-  };
-
-  const handleClearChat = async () => {
-    setMessages([]);
-    setResources([]);
-    setCurrentToolCalls([]);
-    
-    const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setChatId(newChatId);
-    setError(null);
+  const handleOptionSelect = async (option: OptionButton) => {
+    setPendingOptions(null);
+    await handleSendMessage(option.value);
   };
 
   const handleSelectChat = async (selectedChatId: string) => {
-    if (selectedChatId === chatId) {
-      // Already on this chat
-      setIsChatHistoryOpen(false);
-      return;
-    }
-
-    // Clear current state
-    setMessages([]);
-    setResources([]);
-    setCurrentToolCalls([]);
-    setError(null);
-    setStreamingMessage('');
-    streamingMessageRef.current = '';
-    setPendingOptions(null);
-
-    // Set the new chat ID (this will trigger the useEffect to load its data)
     setChatId(selectedChatId);
-    setIsChatHistoryOpen(false);
-  };
-
-  const handleNewChat = () => {
-    const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    console.log('📝 Creating new chat:', newChatId);
-    
-    // Clear current state
     setMessages([]);
-    setResources([]);
-    setCurrentToolCalls([]);
-    setError(null);
-    setStreamingMessage('');
-    streamingMessageRef.current = '';
-    setPendingOptions(null);
-    
-    setChatId(newChatId);
-    setIsChatHistoryOpen(false);
+    setStreamingText('');
+    setStreamingTools([]);
   };
 
-  const handleSelectResource = (resource: Resource) => {
-    setSelectedResource(resource);
-  };
-
-  const handleFileClick = (filename: string, chatId: string) => {
-    // Find the file resource matching the filename
-    const fileResource = resources.find(r => 
-      r.resource_type === 'file' && 
-      r.data?.filename === filename &&
-      r.chat_id === chatId
-    );
-    
-    if (fileResource) {
-      setSelectedResource(fileResource);
-    } else {
-      console.warn(`File resource not found: ${filename} in chat ${chatId}`);
+  const handleNewChat = async () => {
+    if (!userId) return;
+    try {
+      const newChatId = await chatApi.createChat(userId);
+      setChatId(newChatId);
+      setMessages([]);
+      setStreamingText('');
+      setStreamingTools([]);
+    } catch (err) {
+      console.error('Error creating new chat:', err);
     }
   };
 
   const getPlaceholder = () => {
-    switch (mode.type) {
-      case 'create_strategy':
-        return "Describe the type of strategy you want to create...";
-      case 'execute_strategy':
-        return "Ask questions about the execution results...";
-      case 'edit_strategy':
-        return "What would you like to change?";
-      case 'analyze_performance':
-        return "Ask about your trading performance...";
-      default:
-        return "Ask about your portfolio, market trends, or strategies...";
-    }
+    if (mode.type === 'general') return 'Ask me anything about investing...';
+    return `Ask about ${mode.type}...`;
   };
 
+  if (!userId) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-gray-500">Please sign in to use the chat.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full">
-      {/* Chat History Sidebar */}
-      {userId && (
-        <ChatHistorySidebar
-          userId={userId}
-          currentChatId={chatId}
-          onSelectChat={handleSelectChat}
-          onNewChat={handleNewChat}
-          isOpen={isChatHistoryOpen}
-          onToggle={() => setIsChatHistoryOpen(!isChatHistoryOpen)}
-        />
-      )}
+    <div className="flex h-full bg-white">
+      {/* Sidebar */}
+      <ChatHistorySidebar
+        userId={userId}
+        currentChatId={chatId}
+        onSelectChat={handleSelectChat}
+        onNewChat={handleNewChat}
+        isOpen={isChatHistoryOpen}
+        onToggle={() => setIsChatHistoryOpen(!isChatHistoryOpen)}
+      />
 
       {/* Main Chat Area */}
-      <div className="flex flex-col flex-1 min-w-0 relative">
-        {/* Expand Sidebar Button - shown when sidebar is collapsed */}
+      <div className="flex-1 flex flex-col relative min-w-0 overflow-hidden">
         {!isChatHistoryOpen && (
           <button
             onClick={() => setIsChatHistoryOpen(true)}
-            className="absolute top-4 left-4 z-10 p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-sm transition-colors"
-            title="Show chat history"
+            className="absolute top-4 left-4 z-10 p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-sm"
           >
-            <svg
-              className="w-5 h-5 text-gray-600"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 6h16M4 12h16M4 18h16"
-              />
+            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
         )}
 
-        {/* Chat Mode Banner */}
         <ChatModeBanner />
 
-      {/* Header with Files Button */}
-      {messages.length > 0 && (
-        <div className="px-6 py-3 border-b border-gray-200 flex items-center justify-end bg-white">
-          <button
-            onClick={() => setIsFilesModalOpen(true)}
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
-            View all files in this chat
-          </button>
-        </div>
-      )}
-
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 chat-scrollbar bg-white">
-        {!chatId ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="flex space-x-2">
-              <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce"></div>
-              <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-              <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+        {/* Messages - min-h-0 fixes flex scroll issue */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+          {!chatId ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex space-x-2">
+                <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" />
+                <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+              </div>
             </div>
-          </div>
-        ) : messages.length === 0 && mode.type === 'general' ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="bg-white rounded-full p-6 shadow-lg mb-6">
-              <svg
-                className="w-16 h-16 text-purple-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-              Welcome to Finch Chat!
-            </h2>
-            <p className="text-gray-600 max-w-md mb-8">
-              Ask me anything about your portfolio, market trends, or trading strategies.
-            </p>
-            <div className="grid gap-3 max-w-2xl">
+          ) : messages.length === 0 && !isLoading ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <h2 className="text-2xl font-semibold text-gray-900 mb-4">Welcome to Finch!</h2>
+              <p className="text-gray-600 mb-8">Ask me anything about investing.</p>
               <button
                 onClick={() => handleSendMessage("review my portfolio")}
-                className="bg-blue-50 hover:bg-blue-100 text-left px-6 py-4 rounded-lg border-2 border-blue-500 transition-colors"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
-                <p className="font-medium text-blue-900">📊 Review my portfolio</p>
-                <p className="text-xs text-blue-700 mt-1">Get insights on your holdings and performance</p>
-              </button>
-              <button
-                onClick={() => handleSendMessage("what are the most recent Reddit trends?")}
-                className="bg-white hover:bg-gray-50 text-left px-6 py-4 rounded-lg border border-gray-200 transition-colors"
-              >
-                <p className="font-medium text-gray-900">📱 What are the most recent Reddit trends?</p>
-                <p className="text-xs text-gray-600 mt-1">See what stocks are trending on Reddit</p>
+                Review my portfolio
               </button>
             </div>
+          ) : (
+            <>
+              {/* SAVED MESSAGES (with consecutive tools merged) */}
+              {displayMessages.map((msg, i) => (
+                <ChatMessage
+                  key={i}
+                  role={msg.role}
+                  content={msg.content}
+                  toolCalls={msg.toolCalls}
+                />
+              ))}
+
+              {/* STREAMING TOOLS (live preview) - render BEFORE text since tools run first */}
+              {streamingTools.length > 0 && (
+                <ChatMessage role="assistant" content="" toolCalls={streamingTools} />
+              )}
+
+              {/* STREAMING TEXT (live preview) - appears below tools */}
+              {streamingText && (
+                <ChatMessage role="assistant" content={streamingText} />
+              )}
+
+              {/* OPTIONS */}
+              {pendingOptions && (
+                <div className="flex justify-start mb-4">
+                  <div className="max-w-[80%] px-3 py-2">
+                    <p className="text-gray-900 font-medium mb-3">{pendingOptions.question}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {pendingOptions.options.map(opt => (
+                        <button
+                          key={opt.id}
+                          onClick={() => handleOptionSelect(opt)}
+                          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* LOADING */}
+              {isLoading && !streamingText && streamingTools.length === 0 && (
+                <div className="flex justify-start mb-4 px-3">
+                  <div className="flex space-x-2">
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="px-6 py-3 bg-red-50 border-t border-red-200">
+            <p className="text-sm text-red-600">{error}</p>
           </div>
-        ) : (
-          <>
-            {messages.map((message, index) => {
-              const messageTime = message.timestamp ? new Date(message.timestamp).getTime() : 0;
-              // Pass all resources - ChatMessage will match by filename for files,
-              // and by time proximity for plots/charts
-              const messageResources = resources.filter(r => {
-                // For file resources, include all (ChatMessage matches by filename)
-                if (r.resource_type === 'file') {
-                  return true;
-                }
-                // For other resources (plots, charts), use time-based matching
-                const resourceTime = new Date(r.created_at).getTime();
-                return Math.abs(resourceTime - messageTime) < 5000;
-              });
-              
-              return (
-                <ChatMessage
-                  key={index}
-                  role={message.role}
-                  content={message.content}
-                  timestamp={message.timestamp}
-                  resources={messageResources}
-                  onFileClick={handleFileClick}
-                  chatId={chatId || undefined}
-                />
-              );
-            })}
-
-            {/* Options Display */}
-            {pendingOptions && (
-              <div className="flex justify-start mb-6 px-2 animate-fadeIn">
-                <div className="max-w-[95%]">
-                  <div className="mb-3 px-1">
-                    <p className="text-[15px] text-gray-900 font-medium leading-relaxed">
-                      {pendingOptions.question}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {pendingOptions.options.map((option, index) => (
-                      <button
-                        key={option.id}
-                        onClick={() => handleOptionSelect(option)}
-                        className="group relative bg-gradient-to-br from-gray-50 to-gray-100/80 hover:from-gray-100 hover:to-gray-200/80 text-left px-6 py-4 rounded-xl border border-gray-200/80 hover:border-gray-300 transition-all duration-300 ease-out shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-[0.98] min-w-[200px] max-w-[320px] flex-1"
-                      >
-                        <div className="relative z-10">
-                          <p className="font-semibold text-gray-900 text-[15px] mb-1.5 leading-tight">
-                            {option.label}
-                          </p>
-                          {option.description && (
-                            <p className="text-[13px] text-gray-600 leading-relaxed">
-                              {option.description}
-                            </p>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Completed tool batches - each renders as its own collapsible group */}
-            {completedToolBatches.map((toolBatch, batchIndex) => (
-              <div key={`tool-batch-${batchIndex}`} className="mb-4">
-                <ChatMessage
-                  role="assistant"
-                  content=""
-                  timestamp={new Date().toISOString()}
-                  toolCalls={toolBatch}
-                  onFileClick={handleFileClick}
-                  chatId={chatId || undefined}
-                />
-              </div>
-            ))}
-            
-            {/* Streaming assistant response with inline tool calls */}
-            {(streamingMessage || currentToolCalls.length > 0) && (
-              <div className="mb-4">
-                <ChatMessage
-                  role="assistant"
-                  content={streamingMessage || ''}
-                  timestamp={new Date().toISOString()}
-                  toolCalls={currentToolCalls.length > 0 ? currentToolCalls : undefined}
-                  onFileClick={handleFileClick}
-                  chatId={chatId || undefined}
-                />
-              </div>
-            )}
-
-            {/* Loading dots */}
-            {isLoading && currentToolCalls.length === 0 && !streamingMessage && (
-              <div className="flex justify-start mb-4 px-2">
-                <div className="flex space-x-2">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </>
         )}
-      </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="px-6 py-3 bg-red-50 border-t border-red-200">
-          <p className="text-sm text-red-600">{error}</p>
+        {/* Input */}
+        <div className="border-t border-gray-200 bg-white">
+          <div className="max-w-4xl mx-auto">
+            <ChatInput 
+              onSendMessage={handleSendMessage} 
+              disabled={isLoading || isConnecting || !!pendingOptions}
+              placeholder={getPlaceholder()}
+            />
+          </div>
         </div>
-      )}
-
-      {/* Input */}
-      <div className="border-t border-gray-200 bg-white">
-        <div className="max-w-4xl mx-auto">
-          <ChatInput 
-            onSendMessage={handleSendMessage} 
-            disabled={isLoading || isConnecting || !!pendingOptions}
-            placeholder={getPlaceholder()}
-          />
-        </div>
-      </div>
-
-      {/* Resource Viewer Modal */}
-      <ResourceViewer
-        resource={selectedResource}
-        isOpen={!!selectedResource}
-        onClose={() => setSelectedResource(null)}
-      />
-
-      {/* Files modal */}
-      {chatId && (
-        <ChatFilesModal
-          isOpen={isFilesModalOpen}
-          onClose={() => setIsFilesModalOpen(false)}
-          chatId={chatId}
-          onSelectResource={handleSelectResource}
-        />
-      )}
       </div>
     </div>
   );
 }
-

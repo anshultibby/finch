@@ -13,6 +13,10 @@ from typing import List
 
 # All tools available to the main Finch chat agent
 MAIN_AGENT_TOOLS = [
+    # Planning & Task Organization
+    # 'create_plan',                 # Create structured plan for complex tasks
+    # 'advance_plan',                # Advance to next phase in plan
+    
     # Portfolio & Brokerage
     'get_portfolio',
     'request_brokerage_connection',

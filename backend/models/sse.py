@@ -43,14 +43,11 @@ class ThinkingEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
-class AssistantMessageEvent(BaseModel):
-    """Event sent when the assistant's final message is ready"""
+class MessageEndEvent(BaseModel):
+    """Event sent when text message is complete"""
+    role: str = "assistant"
     content: str
-    timestamp: str
-    needs_auth: bool = False
-    is_notification: bool = False  # True if from message_notify_user
-    is_question: bool = False  # True if from message_ask_user
-    suggest_takeover: Optional[str] = None  # For message_ask_user: "browser", etc.
+    timestamp: str = datetime.now().isoformat()
 
 
 class DoneEvent(BaseModel):
