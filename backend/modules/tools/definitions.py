@@ -24,10 +24,6 @@ import modules.tools.etf_builder_tools  # noqa: F401
 # Import file tools (OpenHands-style file operations)
 import modules.tools.file_tools  # noqa: F401
 
-# Import message tools (Manus-style communication)
-import modules.tools.message_notify  # noqa: F401
-import modules.tools.message_ask  # noqa: F401
-
 # Import tool descriptions
 from modules.tools.descriptions import (
     # Portfolio

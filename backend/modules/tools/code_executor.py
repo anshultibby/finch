@@ -333,25 +333,43 @@ async def execute_code(
             # Sync changes back to database
             changes = vfs.sync_changes()
             
+            # Emit resource events for new/modified files so frontend knows about them
+            for filename in changes["new"] + changes["modified"]:
+                file_type = "text"
+                if filename.endswith('.py'):
+                    file_type = "python"
+                elif filename.endswith('.md'):
+                    file_type = "markdown"
+                elif filename.endswith('.csv'):
+                    file_type = "csv"
+                elif filename.endswith('.json'):
+                    file_type = "json"
+                elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
+                    file_type = "image"
+                
+                # Get file content to determine size
+                try:
+                    content = resource_manager.read_chat_file(context.user_id, context.chat_id, filename)
+                    size_bytes = len(content.encode('utf-8')) if isinstance(content, str) else len(content)
+                except:
+                    size_bytes = 0
+                
+                yield SSEEvent(
+                    event="resource",
+                    data={
+                        "resource_type": "file",
+                        "tool_name": "execute_code",
+                        "title": filename,
+                        "data": {
+                            "filename": filename,
+                            "file_type": file_type,
+                            "size_bytes": size_bytes
+                        }
+                    }
+                )
+            
             # Clean up temp directory
             vfs.cleanup()
-            
-            # Prepare file change summary
-            files_changed = []
-            if changes["new"]:
-                files_changed.append(f"{len(changes['new'])} new")
-            if changes["modified"]:
-                files_changed.append(f"{len(changes['modified'])} modified")
-            if changes["deleted"]:
-                files_changed.append(f"{len(changes['deleted'])} deleted")
-            
-            files_msg = ""
-            if files_changed:
-                all_files = changes["new"] + changes["modified"]
-                file_list = ", ".join(all_files[:3])
-                if len(all_files) > 3:
-                    file_list += f", +{len(all_files) - 3} more"
-                files_msg = f" | Files: {file_list}"
             
             # Truncate output if needed
             MAX_OUTPUT_SIZE = 8000

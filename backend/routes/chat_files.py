@@ -84,22 +84,45 @@ async def download_chat_file(
             "text": "text/plain",
             "csv": "text/csv",
             "json": "application/json",
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "gif": "image/gif",
-            "svg": "image/svg+xml",
-            "webp": "image/webp"
+            "image": "image/png"  # Generic image type, will be refined below
         }
         
-        content_type = content_type_map.get(file_obj.file_type, "text/plain")
+        # Determine if this is an image file
+        is_image = file_obj.file_type == "image"
         
-        # For images, use inline disposition so they display in browser
-        is_image = file_obj.file_type in ["png", "jpg", "jpeg", "gif", "svg", "webp"]
-        disposition = "inline" if is_image else "attachment"
+        # For images, determine specific content type from filename extension
+        if is_image:
+            if filename.lower().endswith('.png'):
+                content_type = "image/png"
+            elif filename.lower().endswith(('.jpg', '.jpeg')):
+                content_type = "image/jpeg"
+            elif filename.lower().endswith('.gif'):
+                content_type = "image/gif"
+            elif filename.lower().endswith('.svg'):
+                content_type = "image/svg+xml"
+            elif filename.lower().endswith('.webp'):
+                content_type = "image/webp"
+            else:
+                content_type = "image/png"  # Default to PNG
+            disposition = "inline"
+        else:
+            content_type = content_type_map.get(file_obj.file_type, "text/plain")
+            disposition = "attachment"
+        
+        # Decode base64 content for binary files (images)
+        content = file_obj.content
+        if is_image:
+            import base64
+            try:
+                # Images are stored as base64-encoded strings in the database
+                content = base64.b64decode(content)
+                logger.info(f"Decoded base64 image: {filename} ({len(content)} bytes)")
+            except Exception as e:
+                logger.error(f"Failed to decode base64 image {filename}: {str(e)}")
+                # If decode fails, try returning as-is (might be raw bytes already)
         
         return Response(
-            content=file_obj.content,
+            content=content,
             media_type=content_type,
             headers={
                 "Content-Disposition": f'{disposition}; filename="{filename}"'

@@ -156,14 +156,16 @@ class ChatService:
     async def get_chat_history_for_display(self, chat_id: str) -> Dict[str, Any]:
         """
         Get chat history formatted for UI display with:
-        - Grouped tool calls (all tools from one turn together)
+        - Grouped tool calls (tools from each batch together)
         - Filtered messages (only user-facing content)
         - Extracted assistant messages from message_notify_user/message_ask_user
         
+        Tool calls are associated with the message that immediately follows them.
+        
         Returns:
             {
-                "messages": [...],  # User messages and assistant content
-                "tool_groups": [...]  # Grouped tool call executions
+                "messages": [...],  # User messages and assistant content  
+                "tool_groups": [...]  # Grouped tool call executions with message_index
             }
         """
         async with AsyncSessionLocal() as db:
@@ -175,19 +177,11 @@ class ChatService:
             # Process messages into UI-friendly format
             display_messages = []
             tool_groups = []
-            current_tool_group = []
+            pending_tool_calls = []  # Tool calls waiting for next message
             
             for msg in messages:
                 # User messages - always display
                 if msg.role == "user":
-                    # Flush any accumulated tool calls before adding user message
-                    if current_tool_group:
-                        tool_groups.append({
-                            "tools": current_tool_group,
-                            "message_index": len(display_messages)
-                        })
-                        current_tool_group = []
-                    
                     display_messages.append({
                         "role": "user",
                         "content": msg.content,
@@ -196,57 +190,76 @@ class ChatService:
                 
                 # Assistant messages with tool_calls
                 elif msg.role == "assistant" and msg.tool_calls:
+                    # Process tool calls - separate message tools from regular tools
+                    message_tools = []  # message_notify_user, message_ask_user
+                    regular_tools = []  # All other tools
+                    
                     for tc in msg.tool_calls:
                         tool_name = tc.get("function", {}).get("name")
                         
-                        # Check if this tool is hidden from UI
+                        # Check if tool is hidden
                         tool_obj = tool_registry.get_tool(tool_name)
                         if tool_obj and tool_obj.hidden_from_ui:
-                            continue  # Skip hidden tools like 'idle'
+                            continue
                         
                         # Parse arguments
                         try:
                             args_str = tc.get("function", {}).get("arguments", "{}")
                             args = json.loads(args_str) if isinstance(args_str, str) else args_str
                             
-                            # Check if this is a message tool
                             if tool_name in ("message_notify_user", "message_ask_user"):
-                                # Flush accumulated tool calls first
-                                if current_tool_group:
-                                    tool_groups.append({
-                                        "tools": current_tool_group,
-                                        "message_index": len(display_messages)
-                                    })
-                                    current_tool_group = []
-                                
-                                # Extract text as assistant message
-                                if args.get("text"):
-                                    display_messages.append({
-                                        "role": "assistant",
-                                        "content": args["text"],
-                                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
-                                    })
+                                # This is a message tool - save for processing after regular tools
+                                message_tools.append({
+                                    "tool_name": tool_name,
+                                    "text": args.get("text", ""),
+                                    "timestamp": msg.timestamp
+                                })
                             else:
-                                # Regular tool - add to current group
-                                current_tool_group.append({
+                                # Regular tool - add to list
+                                regular_tools.append({
                                     "tool_call_id": tc.get("id"),
                                     "tool_name": tool_name,
                                     "description": args.get("description", tool_name),
                                     "status": "completed"
                                 })
                         except Exception as e:
-                            logger.warning(f"Failed to parse tool call: {e}")
+                            logger.warning(f"Failed to parse tool call {tool_name}: {e}")
                             continue
+                    
+                    # Add regular tools to pending
+                    pending_tool_calls.extend(regular_tools)
+                    
+                    # Process message tools - each one creates a display message
+                    for msg_tool in message_tools:
+                        # Flush pending tool calls for this message
+                        if pending_tool_calls:
+                            tool_groups.append({
+                                "tools": pending_tool_calls,
+                                "message_index": len(display_messages)
+                            })
+                            pending_tool_calls = []
+                        
+                        # Add the message to display
+                        display_messages.append({
+                            "role": "assistant",
+                            "content": msg_tool["text"],
+                            "timestamp": msg_tool["timestamp"].isoformat() if msg_tool["timestamp"] else None
+                        })
                 
-                # Assistant messages with content (shouldn't happen with our flow, but handle it)
-                elif msg.role == "assistant" and msg.content and msg.content.strip():
-                    # Flush accumulated tool calls first
-                    if current_tool_group:
+                # Tool response messages (role="tool") - skip, internal only
+                elif msg.role == "tool":
+                    continue
+                
+                # Assistant messages with content but NO tool calls
+                # (shouldn't happen - assistant should only communicate via tools)
+                elif msg.role == "assistant" and msg.content and msg.content.strip() and not msg.tool_calls:
+                    # Flush pending tool calls for this message
+                    if pending_tool_calls:
                         tool_groups.append({
-                            "tools": current_tool_group,
+                            "tools": pending_tool_calls,
                             "message_index": len(display_messages)
                         })
-                        current_tool_group = []
+                        pending_tool_calls = []
                     
                     display_messages.append({
                         "role": "assistant",
@@ -254,12 +267,10 @@ class ChatService:
                         "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
                     })
             
-            # Flush any remaining tool calls
-            if current_tool_group:
-                tool_groups.append({
-                    "tools": current_tool_group,
-                    "message_index": len(display_messages)
-                })
+            # If there are leftover tool calls, they won't be displayed
+            # (This shouldn't happen - it means tools were called but no message followed)
+            if pending_tool_calls:
+                logger.warning(f"Chat {chat_id}: {len(pending_tool_calls)} tool calls without following message")
             
             return {
                 "messages": display_messages,

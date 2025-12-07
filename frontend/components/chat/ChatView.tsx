@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
 import ResourceViewer from '../ResourceViewer';
-import ToolCallGroup from '../ToolCallGroup';
 import ChatModeBanner from './ChatModeBanner';
 import ChatFilesModal from './ChatFilesModal';
 import ChatHistorySidebar from './ChatHistorySidebar';
@@ -24,14 +23,6 @@ import {
   OptionButton
 } from '@/lib/api';
 
-// Track tool calls per turn
-type TurnToolCalls = {
-  turnId: string;
-  toolCalls: ToolCallStatus[];
-  expanded: boolean;
-  messageIndex: number;
-};
-
 export default function ChatView() {
   const { user } = useAuth();
   const { mode } = useChatMode();
@@ -42,9 +33,8 @@ export default function ChatView() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
-  const [toolCallHistory, setToolCallHistory] = useState<TurnToolCalls[]>([]);
-  const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
   const [currentToolCalls, setCurrentToolCalls] = useState<ToolCallStatus[]>([]);
+  const [completedToolBatches, setCompletedToolBatches] = useState<ToolCallStatus[][]>([]); // Array of completed tool batches
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const streamingMessageRef = useRef<string>('');
   const [resources, setResources] = useState<Resource[]>([]);
@@ -111,21 +101,8 @@ export default function ChatView() {
           content: msg.content,
           timestamp: msg.timestamp || new Date().toISOString()
         }));
-        
-        const toolCallTurns: TurnToolCalls[] = displayData.tool_groups.map((group, idx) => ({
-          turnId: `turn-${idx}`,
-          toolCalls: group.tools.map(tool => ({
-            tool_call_id: tool.tool_call_id,
-            tool_name: tool.tool_name,
-            status: tool.status,
-            statusMessage: tool.description,
-          })),
-          expanded: false,
-          messageIndex: group.message_index,
-        }));
           
         setMessages(userMessages);
-        setToolCallHistory(toolCallTurns);
         
         const chatResources = await resourcesApi.getChatResources(chatId);
         setResources(chatResources);
@@ -218,88 +195,46 @@ export default function ChatView() {
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
-    const turnId = `turn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setCurrentTurnId(turnId);
     setCurrentToolCalls([]);
+    setCompletedToolBatches([]); // Clear completed batches for new turn
     setStreamingMessage('');
     streamingMessageRef.current = '';
-    
-    // Initialize turn in history BEFORE tools run
-    // Note: messageIndex will be updated as messages are added
-    setToolCallHistory((prev) => [
-      ...prev,
-      {
-        turnId,
-        toolCalls: [],
-        expanded: false,  // Start collapsed, users can click to expand
-        messageIndex: -1,  // Will be updated when message is added
-      },
-    ]);
 
-    const toolCallsMap = new Map<string, ToolCallStatus>();
     let needsAuth = false;
-
-    const saveStreamingMessage = () => {
-      const content = streamingMessageRef.current.trim();
-      if (content) {
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((msgs) => [...msgs, assistantMessage]);
-        streamingMessageRef.current = '';
-        setStreamingMessage('');
-      }
-    };
 
     try {
       chatApi.sendMessageStream(content, userId, chatId, {
         onToolCallStart: (event: SSEToolCallStartEvent) => {
-          saveStreamingMessage();
-          
-          const toolCallStatus: ToolCallStatus = {
+          // Add tool to current list
+          setCurrentToolCalls((prev) => [...prev, {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
             status: 'calling',
-            statusMessage: event.user_description || event.tool_name, // Use LLM-provided description
-          };
-          toolCallsMap.set(event.tool_call_id, toolCallStatus);
-          setCurrentToolCalls(Array.from(toolCallsMap.values()));
-          
-          // Update ONLY the current turn in real-time (don't update frozen old turns)
-          if (turnId === currentTurnId) {
-            setToolCallHistory((prev) =>
-              prev.map((turn) =>
-                turn.turnId === turnId
-                  ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
-                  : turn
-              )
-            );
-          }
+            statusMessage: event.user_description || event.tool_name,
+          }]);
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
-          const toolCallStatus = toolCallsMap.get(event.tool_call_id);
-          if (!toolCallStatus) {
-            return; // Tool not found in map
-          }
-          
-          toolCallStatus.status = event.status;
-          toolCallStatus.resource_id = event.resource_id;
-          toolCallStatus.error = event.error;
-          setCurrentToolCalls(Array.from(toolCallsMap.values()));
-          
-          // Update ONLY the current turn in real-time (don't update frozen old turns)
-          if (turnId === currentTurnId) {
-            setToolCallHistory((prev) =>
-              prev.map((turn) =>
-                turn.turnId === turnId
-                  ? { ...turn, toolCalls: Array.from(toolCallsMap.values()) }
-                  : turn
-              )
-            );
-          }
+          // Update tool status
+          setCurrentToolCalls((prev) => 
+            prev.map((tc) => 
+              tc.tool_call_id === event.tool_call_id
+                ? { ...tc, status: event.status, resource_id: event.resource_id, error: event.error }
+                : tc
+            )
+          );
+        },
+        
+        onToolsEnd: () => {
+          // Batch of tools completed - move to completed batches and start fresh
+          setCurrentToolCalls((currentTools) => {
+            if (currentTools.length > 0) {
+              // Save this batch to completed batches
+              setCompletedToolBatches((prev) => [...prev, currentTools]);
+            }
+            // Clear for next batch
+            return [];
+          });
         },
         
         onAssistantMessageDelta: (event) => {
@@ -309,42 +244,7 @@ export default function ChatView() {
         
         onAssistantMessage: (event: SSEAssistantMessageEvent) => {
           needsAuth = event.needs_auth;
-          
-          // Handle messages from message_notify_user and message_ask_user
-          // These are complete messages (not deltas) that should be added immediately
-          if (event.is_notification || event.is_question) {
-            // Clear any streaming message
-            streamingMessageRef.current = '';
-            setStreamingMessage('');
-            
-            // Add the notification/question as a complete message
-            const newMessage: Message = {
-              role: 'assistant',
-              content: event.content,
-              timestamp: event.timestamp,
-            };
-            
-            setMessages((prev) => {
-              const updatedMessages = [...prev, newMessage];
-              
-              // Update the tool call turn to point to this new message
-              if (turnId && Array.from(toolCallsMap.values()).length > 0) {
-                const newMessageIndex = updatedMessages.length - 1;
-                setToolCallHistory((prevHistory) =>
-                  prevHistory.map((turn) =>
-                    turn.turnId === turnId
-                      ? { ...turn, messageIndex: newMessageIndex }
-                      : turn
-                  )
-                );
-              }
-              
-              return updatedMessages;
-            });
-            
-            // If it's a question (message_ask_user), wait for user response
-            // The frontend will display this as a message and wait for the user to reply
-          }
+          // No longer needed - we don't use message_notify_user/message_ask_user
         },
         
         onOptions: (event: SSEOptionsEvent) => {
@@ -354,37 +254,26 @@ export default function ChatView() {
         },
         
         onDone: async () => {
-          saveStreamingMessage();
-          
-          // Update the turn's messageIndex to point to the LAST message
-          // (tool calls should appear with the final assistant message)
-          if (turnId && Array.from(toolCallsMap.values()).length > 0) {
-            setMessages((currentMessages) => {
-              const finalMessageIndex = currentMessages.length - 1;
-              setToolCallHistory((prev) =>
-                prev.map((turn) =>
-                  turn.turnId === turnId
-                    ? { ...turn, messageIndex: finalMessageIndex }
-                    : turn
-                )
-                );
-              return currentMessages;
-            });
-          } else if (turnId) {
-            // No tool calls were made, remove the empty turn from history
-            setToolCallHistory((prev) => prev.filter((turn) => turn.turnId !== turnId));
+          // Save streaming message
+          const content = streamingMessageRef.current.trim();
+          if (content) {
+            setMessages((prev) => [...prev, {
+              role: 'assistant',
+              content,
+              timestamp: new Date().toISOString(),
+            }]);
+            streamingMessageRef.current = '';
+            setStreamingMessage('');
           }
           
+          // Clear streaming state
           setIsLoading(false);
-          setCurrentTurnId(null);
-          // Keep currentToolCalls visible briefly, then clear
-          // This gives users time to see the completed state before it moves to history
-          setTimeout(() => {
-            setCurrentToolCalls([]);
-          }, 500);
+          setCurrentToolCalls([]);
+          setCompletedToolBatches([]); // Clear completed batches too
           
+          // Reload resources
           try {
-            const chatResources = await resourcesApi.getChatResources(chatId);
+            const chatResources = await resourcesApi.getChatResources(chatId!);
             setResources(chatResources);
           } catch (err) {
             console.error('Error reloading resources:', err);
@@ -458,9 +347,7 @@ export default function ChatView() {
   const handleClearChat = async () => {
     setMessages([]);
     setResources([]);
-    setToolCallHistory([]);
     setCurrentToolCalls([]);
-    setCurrentTurnId(null);
     
     const newChatId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setChatId(newChatId);
@@ -477,9 +364,7 @@ export default function ChatView() {
     // Clear current state
     setMessages([]);
     setResources([]);
-    setToolCallHistory([]);
     setCurrentToolCalls([]);
-    setCurrentTurnId(null);
     setError(null);
     setStreamingMessage('');
     streamingMessageRef.current = '';
@@ -497,9 +382,7 @@ export default function ChatView() {
     // Clear current state
     setMessages([]);
     setResources([]);
-    setToolCallHistory([]);
     setCurrentToolCalls([]);
-    setCurrentTurnId(null);
     setError(null);
     setStreamingMessage('');
     streamingMessageRef.current = '';
@@ -666,9 +549,6 @@ export default function ChatView() {
                 return Math.abs(resourceTime - messageTime) < 5000;
               });
               
-              const turnForThis = toolCallHistory.find(t => t.messageIndex === index);
-              const toolCallsForMessage = turnForThis ? turnForThis.toolCalls : undefined;
-              
               return (
                 <ChatMessage
                   key={index}
@@ -676,22 +556,11 @@ export default function ChatView() {
                   content={message.content}
                   timestamp={message.timestamp}
                   resources={messageResources}
-                  toolCalls={toolCallsForMessage}
                   onFileClick={handleFileClick}
                   chatId={chatId || undefined}
                 />
               );
             })}
-
-            {/* Current Tool Calls - shown during streaming */}
-            {currentToolCalls.length > 0 && (
-              <div className="mb-4">
-                <ToolCallGroup 
-                  toolCalls={currentToolCalls}
-                  timestamp={new Date().toISOString()}
-                />
-              </div>
-            )}
 
             {/* Options Display */}
             {pendingOptions && (
@@ -726,13 +595,28 @@ export default function ChatView() {
               </div>
             )}
             
-            {/* Streaming message */}
-            {streamingMessage && (
+            {/* Completed tool batches - each renders as its own collapsible group */}
+            {completedToolBatches.map((toolBatch, batchIndex) => (
+              <div key={`tool-batch-${batchIndex}`} className="mb-4">
+                <ChatMessage
+                  role="assistant"
+                  content=""
+                  timestamp={new Date().toISOString()}
+                  toolCalls={toolBatch}
+                  onFileClick={handleFileClick}
+                  chatId={chatId || undefined}
+                />
+              </div>
+            ))}
+            
+            {/* Streaming assistant response with inline tool calls */}
+            {(streamingMessage || currentToolCalls.length > 0) && (
               <div className="mb-4">
                 <ChatMessage
                   role="assistant"
-                  content={streamingMessage}
+                  content={streamingMessage || ''}
                   timestamp={new Date().toISOString()}
+                  toolCalls={currentToolCalls.length > 0 ? currentToolCalls : undefined}
                   onFileClick={handleFileClick}
                   chatId={chatId || undefined}
                 />

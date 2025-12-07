@@ -118,6 +118,7 @@ export interface SSEToolLogEvent {
 export interface SSEEventHandlers {
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
   onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
+  onToolsEnd?: () => void; // Called when a batch of tool executions completes
   onToolStatus?: (event: SSEToolStatusEvent) => void;
   onToolProgress?: (event: SSEToolProgressEvent) => void;
   onToolLog?: (event: SSEToolLogEvent) => void;
@@ -279,6 +280,9 @@ export const chatApi = {
                   break;
                 case 'tool_call_complete':
                   handlers.onToolCallComplete?.(eventData as SSEToolCallCompleteEvent);
+                  break;
+                case 'tools_end':
+                  handlers.onToolsEnd?.();
                   break;
                 case 'tool_status':
                   handlers.onToolStatus?.(eventData as SSEToolStatusEvent);

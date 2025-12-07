@@ -200,33 +200,35 @@ export default function ChatMessage({ role, content, timestamp, resources, toolC
             <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
           </div>
         ) : (
-          /* AI messages: tool calls first, then content */
-          <>
-            {/* Tool Calls Group - shown before the message */}
-            {toolCalls && toolCalls.length > 0 && (
-              <ToolCallGroup toolCalls={toolCalls} timestamp={timestamp} />
+          /* AI messages: content and tools inline */
+          <div className="px-3 py-2">
+            {/* Message Content */}
+            {content && (
+              <div className="prose prose-sm prose-slate max-w-none
+                prose-headings:font-semibold prose-headings:text-gray-900
+                prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
+                prose-p:text-[15px] prose-p:text-gray-900 prose-p:leading-relaxed prose-p:my-3 prose-p:ml-0
+                prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+                prose-strong:text-gray-900 prose-strong:font-semibold
+                prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-gray-800 prose-code:before:content-none prose-code:after:content-none
+                prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:rounded-lg prose-pre:p-4 prose-pre:my-3
+                prose-ul:my-3 prose-ul:ml-4 prose-ol:my-3 prose-ol:ml-4 prose-li:my-1 prose-li:text-[15px] prose-li:text-gray-900
+                prose-table:text-sm prose-table:my-3
+                prose-th:bg-gray-100 prose-th:font-semibold prose-th:p-2
+                prose-td:p-2 prose-td:border prose-td:border-gray-200
+                prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-gray-700
+                prose-img:rounded-lg prose-img:shadow-md">
+                {renderContentWithPlots()}
+              </div>
             )}
             
-            {/* Message Content */}
-          <div className="px-3 py-2">
-            <div className="prose prose-sm prose-slate max-w-none
-              prose-headings:font-semibold prose-headings:text-gray-900
-              prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-              prose-p:text-[15px] prose-p:text-gray-900 prose-p:leading-relaxed prose-p:my-3 prose-p:ml-0
-              prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-              prose-strong:text-gray-900 prose-strong:font-semibold
-              prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-gray-800 prose-code:before:content-none prose-code:after:content-none
-              prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:rounded-lg prose-pre:p-4 prose-pre:my-3
-              prose-ul:my-3 prose-ul:ml-4 prose-ol:my-3 prose-ol:ml-4 prose-li:my-1 prose-li:text-[15px] prose-li:text-gray-900
-              prose-table:text-sm prose-table:my-3
-              prose-th:bg-gray-100 prose-th:font-semibold prose-th:p-2
-              prose-td:p-2 prose-td:border prose-td:border-gray-200
-              prose-blockquote:border-l-4 prose-blockquote:border-gray-300 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-gray-700
-              prose-img:rounded-lg prose-img:shadow-md">
-              {renderContentWithPlots()}
-            </div>
+            {/* Tool Calls - inline collapsible group */}
+            {toolCalls && toolCalls.length > 0 && (
+              <div className="mt-3">
+                <ToolCallGroup toolCalls={toolCalls} timestamp={timestamp} />
+              </div>
+            )}
           </div>
-          </>
         )}
       </div>
     </div>
