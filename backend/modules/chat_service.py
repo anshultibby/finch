@@ -193,16 +193,27 @@ class ChatService:
                             # Parse arguments
                             try:
                                 args_str = tc.get("function", {}).get("arguments", "{}")
-                                args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                                # Handle both string and dict formats
+                                if isinstance(args_str, str):
+                                    args = json.loads(args_str) if args_str else {}
+                                elif isinstance(args_str, dict):
+                                    args = args_str
+                                else:
+                                    args = {}
+                                
+                                # Use statusMessage to match ToolCallStatus interface
+                                # Fall back to tool_name if no description provided
+                                status_message = args.get("description") or tool_name
                                 
                                 tool_calls.append({
                                     "tool_call_id": tc.get("id"),
                                     "tool_name": tool_name,
-                                    "description": args.get("description", tool_name),
+                                    "statusMessage": status_message,
                                     "status": "completed"
                                 })
                             except Exception as e:
                                 logger.warning(f"Failed to parse tool call {tool_name}: {e}")
+                                logger.exception(e)
                     
                     # Only add message if it has content or tool_calls
                     if msg.content or tool_calls:

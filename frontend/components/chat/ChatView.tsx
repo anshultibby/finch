@@ -5,6 +5,8 @@ import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import ChatHistorySidebar from './ChatHistorySidebar';
+import ChatFilesModal from './ChatFilesModal';
+import ResourceViewer from '../ResourceViewer';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { 
@@ -40,6 +42,8 @@ export default function ChatView() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
   const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(true);
+  const [isResourcesOpen, setIsResourcesOpen] = useState(false);
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
@@ -108,12 +112,18 @@ export default function ChatView() {
       
       try {
         const displayData = await chatApi.getChatHistoryForDisplay(chatId);
-        const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
-          role: msg.role,
-          content: msg.content,
-          timestamp: msg.timestamp || new Date().toISOString(),
-          toolCalls: msg.tool_calls
-        }));
+        console.log('📥 Loaded chat history:', displayData);
+        const loadedMessages: Message[] = displayData.messages.map((msg: any) => {
+          if (msg.tool_calls) {
+            console.log('🔧 Message with tool calls:', msg.tool_calls);
+          }
+          return {
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp || new Date().toISOString(),
+            toolCalls: msg.tool_calls
+          };
+        });
         setMessages(loadedMessages);
         
         const chatResources = await resourcesApi.getChatResources(chatId);
@@ -309,16 +319,30 @@ export default function ChatView() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col relative min-w-0 overflow-hidden">
+        {/* Minimal floating controls */}
         {!isChatHistoryOpen && (
           <button
             onClick={() => setIsChatHistoryOpen(true)}
-            className="absolute top-4 left-4 z-10 p-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-sm"
+            className="absolute top-3 left-3 z-10 p-1.5 bg-white/90 hover:bg-white border border-gray-200 rounded-md shadow-sm backdrop-blur-sm transition-all"
+            title="Show chat history"
           >
-            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
         )}
+        
+        {/* Files & Charts button - always visible */}
+        <button
+          onClick={() => setIsResourcesOpen(true)}
+          className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 hover:bg-white border border-gray-200 rounded-md shadow-sm backdrop-blur-sm transition-all text-xs font-medium text-gray-700 hover:border-blue-400"
+          title={resources.length > 0 ? `View ${resources.length} files & charts` : 'Files & Charts'}
+        >
+          <span>📦</span>
+          {resources.length > 0 && (
+            <span className="font-semibold text-blue-600">{resources.length}</span>
+          )}
+        </button>
 
         <ChatModeBanner />
 
@@ -352,17 +376,18 @@ export default function ChatView() {
                   role={msg.role}
                   content={msg.content}
                   toolCalls={msg.toolCalls}
+                  chatId={chatId || undefined}
                 />
               ))}
 
               {/* STREAMING TOOLS (live preview) - render BEFORE text since tools run first */}
               {streamingTools.length > 0 && (
-                <ChatMessage role="assistant" content="" toolCalls={streamingTools} />
+                <ChatMessage role="assistant" content="" toolCalls={streamingTools} chatId={chatId || undefined} />
               )}
 
               {/* STREAMING TEXT (live preview) - appears below tools */}
               {streamingText && (
-                <ChatMessage role="assistant" content={streamingText} />
+                <ChatMessage role="assistant" content={streamingText} chatId={chatId || undefined} />
               )}
 
               {/* OPTIONS */}
@@ -419,6 +444,26 @@ export default function ChatView() {
           </div>
         </div>
       </div>
+      
+      {/* Files Modal with Categories */}
+      {chatId && (
+        <ChatFilesModal
+          isOpen={isResourcesOpen}
+          onClose={() => setIsResourcesOpen(false)}
+          chatId={chatId}
+          onSelectResource={(resource) => {
+            setSelectedResource(resource);
+            setIsResourcesOpen(false);
+          }}
+        />
+      )}
+      
+      {/* Resource Viewer Modal */}
+      <ResourceViewer
+        resource={selectedResource}
+        isOpen={!!selectedResource}
+        onClose={() => setSelectedResource(null)}
+      />
     </div>
   );
 }

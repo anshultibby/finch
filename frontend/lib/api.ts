@@ -348,15 +348,7 @@ export const chatApi = {
       role: 'user' | 'assistant';
       content: string;
       timestamp?: string;
-    }>;
-    tool_groups: Array<{
-      tools: Array<{
-        tool_call_id: string;
-        tool_name: string;
-        description: string;
-        status: 'completed' | 'error';
-      }>;
-      message_index: number;
+      tool_calls?: ToolCallStatus[];
     }>;
   }> => {
     const response = await api.get(`/chat/history/${chatId}/display`);

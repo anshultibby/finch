@@ -72,9 +72,14 @@ async def download_chat_file(
     Returns file content with appropriate Content-Type header
     """
     try:
+        logger.info(f"Attempting to download file: {filename} from chat: {chat_id}")
         file_obj = get_chat_file(db=db, chat_id=chat_id, filename=filename)
         
         if not file_obj:
+            # Log all available files in this chat for debugging
+            from crud.chat_files import list_chat_files as crud_list_chat_files
+            all_files = crud_list_chat_files(db=db, chat_id=chat_id)
+            logger.warning(f"File '{filename}' not found in chat {chat_id}. Available files: {[f.filename for f in all_files]}")
             raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
         
         # Set Content-Type based on file type
