@@ -391,6 +391,11 @@ async def execute_code(
             else:
                 env['PYTHONPATH'] = backend_dir
             
+            # Suppress logging noise in sandbox environment
+            env['PYTHONWARNINGS'] = 'ignore'  # Suppress Python warnings (e.g., opentelemetry)
+            env['LOG_LEVEL'] = 'ERROR'  # Only show ERROR logs, suppress INFO/DEBUG
+            env['CODE_SANDBOX'] = 'true'  # Flag to indicate we're in sandbox (for future use)
+            
             # Execute with subprocess
             result = subprocess.run(
                 ['python', script_path],

@@ -35,9 +35,10 @@ def configure_logging(level: Optional[str] = None):
     if _configured:
         return
     
-    # Determine log level (default to INFO - DEBUG_LLM_CALLS only affects file saving, not console)
+    # Determine log level (check env var first, then parameter, then default to INFO)
     if level is None:
-        level = "INFO"
+        import os
+        level = os.getenv('LOG_LEVEL', 'INFO')
     
     # Configure root logger
     logging.basicConfig(
@@ -63,9 +64,11 @@ def configure_logging(level: Optional[str] = None):
     
     _configured = True
     
-    # Log that we've configured logging
-    root_logger = logging.getLogger()
-    root_logger.info(f"Logging configured at {level} level")
+    # Log that we've configured logging (skip if in sandbox mode)
+    import os
+    if not os.getenv('CODE_SANDBOX'):
+        root_logger = logging.getLogger()
+        root_logger.info(f"Logging configured at {level} level")
 
 
 def get_logger(name: str) -> logging.Logger:
