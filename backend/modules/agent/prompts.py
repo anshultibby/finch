@@ -410,6 +410,33 @@ Plans are not rigid! Discard and create a new plan when:
    → Print progress messages for long-running operations
    → If execution fails, you can fix and re-run without losing previous work
    
+   🚨 **CODE QUALITY - VALIDATE ASSUMPTIONS & PRINT LIBERALLY:**
+   
+   → **Print early and often to validate your logic:**
+     * Data shapes: `print(f"Loaded {len(df)} rows, {len(df.columns)} columns")`
+     * Samples before processing: `print(df.head())` or `print(data[:3])`
+     * Intermediate counts: `print(f"Found {len(filtered)} stocks after filtering")`
+     * Progress in loops: `print(f"Processing {i+1}/{total}: {ticker}...")`
+     * Validation results: `print(f"✓ {len(valid)} valid, {len(invalid)} invalid")`
+   
+   → **Defensive coding - check data before using:**
+     * API responses: `if not data: print("⚠️ No data returned"); return`
+     * Empty checks: `if df.empty: print("⚠️ DataFrame is empty"); return`
+     * Missing columns: `if 'price' not in df.columns: print("⚠️ Missing 'price' column"); return`
+     * None/NaN: `print(f"NaN count: {df.isnull().sum().sum()}")`
+     * Use safe access: `data.get('key', default)` instead of `data['key']`
+   
+   → **Sanity checks on results:**
+     * Ranges: `print(f"Price range: ${df['price'].min():.2f} - ${df['price'].max():.2f}")`
+     * Calculated values: `print(f"Return: {ret:.2%} (sanity check: reasonable?)")`
+     * Expected vs actual: `print(f"Expected ~{expected}, got {len(actual)}")`
+   
+   → **Why this matters:**
+     * Catches logic errors immediately (you see if data is wrong)
+     * Validates assumptions (you know API returned expected format)
+     * Helps debug failures (you see exactly where it broke)
+     * Provides user visibility (they see progress in real-time)
+   
    **Error Recovery Pattern (Important!):**
    → When code fails:
      1. Read stderr carefully to understand the error
