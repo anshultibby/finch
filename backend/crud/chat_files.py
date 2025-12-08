@@ -16,15 +16,19 @@ def create_chat_file(
     chat_id: str,
     user_id: str,
     filename: str,
-    content: str,
+    content: Optional[str] = None,
     file_type: str = "text",
     description: Optional[str] = None,
-    metadata: Optional[Dict] = None
+    metadata: Optional[Dict] = None,
+    image_url: Optional[str] = None,
+    size_bytes: Optional[int] = None
 ) -> ChatFile:
     """
     Create or update a chat file in database
     
     If file with same name exists in chat, it will be updated.
+    For images: provide image_url instead of content
+    For text files: provide content
     """
     # Check if file already exists
     existing = db.query(ChatFile).filter(
@@ -34,11 +38,19 @@ def create_chat_file(
         )
     ).first()
     
+    # Calculate size_bytes if not provided
+    if size_bytes is None:
+        if content:
+            size_bytes = len(content.encode('utf-8'))
+        else:
+            size_bytes = 0
+    
     if existing:
         # Update existing file
         existing.content = content
         existing.file_type = file_type
-        existing.size_bytes = len(content.encode('utf-8'))
+        existing.size_bytes = size_bytes
+        existing.image_url = image_url
         if description:
             existing.description = description
         if metadata:
@@ -56,7 +68,8 @@ def create_chat_file(
         filename=filename,
         file_type=file_type,
         content=content,
-        size_bytes=len(content.encode('utf-8')),
+        size_bytes=size_bytes,
+        image_url=image_url,
         description=description,
         file_metadata=metadata or {}
     )

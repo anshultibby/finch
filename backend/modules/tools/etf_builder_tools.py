@@ -20,9 +20,9 @@ class BuildCustomETFParams(BaseModel):
         ...,
         description="List of stock tickers to include in the ETF (e.g., ['AAPL', 'MSFT', 'GOOGL'])"
     )
-    weighting_method: Literal["equal_weight", "market_cap"] = Field(
-        "equal_weight",
-        description="Weighting strategy: 'equal_weight' (same % for each stock) or 'market_cap' (weighted by market capitalization)"
+    weighting_method: Literal["market_cap"] = Field(
+        "market_cap",
+        description="Weighting strategy: 'market_cap' (weighted by market capitalization). Note: For now, only market cap weighting is supported."
     )
     name: Optional[str] = Field(
         None,
@@ -32,13 +32,12 @@ class BuildCustomETFParams(BaseModel):
 
 @tool(
     name="build_custom_etf",
-    description="""Build a custom ETF portfolio with specified stocks and weighting strategy.
+    description="""Build a custom ETF portfolio with specified stocks weighted by market capitalization.
 
 **What it does:**
 - Takes a list of tickers and creates a weighted portfolio
-- Supports two weighting methods:
-  * equal_weight: Each stock gets equal allocation (e.g., 5 stocks = 20% each)
-  * market_cap: Stocks weighted by their market capitalization (larger companies get more weight)
+- Weighting: Stocks are weighted by their market capitalization (larger companies get more weight)
+  * Note: For now, only market cap weighting is supported
 - Fetches current market data (prices, market caps) for all tickers
 - Calculates portfolio weights and displays allocation breakdown
 - Returns structured portfolio data ready for backtesting
@@ -46,7 +45,7 @@ class BuildCustomETFParams(BaseModel):
 **Use cases:**
 - After screening stocks, build a portfolio from the top candidates
 - Create thematic portfolios (e.g., "AI stocks", "dividend aristocrats")
-- Compare equal-weight vs market-cap weighting strategies
+- Build market cap-weighted custom indices
 - Prepare portfolios for backtesting and performance analysis
 
 **Example workflow:**
@@ -132,21 +131,14 @@ async def build_custom_etf(
         
         yield SSEEvent(event="tool_status", data={
             "status": "calculating",
-            "message": "Calculating portfolio weights..."
+            "message": "Calculating portfolio weights by market cap..."
         })
         
-        # Calculate weights based on method
-        if params.weighting_method == "equal_weight":
-            # Equal weight: each stock gets same percentage
-            weight = 1.0 / len(portfolio_components)
-            for component in portfolio_components:
-                component["weight"] = weight
-        
-        elif params.weighting_method == "market_cap":
-            # Market cap weight: weight proportional to market cap
-            total_market_cap = sum(c["market_cap"] for c in portfolio_components)
-            for component in portfolio_components:
-                component["weight"] = component["market_cap"] / total_market_cap
+        # Calculate weights by market cap
+        # Market cap weight: weight proportional to market cap
+        total_market_cap = sum(c["market_cap"] for c in portfolio_components)
+        for component in portfolio_components:
+            component["weight"] = component["market_cap"] / total_market_cap
         
         # Sort by weight descending for better display
         portfolio_components.sort(key=lambda x: x["weight"], reverse=True)
@@ -157,7 +149,7 @@ async def build_custom_etf(
         })
         
         # Build result
-        etf_name = params.name or f"Custom {params.weighting_method.replace('_', ' ').title()} ETF"
+        etf_name = params.name or "Custom Market Cap Weighted ETF"
         
         result = {
             "success": True,
@@ -170,9 +162,9 @@ async def build_custom_etf(
                 "top_holding": portfolio_components[0]["ticker"] if portfolio_components else None,
                 "top_weight": f"{portfolio_components[0]['weight']*100:.1f}%" if portfolio_components else None,
                 "total_market_cap": sum(c["market_cap"] for c in portfolio_components),
-                "average_weight": f"{(100.0 / len(portfolio_components)):.1f}%" if params.weighting_method == "equal_weight" else "varies"
+                "weighting": "market_cap"
             },
-            "message": f"Built {etf_name} with {len(portfolio_components)} stocks" + 
+            "message": f"Built {etf_name} with {len(portfolio_components)} stocks (weighted by market cap)" + 
                       (f" ({len(failed_tickers)} failed)" if failed_tickers else "")
         }
         
@@ -364,13 +356,13 @@ When a user wants to backtest a custom ETF:
 
 1. **Build the ETF first** using build_custom_etf:
    - Get list of tickers (from screening or user input)
-   - Choose weighting method (equal_weight or market_cap)
    - Call build_custom_etf to get portfolio composition
+   - Note: Weighting is always by market cap for now
 
 2. **Write backtest code** using write_chat_file:
    - Use the portfolio components from build_custom_etf output
    - Fetch historical data for each ticker using FMP API
-   - Calculate weighted returns over time
+   - Calculate weighted returns over time (using market cap weights)
    - Compute performance metrics (total return, annualized return, max/min values)
    - Format and print results
 

@@ -18,7 +18,8 @@ class Tool:
         is_async: bool,
         category: Optional[str] = None,
         requires_auth: bool = False,
-        hidden_from_ui: bool = False
+        hidden_from_ui: bool = False,
+        api_docs_only: bool = False
     ):
         self.name = name
         self.description = description
@@ -28,6 +29,7 @@ class Tool:
         self.category = category
         self.requires_auth = requires_auth
         self.hidden_from_ui = hidden_from_ui
+        self.api_docs_only = api_docs_only
     
     def to_openai_schema(self) -> Dict[str, Any]:
         """Convert to OpenAI tool calling schema"""

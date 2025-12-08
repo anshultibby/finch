@@ -38,6 +38,11 @@ class Config:
     # Encryption key for sensitive data
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
     
+    # Supabase Storage
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+    SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "chat-files")
+    
     # Debug settings
     DEBUG_LLM_CALLS = os.getenv("DEBUG_LLM_CALLS", "false").lower() == "true"
     DEBUG_CHAT_LOGS = os.getenv("DEBUG_CHAT_LOGS", "false").lower() == "true"

@@ -12,7 +12,7 @@ from models.sse import OptionButton, SSEEvent
 # Import business logic modules (API clients)
 from modules.tools.clients.snaptrade import snaptrade_tools
 from modules.tools.clients.apewisdom import apewisdom_tools
-from modules.tools.clients.fmp import fmp_tools  # Universal FMP tool (includes insider trading)
+from modules.tools.clients.fmp import fmp_tools
 from modules.tools.clients.plotting import create_chart
 
 # Import code execution tool (OpenHands-style simple execution)
@@ -30,7 +30,7 @@ from modules.tools.descriptions import (
     GET_PORTFOLIO_DESC, REQUEST_BROKERAGE_CONNECTION_DESC,
     # Reddit sentiment
     GET_REDDIT_TRENDING_DESC, GET_REDDIT_TICKER_SENTIMENT_DESC, COMPARE_REDDIT_SENTIMENT_DESC,
-    # Financial metrics (FMP - Universal tool including insider trading)
+    # Financial metrics (FMP)
     GET_FMP_DATA_DESC
 )
 
@@ -165,20 +165,15 @@ def request_brokerage_connection(
 
 @tool(
     description=GET_REDDIT_TRENDING_DESC,
-    category="reddit_sentiment"
+    category="reddit_sentiment",
+    api_docs_only=True  # Use finch_runtime in code instead
 )
 async def get_reddit_trending_stocks(
     *,
     context: AgentContext,
     limit: int = 10
 ):
-    """
-    Get trending stocks from Reddit communities
-    
-    Args:
-        limit: Number of trending stocks to return (default 10, max 50)
-    """
-    # Yield status event
+    """Get trending stocks from Reddit communities"""
     yield SSEEvent(
         event="tool_status",
         data={
@@ -191,7 +186,6 @@ async def get_reddit_trending_stocks(
     
     if result.get("success"):
         mentions = result.get("data", {}).get("mentions", [])
-        # Yield log event
         yield SSEEvent(
             event="tool_log",
             data={
@@ -200,25 +194,20 @@ async def get_reddit_trending_stocks(
             }
         )
     
-    # Yield final result
     yield result
 
 
 @tool(
     description=GET_REDDIT_TICKER_SENTIMENT_DESC,
-    category="reddit_sentiment"
+    category="reddit_sentiment",
+    api_docs_only=True  # Use finch_runtime in code instead
 )
 async def get_reddit_ticker_sentiment(
     *,
     context: AgentContext,
     ticker: str
 ):
-    """
-    Get Reddit sentiment for a specific stock ticker
-    
-    Args:
-        ticker: Stock ticker symbol (e.g., 'GME', 'TSLA', 'AAPL')
-    """
+    """Get Reddit sentiment for a specific stock ticker"""
     yield SSEEvent(
         event="tool_status",
         data={
@@ -245,19 +234,15 @@ async def get_reddit_ticker_sentiment(
 
 @tool(
     description=COMPARE_REDDIT_SENTIMENT_DESC,
-    category="reddit_sentiment"
+    category="reddit_sentiment",
+    api_docs_only=True  # Use finch_runtime in code instead
 )
 async def compare_reddit_sentiment(
     *,
     context: AgentContext,
     tickers: List[str]
 ):
-    """
-    Compare Reddit sentiment for multiple tickers
-    
-    Args:
-        tickers: List of ticker symbols to compare (e.g., ['GME', 'AMC', 'TSLA'])
-    """
+    """Compare Reddit sentiment for multiple tickers"""
     tickers_str = ", ".join([t.upper() for t in tickers])
     yield SSEEvent(
         event="tool_status",
@@ -283,12 +268,12 @@ async def compare_reddit_sentiment(
 
 # ============================================================================
 # FINANCIAL METRICS TOOLS (Financial Modeling Prep)
-# Universal tool for ALL FMP data including insider trading
 # ============================================================================
 
 @tool(
     description=GET_FMP_DATA_DESC,
-    category="financial_metrics"
+    category="financial_metrics",
+    api_docs_only=True  # Use finch_runtime in code instead
 )
 async def get_fmp_data(
     *,
@@ -296,15 +281,13 @@ async def get_fmp_data(
     endpoint: str,
     params: Optional[Dict[str, Any]] = None
 ):
-    """Universal tool to fetch ANY financial data from FMP API including insider trading. See description for available endpoints."""
-    # Handle case where params might be passed as a JSON string
+    """Universal tool to fetch ANY financial data from FMP API"""
     if isinstance(params, str):
         try:
             params = json.loads(params)
         except json.JSONDecodeError:
             params = {}
     
-    # Emit initial status with readable endpoint name and specific parameters
     endpoint_name = endpoint.replace('_', ' ').replace('-', ' ').title()
     symbol_str = params.get('symbol', '') if params else ''
     
@@ -325,7 +308,6 @@ async def get_fmp_data(
             }
         )
     
-    # Call FMP client - it will also yield SSE events  
     async for item in fmp_tools.get_fmp_data_streaming(
         endpoint=endpoint, 
         params=params or {}
@@ -335,7 +317,6 @@ async def get_fmp_data(
         else:
             result = item
     
-    # Emit final status based on result
     if result.get("success"):
         count = result.get("count", 0)
         if count > 0:

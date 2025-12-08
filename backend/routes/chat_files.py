@@ -25,6 +25,7 @@ class ChatFileResponse(BaseModel):
     file_type: str
     size_bytes: int
     description: Optional[str]
+    image_url: Optional[str] = None  # Public URL for images (if using storage)
     created_at: str
     updated_at: str
 
@@ -49,6 +50,7 @@ async def get_chat_files(
                 file_type=f.file_type,
                 size_bytes=f.size_bytes,
                 description=f.description,
+                image_url=f.image_url,
                 created_at=f.created_at.isoformat(),
                 updated_at=f.updated_at.isoformat()
             )
@@ -69,7 +71,9 @@ async def download_chat_file(
     """
     Download a specific file from chat
     
-    Returns file content with appropriate Content-Type header
+    For images with storage URLs: redirects to the public URL
+    For images in database: serves the base64-decoded content
+    For text files: returns the text content
     """
     try:
         logger.info(f"Attempting to download file: {filename} from chat: {chat_id}")
@@ -81,6 +85,12 @@ async def download_chat_file(
             all_files = crud_list_chat_files(db=db, chat_id=chat_id)
             logger.warning(f"File '{filename}' not found in chat {chat_id}. Available files: {[f.filename for f in all_files]}")
             raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+        
+        # If image has a storage URL, redirect to it (faster and cheaper)
+        if file_obj.image_url:
+            from fastapi.responses import RedirectResponse
+            logger.info(f"Redirecting to storage URL for {filename}: {file_obj.image_url}")
+            return RedirectResponse(url=file_obj.image_url, status_code=302)
         
         # Set Content-Type based on file type
         content_type_map = {
@@ -114,14 +124,14 @@ async def download_chat_file(
             content_type = content_type_map.get(file_obj.file_type, "text/plain")
             disposition = "attachment"
         
-        # Decode base64 content for binary files (images)
+        # Decode base64 content for binary files (images stored in DB as fallback)
         content = file_obj.content
-        if is_image:
+        if is_image and content:
             import base64
             try:
-                # Images are stored as base64-encoded strings in the database
+                # Images are stored as base64-encoded strings in the database (fallback mode)
                 content = base64.b64decode(content)
-                logger.info(f"Decoded base64 image: {filename} ({len(content)} bytes)")
+                logger.info(f"Decoded base64 image from DB: {filename} ({len(content)} bytes)")
             except Exception as e:
                 logger.error(f"Failed to decode base64 image {filename}: {str(e)}")
                 # If decode fails, try returning as-is (might be raw bytes already)

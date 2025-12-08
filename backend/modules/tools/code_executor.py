@@ -52,7 +52,7 @@ class VirtualFilesystem:
     
     def setup(self) -> str:
         """
-        Create temp directory and mount all chat files.
+        Create temp directory and mount all chat files + API docs.
         
         Returns:
             Path to temp directory
@@ -62,6 +62,9 @@ class VirtualFilesystem:
         # Create temp directory
         self.temp_dir = tempfile.mkdtemp(prefix='vfs_')
         logger.info(f"Created virtual filesystem at: {self.temp_dir}")
+        
+        # Mount API documentation (progressive disclosure)
+        self._mount_api_docs()
         
         # Load all existing chat files from DB
         chat_files = resource_manager.list_chat_files(
@@ -123,6 +126,69 @@ class VirtualFilesystem:
             logger.info(f"Mounted {mounted_count} existing files from chat resources")
         
         return self.temp_dir
+    
+    def _mount_api_docs(self):
+        """
+        Mount API documentation from tools marked with api_docs_only=True.
+        
+        This implements progressive disclosure - tools are discovered on-demand
+        by exploring the filesystem rather than loaded into context upfront.
+        """
+        from modules.tools.registry import tool_registry
+        
+        # Get tools marked for API docs only
+        api_tools = tool_registry.get_api_docs_only_tools()
+        
+        if not api_tools:
+            return
+        
+        # Create /apis directory in temp filesystem
+        apis_dir = os.path.join(self.temp_dir, 'apis')
+        os.makedirs(apis_dir, exist_ok=True)
+        
+        # Write each tool's documentation as a file
+        for tool in api_tools:
+            # Create filename from tool name
+            filename = f"{tool.name}.md"
+            filepath = os.path.join(apis_dir, filename)
+            
+            # Format tool documentation
+            doc_content = self._format_tool_docs(tool)
+            
+            with open(filepath, 'w') as f:
+                f.write(doc_content)
+        
+        logger.info(f"Mounted {len(api_tools)} API docs in /apis/ for progressive discovery")
+    
+    @staticmethod
+    def _format_tool_docs(tool) -> str:
+        """Format tool documentation for filesystem"""
+        lines = [
+            f"# {tool.name}",
+            "",
+            tool.description,
+            "",
+            "## Parameters",
+            ""
+        ]
+        
+        # Add parameter documentation
+        properties = tool.parameters_schema.get("properties", {})
+        required = tool.parameters_schema.get("required", [])
+        
+        for param_name, param_schema in properties.items():
+            is_required = param_name in required
+            param_type = param_schema.get("type", "any")
+            param_desc = param_schema.get("description", "")
+            
+            req_marker = " (required)" if is_required else " (optional)"
+            lines.append(f"### `{param_name}` - {param_type}{req_marker}")
+            if param_desc:
+                lines.append(f"{param_desc}")
+            lines.append("")
+        
+        return "\n".join(lines)
+
     
     def sync_changes(self) -> Dict[str, List[str]]:
         """
@@ -226,38 +292,41 @@ class VirtualFilesystem:
     name="execute_code",
     description="""Execute Python code with direct API access and persistent filesystem (60s timeout).
 
+**Progressive API Discovery (Saves Context!):**
+- API docs are in `/apis/` directory - discover them on-demand
+- List APIs: `os.listdir('apis')` → ['get_fmp_data.md', 'get_reddit_trending_stocks.md', ...]
+- Read when needed: `with open('apis/get_fmp_data.md') as f: print(f.read())`
+- This is more efficient than loading all API docs into context upfront
+
 **Direct API Access - Import finch_runtime:**
 ```python
-# Add at top of your code for direct API access
-from modules.tools.finch_runtime import fmp, reddit, fetch_multiple_stocks, combine_financial_data
+from modules.tools.finch_runtime import fmp, reddit
 
-# Now use the clients
+# Financial data
 quote = fmp.get_quote('AAPL')
 trades = fmp.get_insider_trading('NVDA', limit=50)
-trending = reddit.get_trending(limit=10)
 
-# Batch processing
-data = fetch_multiple_stocks(['AAPL', 'MSFT', 'GOOGL'], 'quote')
+# Reddit sentiment
+trending = reddit.get_trending(limit=10)
 ```
 
-**Available API Methods:**
-fmp: `fetch(endpoint, params)`, `get_quote(symbol)`, `get_income_statement(symbol)`, 
-     `get_balance_sheet(symbol)`, `get_key_metrics(symbol)`, `get_insider_trading(symbol)`,
-     `get_historical_prices(symbol, from_date, to_date)`
-reddit: `get_trending(limit)`, `get_ticker_sentiment(ticker)`
+**Quick Reference:**
+fmp: `fetch()`, `get_quote()`, `get_income_statement()`, `get_balance_sheet()`, 
+     `get_key_metrics()`, `get_insider_trading()`, `get_historical_prices()`
+reddit: `get_trending()`, `get_ticker_sentiment()`
 
 **Persistent Filesystem:**
 Files persist across executions:
 ```python
 df.to_csv('results.csv')  # Save
-# Later execution can read it
-df = pd.read_csv('results.csv')
+df = pd.read_csv('results.csv')  # Read later
 ```
 
 **Environment:**
 - Standard libs: pandas, numpy, requests, matplotlib, plotly
 - FMP_API_KEY available in environment
 - All previous chat files mounted
+- API documentation in /apis/
 - Changes auto-saved to database""",
     category="code"
 )

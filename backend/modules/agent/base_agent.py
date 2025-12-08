@@ -293,7 +293,7 @@ class BaseAgent:
             # Stream all events directly from agent loop
             async for event in self.run_tool_loop_streaming(
                 initial_messages=initial_messages,
-                max_iterations=10,
+                max_iterations=30,
                 llm_config=llm_config
             ):
                 yield event

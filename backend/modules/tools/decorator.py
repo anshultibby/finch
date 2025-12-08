@@ -19,7 +19,8 @@ def tool(
     name: Optional[str] = None,
     category: Optional[str] = None,
     requires_auth: bool = False,
-    hidden_from_ui: bool = False  # Mark tools that shouldn't appear in chat UI
+    hidden_from_ui: bool = False,  # Mark tools that shouldn't appear in chat UI
+    api_docs_only: bool = False  # Tool docs saved to filesystem instead of sent to LLM
 ):
     """
     Decorator to convert a function into an LLM-callable tool.
@@ -148,7 +149,8 @@ def tool(
             is_async=is_async,
             category=category,
             requires_auth=requires_auth,
-            hidden_from_ui=hidden_from_ui
+            hidden_from_ui=hidden_from_ui,
+            api_docs_only=api_docs_only
         )
         
         # Attach tool to function for registry

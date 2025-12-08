@@ -98,11 +98,16 @@ class ResourceManager:
         """
         Write a file to chat (stored in database AND as a resource)
         
+        For images: uploads to Supabase Storage if available, otherwise falls back to base64 in DB
+        For text files: stores content directly in database
+        
         Returns: File ID
         """
         from database import get_db
         from crud.chat_files import create_chat_file
         from crud.resource import create_resource
+        from services.storage import storage_service
+        import base64
         
         # Determine file type from extension
         file_type = "text"
@@ -117,6 +122,46 @@ class ResourceManager:
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
             file_type = "image"
         
+        # Handle images specially - upload to storage if available
+        image_url = None
+        file_size = len(content.encode('utf-8'))
+        
+        if file_type == "image" and storage_service.is_available():
+            try:
+                # Content is base64-encoded for images
+                image_bytes = base64.b64decode(content)
+                file_size = len(image_bytes)
+                
+                # Determine content type
+                content_type = "image/png"
+                if filename.lower().endswith(('.jpg', '.jpeg')):
+                    content_type = "image/jpeg"
+                elif filename.lower().endswith('.gif'):
+                    content_type = "image/gif"
+                elif filename.lower().endswith('.webp'):
+                    content_type = "image/webp"
+                elif filename.lower().endswith('.svg'):
+                    content_type = "image/svg+xml"
+                
+                # Upload to storage
+                image_url = storage_service.upload_image(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    filename=filename,
+                    file_data=image_bytes,
+                    content_type=content_type
+                )
+                
+                if image_url:
+                    logger.info(f"Uploaded image {filename} to storage: {image_url}")
+                    # Don't store base64 content in DB when we have a URL
+                    content = None
+                else:
+                    logger.warning(f"Failed to upload image {filename} to storage, falling back to DB")
+            except Exception as e:
+                logger.error(f"Error uploading image to storage: {e}", exc_info=True)
+                # Fall back to storing base64 in database
+        
         db = next(get_db())
         try:
             # Create chat file
@@ -126,7 +171,9 @@ class ResourceManager:
                 user_id=user_id,
                 filename=filename,
                 content=content,
-                file_type=file_type
+                file_type=file_type,
+                image_url=image_url,
+                size_bytes=file_size
             )
             
             # Also create a resource entry so it shows in the UI sidebar
@@ -141,7 +188,8 @@ class ResourceManager:
                     "filename": filename,
                     "file_type": file_type,
                     "size_bytes": file_obj.size_bytes,
-                    "file_id": file_obj.id
+                    "file_id": file_obj.id,
+                    "image_url": image_url  # Include URL in resource data
                 },
                 resource_metadata={
                     "file_type": file_type,
@@ -197,12 +245,20 @@ class ResourceManager:
             db.close()
     
     def delete_chat_file(self, user_id: str, chat_id: str, filename: str) -> bool:
-        """Delete a file from chat (from database)"""
+        """Delete a file from chat (from database and storage)"""
         from database import get_db
-        from crud.chat_files import delete_chat_file
+        from crud.chat_files import delete_chat_file, get_chat_file
+        from services.storage import storage_service
         
         db = next(get_db())
         try:
+            # Check if file is an image with a storage URL
+            file_obj = get_chat_file(db=db, chat_id=chat_id, filename=filename)
+            if file_obj and file_obj.image_url and storage_service.is_available():
+                # Delete from storage
+                storage_service.delete_image(user_id, chat_id, filename)
+            
+            # Delete from database
             return delete_chat_file(db=db, chat_id=chat_id, filename=filename)
         finally:
             db.close()

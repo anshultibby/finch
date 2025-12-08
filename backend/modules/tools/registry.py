@@ -95,13 +95,16 @@ class ToolRegistry:
         """
         Get OpenAI tool schemas for specified tools or filtered tools
         
+        Automatically excludes tools marked with api_docs_only=True since those
+        are for filesystem discovery, not direct LLM access.
+        
         Args:
             tool_names: Specific tool names to include (if provided, ignores other filters)
             category: Filter by category (only if tool_names not provided)
             requires_auth: Filter by auth requirement (only if tool_names not provided)
         
         Returns:
-            List of OpenAI-compatible tool schemas
+            List of OpenAI-compatible tool schemas (excluding api_docs_only tools)
         """
         if tool_names is not None:
             # Get specific tools by name
@@ -110,11 +113,18 @@ class ToolRegistry:
             # Get filtered tools
             tools = self.list_tools(category=category, requires_auth=requires_auth)
         
+        # Filter out api_docs_only tools - those are for filesystem discovery only
+        tools = [t for t in tools if not t.api_docs_only]
+        
         return [t.to_openai_schema() for t in tools]
     
     def get_all_schemas(self) -> List[Dict[str, Any]]:
-        """Get all OpenAI tool schemas"""
-        return [t.to_openai_schema() for t in self._tools.values()]
+        """Get all OpenAI tool schemas (excluding api_docs_only tools)"""
+        return [t.to_openai_schema() for t in self._tools.values() if not t.api_docs_only]
+    
+    def get_api_docs_only_tools(self) -> List[Tool]:
+        """Get tools marked as api_docs_only for filesystem mounting"""
+        return [t for t in self._tools.values() if t.api_docs_only]
     
     async def execute_tool(
         self,

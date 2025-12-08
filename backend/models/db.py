@@ -325,9 +325,12 @@ class ChatFile(Base):
     
     # File metadata
     filename = Column(String, nullable=False)  # e.g., "growth_analysis.py", "todo.md"
-    file_type = Column(String, nullable=False)  # "python", "markdown", "text", "csv"
-    content = Column(Text, nullable=False)  # File content (text)
+    file_type = Column(String, nullable=False)  # "python", "markdown", "text", "csv", "image"
+    content = Column(Text, nullable=True)  # File content (text) - nullable for images
     size_bytes = Column(Integer, nullable=False)  # Content size
+    
+    # Image storage (for image files only)
+    image_url = Column(String, nullable=True)  # Public URL from Supabase Storage (if image)
     
     # Optional metadata
     description = Column(String, nullable=True)  # Brief description

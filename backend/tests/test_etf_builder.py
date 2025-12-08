@@ -21,30 +21,6 @@ class TestETFBuilder:
         )
     
     @pytest.mark.asyncio
-    async def test_equal_weight_etf(self, agent_context):
-        """Test building an equal-weight ETF"""
-        params = BuildCustomETFParams(
-            tickers=["AAPL", "MSFT", "GOOGL"],
-            weighting_method="equal_weight",
-            name="Test Equal Weight ETF"
-        )
-        
-        result = None
-        async for event in build_custom_etf(params=params, context=agent_context):
-            if not hasattr(event, 'event'):
-                result = event
-        
-        assert result is not None
-        assert result["success"] is True
-        assert result["etf_name"] == "Test Equal Weight ETF"
-        assert result["total_stocks"] == 3
-        assert result["weighting_method"] == "equal_weight"
-        
-        # Check weights are equal (approximately 33.33%)
-        for component in result["components"]:
-            assert abs(component["weight"] - 0.3333) < 0.01
-    
-    @pytest.mark.asyncio
     async def test_market_cap_etf(self, agent_context):
         """Test building a market-cap weighted ETF"""
         params = BuildCustomETFParams(
@@ -75,7 +51,7 @@ class TestETFBuilder:
         """Test handling of invalid tickers"""
         params = BuildCustomETFParams(
             tickers=["AAPL", "INVALID_TICKER", "MSFT"],
-            weighting_method="equal_weight",
+            weighting_method="market_cap",
             name="Test ETF with Invalid"
         )
         
@@ -98,7 +74,7 @@ class TestETFBuilder:
         """Test building ETF with single stock"""
         params = BuildCustomETFParams(
             tickers=["AAPL"],
-            weighting_method="equal_weight",
+            weighting_method="market_cap",
             name="Single Stock ETF"
         )
         
@@ -118,7 +94,7 @@ class TestETFBuilder:
         """Test that component structure is correct"""
         params = BuildCustomETFParams(
             tickers=["AAPL", "MSFT"],
-            weighting_method="equal_weight",
+            weighting_method="market_cap",
             name="Test Structure"
         )
         
@@ -156,7 +132,7 @@ class TestETFBuilder:
         """Test that summary data is correct"""
         params = BuildCustomETFParams(
             tickers=["AAPL", "MSFT", "GOOGL"],
-            weighting_method="equal_weight",
+            weighting_method="market_cap",
             name="Test Summary"
         )
         
@@ -205,23 +181,23 @@ class TestETFBuilderIntegration:
         # Valid params
         params = BuildCustomETFParams(
             tickers=["AAPL", "MSFT"],
-            weighting_method="equal_weight"
+            weighting_method="market_cap"
         )
         assert params.tickers == ["AAPL", "MSFT"]
-        assert params.weighting_method == "equal_weight"
+        assert params.weighting_method == "market_cap"
         
-        # Invalid weighting method should fail
+        # Invalid weighting method should fail (equal_weight is no longer supported)
         with pytest.raises(Exception):  # Pydantic ValidationError
             BuildCustomETFParams(
                 tickers=["AAPL"],
-                weighting_method="invalid_method"
+                weighting_method="equal_weight"
             )
         
         # Empty tickers list should fail
         with pytest.raises(Exception):  # Pydantic ValidationError
             BuildCustomETFParams(
                 tickers=[],
-                weighting_method="equal_weight"
+                weighting_method="market_cap"
             )
 
 

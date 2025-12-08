@@ -2,15 +2,17 @@
 
 ## What You Can Do
 
-Build custom stock portfolios (ETFs) with different weighting strategies, then backtest and visualize their historical performance.
+Build custom stock portfolios (ETFs) weighted by market capitalization, then backtest and visualize their historical performance.
+
+**Note:** For now, ETFs are always weighted by market cap (larger companies get higher allocation).
 
 ## Quick Examples
 
 ### 1. Simple ETF
 ```
-User: "Build an equal-weight ETF with AAPL, MSFT, and GOOGL"
+User: "Build an ETF with AAPL, MSFT, and GOOGL"
 ```
-Agent will create a portfolio with 33.33% allocation to each stock.
+Agent will create a portfolio weighted by market cap.
 
 ### 2. After Screening
 ```
@@ -32,29 +34,24 @@ Agent will:
 4. Visualize performance chart
 5. Provide insights and recommendations
 
-### 4. Compare Strategies
+### 4. Historical Performance
 ```
-User: "Compare equal-weight vs market-cap weighting for FAANG stocks"
+User: "Create an ETF with FAANG stocks and show me 5-year performance"
 ```
 Agent will:
-1. Build both versions
-2. Backtest both
-3. Show side-by-side comparison
-4. Explain which performed better and why
+1. Build market cap-weighted portfolio
+2. Backtest it
+3. Show performance metrics
+4. Explain returns and risks
 
-## Weighting Methods
+## Weighting Method
 
-### Equal Weight
-- Each stock gets the same allocation
-- Example: 5 stocks = 20% each
-- **Best for:** Diversification, giving all picks equal importance
-- **Use when:** You believe all stocks have similar potential
-
-### Market Cap
+### Market Cap (Only Option for Now)
 - Stocks weighted by market capitalization
 - Larger companies get higher allocation
 - **Best for:** Following market dynamics, institutional approach
 - **Use when:** You want natural market-weighted exposure
+- **Example:** If AAPL has $3T market cap and MSFT has $2T, AAPL gets 60% weight and MSFT gets 40%
 
 ## The Complete Flow
 
@@ -91,12 +88,12 @@ Agent will:
 ### Growth Investing
 - "Build a high-growth tech portfolio with revenue growth > 30%"
 - "Create a momentum ETF with stocks near 52-week highs"
-- "Find hypergrowth stocks and build an equal-weight ETF"
+- "Find hypergrowth stocks and build an ETF"
 
 ### Strategy Testing
-- "Compare equal-weight vs market-cap for tech stocks"
-- "How would a dividend ETF have performed during 2020-2024?"
+- "How would a tech ETF have performed during 2020-2024?"
 - "Test a low volatility portfolio vs S&P 500"
+- "Compare my custom ETF against QQQ"
 
 ## What the Agent Does
 
@@ -113,17 +110,17 @@ Generates and runs Python code to filter stocks by your criteria using FMP API d
 ### Step 2: Portfolio Construction
 Calls `build_custom_etf` tool which:
 - Fetches current market data for all tickers
-- Calculates weights (equal or market-cap based)
+- Calculates weights based on market capitalization
 - Returns portfolio composition
 
 **You see:**
 ```
-✓ Built "Tech Leaders ETF" with 10 stocks
+✓ Built "Tech Leaders ETF" with 10 stocks (weighted by market cap)
 
 | Ticker | Name                   | Weight | Price    | Market Cap |
 |--------|------------------------|--------|----------|------------|
-| AAPL   | Apple Inc.            | 10%    | $189.50  | $2.95T     |
-| MSFT   | Microsoft Corporation  | 10%    | $378.91  | $2.82T     |
+| AAPL   | Apple Inc.            | 28.5%  | $189.50  | $2.95T     |
+| MSFT   | Microsoft Corporation  | 27.2%  | $378.91  | $2.82T     |
 ...
 ```
 
@@ -202,10 +199,11 @@ Always ask to compare vs:
 - Nasdaq (QQQ) for tech stocks
 - Sector ETFs for specific sectors
 
-### 4. Try Both Weighting Methods
-Equal-weight and market-cap can perform very differently:
-- Equal-weight: Better when small caps outperform
-- Market-cap: Better when large caps lead
+### 4. Understand Market Cap Weighting
+Market-cap weighting means:
+- Larger companies dominate the portfolio
+- Portfolio naturally reflects market dynamics
+- Top holdings can significantly impact performance
 
 ### 5. Understand Concentration Risk
 Check your sector exposure:
@@ -261,10 +259,10 @@ Check your sector exposure:
 
 After building your first ETF:
 1. Try different stock selections
-2. Compare weighting strategies
-3. Test various time periods
-4. Add benchmark comparisons
-5. Explore different themes/sectors
+2. Test various time periods
+3. Add benchmark comparisons
+4. Explore different themes/sectors
+5. Analyze sector concentration and risk
 
 ## Documentation
 

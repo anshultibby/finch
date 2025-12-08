@@ -62,6 +62,22 @@ app.include_router(analytics_router)
 app.include_router(chat_files_router)
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    from services.storage import storage_service
+    
+    # Initialize Supabase Storage bucket (if configured)
+    if storage_service.is_available():
+        logger.info("Initializing Supabase Storage...")
+        if storage_service.ensure_bucket_exists():
+            logger.info(f"✅ Supabase Storage bucket '{storage_service.bucket_name}' ready")
+        else:
+            logger.warning("⚠️  Failed to initialize Supabase Storage bucket")
+    else:
+        logger.info("ℹ️  Supabase Storage not configured - images will be stored in database")
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
