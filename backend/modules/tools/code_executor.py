@@ -299,6 +299,8 @@ async def execute_code(
         temp_dir = vfs.setup()
         script_path = os.path.join(temp_dir, 'script.py')
         
+        logger.info(f"Executing code from {source} in temp dir: {temp_dir}")
+        
         yield SSEEvent(event="tool_status", data={
             "status": "executing",
             "message": f"Running {source}..."
@@ -330,8 +332,23 @@ async def execute_code(
                 env=env
             )
             
+            # Log execution output to console for debugging
+            logger.info(f"Code execution completed with exit code: {result.returncode}")
+            if result.stdout:
+                logger.info(f"STDOUT:\n{result.stdout}")
+            if result.stderr:
+                logger.warning(f"STDERR:\n{result.stderr}")
+            
             # Sync changes back to database
             changes = vfs.sync_changes()
+            
+            # Log file changes
+            if changes["new"]:
+                logger.info(f"New files created: {', '.join(changes['new'])}")
+            if changes["modified"]:
+                logger.info(f"Files modified: {', '.join(changes['modified'])}")
+            if changes["deleted"]:
+                logger.info(f"Files deleted: {', '.join(changes['deleted'])}")
             
             # Emit resource events for new/modified files so frontend knows about them
             for filename in changes["new"] + changes["modified"]:
