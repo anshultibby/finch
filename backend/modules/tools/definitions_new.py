@@ -15,14 +15,15 @@ from modules.tools.descriptions import (
 )
 
 # Import implementations
-from modules.tools.implementations import planning, portfolio, market_data
-from modules.tools.implementations import web, control
+from modules.tools.implementations import planning, portfolio, market_data, analytics
+from modules.tools.implementations import interactive, web, control
 from modules.tools.implementations.code_execution import execute_code
 from modules.tools.implementations.file_management import (
     list_chat_files, write_chat_file, read_chat_file, 
     replace_in_chat_file, find_in_chat_file
 )
 from modules.tools.implementations.etf_builder import build_custom_etf
+from modules.tools.clients.plotting import create_chart
 
 
 # ============================================================================
@@ -176,6 +177,107 @@ async def fetch_webpage(*, context: AgentContext, url: str, extract_text: bool =
 
 
 # ============================================================================
+# ANALYTICS TOOLS
+# ============================================================================
+
+@tool(
+    description="""Sync and retrieve the user's complete transaction history from their connected brokerage.
+    This fetches all stock trades (buys, sells), dividends, and fees for analysis.
+    
+    Use this when the user asks about:
+    - Past trades or transaction history
+    - "What stocks have I traded?"
+    - "Show me my transactions"
+    - Before analyzing performance (to ensure data is up-to-date)
+    
+    Parameters:
+    - symbol: Optional ticker to filter (e.g., 'AAPL')
+    - limit: Max transactions to return (default 100, max 500)
+    """,
+    category="analytics",
+    requires_auth=True
+)
+async def get_transaction_history(*, context: AgentContext, symbol: Optional[str] = None, limit: int = 100):
+    """Fetch user's transaction history"""
+    async for item in analytics.get_transaction_history_impl(context, symbol, limit):
+        yield item
+
+
+@tool(
+    description="""Analyze the user's overall portfolio performance including win rate, P&L, best/worst trades,
+    and behavioral patterns. This provides a comprehensive performance report.
+    
+    Use this when the user asks:
+    - "How am I doing?"
+    - "Analyze my performance"
+    - "What's my win rate?"
+    - "Show me my trading stats"
+    - "Am I a good trader?"
+    
+    Parameters:
+    - period: Time period to analyze (all_time, ytd, 1m, 3m, 6m, 1y)
+    """,
+    category="analytics",
+    requires_auth=True
+)
+async def analyze_portfolio_performance(*, context: AgentContext, period: str = "all_time"):
+    """Analyze overall portfolio performance"""
+    async for item in analytics.analyze_portfolio_performance_impl(context, period):
+        yield item
+
+
+@tool(
+    description="""Identify behavioral patterns in the user's trading such as:
+    - Early exit on winners / Holding losers too long
+    - Overtrading
+    - Risk/reward imbalance
+    - High/low win rate tendencies
+    
+    Use this when the user asks:
+    - "What patterns do you see in my trading?"
+    - "What am I doing wrong?"
+    - "How can I improve?"
+    - "What are my bad habits?"
+    """,
+    category="analytics",
+    requires_auth=True
+)
+async def identify_trading_patterns(*, context: AgentContext):
+    """Identify behavioral trading patterns"""
+    async for item in analytics.identify_trading_patterns_impl(context):
+        yield item
+
+
+# ============================================================================
+# INTERACTIVE TOOLS
+# ============================================================================
+
+@tool(
+    description="""Present interactive option buttons to the user for them to choose from.
+
+Use this when you want to guide the user through a workflow with specific choices rather than open-ended questions.
+
+Examples:
+- Investment timeframes (short/medium/long term)
+- Analysis depth (quick/standard/deep)
+- Portfolio actions (review/opportunities/trim)
+- Stock screening criteria (growth/value/dividend)
+
+The user will select one option, and their selection will be returned as the next message.
+You should then acknowledge their choice and proceed with the appropriate action.
+
+This provides better UX than asking open-ended questions for well-defined workflows.
+
+IMPORTANT: Do NOT generate any follow-up text after calling this tool. The conversation will pause to wait for user selection.""",
+    category="interaction"
+)
+async def present_options(*, context: AgentContext, params: interactive.PresentOptionsInput):
+    """Present option buttons to the user"""
+    async for item in interactive.present_options_impl(context, params):
+        yield item
+
+
+# ============================================================================
 # CONTROL TOOLS
 # ============================================================================
 
@@ -210,6 +312,7 @@ def idle(*, context: AgentContext) -> Dict[str, Any]:
 # - execute_code (from implementations/code_execution.py)
 # - list_chat_files, write_chat_file, read_chat_file, replace_in_chat_file, find_in_chat_file (from implementations/file_management.py)
 # - build_custom_etf (from implementations/etf_builder.py)
+# - create_chart (from clients/plotting.py)
 
 # Import them so they register with the tool registry
 __all__ = [
@@ -222,10 +325,14 @@ __all__ = [
     'get_fmp_data', 'polygon_api_docs',
     # Web
     'fetch_webpage',
+    # Analytics
+    'get_transaction_history', 'analyze_portfolio_performance', 'identify_trading_patterns',
+    # Interactive
+    'present_options',
     # Control
     'idle',
     # Imported (already decorated)
     'execute_code', 'list_chat_files', 'write_chat_file', 'read_chat_file', 
-    'replace_in_chat_file', 'find_in_chat_file', 'build_custom_etf'
+    'replace_in_chat_file', 'find_in_chat_file', 'build_custom_etf', 'create_chart'
 ]
 

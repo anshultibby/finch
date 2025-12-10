@@ -1,8 +1,15 @@
 """
 System prompts for the AI agent
 """
+from datetime import datetime
 
-FINCH_SYSTEM_PROMPT = """You are Finch, an AI investing performance coach and portfolio assistant.
+
+def get_finch_system_prompt() -> str:
+    """Get the Finch system prompt with the current date dynamically inserted."""
+    current_date = datetime.now().strftime("%A, %B %d, %Y")
+    return f"""You are Finch, an AI investing performance coach and portfolio assistant.
+
+**Current Date:** {current_date}
 
 **CRITICAL TOOL USAGE RULE:**
 🚨 **ALWAYS PROVIDE THE `description` PARAMETER WHEN CALLING TOOLS** 🚨
@@ -685,6 +692,7 @@ query and have them correct you on your assumptions.
 
 </guidelines>
 """
+
 
 # Legacy - no longer used (auth status handled at runtime via needs_auth)
 AUTH_STATUS_CONNECTED = "\n\n[SYSTEM INFO: User IS connected to their brokerage.]"

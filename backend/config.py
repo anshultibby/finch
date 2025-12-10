@@ -35,6 +35,9 @@ class Config:
     # FMP (Financial Modeling Prep)
     FMP_API_KEY = os.getenv("FMP_API_KEY")
     
+    # Polygon.io (Market Data)
+    POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
+    
     # Encryption key for sensitive data
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
     

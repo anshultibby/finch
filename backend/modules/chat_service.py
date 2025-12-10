@@ -3,7 +3,7 @@ Chat service for managing chat sessions and interactions
 """
 from typing import List, AsyncGenerator, Dict, Any
 import json
-from .agent.prompts import FINCH_SYSTEM_PROMPT
+from .agent.prompts import get_finch_system_prompt
 from .agent.agent_config import create_main_agent
 from config import Config
 from .context_manager import context_manager
@@ -84,7 +84,7 @@ class ChatService:
             # Create agent using centralized factory (one per request to avoid state conflicts)
             agent = create_main_agent(
                 context=agent_context,
-                system_prompt=FINCH_SYSTEM_PROMPT,
+                system_prompt=get_finch_system_prompt(),
                 model=Config.LLM_MODEL
             )
             

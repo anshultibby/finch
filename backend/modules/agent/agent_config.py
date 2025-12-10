@@ -27,13 +27,8 @@ MAIN_AGENT_TOOLS = [
     'compare_reddit_sentiment',
     'get_fmp_data',
     
-    # Visualization
-    'create_chart',
-    
-    # Trading Analytics
-    'get_transaction_history',
-    'analyze_portfolio_performance',
-    'identify_trading_patterns',
+    # Web Content
+    'fetch_webpage',               # Fetch and read web content (API docs, articles, etc.)
     
     # Custom ETF Builder
     'build_custom_etf',            # Build custom ETF portfolios with weighting strategies

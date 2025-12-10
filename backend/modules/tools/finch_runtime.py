@@ -5,11 +5,12 @@ This module is automatically available in all execute_code environments.
 It provides direct access to API clients without needing tool calls.
 
 Usage in execute_code:
-    from finch_runtime import fmp, reddit
+    from finch_runtime import fmp, reddit, polygon
     
     # Fetch data directly
     data = fmp.fetch('quote', {'symbol': 'AAPL'})
     sentiment = reddit.get_trending(limit=10)
+    quote = polygon.get_quote('AAPL')
 """
 import os
 import requests
@@ -184,9 +185,66 @@ class RedditClient:
             return None
 
 
+class PolygonClient:
+    """
+    Polygon.io Python client wrapper.
+    
+    Provides access to the official Polygon Python client (RESTClient).
+    See /apis/polygon_api_docs.md for full documentation.
+    """
+    
+    def __init__(self):
+        self.api_key = os.getenv('POLYGON_API_KEY', '')
+        if not self.api_key:
+            print("⚠️ Warning: POLYGON_API_KEY not set in environment")
+        
+        self._client = None
+    
+    @property
+    def client(self):
+        """Lazy load the Polygon RESTClient"""
+        if self._client is None:
+            try:
+                from polygon import RESTClient
+                self._client = RESTClient(api_key=self.api_key)
+            except ImportError:
+                print("⚠️ Warning: polygon-api-client not installed. Install with: pip install polygon-api-client")
+                self._client = None
+        return self._client
+    
+    def __getattr__(self, name):
+        """
+        Proxy all method calls to the underlying Polygon RESTClient.
+        
+        This allows direct access to all Polygon client methods:
+        - polygon.get_aggs(ticker, multiplier, timespan, from_, to)
+        - polygon.get_snapshot_ticker(ticker)
+        - polygon.get_ticker_details(ticker)
+        - polygon.list_tickers(search=None, market='stocks')
+        - And many more...
+        
+        Examples:
+            # Get aggregate bars
+            aggs = polygon.get_aggs('AAPL', 1, 'day', '2024-01-01', '2024-12-31')
+            
+            # Get snapshot
+            snapshot = polygon.get_snapshot_ticker('stocks', 'AAPL')
+            
+            # Get ticker details
+            details = polygon.get_ticker_details('AAPL')
+            
+            # Search tickers
+            tickers = polygon.list_tickers(search='Apple', limit=10)
+        """
+        if self.client is None:
+            raise RuntimeError("Polygon client not available. Check API key and installation.")
+        return getattr(self.client, name)
+
+
 # Global instances - ready to use
 fmp = FMPClient()
 reddit = RedditClient()
+polygon = PolygonClient()
 
 # Helper functions for common operations
 def fetch_multiple_stocks(tickers: List[str], endpoint: str = 'quote') -> Dict[str, Any]:

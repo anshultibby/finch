@@ -20,8 +20,49 @@ import shutil
 import hashlib
 from pathlib import Path
 from datetime import datetime
+import json
+import time
 
 logger = get_logger(__name__)
+
+
+def _save_code_execution_log(
+    user_id: str,
+    chat_id: str,
+    execution_data: Dict[str, Any]
+):
+    """
+    Save code execution log to file for debugging
+    
+    Saves to: backend/chat_logs/{user_id}/{date}/{chat_id}/code_executions/{timestamp}_{filename}.json
+    """
+    try:
+        # Get backend directory
+        backend_dir = Path(__file__).parent.parent.parent
+        
+        # Get date for organization
+        date_str = datetime.now().strftime("%Y%m%d")
+        
+        # Create code executions directory organized by date and chat
+        code_log_dir = backend_dir / "chat_logs" / user_id / date_str / chat_id / "code_executions"
+        code_log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create filename with timestamp and execution filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        exec_filename = execution_data.get("execution_filename", "script")
+        # Sanitize filename for safe filesystem use
+        safe_exec_filename = exec_filename.replace("/", "_").replace("\\", "_").replace(".py", "")
+        log_filename = f"{timestamp}_{safe_exec_filename}.json"
+        log_filepath = code_log_dir / log_filename
+        
+        # Save execution data
+        with open(log_filepath, "w") as f:
+            json.dump(execution_data, f, indent=2)
+        
+        logger.info(f"💾 Saved code execution log to: chat_logs/{user_id}/{date_str}/{chat_id}/code_executions/{log_filename}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save code execution log: {e}", exc_info=True)
 
 
 class ExecuteCodeParams(BaseModel):
@@ -32,7 +73,11 @@ class ExecuteCodeParams(BaseModel):
     )
     filename: Optional[str] = Field(
         None,
-        description="Filename of saved code in chat directory (provide this OR code)"
+        description="Filename of saved code in chat directory to execute (provide this OR code)"
+    )
+    execution_filename: Optional[str] = Field(
+        "script.py",
+        description="Name to use when executing the code (default: script.py). Use descriptive names like 'analyze_stock.py' or 'backtest_strategy.py' for better organization."
     )
 
 
@@ -300,11 +345,15 @@ class VirtualFilesystem:
 
 **Direct API Access - Import finch_runtime:**
 ```python
-from modules.tools.finch_runtime import fmp, reddit
+from modules.tools.finch_runtime import fmp, reddit, polygon
 
-# Financial data
+# Financial data (FMP)
 quote = fmp.get_quote('AAPL')
 trades = fmp.get_insider_trading('NVDA', limit=50)
+
+# Real-time market data (Polygon)
+snapshot = polygon.fetch('/v2/snapshot/locale/us/markets/stocks/tickers/AAPL')
+bars = polygon.fetch('/v2/aggs/ticker/AAPL/range/1/day/2024-01-01/2024-12-31')
 
 # Reddit sentiment
 trending = reddit.get_trending(limit=10)
@@ -313,6 +362,7 @@ trending = reddit.get_trending(limit=10)
 **Quick Reference:**
 fmp: `fetch()`, `get_quote()`, `get_income_statement()`, `get_balance_sheet()`, 
      `get_key_metrics()`, `get_insider_trading()`, `get_historical_prices()`
+polygon: `fetch()` - generic method for any Polygon endpoint (see /apis/ docs)
 reddit: `get_trending()`, `get_ticker_sentiment()`
 
 **Persistent Filesystem:**
@@ -324,7 +374,7 @@ df = pd.read_csv('results.csv')  # Read later
 
 **Environment:**
 - Standard libs: pandas, numpy, requests, matplotlib, plotly
-- FMP_API_KEY available in environment
+- FMP_API_KEY and POLYGON_API_KEY available in environment
 - All previous chat files mounted
 - API documentation in /apis/
 - Changes auto-saved to database""",
@@ -347,6 +397,7 @@ async def execute_code(
     
     try:
         # Get code (from param or file)
+        execution_filename = params.execution_filename or 'script.py'
         if params.code:
             code = params.code
             source = "inline code"
@@ -360,15 +411,45 @@ async def execute_code(
                 yield {"success": False, "error": f"File '{params.filename}' not found"}
                 return
             source = f"file '{params.filename}'"
+            # If executing from a saved file and no execution_filename specified, use the saved filename
+            if not params.execution_filename:
+                execution_filename = os.path.basename(params.filename)
         else:
             yield {"success": False, "error": "Provide either 'code' or 'filename'"}
             return
         
         # Setup virtual filesystem (mount existing files)
         temp_dir = vfs.setup()
-        script_path = os.path.join(temp_dir, 'script.py')
+        script_path = os.path.join(temp_dir, execution_filename)
         
-        logger.info(f"Executing code from {source} in temp dir: {temp_dir}")
+        # Track execution start time for logging
+        execution_start_time = time.time()
+        execution_timestamp = datetime.now().isoformat()
+        
+        # Get list of mounted files for logging
+        mounted_files = []
+        if os.path.exists(temp_dir):
+            for root, dirs, files in os.walk(temp_dir):
+                for f in files:
+                    rel_path = os.path.relpath(os.path.join(root, f), temp_dir)
+                    if not rel_path.startswith('.') and '__pycache__' not in rel_path:
+                        mounted_files.append(rel_path)
+        
+        # Log detailed execution info for debugging
+        logger.info(f"=" * 80)
+        logger.info(f"CODE EXECUTION START")
+        logger.info(f"Timestamp: {execution_timestamp}")
+        logger.info(f"Source: {source}")
+        logger.info(f"Execution filename: {execution_filename}")
+        logger.info(f"Temp dir: {temp_dir}")
+        logger.info(f"User: {context.user_id}, Chat: {context.chat_id}")
+        logger.info(f"Mounted files: {len(mounted_files)} files")
+        if mounted_files:
+            logger.info(f"  Available files: {', '.join(mounted_files[:10])}")
+            if len(mounted_files) > 10:
+                logger.info(f"  ... and {len(mounted_files) - 10} more")
+        logger.info(f"Code length: {len(code)} characters")
+        logger.info(f"Code to execute:\n{'-' * 40}\n{code}\n{'-' * 40}")
         
         yield SSEEvent(event="tool_status", data={
             "status": "executing",
@@ -384,6 +465,7 @@ async def execute_code(
             backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
             env = os.environ.copy()
             env['FMP_API_KEY'] = os.getenv('FMP_API_KEY', '')
+            env['POLYGON_API_KEY'] = os.getenv('POLYGON_API_KEY', '')
             
             # Add backend directory to PYTHONPATH so "from modules.tools.finch_runtime import X" works
             if 'PYTHONPATH' in env:

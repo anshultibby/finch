@@ -1,0 +1,871 @@
+"""
+Central tool definitions file
+All LLM-callable tools are defined here using the @tool decorator
+"""
+import json
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
+from modules.tools import tool, tool_registry
+from modules.agent.context import AgentContext
+from models.sse import OptionButton, SSEEvent
+
+# Import business logic modules (API clients)
+from modules.tools.clients.snaptrade import snaptrade_tools
+from modules.tools.clients.apewisdom import apewisdom_tools
+from modules.tools.clients.fmp import fmp_tools
+from modules.tools.clients.polygon import polygon_tools
+from modules.tools.clients.plotting import create_chart
+
+# Import code execution tool (OpenHands-style simple execution)
+import modules.tools.code_executor  # noqa: F401
+
+# Import ETF builder tools (custom portfolio builder)
+import modules.tools.etf_builder_tools  # noqa: F401
+
+# Import file tools (OpenHands-style file operations)
+import modules.tools.file_tools  # noqa: F401
+
+# Import tool descriptions
+from modules.tools.descriptions import (
+    # Portfolio
+    GET_PORTFOLIO_DESC, REQUEST_BROKERAGE_CONNECTION_DESC,
+    # Reddit sentiment
+    GET_REDDIT_TRENDING_DESC, GET_REDDIT_TICKER_SENTIMENT_DESC, COMPARE_REDDIT_SENTIMENT_DESC,
+    # Financial metrics (FMP)
+    GET_FMP_DATA_DESC
+)
+
+
+# ============================================================================
+# PLANNING TOOLS (Task Organization)
+# ============================================================================
+
+class PlanPhase(BaseModel):
+    """A single phase in a multi-phase plan"""
+    id: int = Field(..., description="Sequential phase number (1, 2, 3, ...)")
+    title: str = Field(..., description="Clear, action-oriented title for this phase (becomes a heading in UI)")
+
+
+@tool(
+    description="Create or replace a structured plan for complex multi-step tasks. Use this to organize work into clear phases. Creating a new plan replaces any existing plan.",
+    category="planning"
+)
+def create_plan(
+    *,
+    context: AgentContext,
+    goal: str,
+    phases: List[dict]
+):
+    """
+    Create a structured plan for complex tasks.
+    
+    Creates a plan that groups all subsequent tool calls under phases.
+    The UI will display tool calls nested under the current phase heading.
+    
+    Args:
+        goal: Clear statement of what you're trying to accomplish
+        phases: List of phases to execute sequentially. Each phase should have 'id' and 'title' fields.
+    """
+    # Convert dicts to PlanPhase objects
+    parsed_phases = []
+    for p in phases:
+        if isinstance(p, dict):
+            # Convert dict to PlanPhase
+            parsed_phases.append(PlanPhase(**p))
+        elif isinstance(p, PlanPhase):
+            # Already a PlanPhase object
+            parsed_phases.append(p)
+        else:
+            raise ValueError(f"Invalid phase type: {type(p)}")
+    
+    # Store the plan in context for tracking
+    plan_data = {
+        "goal": goal,
+        "phases": [{"id": p.id, "title": p.title} for p in parsed_phases],
+        "current_phase_id": 1,  # Always start at phase 1
+        "created_at": "now"
+    }
+    
+    # Return success - the plan structure is communicated to the UI via the tool call itself
+    return {
+        "success": True,
+        "message": f"Plan created with {len(parsed_phases)} phases",
+        "plan": plan_data
+    }
+
+@tool(
+    description="Advance to the next phase in your current plan. Call this when you've completed the current phase and are ready to move to the next one.",
+    category="planning"
+)
+def advance_plan(
+    *,
+    context: AgentContext
+):
+    """
+    Advance to the next phase in the plan.
+    
+    This signals to the UI to move to the next phase section.
+    All subsequent tool calls will be grouped under the new phase.
+    """
+    # This is mainly for UI organization - no complex logic needed
+    return {
+        "success": True,
+        "message": "Advanced to next phase"
+    }
+
+# ============================================================================
+# PORTFOLIO TOOLS (SnapTrade)
+# ============================================================================
+
+@tool(
+    description=GET_PORTFOLIO_DESC,
+    category="portfolio",
+    requires_auth=True
+)
+async def get_portfolio(
+    *,
+    context: AgentContext
+):
+    """Get user's portfolio holdings"""
+    if not context.user_id:
+        yield {
+            "success": False,
+            "message": "User ID required",
+            "needs_auth": True
+        }
+        return
+    
+    # Call client which will yield SSE events and then result
+    async for item in snaptrade_tools.get_portfolio_streaming(
+        user_id=context.user_id
+    ):
+        yield item
+
+
+@tool(
+    description=REQUEST_BROKERAGE_CONNECTION_DESC,
+    category="portfolio",
+    requires_auth=False
+)
+def request_brokerage_connection(
+    *,
+    context: AgentContext
+) -> Dict[str, Any]:
+    """Request user to connect their brokerage account"""
+    return {
+        "success": True,
+        "needs_auth": True,
+        "message": "Please connect your brokerage account through SnapTrade to continue.",
+        "action_required": "show_connection_modal"
+    }
+
+
+# ============================================================================
+# REDDIT SENTIMENT TOOLS (ApeWisdom)
+# ============================================================================
+
+@tool(
+    description=GET_REDDIT_TRENDING_DESC,
+    category="reddit_sentiment",
+    api_docs_only=True  # Use finch_runtime in code instead
+)
+async def get_reddit_trending_stocks(
+    *,
+    context: AgentContext,
+    limit: int = 10
+):
+    """Get trending stocks from Reddit communities"""
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "fetching",
+            "message": f"Scanning r/wallstreetbets for top {limit} trending stocks..."
+        }
+    )
+    
+    result = await apewisdom_tools.get_trending_stocks(limit=limit)
+    
+    if result.get("success"):
+        mentions = result.get("data", {}).get("mentions", [])
+        yield SSEEvent(
+            event="tool_log",
+            data={
+                "level": "info",
+                "message": f"Found {len(mentions)} trending stocks"
+            }
+        )
+    
+    yield result
+
+
+@tool(
+    description=GET_REDDIT_TICKER_SENTIMENT_DESC,
+    category="reddit_sentiment",
+    api_docs_only=True  # Use finch_runtime in code instead
+)
+async def get_reddit_ticker_sentiment(
+    *,
+    context: AgentContext,
+    ticker: str
+):
+    """Get Reddit sentiment for a specific stock ticker"""
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "analyzing",
+            "message": f"Analyzing Reddit sentiment for ${ticker.upper()} from r/wallstreetbets..."
+        }
+    )
+    
+    result = await apewisdom_tools.get_ticker_sentiment(ticker=ticker)
+    
+    if result.get("success"):
+        data = result.get("data", {})
+        mentions = data.get("mentions", 0)
+        yield SSEEvent(
+            event="tool_log",
+            data={
+                "level": "info",
+                "message": f"Found {mentions} Reddit mentions"
+            }
+        )
+    
+    yield result
+
+
+@tool(
+    description=COMPARE_REDDIT_SENTIMENT_DESC,
+    category="reddit_sentiment",
+    api_docs_only=True  # Use finch_runtime in code instead
+)
+async def compare_reddit_sentiment(
+    *,
+    context: AgentContext,
+    tickers: List[str]
+):
+    """Compare Reddit sentiment for multiple tickers"""
+    tickers_str = ", ".join([t.upper() for t in tickers])
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "analyzing",
+            "message": f"Comparing Reddit sentiment: {tickers_str}"
+        }
+    )
+    
+    result = await apewisdom_tools.compare_tickers_sentiment(tickers=tickers)
+    
+    if result.get("success"):
+        yield SSEEvent(
+            event="tool_log",
+            data={
+                "level": "info",
+                "message": f"Compared {len(tickers)} tickers"
+            }
+        )
+    
+    yield result
+
+
+# ============================================================================
+# FINANCIAL METRICS TOOLS (Financial Modeling Prep)
+# ============================================================================
+
+@tool(
+    description=GET_FMP_DATA_DESC,
+    category="financial_metrics",
+    api_docs_only=True  # Use finch_runtime in code instead
+)
+async def get_fmp_data(
+    *,
+    context: AgentContext,
+    endpoint: str,
+    params: Optional[Dict[str, Any]] = None
+):
+    """Universal tool to fetch ANY financial data from FMP API"""
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except json.JSONDecodeError:
+            params = {}
+    
+    endpoint_name = endpoint.replace('_', ' ').replace('-', ' ').title()
+    symbol_str = params.get('symbol', '') if params else ''
+    
+    if symbol_str:
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "executing",
+                "message": f"Starting {endpoint_name} fetch for {symbol_str}..."
+            }
+        )
+    else:
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "executing",
+                "message": f"Starting {endpoint_name} data fetch..."
+            }
+        )
+    
+    async for item in fmp_tools.get_fmp_data_streaming(
+        endpoint=endpoint, 
+        params=params or {}
+    ):
+        if isinstance(item, SSEEvent):
+            yield item
+        else:
+            result = item
+    
+    if result.get("success"):
+        count = result.get("count", 0)
+        if count > 0:
+            yield SSEEvent(
+                event="tool_status",
+                data={
+                    "status": "completed",
+                    "message": f"Retrieved {count} {endpoint_name.lower()} records"
+                }
+            )
+        else:
+            yield SSEEvent(
+                event="tool_status",
+                data={
+                    "status": "completed",
+                    "message": f"{endpoint_name} data retrieved successfully"
+                }
+            )
+    else:
+        error_msg = result.get("message", "Unknown error")
+        yield SSEEvent(
+            event="tool_status",
+            data={
+                "status": "error",
+                "message": f"✗ {error_msg}"
+            }
+        )
+    
+    yield result
+
+
+# ============================================================================
+# INTERACTIVE OPTIONS TOOL
+# ============================================================================
+
+class PresentOptionsInput(BaseModel):
+    """Input model for present_options tool"""
+    question: str = Field(
+        ...,
+        description="The question to ask the user (shown above the option buttons)"
+    )
+    options: List[OptionButton] = Field(
+        ...,
+        description="List of option buttons to present (2-6 options)",
+        min_length=2,
+        max_length=6
+    )
+
+
+@tool(
+    description="""Present interactive option buttons to the user for them to choose from.
+
+Use this when you want to guide the user through a workflow with specific choices rather than open-ended questions.
+
+Examples:
+- Investment timeframes (short/medium/long term)
+- Analysis depth (quick/standard/deep)
+- Portfolio actions (review/opportunities/trim)
+- Stock screening criteria (growth/value/dividend)
+
+The user will select one option, and their selection will be returned as the next message.
+You should then acknowledge their choice and proceed with the appropriate action.
+
+This provides better UX than asking open-ended questions for well-defined workflows.
+
+IMPORTANT: Do NOT generate any follow-up text after calling this tool. The conversation will pause to wait for user selection.""",
+    category="interaction"
+)
+async def present_options(
+    *,
+    context: AgentContext,
+    params: PresentOptionsInput
+):
+    """
+    Present option buttons to the user
+    
+    Args:
+        params: PresentOptionsInput containing question and option buttons
+    """
+    # Yield options event
+    yield SSEEvent(
+        event="tool_options",
+        data={
+        "question": params.question,
+        "options": [opt.model_dump() for opt in params.options]
+        }
+    )
+    
+    # Yield final result indicating options were presented
+    # The conversation should pause here waiting for user selection
+    yield {
+        "success": True,
+        "message": "Options presented to user. Waiting for user selection.",
+        "question": params.question,
+        "options": [opt.model_dump() for opt in params.options],
+        "_stop_response": True  # Signal that response should end after this
+    }
+
+
+# ============================================================================
+# ANALYTICS TOOLS (Transaction History & Performance)
+# ============================================================================
+
+@tool(
+    description="""Sync and retrieve the user's complete transaction history from their connected brokerage.
+    This fetches all stock trades (buys, sells), dividends, and fees for analysis.
+    
+    Use this when the user asks about:
+    - Past trades or transaction history
+    - "What stocks have I traded?"
+    - "Show me my transactions"
+    - Before analyzing performance (to ensure data is up-to-date)
+    
+    Parameters:
+    - symbol: Optional ticker to filter (e.g., 'AAPL')
+    - limit: Max transactions to return (default 100, max 500)
+    """,
+    category="analytics",
+    requires_auth=True
+)
+async def get_transaction_history(
+    *,
+    context: AgentContext,
+    symbol: Optional[str] = None,
+    limit: int = 100
+):
+    """Fetch user's transaction history"""
+    from services.transaction_sync import transaction_sync_service
+    from crud import transactions as tx_crud
+    from database import SessionLocal
+    
+    if not context.user_id:
+        yield {
+            "success": False,
+            "message": "User ID required",
+            "needs_auth": True
+        }
+        return
+    
+    # First, sync transactions from SnapTrade
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "syncing",
+            "message": "Syncing your latest transactions from brokerage..."
+        }
+    )
+    
+    sync_result = await transaction_sync_service.sync_user_transactions(context.user_id)
+    
+    if not sync_result.get("success"):
+        yield {
+            "success": False,
+            "message": sync_result.get("message", "Failed to sync transactions")
+        }
+        return
+    
+    # Now fetch transactions from DB
+    db = SessionLocal()
+    try:
+        transactions = tx_crud.get_transactions(
+            db,
+            user_id=context.user_id,
+            symbol=symbol,
+            limit=min(limit, 500)
+        )
+        
+        # Format transactions for display
+        formatted = []
+        for tx in transactions:
+            formatted.append({
+                "id": str(tx.id),
+                "symbol": tx.symbol,
+                "type": tx.transaction_type,
+                "date": tx.transaction_date.isoformat(),
+                "quantity": float(tx.data.get("quantity", 0)),
+                "price": float(tx.data.get("price")) if tx.data.get("price") else None,
+                "total": float(tx.data.get("total_amount", 0)),
+                "description": tx.data.get("description", "")
+            })
+        
+        yield {
+            "success": True,
+            "data": {
+                "transactions": formatted,
+                "total_count": len(formatted),
+                "synced": sync_result.get("transactions_inserted", 0) + sync_result.get("transactions_updated", 0)
+            },
+            "message": f"Found {len(formatted)} transactions" + (f" for {symbol}" if symbol else "")
+        }
+        
+    finally:
+        db.close()
+
+
+@tool(
+    description="""Analyze the user's overall portfolio performance including win rate, P&L, best/worst trades,
+    and behavioral patterns. This provides a comprehensive performance report.
+    
+    Use this when the user asks:
+    - "How am I doing?"
+    - "Analyze my performance"
+    - "What's my win rate?"
+    - "Show me my trading stats"
+    - "Am I a good trader?"
+    
+    Parameters:
+    - period: Time period to analyze (all_time, ytd, 1m, 3m, 6m, 1y)
+    """,
+    category="analytics",
+    requires_auth=True
+)
+async def analyze_portfolio_performance(
+    *,
+    context: AgentContext,
+    period: str = "all_time"
+):
+    """Analyze overall portfolio performance"""
+    from services.analytics import analytics_service
+    from services.transaction_sync import transaction_sync_service
+    
+    if not context.user_id:
+        yield {
+            "success": False,
+            "message": "User ID required",
+            "needs_auth": True
+        }
+        return
+    
+    # Sync transactions first (with background sync)
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "syncing",
+            "message": "Checking for latest transactions..."
+        }
+    )
+    
+    sync_result = await transaction_sync_service.sync_user_transactions(
+        context.user_id,
+        background_sync=True  # Enable background sync
+    )
+    
+    # Calculate performance metrics
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "analyzing",
+            "message": f"Analyzing your trading performance ({period})..."
+        }
+    )
+    
+    metrics = analytics_service.calculate_performance_metrics(
+        context.user_id,
+        period=period
+    )
+    
+    # Build staleness message
+    staleness_msg = ""
+    if sync_result.get("cached") and sync_result.get("staleness_seconds"):
+        staleness_seconds = sync_result["staleness_seconds"]
+        if staleness_seconds < 60:
+            staleness_msg = f" (data from {staleness_seconds}s ago)"
+        elif staleness_seconds < 3600:
+            staleness_msg = f" (data from {staleness_seconds // 60}m ago)"
+        else:
+            staleness_msg = f" (data from {staleness_seconds // 3600}h ago)"
+        
+        if sync_result.get("background_sync"):
+            staleness_msg += " - updating in background"
+    
+    if metrics.get("total_trades", 0) == 0:
+        yield {
+            "success": True,
+            "data": metrics,
+            "message": f"No closed trades found in this period{staleness_msg}. Connect your brokerage and make some trades to see analytics!",
+            "data_staleness_seconds": sync_result.get("staleness_seconds"),
+            "background_sync": sync_result.get("background_sync", False)
+        }
+        return
+    
+    yield {
+        "success": True,
+        "data": metrics,
+        "message": f"Performance analysis complete for {period}{staleness_msg}. You've made {metrics['total_trades']} trades with a {metrics['win_rate']:.1f}% win rate!",
+        "data_staleness_seconds": sync_result.get("staleness_seconds"),
+        "background_sync": sync_result.get("background_sync", False)
+    }
+
+
+@tool(
+    description="""Identify behavioral patterns in the user's trading such as:
+    - Early exit on winners / Holding losers too long
+    - Overtrading
+    - Risk/reward imbalance
+    - High/low win rate tendencies
+    
+    Use this when the user asks:
+    - "What patterns do you see in my trading?"
+    - "What am I doing wrong?"
+    - "How can I improve?"
+    - "What are my bad habits?"
+    """,
+    category="analytics",
+    requires_auth=True
+)
+async def identify_trading_patterns(
+    *,
+    context: AgentContext
+):
+    """Identify behavioral trading patterns"""
+    from services.analytics import analytics_service
+    from services.transaction_sync import transaction_sync_service
+    
+    if not context.user_id:
+        yield {
+            "success": False,
+            "message": "User ID required",
+            "needs_auth": True
+        }
+        return
+    
+    # Sync first (with background sync)
+    yield SSEEvent(
+        event="tool_status",
+        data={
+            "status": "analyzing",
+            "message": "Analyzing your trading patterns..."
+        }
+    )
+    
+    sync_result = await transaction_sync_service.sync_user_transactions(
+        context.user_id,
+        background_sync=True
+    )
+    
+    patterns = analytics_service.analyze_trading_patterns(context.user_id)
+    
+    # Build staleness message
+    staleness_msg = ""
+    if sync_result.get("cached") and sync_result.get("staleness_seconds"):
+        staleness_seconds = sync_result["staleness_seconds"]
+        if staleness_seconds < 60:
+            staleness_msg = f" (data from {staleness_seconds}s ago)"
+        elif staleness_seconds < 3600:
+            staleness_msg = f" (data from {staleness_seconds // 60}m ago)"
+        else:
+            staleness_msg = f" (data from {staleness_seconds // 3600}h ago)"
+    
+    if not patterns:
+        yield {
+            "success": True,
+            "data": {"patterns": []},
+            "message": f"Not enough trading history to detect patterns yet{staleness_msg}. Keep trading and check back after 10+ closed positions!",
+            "data_staleness_seconds": sync_result.get("staleness_seconds"),
+            "background_sync": sync_result.get("background_sync", False)
+        }
+        return
+    
+    yield {
+        "success": True,
+        "data": {"patterns": patterns},
+        "message": f"Found {len(patterns)} trading patterns to review{staleness_msg}",
+        "data_staleness_seconds": sync_result.get("staleness_seconds"),
+        "background_sync": sync_result.get("background_sync", False)
+    }
+
+
+# ============================================================================
+# ============================================================================
+# TRADING STRATEGY TOOLS - V2 (Modern LLM-Native Framework)
+# ============================================================================
+# Strategy tools removed (no longer needed)
+# New LLM-native approach where strategies are natural language rules
+#
+# Available V2 tools (auto-imported):
+# - create_trading_strategy: Create rule-based strategies  
+# - test_strategy: Test on a single ticker
+# - scan_with_strategy: Scan multiple tickers
+# - list_strategies: List all strategies
+# - get_strategy_details: Get strategy details
+# - delete_strategy: Delete a strategy
+# ============================================================================
+
+# ============================================================================
+# POLYGON.IO MARKET DATA TOOLS (API Docs Only - Use in Code)
+# ============================================================================
+
+@tool(
+    description="""Polygon.io REST API - Real-time and historical market data
+
+**Workflow for Using Polygon API:**
+1. Use `fetch_webpage` tool to get documentation: https://polygon.readthedocs.io/en/latest/Stocks.html
+2. Parse the HTML/text to find endpoint patterns and parameters
+3. Write Python code using `polygon.fetch()` to call the endpoints
+4. Execute the code with `execute_code` tool
+
+**Usage in Code:**
+```python
+from finch_runtime import polygon
+
+# Use the official Polygon Python client methods
+aggs = polygon.get_aggs('AAPL', 1, 'day', '2024-01-01', '2024-12-31')
+snapshot = polygon.get_snapshot_ticker('stocks', 'AAPL')
+details = polygon.get_ticker_details('AAPL')
+tickers = polygon.list_tickers(search='Apple', limit=10)
+```
+
+**Base URL:** https://api.polygon.io
+**API Key:** Automatically added by polygon.fetch()
+
+**Documentation URLs:**
+- Full API docs: https://polygon.readthedocs.io/en/latest/Stocks.html
+- REST API reference: https://polygon.io/docs/stocks/getting-started
+
+**Common Methods:**
+- get_aggs(ticker, multiplier, timespan, from_, to): Get aggregate bars
+- get_snapshot_ticker(ticker_type, ticker): Get current snapshot
+- get_ticker_details(ticker): Get ticker details
+- list_tickers(search=None, market='stocks'): Search tickers
+- get_previous_close_agg(ticker): Get previous close
+- get_grouped_daily_aggs(date): Get all stocks for a date""",
+    category="market_data",
+    api_docs_only=True  # Documentation only - use polygon.fetch() in code
+)
+async def polygon_api_docs(
+    *,
+    context: AgentContext
+):
+    """Polygon.io API documentation (generated as markdown file in /apis/)"""
+    return {
+        "success": True,
+        "message": "Polygon.io API documentation available"
+    }
+
+
+# ============================================================================
+# WEB CONTENT TOOLS
+# ============================================================================
+
+@tool(
+    description="Fetch and read content from any web URL. Useful for reading API documentation, articles, or any web content.",
+    category="web"
+)
+async def fetch_webpage(
+    *,
+    context: AgentContext,
+    url: str,
+    extract_text: bool = False
+) -> Dict[str, Any]:
+    """
+    Fetch content from a web URL
+    
+    Args:
+        url: The URL to fetch (e.g., 'https://polygon.readthedocs.io/en/latest/Stocks.html')
+        extract_text: If True, attempts to extract clean text from HTML (removes tags). Default: False
+    
+    Returns:
+        Dict with success status, content, and metadata
+    """
+    import httpx
+    from bs4 import BeautifulSoup
+    
+    try:
+        # Fetch the URL
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                url,
+                headers={'User-Agent': 'Mozilla/5.0 (compatible; FinchBot/1.0)'},
+                follow_redirects=True
+            )
+            response.raise_for_status()
+            
+            content = response.text
+            content_type = response.headers.get('content-type', '')
+            
+            # Extract text if requested and content is HTML
+            if extract_text and 'html' in content_type.lower():
+                try:
+                    soup = BeautifulSoup(content, 'html.parser')
+                    # Remove script and style elements
+                    for script in soup(["script", "style"]):
+                        script.decompose()
+                    # Get text
+                    text = soup.get_text()
+                    # Clean up whitespace
+                    lines = (line.strip() for line in text.splitlines())
+                    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                    content = '\n'.join(chunk for chunk in chunks if chunk)
+                except Exception as e:
+                    # If text extraction fails, return raw HTML
+                    print(f"⚠️ Text extraction failed: {e}, returning raw HTML")
+            
+            return {
+                "success": True,
+                "url": str(response.url),
+                "content": content,
+                "content_type": content_type,
+                "size_bytes": len(content),
+                "status_code": response.status_code
+            }
+    
+    except httpx.HTTPError as e:
+        return {
+            "success": False,
+            "error": f"HTTP error: {str(e)}",
+            "url": url
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to fetch URL: {str(e)}",
+            "url": url
+        }
+
+
+# ============================================================================
+# CONTROL TOOLS
+# ============================================================================
+
+@tool(
+    description="""Signal that you have completed all tasks and are ready for the user's next input.
+    
+    Use this tool when:
+    - You have finished answering the user's question
+    - You have completed all requested tasks
+    - You are waiting for additional user input or clarification
+    - You have nothing more to add to the current conversation
+    
+    This helps the interface know when to return to an input-ready state.
+    
+    Do NOT use this tool if:
+    - You are still processing information
+    - You are waiting for tool results
+    - You have more analysis or information to provide
+    """,
+    category="control",
+    hidden_from_ui=True  # Don't show in chat UI - it's just a control signal
+)
+def idle(
+    *,
+    context: AgentContext
+) -> Dict[str, Any]:
+    """Signal completion and return to idle state"""
+    return {
+        "success": True,
+        "message": "Ready for next input",
+        "state": "idle"
+    }
+
+
