@@ -56,11 +56,12 @@ async def send_chat_message_stream(chat_message: ChatMessage):
             except Exception as e:
                 import traceback
                 error_msg = str(e)
-                logger.error(f"ERROR in stream: {error_msg}")
-                logger.debug(f"Traceback:\n{traceback.format_exc()}")
+                tb = traceback.format_exc()
+                logger.error(f"ERROR in stream: {error_msg}\nFull traceback:\n{tb}")
                 # Send error event
                 import json
-                yield f"event: error\ndata: {json.dumps({'error': error_msg})}\n\n"
+                # Use string concatenation to avoid f-string interpreting JSON curly braces as format specs
+                yield "event: error\ndata: " + json.dumps({'error': error_msg}) + "\n\n"
         
         return StreamingResponse(
             event_generator(),

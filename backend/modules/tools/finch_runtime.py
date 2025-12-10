@@ -4,13 +4,16 @@ Finch Runtime - Preloaded clients and utilities for code execution
 This module is automatically available in all execute_code environments.
 It provides direct access to API clients without needing tool calls.
 
-Usage in execute_code:
+📖 DOCUMENTATION:
+- Read this source code to see available clients and their methods
+- Read `/apis/*.md` files for detailed API documentation
+- Each client class below shows usage examples in docstrings
+
+USAGE:
     from finch_runtime import fmp, reddit, polygon
     
-    # Fetch data directly
-    data = fmp.fetch('quote', {'symbol': 'AAPL'})
-    sentiment = reddit.get_trending(limit=10)
-    quote = polygon.get_quote('AAPL')
+    # See class docstrings below for available methods
+    # Or read the API docs: open('apis/get_fmp_data.md').read()
 """
 import os
 import requests
@@ -19,102 +22,87 @@ from typing import Dict, Any, Optional, List
 
 class FMPClient:
     """
-    Direct FMP API client for code execution.
+    Financial Modeling Prep Python client wrapper.
+    
+    Provides access to the official FMP Data client (FMPDataClient).
+    
+    🚨 CRITICAL: The FMP client has a modular structure. You MUST use the correct category.
+    
+    ✅ CORRECT USAGE:
+        fmp.company.get_profile('AAPL')
+        fmp.market.get_quote('AAPL')
+        fmp.market.get_historical_price('AAPL', from_date='2024-01-01', to_date='2024-12-31')
+        fmp.fundamental.get_income_statement('AAPL')  # Note: "fundamental" is SINGULAR
+        fmp.insider.get_insider_trading('AAPL')
+    
+    ❌ COMMON MISTAKES (these DON'T work):
+        fmp.get_profile('AAPL')  # NO - must use fmp.company.get_profile()
+        fmp.quotes.get_quote('AAPL')  # NO - quotes are under fmp.market.get_quote()
+        fmp.historical.get_historical_prices()  # NO - use fmp.market.get_historical_price()
+        fmp.fundamentals.*  # NO - it's fmp.fundamental.* (SINGULAR!)
+    
+    📖 AVAILABLE CATEGORIES (these are the actual attributes):
+    - fmp.company: Company profiles, executives, search
+        - get_profile(symbol)
+        - get_executives(symbol)
+        - search(query, limit=10)
+        - get_employee_count(symbol)
+    
+    - fmp.market: Market data, quotes, historical prices, market movers
+        - get_quote(symbol)  # Current quote
+        - get_historical_price(symbol, from_date, to_date)  # Historical OHLCV
+        - get_gainers(limit=20)
+        - get_losers(limit=20)
+        - get_most_active(limit=20)
+    
+    - fmp.fundamental: Financial statements and metrics (SINGULAR!)
+        - get_income_statement(symbol, period='annual', limit=5)
+        - get_balance_sheet(symbol, period='annual', limit=5)
+        - get_cash_flow_statement(symbol, period='annual', limit=5)
+        - get_key_metrics(symbol, period='annual', limit=5)
+        - get_ratios(symbol, period='annual', limit=5)
+    
+    - fmp.insider: Insider trading data
+        - get_insider_trading(symbol, limit=100)
+        - get_senate_trading(symbol, limit=100)
+        - get_house_trading(symbol, limit=100)
+    
+    🔍 DISCOVERY: If unsure, explore the client in your code:
+        print(dir(fmp.client))  # See all available categories
+        print(dir(fmp.company))  # See all methods in a category
     
     All data fetching happens in code - results never flow through LLM context.
     """
-    
-    BASE_URL = "https://financialmodelingprep.com/api/v3"
     
     def __init__(self):
         self.api_key = os.getenv('FMP_API_KEY', '')
         if not self.api_key:
             print("⚠️ Warning: FMP_API_KEY not set in environment")
+        
+        self._client = None
     
-    def fetch(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    @property
+    def client(self):
+        """Lazy load the FMPDataClient"""
+        if self._client is None:
+            try:
+                from fmp_data import FMPDataClient
+                # Create client with minimal configuration
+                self._client = FMPDataClient(api_key=self.api_key)
+            except ImportError:
+                print("⚠️ Warning: fmp-data not installed. Install with: pip install fmp-data")
+                self._client = None
+        return self._client
+    
+    def __getattr__(self, name):
         """
-        Fetch data from any FMP endpoint.
+        Proxy all attribute/method calls to the underlying FMPDataClient.
         
-        Args:
-            endpoint: FMP endpoint name (e.g., 'quote', 'income-statement', 'insider-trading')
-            params: Query parameters (e.g., {'symbol': 'AAPL', 'limit': 10})
-        
-        Returns:
-            API response as dict or list
-        
-        Examples:
-            # Get quote
-            quote = fmp.fetch('quote', {'symbol': 'AAPL'})
-            
-            # Get insider trading
-            trades = fmp.fetch('insider-trading', {'symbol': 'AAPL', 'limit': 100})
-            
-            # Get income statement
-            income = fmp.fetch('income-statement', {'symbol': 'AAPL', 'period': 'annual'})
+        This allows you to use fmp.company.get_profile(), fmp.market.get_quote(), etc.
         """
-        params = params or {}
-        
-        # Determine if symbol goes in path (most endpoints)
-        symbol = params.pop('symbol', None)
-        
-        # Build URL
-        if symbol and endpoint in ['quote', 'profile', 'income-statement', 'balance-sheet-statement', 
-                                    'cash-flow-statement', 'key-metrics', 'ratios', 'financial-growth',
-                                    'historical-price-full', 'analyst-estimates']:
-            url = f"{self.BASE_URL}/{endpoint}/{symbol}"
-        else:
-            url = f"{self.BASE_URL}/{endpoint}"
-        
-        # Add API key
-        params['apikey'] = self.api_key
-        
-        try:
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            print(f"❌ FMP API error: {e}")
-            return None
-    
-    def get_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get real-time quote for a symbol"""
-        result = self.fetch('quote', {'symbol': symbol})
-        return result[0] if result and isinstance(result, list) else result
-    
-    def get_income_statement(self, symbol: str, period: str = 'annual', limit: int = 5) -> List[Dict[str, Any]]:
-        """Get income statement"""
-        return self.fetch('income-statement', {'symbol': symbol, 'period': period, 'limit': limit}) or []
-    
-    def get_balance_sheet(self, symbol: str, period: str = 'annual', limit: int = 5) -> List[Dict[str, Any]]:
-        """Get balance sheet"""
-        return self.fetch('balance-sheet-statement', {'symbol': symbol, 'period': period, 'limit': limit}) or []
-    
-    def get_key_metrics(self, symbol: str, period: str = 'annual', limit: int = 5) -> List[Dict[str, Any]]:
-        """Get key metrics"""
-        return self.fetch('key-metrics', {'symbol': symbol, 'period': period, 'limit': limit}) or []
-    
-    def get_insider_trading(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get insider trading transactions"""
-        return self.fetch('insider-trading', {'symbol': symbol, 'limit': limit}) or []
-    
-    def get_historical_prices(self, symbol: str, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get historical price data.
-        
-        Args:
-            symbol: Stock ticker
-            from_date: Start date (YYYY-MM-DD)
-            to_date: End date (YYYY-MM-DD)
-        
-        Returns:
-            Dict with 'historical' key containing price data
-        """
-        params = {'symbol': symbol}
-        if from_date:
-            params['from'] = from_date
-        if to_date:
-            params['to'] = to_date
-        return self.fetch('historical-price-full', params) or {}
+        if self.client is None:
+            raise RuntimeError("FMP client not available. Check API key and installation.")
+        return getattr(self.client, name)
 
 
 class RedditClient:
@@ -122,6 +110,10 @@ class RedditClient:
     Reddit sentiment client via ApeWisdom API.
     
     Fetch trending stocks and sentiment data from Reddit communities.
+    
+    Available methods:
+    - get_trending(limit): Get trending stocks
+    - get_ticker_sentiment(ticker): Get sentiment for specific ticker
     """
     
     BASE_URL = "https://apewisdom.io/api/v1.0"
@@ -137,12 +129,7 @@ class RedditClient:
             limit: Number of stocks to return (default 20)
         
         Returns:
-            List of trending stocks with mention counts
-        
-        Example:
-            trending = reddit.get_trending(limit=10)
-            for stock in trending:
-                print(f"{stock['ticker']}: {stock['mentions']} mentions")
+            List of trending stocks with mention counts and ranks
         """
         try:
             url = f"{self.BASE_URL}/filter/all-stocks"
@@ -190,7 +177,8 @@ class PolygonClient:
     Polygon.io Python client wrapper.
     
     Provides access to the official Polygon Python client (RESTClient).
-    See /apis/polygon_api_docs.md for full documentation.
+    
+    📖 DOCUMENTATION: Read 'apis/polygon_api_docs.md' for usage examples
     """
     
     def __init__(self):
@@ -216,25 +204,15 @@ class PolygonClient:
         """
         Proxy all method calls to the underlying Polygon RESTClient.
         
-        This allows direct access to all Polygon client methods:
-        - polygon.get_aggs(ticker, multiplier, timespan, from_, to)
-        - polygon.get_snapshot_ticker(ticker)
-        - polygon.get_ticker_details(ticker)
-        - polygon.list_tickers(search=None, market='stocks')
-        - And many more...
+        Common methods:
+        - get_aggs(): Aggregate bars (OHLCV)
+        - get_snapshot_ticker(): Current snapshot
+        - get_ticker_details(): Ticker details
+        - list_tickers(): Search tickers
+        - get_previous_close_agg(): Previous close
+        - get_grouped_daily_aggs(): All stocks for a date
         
-        Examples:
-            # Get aggregate bars
-            aggs = polygon.get_aggs('AAPL', 1, 'day', '2024-01-01', '2024-12-31')
-            
-            # Get snapshot
-            snapshot = polygon.get_snapshot_ticker('stocks', 'AAPL')
-            
-            # Get ticker details
-            details = polygon.get_ticker_details('AAPL')
-            
-            # Search tickers
-            tickers = polygon.list_tickers(search='Apple', limit=10)
+        📖 For usage examples, read: open('apis/polygon_api_docs.md').read()
         """
         if self.client is None:
             raise RuntimeError("Polygon client not available. Check API key and installation.")
@@ -245,58 +223,4 @@ class PolygonClient:
 fmp = FMPClient()
 reddit = RedditClient()
 polygon = PolygonClient()
-
-# Helper functions for common operations
-def fetch_multiple_stocks(tickers: List[str], endpoint: str = 'quote') -> Dict[str, Any]:
-    """
-    Fetch data for multiple tickers efficiently.
-    
-    Args:
-        tickers: List of stock tickers
-        endpoint: FMP endpoint to fetch (default: 'quote')
-    
-    Returns:
-        Dict mapping ticker -> data
-    
-    Example:
-        data = fetch_multiple_stocks(['AAPL', 'MSFT', 'GOOGL'], 'quote')
-        for ticker, quote in data.items():
-            print(f"{ticker}: ${quote['price']}")
-    """
-    results = {}
-    for ticker in tickers:
-        result = fmp.fetch(endpoint, {'symbol': ticker})
-        if result:
-            # Handle both list and dict responses
-            if isinstance(result, list) and len(result) > 0:
-                results[ticker] = result[0]
-            else:
-                results[ticker] = result
-    return results
-
-
-def combine_financial_data(symbol: str) -> Dict[str, Any]:
-    """
-    Fetch comprehensive financial data for a symbol.
-    
-    Gets quote, income statement, balance sheet, and key metrics.
-    All data stays in code - nothing flows through LLM context.
-    
-    Args:
-        symbol: Stock ticker
-    
-    Returns:
-        Dict with all financial data
-    
-    Example:
-        data = combine_financial_data('AAPL')
-        print(f"P/E: {data['metrics'][0]['peRatio']}")
-        print(f"Revenue: {data['income'][0]['revenue']}")
-    """
-    return {
-        'quote': fmp.get_quote(symbol),
-        'income': fmp.get_income_statement(symbol, limit=1),
-        'balance': fmp.get_balance_sheet(symbol, limit=1),
-        'metrics': fmp.get_key_metrics(symbol, limit=1)
-    }
 

@@ -47,6 +47,7 @@ export default function ChatView() {
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionUrl, setConnectionUrl] = useState<string | null>(null);
+  const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const userId = user?.id || null;
@@ -70,17 +71,6 @@ export default function ChatView() {
     
     return result;
   }, [messages]);
-
-  const scrollToBottom = () => {
-    // Use setTimeout to ensure DOM has updated
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 0);
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, streamingText, streamingTools]);
 
   // Initialize chat
   useEffect(() => {
@@ -253,6 +243,9 @@ export default function ChatView() {
           } catch (err) {
             console.error('Error reloading resources:', err);
           }
+          
+          // Trigger chat history sidebar to refresh
+          setChatHistoryRefresh(prev => prev + 1);
         },
         
         onError: (event) => {
@@ -287,6 +280,8 @@ export default function ChatView() {
       setMessages([]);
       setStreamingText('');
       setStreamingTools([]);
+      // Trigger chat history sidebar to refresh
+      setChatHistoryRefresh(prev => prev + 1);
     } catch (err) {
       console.error('Error creating new chat:', err);
     }
@@ -315,6 +310,7 @@ export default function ChatView() {
         onNewChat={handleNewChat}
         isOpen={isChatHistoryOpen}
         onToggle={() => setIsChatHistoryOpen(!isChatHistoryOpen)}
+        refreshTrigger={chatHistoryRefresh}
       />
 
       {/* Main Chat Area */}

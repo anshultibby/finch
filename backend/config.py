@@ -47,7 +47,7 @@ class Config:
     SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "chat-files")
     
     # Debug settings
-    DEBUG_LLM_CALLS = os.getenv("DEBUG_LLM_CALLS", "false").lower() == "true"
+    # Single logging system: ChatLogger tracks full conversation context
     DEBUG_CHAT_LOGS = os.getenv("DEBUG_CHAT_LOGS", "false").lower() == "true"
     
     # Performance monitoring (backend only - not sent to frontend)

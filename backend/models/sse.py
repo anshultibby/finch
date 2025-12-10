@@ -14,7 +14,8 @@ class SSEEvent(BaseModel):
     def to_sse_format(self) -> str:
         """Convert to SSE format: event: <type>\ndata: <json>\n\n"""
         import json
-        return f"event: {self.event}\ndata: {json.dumps(self.data)}\n\n"
+        # Use string concatenation to avoid f-string interpreting JSON curly braces as format specs
+        return "event: " + self.event + "\ndata: " + json.dumps(self.data) + "\n\n"
 
 
 class ToolCallStartEvent(BaseModel):

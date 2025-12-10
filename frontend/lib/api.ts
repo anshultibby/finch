@@ -287,12 +287,15 @@ export const chatApi = {
                   handlers.onMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
                   break;
                 case 'message_end':
+                  console.log('📨 Received message_end event:', eventData);
                   handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
                   break;
                 case 'tool_call_start':
+                  console.log('🔧 Received tool_call_start event:', eventData);
                   handlers.onToolCallStart?.(eventData as SSEToolCallStartEvent);
                   break;
                 case 'tool_call_complete':
+                  console.log('✅ Received tool_call_complete event:', eventData);
                   handlers.onToolCallComplete?.(eventData as SSEToolCallCompleteEvent);
                   break;
                 case 'tools_end':

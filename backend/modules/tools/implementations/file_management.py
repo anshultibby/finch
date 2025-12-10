@@ -1,10 +1,10 @@
 """
-File Tools (Manus-inspired)
+File Management Implementation (Manus-inspired)
 
 File manipulation tools for chat sessions.
 """
-from modules.tools import tool
 from modules.agent.context import AgentContext
+from models.sse import SSEEvent
 from pydantic import BaseModel, Field
 from utils.logger import get_logger
 import re
@@ -27,20 +27,7 @@ class FindInFileParams(BaseModel):
 
 # Basic file tools (read, write, list) plus advanced tools (replace, find)
 
-@tool(
-    name="replace_in_chat_file",
-    description="""Replace text in a chat file (like Manus's file_str_replace).
-
-**Use for:**
-- Fixing code errors
-- Updating values/thresholds
-- Modifying function logic
-
-**Example:** Replace "growth > 10" with "growth > 20" in code file""",
-    category="files"
-)
-def replace_in_chat_file(
-    *,
+def replace_in_chat_file_impl(
     params: ReplaceInFileParams,
     context: AgentContext
 ):
@@ -93,20 +80,7 @@ def replace_in_chat_file(
         return {"success": False, "error": str(e)}
 
 
-@tool(
-    name="find_in_chat_file",
-    description="""Search for pattern in a chat file.
-
-**Use for:**
-- Finding function definitions
-- Locating specific calculations
-- Checking if code uses certain variables
-
-**Returns:** Line numbers and matching text""",
-    category="files"
-)
-def find_in_chat_file(
-    *,
+def find_in_chat_file_impl(
     params: FindInFileParams,
     context: AgentContext
 ):
@@ -158,42 +132,198 @@ def find_in_chat_file(
 
 # Add basic file tools
 
-@tool(
-    name="list_chat_files",
-    description="List files in the current chat session",
-    category="files"
-)
-def list_chat_files(*, context: AgentContext):
-    """List files in chat directory"""
+def list_chat_files_impl(
+    context: AgentContext,
+    directory: str = ""
+):
+    """List files in chat directory (Cursor-style progressive exploration)"""
     from modules.resource_manager import resource_manager
+    import os
     
     try:
-        files = resource_manager.list_chat_files(context.user_id, context.chat_id)
+        # Get all files from DB
+        all_files = resource_manager.list_chat_files(context.user_id, context.chat_id)
+        
+        # Normalize directory path
+        dir_path = directory.strip().strip('/')
+        
+        # Filter files in the specified directory
+        files_in_dir = []
+        subdirs = set()
+        
+        for file_obj in all_files:
+            filename = file_obj['name']
+            
+            # Check if file is in the specified directory
+            if dir_path:
+                # File must start with directory path
+                if not filename.startswith(dir_path + '/'):
+                    continue
+                # Get relative path from this directory
+                relative = filename[len(dir_path)+1:]
+            else:
+                # Root directory
+                relative = filename
+            
+            # Check if this is a direct child or in a subdirectory
+            parts = relative.split('/')
+            
+            if len(parts) == 1:
+                # Direct file in this directory
+                files_in_dir.append({
+                    **file_obj,
+                    "relative_name": relative
+                })
+            else:
+                # File in subdirectory - track the subdirectory
+                subdirs.add(parts[0])
+        
+        # Format output similar to Cursor's list_dir
+        result_lines = []
+        
+        current_path = f"/{dir_path}" if dir_path else "/"
+        result_lines.append(f"Contents of {current_path}:\n")
+        
+        # List subdirectories first
+        if subdirs:
+            result_lines.append("📁 Directories:")
+            for subdir in sorted(subdirs):
+                result_lines.append(f"  {subdir}/")
+            result_lines.append("")
+        
+        # List files
+        if files_in_dir:
+            result_lines.append("📄 Files:")
+            for f in sorted(files_in_dir, key=lambda x: x['relative_name']):
+                size_kb = f['size'] / 1024 if f['size'] else 0
+                result_lines.append(f"  {f['relative_name']:40} ({size_kb:>8.1f} KB)  {f.get('type', 'unknown')}")
+        
+        if not subdirs and not files_in_dir:
+            result_lines.append("(empty directory)")
+        
+        result_lines.append(f"\n📊 Summary: {len(subdirs)} directories, {len(files_in_dir)} files")
+        
         return {
             "success": True,
-            "files": files,
-            "count": len(files),
-            "path": f"resources/{context.user_id}/chats/{context.chat_id}/"
+            "directory": current_path,
+            "subdirectories": sorted(list(subdirs)),
+            "files": files_in_dir,
+            "summary": "\n".join(result_lines)
         }
     except Exception as e:
         logger.error(f"Error listing chat files: {str(e)}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
-@tool(
-    name="write_chat_file",
-    description="Write a file to the current chat session",
-    category="files"
-)
-async def write_chat_file(
-    *,
+def show_filesystem_tree_impl(context: AgentContext):
+    """Show chat filesystem as a tree"""
+    from modules.resource_manager import resource_manager
+    import tempfile
+    import os
+    import shutil
+    
+    try:
+        # Create temp directory to mount files
+        temp_dir = tempfile.mkdtemp(prefix='tree_view_')
+        
+        try:
+            # Get all chat files
+            chat_files = resource_manager.list_chat_files(
+                context.user_id,
+                context.chat_id,
+                pattern="*"
+            )
+            
+            # Mount files to temp directory
+            for file_info in chat_files:
+                filename = file_info['name']
+                
+                # Read file content from DB
+                content = resource_manager.read_chat_file(
+                    context.user_id,
+                    context.chat_id,
+                    filename
+                )
+                
+                if content is not None:
+                    file_path = os.path.join(temp_dir, filename)
+                    
+                    # Create subdirectories if needed
+                    file_dir = os.path.dirname(file_path)
+                    if file_dir:
+                        os.makedirs(file_dir, exist_ok=True)
+                    
+                    # Write file (just for tree visualization)
+                    try:
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                    except:
+                        # If can't write as text, skip (binary files don't affect tree)
+                        pass
+            
+            # Generate tree visualization
+            tree_lines = ["# Chat Filesystem Tree\n"]
+            
+            # Build tree structure
+            def add_tree_lines(directory, prefix="", is_last=True):
+                """Recursively build tree lines"""
+                items = []
+                try:
+                    for item in sorted(os.listdir(directory)):
+                        if item.startswith('.') or item == '__pycache__':
+                            continue
+                        item_path = os.path.join(directory, item)
+                        items.append((item, item_path, os.path.isdir(item_path)))
+                except PermissionError:
+                    return
+                
+                for i, (name, path, is_dir) in enumerate(items):
+                    is_last_item = i == len(items) - 1
+                    connector = "└── " if is_last_item else "├── "
+                    tree_lines.append(f"{prefix}{connector}{name}{'/' if is_dir else ''}")
+                    
+                    if is_dir:
+                        extension = "    " if is_last_item else "│   "
+                        add_tree_lines(path, prefix + extension, is_last_item)
+            
+            tree_lines.append("\n```")
+            tree_lines.append(".")
+            add_tree_lines(temp_dir, "")
+            tree_lines.append("```\n")
+            
+            # Add statistics
+            file_count = len(chat_files)
+            total_size = sum(f.get('size', 0) for f in chat_files)
+            
+            tree_lines.append(f"\n**Statistics:**")
+            tree_lines.append(f"- Files: {file_count}")
+            tree_lines.append(f"- Total Size: {total_size:,} bytes ({total_size / 1024:.1f} KB)")
+            
+            tree = "\n".join(tree_lines)
+            
+            return {
+                "success": True,
+                "tree": tree,
+                "file_count": file_count,
+                "total_size": total_size
+            }
+        
+        finally:
+            # Clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
+    
+    except Exception as e:
+        logger.error(f"Error generating filesystem tree: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def write_chat_file_impl(
     context: AgentContext,
     filename: str,
     content: str
 ):
     """Write file to chat directory"""
     from modules.resource_manager import resource_manager
-    from models.sse import SSEEvent
     
     try:
         file_id = resource_manager.write_chat_file(
@@ -243,13 +373,7 @@ async def write_chat_file(
         yield {"success": False, "error": str(e)}
 
 
-@tool(
-    name="read_chat_file",
-    description="Read a file from the current chat session",
-    category="files"
-)
-def read_chat_file(
-    *,
+def read_chat_file_impl(
     context: AgentContext,
     filename: str
 ):

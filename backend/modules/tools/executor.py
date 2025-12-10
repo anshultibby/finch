@@ -444,11 +444,13 @@ class ToolExecutor:
             # Check if tool is hidden from UI
             tool_obj = tool_registry.get_tool(call.name)
             if tool_obj and tool_obj.hidden_from_ui:
+                logger.debug(f"⏭️  Skipping tool_call_start for hidden tool: {call.name}")
                 continue  # Don't emit event for hidden tools like 'idle'
             
             # Extract user_description from arguments (provided by LLM)
             user_description = call.arguments.get('description', None)
             
+            logger.info(f"📤 Emitting tool_call_start event: {call.name} (id: {call.id})")
             yield SSEEvent(
                 event="tool_call_start",
                 data={

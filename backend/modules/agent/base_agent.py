@@ -65,9 +65,10 @@ class BaseAgent:
             chat_id=context.chat_id,
             model=model
         )
-        # Create tool executor with simple 10K char truncation
+        # Create tool executor with 4K char truncation (~1K tokens)
+        # This keeps tool responses concise and reduces cache growth
         self._tool_executor = ToolExecutor(
-            truncation_policy=TruncationPolicy(max_chars=10000)
+            truncation_policy=TruncationPolicy(max_chars=4000)
         )
     
     def get_new_messages(self) -> List[HistoryChatMessage]:
@@ -161,7 +162,7 @@ class BaseAgent:
         
         # Use default config if not provided
         llm_config = llm_config or LLMConfig.from_config(
-            model=self.get_model(),
+            model=self.model,
             stream=True
         )
         
@@ -186,7 +187,8 @@ class BaseAgent:
                         messages=messages,
                         tools=tools,
                         llm_config=llm_config,
-                        user_id=self.context.user_id
+                        user_id=self.context.user_id,
+                        chat_id=self.context.chat_id
                     ):
                         # Extract results from llm_end event
                         if event.event == "llm_end":
@@ -196,16 +198,16 @@ class BaseAgent:
                         # Forward LLM events (content deltas, llm_end, etc.)
                         yield event
                     
-                    # Emit message_end for content (before tools if any)
-                    if content:
-                        from models.sse import MessageEndEvent
-                        yield SSEEvent(
-                            event="message_end",
-                            data=MessageEndEvent(content=content, tool_calls=None).model_dump()
-                        )
-                    
                     # If no tool calls, we're done
                     if not tool_calls:
+                        # Emit message_end for content-only response
+                        if content:
+                            from models.sse import MessageEndEvent
+                            yield SSEEvent(
+                                event="message_end",
+                                data=MessageEndEvent(content=content, tool_calls=None).model_dump()
+                            )
+                        
                         self._agent_tracer.record_final_turn(iteration, len(content) if content else 0)
                         assistant_msg = {"role": "assistant", "content": content or ""}
                         messages.append(assistant_msg)
@@ -223,6 +225,14 @@ class BaseAgent:
                     }
                     messages.append(assistant_msg)
                     self._new_messages.append(HistoryChatMessage.from_dict(assistant_msg))
+                    
+                    # Emit message_end with tool_calls to signal we're about to execute tools
+                    # This eliminates the visual gap between LLM finishing and tools starting
+                    from models.sse import MessageEndEvent
+                    yield SSEEvent(
+                        event="message_end",
+                        data=MessageEndEvent(content=content, tool_calls=tool_calls).model_dump()
+                    )
                     
                     # Step 2: Execute tools
                     # tool_call_start/complete events handle the display

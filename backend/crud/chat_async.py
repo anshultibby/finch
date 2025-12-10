@@ -46,9 +46,13 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
 async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int = 50, max_length: int = 100) -> List[dict]:
     """
     Get all chats for a user with last message preview.
-    Simplified to avoid connection pool exhaustion with complex queries.
+    Uses a single optimized query with subquery to avoid N+1 queries.
     """
-    # Simple query - just get the chats
+    from sqlalchemy import func, literal_column
+    from sqlalchemy.sql import text
+    
+    # Subquery to get the last user or assistant message for each chat
+    # We'll do this in Python to avoid complex SQL - but efficiently
     result = await db.execute(
         select(Chat)
         .where(Chat.user_id == user_id)
@@ -57,16 +61,51 @@ async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int
     )
     chats = result.scalars().all()
     
-    # Format results - skip last message preview for now to avoid N+1 queries
-    # Frontend can fetch preview separately if needed
+    # Batch fetch last messages for all chats in one query
+    if chats:
+        chat_ids = [chat.chat_id for chat in chats]
+        
+        # Get the latest message for each chat (user or assistant only)
+        # Using a window function approach with SQLAlchemy
+        from sqlalchemy import and_, or_
+        
+        messages_result = await db.execute(
+            select(ChatMessage.chat_id, ChatMessage.content, ChatMessage.sequence)
+            .where(
+                and_(
+                    ChatMessage.chat_id.in_(chat_ids),
+                    or_(ChatMessage.role == 'user', ChatMessage.role == 'assistant')
+                )
+            )
+            .order_by(ChatMessage.chat_id, ChatMessage.sequence.desc())
+        )
+        
+        all_messages = messages_result.all()
+        
+        # Group by chat_id and get the first (most recent) message for each
+        last_messages_by_chat = {}
+        for msg in all_messages:
+            if msg.chat_id not in last_messages_by_chat:
+                last_messages_by_chat[msg.chat_id] = msg.content
+    else:
+        last_messages_by_chat = {}
+    
+    # Format results with previews
     chats_list = []
     for chat in chats:
+        last_message = last_messages_by_chat.get(chat.chat_id)
+        if last_message:
+            # Truncate and clean up the message for preview
+            last_message = last_message.strip()
+            if len(last_message) > max_length:
+                last_message = last_message[:max_length] + "..."
+        
         chats_list.append({
             "chat_id": chat.chat_id,
             "title": chat.title,
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat(),
-            "last_message": None  # Skip for performance - frontend can load on demand
+            "last_message": last_message
         })
     
     return chats_list

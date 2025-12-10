@@ -18,6 +18,7 @@ interface ChatHistorySidebarProps {
   onNewChat: () => void;
   isOpen: boolean;
   onToggle: () => void;
+  refreshTrigger?: number;
 }
 
 export default function ChatHistorySidebar({
@@ -27,6 +28,7 @@ export default function ChatHistorySidebar({
   onNewChat,
   isOpen,
   onToggle,
+  refreshTrigger,
 }: ChatHistorySidebarProps) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,7 +55,7 @@ export default function ChatHistorySidebar({
     if (isOpen) {
       loadChats();
     }
-  }, [userId, isOpen]);
+  }, [userId, isOpen, currentChatId, refreshTrigger]); // Reload when refreshTrigger changes
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

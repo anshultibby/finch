@@ -1,5 +1,5 @@
 """
-Code Execution Tool with Virtual Persistent Filesystem
+Code Execution Implementation with Virtual Persistent Filesystem
 
 Provides a persistent filesystem experience backed by the database:
 - All chat files are mounted into execution environment
@@ -7,7 +7,6 @@ Provides a persistent filesystem experience backed by the database:
 - Changes are automatically synced back to DB
 - Temp directory is cleaned up after each run
 """
-from modules.tools import tool
 from modules.agent.context import AgentContext
 from models.sse import SSEEvent
 from typing import Optional, Dict, Any, AsyncGenerator, List, Set
@@ -26,6 +25,39 @@ import time
 logger = get_logger(__name__)
 
 
+def _wrap_code_for_notebook_mode(user_code: str) -> str:
+    """
+    Wrap user code with state persistence logic for notebook mode.
+    
+    Loads state from .finch_state.pkl before execution,
+    saves state after execution.
+    
+    This allows variables, imports, and functions to persist
+    between execute_code calls (like Jupyter cells).
+    
+    CRITICAL: State file is saved in working directory so it gets
+    synced back to DB by VirtualFilesystem.sync_changes()
+    """
+    load_state = '''import pickle as __p, os as __o
+if __o.path.exists('.finch_state.pkl'):
+    try:
+        with open('.finch_state.pkl', 'rb') as __f: globals().update(__p.load(__f))
+    except: pass
+
+'''
+    
+    save_state = '''
+try:
+    with open('.finch_state.pkl', 'wb') as __f:
+        __p.dump({k: v for k, v in globals().items() 
+                 if not k.startswith('_') and k not in ['pickle', 'os', 'sys']
+                 and __p.dumps(v) or True}, __f)
+except: pass
+'''
+    
+    return load_state + user_code + save_state
+
+
 def _save_code_execution_log(
     user_id: str,
     chat_id: str,
@@ -34,17 +66,23 @@ def _save_code_execution_log(
     """
     Save code execution log to file for debugging
     
-    Saves to: backend/chat_logs/{user_id}/{date}/{chat_id}/code_executions/{timestamp}_{filename}.json
+    Saves to: backend/chat_logs/{date}/{timestamp}_{chat_id}/code_executions/{timestamp}_{filename}.json
     """
+    from config import Config
+    from modules.agent.chat_logger import get_chat_log_dir
+    
+    # Only log if DEBUG_CHAT_LOGS is enabled
+    if not Config.DEBUG_CHAT_LOGS:
+        return
+    
     try:
-        # Get backend directory
-        backend_dir = Path(__file__).parent.parent.parent
+        # Get backend directory (4 levels up from implementations/)
+        # Path: backend/modules/tools/implementations/code_execution.py
+        backend_dir = Path(__file__).parent.parent.parent.parent
         
-        # Get date for organization
-        date_str = datetime.now().strftime("%Y%m%d")
-        
-        # Create code executions directory organized by date and chat
-        code_log_dir = backend_dir / "chat_logs" / user_id / date_str / chat_id / "code_executions"
+        # Get the chat log directory (using shared helper function)
+        chat_log_dir = get_chat_log_dir(chat_id, backend_dir)
+        code_log_dir = chat_log_dir / "code_executions"
         code_log_dir.mkdir(parents=True, exist_ok=True)
         
         # Create filename with timestamp and execution filename
@@ -56,10 +94,15 @@ def _save_code_execution_log(
         log_filepath = code_log_dir / log_filename
         
         # Save execution data
+        logger.debug(f"Writing code execution log to: {log_filepath}")
         with open(log_filepath, "w") as f:
             json.dump(execution_data, f, indent=2)
         
-        logger.info(f"💾 Saved code execution log to: chat_logs/{user_id}/{date_str}/{chat_id}/code_executions/{log_filename}")
+        # Verify file was written
+        if log_filepath.exists():
+            logger.info(f"💾 Saved code execution log to: {log_filepath}")
+        else:
+            logger.error(f"File write appeared to succeed but file not found: {log_filepath}")
         
     except Exception as e:
         logger.error(f"Failed to save code execution log: {e}", exc_info=True)
@@ -69,15 +112,15 @@ class ExecuteCodeParams(BaseModel):
     """Execute Python code"""
     code: Optional[str] = Field(
         None,
-        description="Python code to execute (provide this OR filename)"
+        description="Python code to execute directly in sandbox (provide this OR filename). Code runs immediately without creating any file - only output files are saved."
     )
     filename: Optional[str] = Field(
         None,
-        description="Filename of saved code in chat directory to execute (provide this OR code)"
+        description="Filename of saved code in chat directory to execute (provide this OR code). This runs an existing saved file from the filesystem."
     )
-    execution_filename: Optional[str] = Field(
-        "script.py",
-        description="Name to use when executing the code (default: script.py). Use descriptive names like 'analyze_stock.py' or 'backtest_strategy.py' for better organization."
+    mode: Optional[str] = Field(
+        "isolated",
+        description="Execution mode: 'isolated' (default, fresh process each time) or 'notebook' (persistent state like Jupyter)"
     )
 
 
@@ -94,6 +137,7 @@ class VirtualFilesystem:
         self.chat_id = chat_id
         self.temp_dir = None
         self.file_hashes = {}  # Track file state before execution
+        self.exclude_from_sync = set()  # Files to exclude from syncing (e.g., execution scripts)
     
     def setup(self) -> str:
         """
@@ -110,6 +154,15 @@ class VirtualFilesystem:
         
         # Mount API documentation (progressive disclosure)
         self._mount_api_docs()
+        # Exclude APIs directory from sync - these are system docs, not user files
+        self.exclude_from_sync.add('apis')
+        
+        # Mount finch_runtime module for discoverability
+        self._mount_finch_runtime()
+        # Exclude finch_runtime from sync - this is a system file, not a user file
+        self.exclude_from_sync.add('finch_runtime.py')
+        
+        # Note: .finch_state.pkl is NOT excluded - it's a user file that persists notebook state
         
         # Load all existing chat files from DB
         chat_files = resource_manager.list_chat_files(
@@ -142,14 +195,30 @@ class VirtualFilesystem:
                 is_binary = False
                 try:
                     # Try to detect base64 encoded binary files
+                    # Strip any whitespace that might have been added during storage
+                    content_stripped = content.strip()
                     # Check if content looks like base64 (only alphanumeric, +, /, =)
-                    if len(content) > 100 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n' for c in content[:100]):
+                    if len(content_stripped) > 100 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n' for c in content_stripped[:100]):
                         # Try to decode as base64
                         import base64
                         try:
-                            binary_data = base64.b64decode(content)
-                            # If successful and looks like PNG/image, it's binary
-                            if binary_data[:4] == b'\x89PNG' or binary_data[:2] in [b'\xff\xd8', b'GIF', b'BM']:
+                            # Remove any newlines/whitespace from base64 string before decoding
+                            content_clean = content_stripped.replace('\n', '').replace('\r', '').replace(' ', '')
+                            binary_data = base64.b64decode(content_clean)
+                            # If successful and looks like binary file (images, pickles, etc), it's binary
+                            # Check for common binary file signatures:
+                            # - PNG: \x89PNG
+                            # - JPEG: \xff\xd8
+                            # - GIF: GIF
+                            # - BMP: BM
+                            # - Python pickle: \x80 (pickle protocol 2+) or other non-text bytes
+                            is_likely_binary = (
+                                binary_data[:4] == b'\x89PNG' or 
+                                binary_data[:2] in [b'\xff\xd8', b'GIF', b'BM'] or
+                                binary_data[:1] == b'\x80' or  # pickle protocol 2+
+                                any(b < 0x20 and b not in [0x09, 0x0a, 0x0d] for b in binary_data[:50])  # non-printable bytes (excluding tab, newline, CR)
+                            )
+                            if is_likely_binary:
                                 is_binary = True
                                 with open(file_path, 'wb') as f:
                                     f.write(binary_data)
@@ -204,6 +273,34 @@ class VirtualFilesystem:
                 f.write(doc_content)
         
         logger.info(f"Mounted {len(api_tools)} API docs in /apis/ for progressive discovery")
+    
+    def _mount_finch_runtime(self):
+        """
+        Mount finch_runtime.py into the temp filesystem for discoverability.
+        
+        This allows the LLM to:
+        1. See that finch_runtime exists when exploring the filesystem
+        2. Read the source code to discover available methods
+        3. Understand the API without relying solely on tool description
+        """
+        try:
+            # Get path to finch_runtime.py
+            tools_dir = os.path.join(os.path.dirname(__file__), '..')
+            finch_runtime_path = os.path.join(tools_dir, 'finch_runtime.py')
+            
+            if os.path.exists(finch_runtime_path):
+                # Read the source
+                with open(finch_runtime_path, 'r') as f:
+                    content = f.read()
+                
+                # Write to temp filesystem
+                dest_path = os.path.join(self.temp_dir, 'finch_runtime.py')
+                with open(dest_path, 'w') as f:
+                    f.write(content)
+                
+                logger.info("Mounted finch_runtime.py for progressive discovery")
+        except Exception as e:
+            logger.warning(f"Failed to mount finch_runtime.py: {e}")
     
     @staticmethod
     def _format_tool_docs(tool) -> str:
@@ -261,8 +358,25 @@ class VirtualFilesystem:
                 file_path = os.path.join(root, filename)
                 relative_path = os.path.relpath(file_path, self.temp_dir)
                 
-                # Skip Python cache and hidden files
-                if '__pycache__' in relative_path or relative_path.startswith('.'):
+                # Skip Python cache and hidden files (except .finch_state.pkl for notebook mode)
+                if '__pycache__' in relative_path:
+                    continue
+                if relative_path.startswith('.') and relative_path != '.finch_state.pkl':
+                    continue
+                
+                # Skip files/directories marked for exclusion (e.g., temporary execution scripts, system files)
+                # Check if file itself is excluded OR if it's inside an excluded directory
+                should_exclude = False
+                if relative_path in self.exclude_from_sync:
+                    should_exclude = True
+                else:
+                    # Check if file is inside an excluded directory (e.g., apis/some_file.md)
+                    for excluded_path in self.exclude_from_sync:
+                        if relative_path.startswith(excluded_path + '/') or relative_path.startswith(excluded_path + os.sep):
+                            should_exclude = True
+                            break
+                
+                if should_exclude:
                     continue
                 
                 current_files.add(relative_path)
@@ -333,75 +447,49 @@ class VirtualFilesystem:
         return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 
-@tool(
-    name="execute_code",
-    description="""Execute Python code with direct API access and persistent filesystem (60s timeout).
-
-**Progressive API Discovery (Saves Context!):**
-- API docs are in `/apis/` directory - discover them on-demand
-- List APIs: `os.listdir('apis')` → ['get_fmp_data.md', 'get_reddit_trending_stocks.md', ...]
-- Read when needed: `with open('apis/get_fmp_data.md') as f: print(f.read())`
-- This is more efficient than loading all API docs into context upfront
-
-**Direct API Access - Import finch_runtime:**
-```python
-from modules.tools.finch_runtime import fmp, reddit, polygon
-
-# Financial data (FMP)
-quote = fmp.get_quote('AAPL')
-trades = fmp.get_insider_trading('NVDA', limit=50)
-
-# Real-time market data (Polygon)
-snapshot = polygon.fetch('/v2/snapshot/locale/us/markets/stocks/tickers/AAPL')
-bars = polygon.fetch('/v2/aggs/ticker/AAPL/range/1/day/2024-01-01/2024-12-31')
-
-# Reddit sentiment
-trending = reddit.get_trending(limit=10)
-```
-
-**Quick Reference:**
-fmp: `fetch()`, `get_quote()`, `get_income_statement()`, `get_balance_sheet()`, 
-     `get_key_metrics()`, `get_insider_trading()`, `get_historical_prices()`
-polygon: `fetch()` - generic method for any Polygon endpoint (see /apis/ docs)
-reddit: `get_trending()`, `get_ticker_sentiment()`
-
-**Persistent Filesystem:**
-Files persist across executions:
-```python
-df.to_csv('results.csv')  # Save
-df = pd.read_csv('results.csv')  # Read later
-```
-
-**Environment:**
-- Standard libs: pandas, numpy, requests, matplotlib, plotly
-- FMP_API_KEY and POLYGON_API_KEY available in environment
-- All previous chat files mounted
-- API documentation in /apis/
-- Changes auto-saved to database""",
-    category="code"
-)
-async def execute_code(
-    *,
+async def execute_code_impl(
     params: ExecuteCodeParams,
     context: AgentContext
 ) -> AsyncGenerator[SSEEvent | Dict[str, Any], None]:
     """Execute Python code with virtual persistent filesystem"""
     from modules.resource_manager import resource_manager
     
+    # Determine execution mode
+    exec_mode = params.mode or "isolated"
+    
     yield SSEEvent(event="tool_status", data={
         "status": "loading",
-        "message": "Setting up environment..."
+        "message": f"Setting up environment ({'notebook mode' if exec_mode == 'notebook' else 'isolated mode'})..."
     })
     
     vfs = VirtualFilesystem(context.user_id, context.chat_id)
     
     try:
-        # Get code (from param or file)
-        execution_filename = params.execution_filename or 'script.py'
+        # Determine execution mode
+        is_inline = params.code is not None
+        execution_mode = "inline"
+        script_path = None
+        code = None
+        
         if params.code:
+            # Inline code - execute directly without creating files in VFS
             code = params.code
             source = "inline code"
+            execution_mode = "inline"
+            
+            # Check for special kernel commands in notebook mode
+            if exec_mode == "notebook" and code.strip() == "__reset_kernel__":
+                # Reset kernel by deleting state file
+                try:
+                    resource_manager.delete_chat_file(context.user_id, context.chat_id, ".finch_state.pkl")
+                    yield {"success": True, "message": "♻️ Kernel state reset - starting fresh!"}
+                    return
+                except:
+                    yield {"success": True, "message": "♻️ Kernel state reset (no previous state)"}
+                    return
+                    
         elif params.filename:
+            # File-based execution - run existing file from VFS
             code = resource_manager.read_chat_file(
                 context.user_id,
                 context.chat_id,
@@ -411,16 +499,27 @@ async def execute_code(
                 yield {"success": False, "error": f"File '{params.filename}' not found"}
                 return
             source = f"file '{params.filename}'"
-            # If executing from a saved file and no execution_filename specified, use the saved filename
-            if not params.execution_filename:
-                execution_filename = os.path.basename(params.filename)
+            execution_mode = "file"
         else:
             yield {"success": False, "error": "Provide either 'code' or 'filename'"}
             return
         
+        # Wrap code for notebook mode (state persistence)
+        if exec_mode == "notebook":
+            code = _wrap_code_for_notebook_mode(code)
+        
         # Setup virtual filesystem (mount existing files)
         temp_dir = vfs.setup()
-        script_path = os.path.join(temp_dir, execution_filename)
+        
+        # Determine where to write the script
+        if execution_mode == "inline":
+            # For inline code, write to a temp file OUTSIDE the VFS to avoid it showing up in filesystem
+            import tempfile
+            temp_script_fd, script_path = tempfile.mkstemp(suffix='.py', prefix='inline_', dir=None)
+            os.close(temp_script_fd)  # Close the file descriptor, we'll write to it below
+        else:
+            # For file execution, the file is already in the VFS
+            script_path = os.path.join(temp_dir, params.filename)
         
         # Track execution start time for logging
         execution_start_time = time.time()
@@ -440,8 +539,9 @@ async def execute_code(
         logger.info(f"CODE EXECUTION START")
         logger.info(f"Timestamp: {execution_timestamp}")
         logger.info(f"Source: {source}")
-        logger.info(f"Execution filename: {execution_filename}")
-        logger.info(f"Temp dir: {temp_dir}")
+        logger.info(f"Execution mode: {execution_mode}")
+        logger.info(f"Script path: {script_path}")
+        logger.info(f"Working dir: {temp_dir}")
         logger.info(f"User: {context.user_id}, Chat: {context.chat_id}")
         logger.info(f"Mounted files: {len(mounted_files)} files")
         if mounted_files:
@@ -457,21 +557,26 @@ async def execute_code(
         })
         
         try:
-            # Write code to temp file (no auto-imports - agent does this explicitly)
+            # Write code to script file
+            # For inline: writes to temp file outside VFS
+            # For file execution: file already exists in VFS, but we write it anyway for consistency
             with open(script_path, 'w') as f:
                 f.write(code)
             
             # Set up environment with proper PYTHONPATH for finch_runtime access
-            backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            # Go up 3 levels: implementations -> tools -> modules -> backend
+            backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
             env = os.environ.copy()
             env['FMP_API_KEY'] = os.getenv('FMP_API_KEY', '')
             env['POLYGON_API_KEY'] = os.getenv('POLYGON_API_KEY', '')
             
-            # Add backend directory to PYTHONPATH so "from modules.tools.finch_runtime import X" works
+            # Add both temp_dir and backend directory to PYTHONPATH
+            # temp_dir: allows "from finch_runtime import X" (direct import)
+            # backend_dir: allows "from modules.tools.finch_runtime import X" (module import)
             if 'PYTHONPATH' in env:
-                env['PYTHONPATH'] = f"{backend_dir}:{env['PYTHONPATH']}"
+                env['PYTHONPATH'] = f"{temp_dir}:{backend_dir}:{env['PYTHONPATH']}"
             else:
-                env['PYTHONPATH'] = backend_dir
+                env['PYTHONPATH'] = f"{temp_dir}:{backend_dir}"
             
             # Suppress logging noise in sandbox environment
             env['PYTHONWARNINGS'] = 'ignore'  # Suppress Python warnings (e.g., opentelemetry)
@@ -498,6 +603,9 @@ async def execute_code(
             # Sync changes back to database
             changes = vfs.sync_changes()
             
+            # Calculate execution duration
+            execution_duration = time.time() - execution_start_time
+            
             # Log file changes
             if changes["new"]:
                 logger.info(f"New files created: {', '.join(changes['new'])}")
@@ -505,6 +613,28 @@ async def execute_code(
                 logger.info(f"Files modified: {', '.join(changes['modified'])}")
             if changes["deleted"]:
                 logger.info(f"Files deleted: {', '.join(changes['deleted'])}")
+            
+            # Save code execution log
+            execution_log_data = {
+                "timestamp": execution_timestamp,
+                "execution_mode": execution_mode,
+                "execution_filename": params.filename if params.filename else "inline_code",
+                "source": source,
+                "user_id": context.user_id,
+                "chat_id": context.chat_id,
+                "code": code,
+                "code_length": len(code),
+                "working_directory": temp_dir,
+                "script_path": script_path,
+                "exit_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "execution_duration_seconds": execution_duration,
+                "mounted_files": mounted_files,
+                "file_changes": changes,
+                "success": result.returncode == 0
+            }
+            _save_code_execution_log(context.user_id, context.chat_id, execution_log_data)
             
             # Emit resource events for new/modified files so frontend knows about them
             for filename in changes["new"] + changes["modified"]:
@@ -544,6 +674,13 @@ async def execute_code(
             # Clean up temp directory
             vfs.cleanup()
             
+            # Clean up inline script temp file if it exists
+            if execution_mode == "inline" and script_path and os.path.exists(script_path):
+                try:
+                    os.remove(script_path)
+                except:
+                    pass
+            
             # Truncate output if needed
             MAX_OUTPUT_SIZE = 8000
             stdout_truncated = result.stdout
@@ -564,6 +701,13 @@ async def execute_code(
                     error_msg += f"**Error output:**\n```\n{stderr_truncated}\n```"
                 if stdout_truncated:
                     error_msg += f"\n\n**Standard output:**\n```\n{stdout_truncated}\n```"
+                
+                # Clean up inline script temp file if it exists
+                if execution_mode == "inline" and script_path and os.path.exists(script_path):
+                    try:
+                        os.remove(script_path)
+                    except:
+                        pass
                 
                 yield {
                     "success": False,
@@ -589,14 +733,32 @@ async def execute_code(
         
         except subprocess.TimeoutExpired:
             vfs.cleanup()
+            # Clean up inline script temp file
+            if execution_mode == "inline" and script_path and os.path.exists(script_path):
+                try:
+                    os.remove(script_path)
+                except:
+                    pass
             yield {"success": False, "error": "Code execution timed out after 60 seconds"}
         
         except Exception as e:
             vfs.cleanup()
+            # Clean up inline script temp file
+            if execution_mode == "inline" and script_path and os.path.exists(script_path):
+                try:
+                    os.remove(script_path)
+                except:
+                    pass
             raise e
     
     except Exception as e:
         logger.error(f"Error executing code: {str(e)}", exc_info=True)
         vfs.cleanup()
+        # Clean up inline script temp file
+        if execution_mode == "inline" and script_path and os.path.exists(script_path):
+            try:
+                os.remove(script_path)
+            except:
+                pass
         yield {"success": False, "error": str(e)}
 

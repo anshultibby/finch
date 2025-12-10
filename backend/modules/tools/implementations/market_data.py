@@ -6,7 +6,6 @@ from typing import Dict, Any, List, Optional, AsyncGenerator
 from modules.agent.context import AgentContext
 from models.sse import SSEEvent
 from modules.tools.clients.apewisdom import apewisdom_tools
-from modules.tools.clients.fmp import fmp_tools
 
 
 async def get_reddit_trending_stocks_impl(
@@ -98,72 +97,12 @@ async def get_fmp_data_impl(
     context: AgentContext,
     endpoint: str,
     params: Optional[Dict[str, Any]] = None
-) -> AsyncGenerator:
-    """Universal tool to fetch ANY financial data from FMP API"""
-    if isinstance(params, str):
-        try:
-            params = json.loads(params)
-        except json.JSONDecodeError:
-            params = {}
-    
-    endpoint_name = endpoint.replace('_', ' ').replace('-', ' ').title()
-    symbol_str = params.get('symbol', '') if params else ''
-    
-    if symbol_str:
-        yield SSEEvent(
-            event="tool_status",
-            data={
-                "status": "executing",
-                "message": f"Starting {endpoint_name} fetch for {symbol_str}..."
-            }
-        )
-    else:
-        yield SSEEvent(
-            event="tool_status",
-            data={
-                "status": "executing",
-                "message": f"Starting {endpoint_name} data fetch..."
-            }
-        )
-    
-    async for item in fmp_tools.get_fmp_data_streaming(
-        endpoint=endpoint, 
-        params=params or {}
-    ):
-        if isinstance(item, SSEEvent):
-            yield item
-        else:
-            result = item
-    
-    if result.get("success"):
-        count = result.get("count", 0)
-        if count > 0:
-            yield SSEEvent(
-                event="tool_status",
-                data={
-                    "status": "completed",
-                    "message": f"Retrieved {count} {endpoint_name.lower()} records"
-                }
-            )
-        else:
-            yield SSEEvent(
-                event="tool_status",
-                data={
-                    "status": "completed",
-                    "message": f"{endpoint_name} data retrieved successfully"
-                }
-            )
-    else:
-        error_msg = result.get("message", "Unknown error")
-        yield SSEEvent(
-            event="tool_status",
-            data={
-                "status": "error",
-                "message": f"✗ {error_msg}"
-            }
-        )
-    
-    yield result
+) -> Dict[str, Any]:
+    """FMP API documentation (generated as markdown file in /apis/)"""
+    return {
+        "success": True,
+        "message": "FMP API documentation available in /apis/get_fmp_data.md"
+    }
 
 
 async def polygon_api_docs_impl(context: AgentContext) -> Dict[str, Any]:

@@ -9,20 +9,24 @@ from modules.agent.context import AgentContext
 
 # Import tool descriptions
 from modules.tools.descriptions import (
+    # Portfolio
     GET_PORTFOLIO_DESC, REQUEST_BROKERAGE_CONNECTION_DESC,
-    GET_REDDIT_TRENDING_DESC, GET_REDDIT_TICKER_SENTIMENT_DESC, COMPARE_REDDIT_SENTIMENT_DESC,
-    GET_FMP_DATA_DESC
+    # Planning
+    CREATE_PLAN_DESC, ADVANCE_PLAN_DESC,
+    # Control
+    IDLE_DESC,
+    # Code Execution (Universal Interface)
+    EXECUTE_CODE_DESC,
+    # File Management (Convenient wrappers with DB sync)
+    WRITE_CHAT_FILE_DESC, READ_CHAT_FILE_DESC, REPLACE_IN_CHAT_FILE_DESC,
+    # ETF Builder
+    BUILD_CUSTOM_ETF_DESC
 )
 
 # Import implementations
-from modules.tools.implementations import planning, portfolio, market_data
-from modules.tools.implementations import web, control
-from modules.tools.implementations.code_execution import execute_code
-from modules.tools.implementations.file_management import (
-    list_chat_files, write_chat_file, read_chat_file, 
-    replace_in_chat_file, find_in_chat_file
-)
-from modules.tools.implementations.etf_builder import build_custom_etf
+from modules.tools.implementations import planning, portfolio
+from modules.tools.implementations import control
+from modules.tools.implementations import code_execution, file_management, etf_builder
 
 
 # ============================================================================
@@ -30,7 +34,7 @@ from modules.tools.implementations.etf_builder import build_custom_etf
 # ============================================================================
 
 @tool(
-    description="Create or replace a structured plan for complex multi-step tasks. Use this to organize work into clear phases. Creating a new plan replaces any existing plan.",
+    description=CREATE_PLAN_DESC,
     category="planning"
 )
 def create_plan(*, context: AgentContext, goal: str, phases: List[dict]):
@@ -39,7 +43,7 @@ def create_plan(*, context: AgentContext, goal: str, phases: List[dict]):
 
 
 @tool(
-    description="Advance to the next phase in your current plan. Call this when you've completed the current phase and are ready to move to the next one.",
+    description=ADVANCE_PLAN_DESC,
     category="planning"
 )
 def advance_plan(*, context: AgentContext):
@@ -73,106 +77,11 @@ def request_brokerage_connection(*, context: AgentContext) -> Dict[str, Any]:
 
 
 # ============================================================================
-# MARKET DATA TOOLS
+# MARKET DATA & WEB - Done in Code via execute_code
 # ============================================================================
-
-@tool(
-    description=GET_REDDIT_TRENDING_DESC,
-    category="reddit_sentiment",
-    api_docs_only=True
-)
-async def get_reddit_trending_stocks(*, context: AgentContext, limit: int = 10):
-    """Get trending stocks from Reddit communities"""
-    async for item in market_data.get_reddit_trending_stocks_impl(context, limit):
-        yield item
-
-
-@tool(
-    description=GET_REDDIT_TICKER_SENTIMENT_DESC,
-    category="reddit_sentiment",
-    api_docs_only=True
-)
-async def get_reddit_ticker_sentiment(*, context: AgentContext, ticker: str):
-    """Get Reddit sentiment for a specific stock ticker"""
-    async for item in market_data.get_reddit_ticker_sentiment_impl(context, ticker):
-        yield item
-
-
-@tool(
-    description=COMPARE_REDDIT_SENTIMENT_DESC,
-    category="reddit_sentiment",
-    api_docs_only=True
-)
-async def compare_reddit_sentiment(*, context: AgentContext, tickers: List[str]):
-    """Compare Reddit sentiment for multiple tickers"""
-    async for item in market_data.compare_reddit_sentiment_impl(context, tickers):
-        yield item
-
-
-@tool(
-    description=GET_FMP_DATA_DESC,
-    category="financial_metrics",
-    api_docs_only=True
-)
-async def get_fmp_data(*, context: AgentContext, endpoint: str, params: Optional[Dict[str, Any]] = None):
-    """Universal tool to fetch ANY financial data from FMP API"""
-    async for item in market_data.get_fmp_data_impl(context, endpoint, params):
-        yield item
-
-
-@tool(
-    description="""Polygon.io REST API - Real-time and historical market data
-
-**Workflow for Using Polygon API:**
-1. Use `fetch_webpage` tool to get documentation: https://polygon.readthedocs.io/en/latest/Stocks.html
-2. Parse the HTML/text to find endpoint patterns and parameters
-3. Write Python code using `polygon.get_aggs()` and other methods
-4. Execute the code with `execute_code` tool
-
-**Usage in Code:**
-```python
-from finch_runtime import polygon
-
-# Use the official Polygon Python client methods
-aggs = polygon.get_aggs('AAPL', 1, 'day', '2024-01-01', '2024-12-31')
-snapshot = polygon.get_snapshot_ticker('stocks', 'AAPL')
-details = polygon.get_ticker_details('AAPL')
-tickers = polygon.list_tickers(search='Apple', limit=10)
-```
-
-**Base URL:** https://api.polygon.io
-**API Key:** Automatically added by polygon client
-
-**Documentation URLs:**
-- Full API docs: https://polygon.readthedocs.io/en/latest/Stocks.html
-- REST API reference: https://polygon.io/docs/stocks/getting-started
-
-**Common Methods:**
-- get_aggs(ticker, multiplier, timespan, from_, to): Get aggregate bars
-- get_snapshot_ticker(ticker_type, ticker): Get current snapshot
-- get_ticker_details(ticker): Get ticker details
-- list_tickers(search=None, market='stocks'): Search tickers
-- get_previous_close_agg(ticker): Get previous close
-- get_grouped_daily_aggs(date): Get all stocks for a date""",
-    category="market_data",
-    api_docs_only=True
-)
-async def polygon_api_docs(*, context: AgentContext):
-    """Polygon.io API documentation (generated as markdown file in /apis/)"""
-    return await market_data.polygon_api_docs_impl(context)
-
-
-# ============================================================================
-# WEB CONTENT TOOLS
-# ============================================================================
-
-@tool(
-    description="Fetch and read content from any web URL. Useful for reading API documentation, articles, or any web content.",
-    category="web"
-)
-async def fetch_webpage(*, context: AgentContext, url: str, extract_text: bool = False) -> Dict[str, Any]:
-    """Fetch content from a web URL"""
-    return await web.fetch_webpage_impl(context, url, extract_text)
+# API calls (FMP, Polygon, Reddit) are now done directly in code via finch_runtime.
+# Web scraping can be done with requests/beautifulsoup in execute_code.
+# No separate tool definitions needed - all via code execution.
 
 
 # ============================================================================
@@ -180,21 +89,7 @@ async def fetch_webpage(*, context: AgentContext, url: str, extract_text: bool =
 # ============================================================================
 
 @tool(
-    description="""Signal that you have completed all tasks and are ready for the user's next input.
-    
-    Use this tool when:
-    - You have finished answering the user's question
-    - You have completed all requested tasks
-    - You are waiting for additional user input or clarification
-    - You have nothing more to add to the current conversation
-    
-    This helps the interface know when to return to an input-ready state.
-    
-    Do NOT use this tool if:
-    - You are still processing information
-    - You are waiting for tool results
-    - You have more analysis or information to provide
-    """,
+    description=IDLE_DESC,
     category="control",
     hidden_from_ui=True
 )
@@ -204,28 +99,86 @@ def idle(*, context: AgentContext) -> Dict[str, Any]:
 
 
 # ============================================================================
-# IMPORTED TOOLS (already have @tool decorator in their modules)
+# CODE EXECUTION TOOL
 # ============================================================================
-# These tools are defined and decorated in their respective modules:
-# - execute_code (from implementations/code_execution.py)
-# - list_chat_files, write_chat_file, read_chat_file, replace_in_chat_file, find_in_chat_file (from implementations/file_management.py)
-# - build_custom_etf (from implementations/etf_builder.py)
 
-# Import them so they register with the tool registry
+@tool(
+    name="execute_code",
+    description=EXECUTE_CODE_DESC,
+    category="code"
+)
+async def execute_code(*, params: code_execution.ExecuteCodeParams, context: AgentContext):
+    """Execute Python code with virtual persistent filesystem"""
+    async for item in code_execution.execute_code_impl(params, context):
+        yield item
+
+
+# ============================================================================
+# FILE MANAGEMENT TOOLS (Convenient Wrappers)
+# ============================================================================
+
+@tool(
+    name="write_chat_file",
+    description=WRITE_CHAT_FILE_DESC,
+    category="files"
+)
+async def write_chat_file(*, context: AgentContext, filename: str, content: str):
+    """Write file to chat directory with DB sync"""
+    async for item in file_management.write_chat_file_impl(context, filename, content):
+        yield item
+
+
+@tool(
+    name="read_chat_file",
+    description=READ_CHAT_FILE_DESC,
+    category="files"
+)
+def read_chat_file(*, context: AgentContext, filename: str):
+    """Read file from chat directory"""
+    return file_management.read_chat_file_impl(context, filename)
+
+
+@tool(
+    name="replace_in_chat_file",
+    description=REPLACE_IN_CHAT_FILE_DESC,
+    category="files"
+)
+def replace_in_chat_file(*, params: file_management.ReplaceInFileParams, context: AgentContext):
+    """Replace text in file (like str_replace)"""
+    return file_management.replace_in_chat_file_impl(params, context)
+
+
+# ============================================================================
+# ETF BUILDER TOOL
+# ============================================================================
+
+@tool(
+    name="build_custom_etf",
+    description=BUILD_CUSTOM_ETF_DESC,
+    category="analysis"
+)
+async def build_custom_etf(*, params: etf_builder.BuildCustomETFParams, context: AgentContext):
+    """Build a custom ETF portfolio"""
+    async for item in etf_builder.build_custom_etf_impl(params, context):
+        yield item
+
+
+# ============================================================================
+# TOOL EXPORTS
+# ============================================================================
+
 __all__ = [
     # Planning
     'create_plan', 'advance_plan',
     # Portfolio
     'get_portfolio', 'request_brokerage_connection',
-    # Market Data
-    'get_reddit_trending_stocks', 'get_reddit_ticker_sentiment', 'compare_reddit_sentiment',
-    'get_fmp_data', 'polygon_api_docs',
-    # Web
-    'fetch_webpage',
     # Control
     'idle',
-    # Imported (already decorated)
-    'execute_code', 'list_chat_files', 'write_chat_file', 'read_chat_file', 
-    'replace_in_chat_file', 'find_in_chat_file', 'build_custom_etf'
+    # Code Execution (Universal Interface)
+    'execute_code',
+    # File Management (Essential utilities)
+    'write_chat_file', 'read_chat_file', 'replace_in_chat_file',
+    # ETF Builder
+    'build_custom_etf'
 ]
 

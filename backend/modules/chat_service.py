@@ -98,6 +98,9 @@ class ChatService:
                     chat_history=history,
                     history_limit=Config.CHAT_HISTORY_LIMIT
                 ):
+                    # Log event type for debugging
+                    if event.event == "tool_call_start":
+                        logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
                     # Yield the SSE formatted event
                     yield event.to_sse_format()
             

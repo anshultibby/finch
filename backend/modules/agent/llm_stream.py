@@ -2,6 +2,7 @@
 Standalone LLM streaming functions - clean separation from agent logic
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
+import json
 from models.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
@@ -10,21 +11,227 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimation: ~4 chars per token"""
+    return len(text) // 4
+
+
+def _calculate_token_breakdown(
+    system_prompt: Optional[str],
+    tools: Optional[List[Dict[str, Any]]],
+    messages: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Calculate detailed token breakdown for what's being sent to the LLM.
+    
+    Returns a breakdown showing:
+    - System prompt tokens
+    - Tools tokens
+    - Per-message token counts
+    - Total expected input tokens
+    """
+    breakdown = {
+        "system_prompt_tokens": 0,
+        "tools_tokens": 0,
+        "messages_breakdown": [],
+        "total_estimated_tokens": 0
+    }
+    
+    # System prompt
+    if system_prompt:
+        breakdown["system_prompt_tokens"] = _estimate_tokens(system_prompt)
+    
+    # Tools
+    if tools:
+        tools_str = json.dumps(tools)
+        breakdown["tools_tokens"] = _estimate_tokens(tools_str)
+    
+    # Messages
+    for i, msg in enumerate(messages):
+        msg_tokens = {
+            "index": i,
+            "role": msg.get("role", "unknown"),
+            "tokens": 0,
+            "has_cache_control": False
+        }
+        
+        # Content
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            msg_tokens["tokens"] = _estimate_tokens(content)
+        elif isinstance(content, list):
+            content_str = json.dumps(content)
+            msg_tokens["tokens"] = _estimate_tokens(content_str)
+            # Check for cache control
+            for block in content:
+                if isinstance(block, dict) and "cache_control" in block:
+                    msg_tokens["has_cache_control"] = True
+                    break
+        
+        # Tool calls
+        if "tool_calls" in msg:
+            tool_calls_str = json.dumps(msg["tool_calls"])
+            msg_tokens["tokens"] += _estimate_tokens(tool_calls_str)
+            msg_tokens["has_tool_calls"] = True
+        
+        breakdown["messages_breakdown"].append(msg_tokens)
+    
+    # Calculate total
+    breakdown["total_estimated_tokens"] = (
+        breakdown["system_prompt_tokens"] +
+        breakdown["tools_tokens"] +
+        sum(m["tokens"] for m in breakdown["messages_breakdown"])
+    )
+    
+    return breakdown
+
+
+def _is_claude_model(model: str) -> bool:
+    """Check if the model is a Claude model that supports prompt caching"""
+    return model.lower().startswith("claude")
+
+
+def _add_cache_control_to_system(system_content: str) -> List[Dict[str, Any]]:
+    """
+    Convert system prompt to Claude format with cache control.
+    
+    For Claude models, the system parameter must be a list of content blocks,
+    and we add cache_control to the last block to cache the entire system prompt.
+    
+    Args:
+        system_content: System prompt string
+        
+    Returns:
+        List with single text block containing cache_control
+    """
+    return [
+        {
+            "type": "text",
+            "text": system_content,
+            "cache_control": {"type": "ephemeral"}
+        }
+    ]
+
+
+def _add_cache_control_to_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Add cache control to the last tool definition.
+    
+    IMPORTANT: Tools get their own cache breakpoint, but it comes AFTER system prompt
+    in the cache, so system+tools effectively share cache space but tools get the
+    actual cache_control marker (they're cached together as one unit).
+    
+    Args:
+        tools: List of tool definitions
+        
+    Returns:
+        Tools list with cache_control added to last tool
+    """
+    if not tools:
+        return tools
+    
+    # Copy tools to avoid mutating original
+    tools_copy = [tool.copy() for tool in tools]
+    
+    # Add cache_control to the last tool
+    # This marks the end of the "static" content (system + tools)
+    tools_copy[-1]["cache_control"] = {"type": "ephemeral"}
+    
+    return tools_copy
+
+
+def _add_cache_control_to_messages(
+    messages: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Add cache control breakpoints to conversation history.
+    
+    KEY INSIGHT: Each cache_control breakpoint caches the ENTIRE PREFIX up to that point
+    (system + tools + all messages up to the breakpoint).
+    
+    Strategy per Anthropic docs:
+    - System (1) + Tools (1) = 2 breakpoints used
+    - We have 2 remaining for messages
+    - Place breakpoint at the END of conversation to cache everything
+    - Optionally add one more in the middle for very long conversations
+    
+    The backward sequential checking means we should ALWAYS cache at the end,
+    and the system will automatically find cache hits for unchanged prefixes.
+    
+    Args:
+        messages: List of conversation messages
+        
+    Returns:
+        Messages with cache_control added at strategic positions
+    """
+    if len(messages) <= 1:
+        return messages
+    
+    messages_copy = [msg.copy() for msg in messages]
+    
+    def add_cache_to_message(idx: int):
+        """Add cache control to message at given index"""
+        if idx < 0 or idx >= len(messages_copy):
+            return
+            
+        msg = messages_copy[idx]
+        
+        if isinstance(msg.get("content"), str):
+            messages_copy[idx]["content"] = [
+                {
+                    "type": "text",
+                    "text": msg["content"],
+                    "cache_control": {"type": "ephemeral"}
+                }
+            ]
+        elif isinstance(msg.get("content"), list):
+            content_blocks = [b.copy() if isinstance(b, dict) else b for b in msg["content"]]
+            if content_blocks and isinstance(content_blocks[-1], dict):
+                content_blocks[-1] = {**content_blocks[-1], "cache_control": {"type": "ephemeral"}}
+                messages_copy[idx]["content"] = content_blocks
+    
+    msg_count = len(messages)
+    
+    # Per Anthropic docs: "Always set an explicit cache breakpoint at the end 
+    # of your conversation to maximize your chances of cache hits"
+    
+    # ALWAYS cache at the VERY END - this includes the current user message
+    # The only thing NOT cached is the assistant's response (which hasn't been generated yet)
+    if msg_count >= 1:
+        add_cache_to_message(msg_count - 1)  # Cache up to and including latest message
+    
+    # For longer conversations (>20 messages), add a midpoint breakpoint
+    # This helps with the 20-block lookback window limitation
+    if msg_count > 20:
+        # Add a breakpoint around the middle to ensure earlier content can be cached
+        mid_position = msg_count // 2
+        add_cache_to_message(mid_position)
+    
+    return messages_copy
+
+
 async def stream_llm_response(
     messages: List[Dict[str, Any]],
     tools: List[Dict[str, Any]],
     llm_config: LLMConfig,
     user_id: str,
+    chat_id: Optional[str] = None,
     on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]] = None
 ) -> AsyncGenerator[SSEEvent, None]:
     """
     Stream LLM response and yield SSE events.
     
+    Supports Claude prompt caching for cost optimization:
+    - System prompt is always cached
+    - Tool definitions are cached together
+    - Older conversation history is cached (keeping recent messages fresh)
+    
     Args:
-        messages: Messages to send to LLM
+        messages: Messages to send to LLM (must include system message as first message)
         tools: Available tools
         llm_config: LLM configuration
         user_id: User ID for logging
+        chat_id: Chat ID for organizing chat logs
         on_content_delta: Optional callback for content deltas
         
     Yields:
@@ -36,17 +243,81 @@ async def stream_llm_response(
         data=LLMStartEvent(message_count=len(messages)).model_dump()
     )
     
-    # Create LLM handler
-    llm_handler = LLMHandler(user_id=user_id)
+    # Create LLM handler with chat_id for proper log organization
+    llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id)
     
     # Build kwargs for LiteLLM
     llm_kwargs = llm_config.to_litellm_kwargs()
-    llm_kwargs["messages"] = messages
-    llm_kwargs["tools"] = tools if tools else None
-    llm_kwargs["tool_choice"] = "auto" if tools else None
+    
+    # Extract system message (first message should be system)
+    system_message = None
+    conversation_messages = messages
+    if messages and messages[0].get("role") == "system":
+        system_message = messages[0]
+        conversation_messages = messages[1:]
+    
+    # Apply prompt caching for Claude models
+    is_claude = _is_claude_model(llm_kwargs["model"])
+    
+    if is_claude and llm_config.caching:
+        logger.debug("🔄 Applying Claude prompt caching (MAXIMUM strategy)")
+        
+        # Cache system prompt (converted to block format for Claude, but NO cache_control here)
+        system_tokens_estimate = len(system_message["content"]) // 4 if system_message else 0
+        if system_message:
+            # DON'T add cache_control to system - it will be covered by tools cache breakpoint
+            llm_kwargs["system"] = _add_cache_control_to_system(system_message["content"])
+            logger.debug(f"  📦 System prompt: ~{system_tokens_estimate:,} tokens (cached with tools)")
+        
+        # Cache tools - this is the ONLY breakpoint for static content (system + tools together)
+        if tools:
+            llm_kwargs["tools"] = _add_cache_control_to_tools(tools)
+            llm_kwargs["tool_choice"] = "auto"
+            tools_tokens_estimate = sum(len(str(tool)) for tool in tools) // 4
+            logger.debug(f"  📌 Breakpoint 1: Tools ({len(tools)} tools, ~{tools_tokens_estimate:,} tokens)")
+            logger.debug(f"     ↳ This caches system + tools together (~{system_tokens_estimate + tools_tokens_estimate:,} total)")
+        
+        # Cache conversation history with ALL remaining breakpoints (3 for messages!)
+        original_message_count = len(conversation_messages)
+        llm_kwargs["messages"] = _add_cache_control_to_messages(conversation_messages)
+        
+        # Count cache breakpoints in messages and show what's being cached
+        breakpoints = []
+        for i, msg in enumerate(llm_kwargs["messages"]):
+            content = msg.get("content")
+            has_cache = False
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and "cache_control" in block:
+                        has_cache = True
+                        break
+            if has_cache:
+                role = msg.get("role", "unknown")
+                # Estimate token count
+                content_str = str(content) if isinstance(content, str) else str(content)
+                tokens_est = len(content_str) // 4
+                breakpoints.append(f"msg{i}({role}, ~{tokens_est:,}tok)")
+        
+        if breakpoints:
+            for i, bp in enumerate(breakpoints, start=2):
+                logger.debug(f"  📌 Breakpoint {i}: {bp}")
+            logger.debug(f"     ↳ Total: {len(breakpoints)} message breakpoint(s) covering {original_message_count} messages")
+        else:
+            logger.debug(f"  📌 No message breakpoints yet (conversation too short)")
+        
+        total_breakpoints = (1 if system_message else 0) + (1 if tools else 0) + len(breakpoints)
+        logger.debug(f"  ✅ Using {total_breakpoints}/4 cache breakpoints")
+        logger.debug(f"  📝 Strategy: Prefix caching - each breakpoint caches everything before it")
+    else:
+        # Non-Claude models or caching disabled: use standard format
+        llm_kwargs["messages"] = messages
+        llm_kwargs["tools"] = tools if tools else None
+        llm_kwargs["tool_choice"] = "auto" if tools else None
+    
     llm_kwargs["stream"] = True
-    if "stream_options" not in llm_kwargs:
-        llm_kwargs["stream_options"] = {"include_usage": False}
+    # Enable usage tracking in streaming for cache statistics (Claude supports this)
+    # Always set this to override any default from llm_config
+    llm_kwargs["stream_options"] = {"include_usage": True} if is_claude else {"include_usage": False}
     
     # Stream response
     stream_response = await llm_handler.acompletion(**llm_kwargs)
