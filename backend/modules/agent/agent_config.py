@@ -13,35 +13,16 @@ from typing import List
 
 # All tools available to the main Finch chat agent
 MAIN_AGENT_TOOLS = [
-    # Planning & Task Organization
-    # 'create_plan',                 # Create structured plan for complex tasks
-    # 'advance_plan',                # Advance to next phase in plan
+    # Code Execution (Primary Tool)
+    'execute_code',                # Execute Python code - main interface for all operations
     
-    # Portfolio & Brokerage
-    'get_portfolio',
-    'request_brokerage_connection',
-    
-    # Market Intelligence
-    'get_reddit_trending_stocks',
-    'get_reddit_ticker_sentiment',
-    'compare_reddit_sentiment',
-    'get_fmp_data',
-    
-    # Web Content
-    'fetch_webpage',               # Fetch and read web content (API docs, articles, etc.)
+    # File Management
+    'write_chat_file',             # Write file to chat directory
+    'read_chat_file',              # Read file from chat directory
+    'replace_in_chat_file',        # Edit files (search/replace)
     
     # Custom ETF Builder
     'build_custom_etf',            # Build custom ETF portfolios with weighting strategies
-    
-    # File Management (OpenHands-style)
-    'list_chat_files',             # List files in current chat
-    'write_chat_file',             # Write file to chat directory
-    'read_chat_file',              # Read file from chat directory
-    'replace_in_chat_file',        # Edit files (Manus-style)
-    'find_in_chat_file',           # Search files with regex
-    
-    # Code Execution
-    'execute_code',                # Execute Python code from file or inline
 ]
 
 

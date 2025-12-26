@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { chatApi } from '@/lib/api';
 
 interface Chat {
   chat_id: string;
   title: string | null;
+  icon: string | null;
   created_at: string;
   updated_at: string;
   last_message?: string;
@@ -16,9 +17,10 @@ interface ChatHistorySidebarProps {
   currentChatId: string | null;
   onSelectChat: (chatId: string) => void;
   onNewChat: () => void;
-  isOpen: boolean;
+  isCollapsed: boolean;
   onToggle: () => void;
   refreshTrigger?: number;
+  isCreatingChat?: boolean; // True when a new chat is being created + title generated
 }
 
 export default function ChatHistorySidebar({
@@ -26,201 +28,176 @@ export default function ChatHistorySidebar({
   currentChatId,
   onSelectChat,
   onNewChat,
-  isOpen,
+  isCollapsed,
   onToggle,
   refreshTrigger,
+  isCreatingChat,
 }: ChatHistorySidebarProps) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const loadChats = async () => {
-      if (!userId) return;
-      
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const response = await chatApi.getUserChats(userId);
-        setChats(response.chats);
-      } catch (err) {
-        console.error('Error loading chats:', err);
-        setError('Failed to load chat history');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (isOpen) {
-      loadChats();
-    }
-  }, [userId, isOpen, currentChatId, refreshTrigger]); // Reload when refreshTrigger changes
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays}d ago`;
+  const loadChats = useCallback(async () => {
+    if (!userId) return;
     
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-    });
+    setIsLoading(true);
+    try {
+      const response = await chatApi.getUserChats(userId);
+      setChats(response.chats || []);
+    } catch (err) {
+      console.error('Error loading chats:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  // Load chats on mount and when refresh trigger changes
+  useEffect(() => {
+    loadChats();
+  }, [loadChats, refreshTrigger]);
+
+  // Also reload when currentChatId changes (ensures new chats appear)
+  useEffect(() => {
+    if (currentChatId) {
+      // Small delay to let backend save the chat
+      const timer = setTimeout(() => {
+        loadChats();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [currentChatId, loadChats]);
+
+  const getChatTitle = (chat: Chat) => {
+    return chat.title || 'New Chat';
   };
 
-  const getChatTitle = (chat: Chat, index: number) => {
-    if (chat.title) return chat.title;
+  const getChatIcon = (chat: Chat) => {
+    return chat.icon || '💬';
+  };
+
+  const renderChatItem = (chat: Chat) => {
+    const isActive = chat.chat_id === currentChatId;
     
-    // Generate a title based on date
-    const date = new Date(chat.created_at);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    
-    if (isToday) {
-      return `Chat ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    if (isCollapsed) {
+      return (
+        <button
+          key={chat.chat_id}
+          onClick={() => onSelectChat(chat.chat_id)}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-150 text-lg ${
+            isActive
+              ? 'bg-white shadow-sm border border-gray-200'
+              : 'hover:bg-gray-100'
+          }`}
+          title={getChatTitle(chat)}
+        >
+          {getChatIcon(chat)}
+        </button>
+      );
     }
-    
-    return `Chat ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+
+    return (
+      <button
+        key={chat.chat_id}
+        onClick={() => onSelectChat(chat.chat_id)}
+        title={getChatTitle(chat)}
+        className={`w-full text-left rounded-lg transition-all duration-150 px-3 py-2 group ${
+          isActive
+            ? 'bg-white shadow-sm border border-gray-200'
+            : 'hover:bg-gray-100'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-base flex-shrink-0">{getChatIcon(chat)}</span>
+          <span className={`text-sm truncate ${isActive ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>
+            {getChatTitle(chat)}
+          </span>
+        </div>
+      </button>
+    );
   };
 
   return (
     <div
-      className={`h-full bg-white flex-shrink-0 transition-all duration-300 ease-in-out overflow-hidden ${
-        isOpen ? 'w-80 border-r border-gray-200 shadow-sm' : 'w-0'
+      className={`h-full bg-gray-50 flex-shrink-0 transition-all duration-200 ease-out border-r border-gray-200 flex flex-col ${
+        isCollapsed ? 'w-[60px]' : 'w-64'
       }`}
     >
-        <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="p-3 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold text-gray-900">Chats</h2>
-              <button
-                onClick={onToggle}
-                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
-              >
-                <svg
-                  className={`w-4 h-4 text-gray-600 transition-transform ${isOpen ? '' : 'rotate-180'}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-              </button>
-            </div>
-            
-            {/* New Chat Button */}
-            <button
-              onClick={onNewChat}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors text-sm"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              New Chat
-            </button>
-          </div>
+      {/* Header */}
+      <div className={`flex items-center p-3 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+        {!isCollapsed && (
+          <span className="text-sm font-semibold text-gray-700">Chats</span>
+        )}
+        <button
+          onClick={onToggle}
+          className="p-1.5 hover:bg-gray-200 rounded-md transition-colors"
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <svg
+            className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+          </svg>
+        </button>
+      </div>
 
-          {/* Chat List */}
-          <div className="flex-1 overflow-y-auto">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="flex space-x-1.5">
-                  <div className="w-2 h-2 bg-purple-600 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
-              </div>
-            ) : error ? (
-              <div className="p-4 text-center text-red-600 text-xs">{error}</div>
-            ) : chats.length === 0 ? (
-              <div className="p-6 text-center text-gray-500">
-                <div className="text-2xl mb-2">💬</div>
-                <p className="text-sm font-medium text-gray-700">No chats yet</p>
-                <p className="text-xs mt-1 text-gray-500">Start a new conversation!</p>
+      {/* New Chat Button */}
+      <div className={`px-2 pb-3 ${isCollapsed ? 'px-[10px]' : ''}`}>
+        <button
+          onClick={onNewChat}
+          className={`flex items-center gap-2 w-full bg-white hover:bg-gray-100 border border-gray-200 rounded-lg transition-all text-sm font-medium text-gray-700 ${
+            isCollapsed ? 'justify-center p-2.5' : 'px-3 py-2.5'
+          }`}
+          title="New Chat"
+        >
+          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          {!isCollapsed && <span>New Chat</span>}
+        </button>
+      </div>
+
+      {/* Chat List */}
+      <div className={`flex-1 overflow-y-auto ${isCollapsed ? 'px-[10px]' : 'px-2'}`}>
+        {/* Show creating chat spinner at top when generating title */}
+        {isCreatingChat && (
+          <div className={`mb-1 ${isCollapsed ? '' : ''}`}>
+            {isCollapsed ? (
+              <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-blue-50 border border-blue-200">
+                <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
               </div>
             ) : (
-              <div className="py-2">
-                {chats.map((chat, index) => {
-                  const isActive = chat.chat_id === currentChatId;
-                  
-                  return (
-                    <button
-                      key={chat.chat_id}
-                      onClick={() => onSelectChat(chat.chat_id)}
-                      className={`w-full text-left px-4 py-2.5 transition-colors ${
-                        isActive
-                          ? 'bg-purple-100 hover:bg-purple-100'
-                          : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p
-                              className={`text-sm font-medium truncate ${
-                                isActive ? 'text-purple-900' : 'text-gray-900'
-                              }`}
-                            >
-                              {getChatTitle(chat, index)}
-                            </p>
-                            <p className="text-xs text-gray-400 flex-shrink-0">
-                              {formatDate(chat.updated_at)}
-                            </p>
-                          </div>
-                          {chat.last_message && (
-                            <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
-                              {chat.last_message}
-                            </p>
-                          )}
-                        </div>
-                        {isActive && (
-                          <div className="flex-shrink-0 mt-1">
-                            <div className="w-1.5 h-1.5 bg-purple-600 rounded-full"></div>
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="w-full rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin flex-shrink-0" />
+                  <span className="text-sm text-blue-600">Creating chat...</span>
+                </div>
               </div>
             )}
           </div>
-
-          {/* Footer */}
-          <div className="p-3 border-t border-gray-200">
-            <p className="text-xs text-gray-500 text-center">
-              {chats.length} {chats.length === 1 ? 'chat' : 'chats'}
-            </p>
+        )}
+        
+        {isLoading && chats.length === 0 && !isCreatingChat ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
           </div>
-        </div>
+        ) : chats.length === 0 && !isCreatingChat ? (
+          <div className={`text-center py-8 ${isCollapsed ? 'px-1' : 'px-4'}`}>
+            {!isCollapsed && (
+              <>
+                <div className="text-2xl mb-2">💬</div>
+                <p className="text-xs text-gray-500">No chats yet</p>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {chats.map(renderChatItem)}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
-

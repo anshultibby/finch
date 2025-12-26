@@ -4,32 +4,6 @@ Separated for better maintainability and readability
 """
 
 # ============================================================================
-# PORTFOLIO TOOLS (SnapTrade)
-# ============================================================================
-
-GET_PORTFOLIO_DESC = """Fetch the user's current brokerage portfolio holdings (Robinhood, TD Ameritrade, etc.), including stocks they own, quantities, current prices, and total value. 
-
-**When to use:** User asks about portfolio/stocks/holdings/current positions. ALWAYS call this tool first - don't ask for connection upfront.
-
-**Authentication handling:** Tool automatically handles auth. If user isn't connected, it returns needs_auth=true → then call request_brokerage_connection.
-
-**Returns:** Holdings data in CSV format - all positions aggregated across accounts."""
-
-REQUEST_BROKERAGE_CONNECTION_DESC = """Request the user to connect their brokerage account via SnapTrade. ONLY use this tool if get_portfolio returns an authentication error. Do NOT call this proactively - always try get_portfolio first."""
-
-
-# ============================================================================
-# REDDIT SENTIMENT TOOLS (ApeWisdom)
-# ============================================================================
-
-GET_REDDIT_TRENDING_DESC = """Get the most talked about and trending stocks from Reddit communities like r/wallstreetbets, r/stocks, and r/investing. Shows current mentions, upvotes, and ranking. Use this when user asks about what's popular/trending on Reddit, what stocks Reddit is talking about, or meme stocks."""
-
-GET_REDDIT_TICKER_SENTIMENT_DESC = """Get Reddit sentiment and mentions for a specific stock ticker. Shows how many times it's been mentioned, upvotes, rank, and 24h change. Use this when user asks about Reddit sentiment for a specific stock."""
-
-COMPARE_REDDIT_SENTIMENT_DESC = """Compare Reddit sentiment for multiple stock tickers. Shows which stocks are more popular on Reddit. Use this when user wants to compare multiple stocks or asks which one Reddit prefers."""
-
-
-# ============================================================================
 # FINANCIAL METRICS TOOLS (Financial Modeling Prep) - UNIVERSAL TOOL
 # (Includes: financials, market data, analyst data, insider trading, and more)
 # ============================================================================
@@ -139,41 +113,6 @@ house = fmp.insider.get_house_trading('AAPL', limit=100)
 
 
 # ============================================================================
-# PLANNING TOOLS
-# ============================================================================
-
-CREATE_PLAN_DESC = """Create or replace a structured plan for complex multi-step tasks (3+ steps).
-
-**When to use planning:**
-- Multi-step research/analysis tasks (gather → analyze → synthesize)
-- Complex workflows with clear phases (screen stocks → build ETF → backtest → visualize)
-- Building/creating something with distinct stages
-- Any task where showing progress structure helps user follow along
-- Default to using planning for non-trivial tasks - improves UX!
-
-**When NOT to use:**
-- Simple questions or single-action tasks
-- Quick data fetches or lookups
-- Conversational back-and-forth
-
-**Phase titles:**
-Make them descriptive and action-oriented:
-- ✓ GOOD: "Fetch portfolio data and calculate returns", "Analyze trading patterns and identify issues"
-- ✗ BAD: "Phase 1", "Data", "Analysis"
-
-**Plans are flexible:** Discard and recreate if direction changes - just call create_plan again."""
-
-ADVANCE_PLAN_DESC = "Advance to the next phase in your current plan. Call this when you've completed the current phase and are ready to move to the next one."
-
-
-# ============================================================================
-# WEB CONTENT TOOLS
-# ============================================================================
-
-FETCH_WEBPAGE_DESC = "Fetch and read content from any web URL. Useful for reading API documentation, articles, or any web content."
-
-
-# ============================================================================
 # CONTROL TOOLS
 # ============================================================================
 
@@ -219,93 +158,97 @@ This is your universal interface for:
 - Backtesting & calculations
 - Multi-step workflows with intermediate data
 
-**Execution Modes (mode parameter):**
+**🚨 CRITICAL: Execution Strategy**
 
-1. **isolated (default)** - Fresh state each execution
-   - New Python process, no state persistence
-   - Use for: Production scripts, final code, one-off analysis
-   
-2. **notebook** - Persistent state like Jupyter! 🚀
-   - Variables, imports, functions persist between calls
-   - Build up analysis incrementally across multiple executions
-   - Use for: Iterative development, data exploration, debugging
-   - Reset state: `execute_code(code="__reset_kernel__", mode="notebook")`
+Each execution starts FRESH - NO variables or imports persist between calls.
 
-**Code Source:**
-1. **Inline Code** (code param): Quick analysis - no file created
-2. **File Execution** (filename param): Run a saved .py file
+**Two approaches:**
 
-**🔥 Notebook Mode Examples (Incremental Development):**
+1. **Inline Code (code param)** - Quick testing & exploration
+   - Use for: Testing APIs, exploring data, one-off calculations
+   - Each execution is self-contained - include ALL imports and code
+   - Example: `execute_code(code="import os; print(os.listdir('servers'))")`
+
+2. **File Execution (filename param)** - Complex multi-step workflows
+   - Use for: Analysis requiring multiple steps, avoiding NameErrors
+   - Write complete script to .py file with ALL imports and logic
+   - Then execute the file
+   - File persists in filesystem, can be edited/rerun later
+
+**File-based workflow example:**
 
 ```python
-# Cell 1: Import and load data (slow - do once!)
-execute_code(mode="notebook", code=\"\"\"
+# Step 1: Write complete analysis to file
+execute_code(code='''
+with open("stock_analysis.py", "w") as f:
+    f.write(\"\"\"
 import pandas as pd
-from finch_runtime import fmp
+from servers.fmp.market.gainers import get_gainers
 
-# This persists for next cells!
-profiles = [fmp.company.get_profile(t) for t in ['AAPL', 'MSFT', 'GOOGL']]
-df = pd.DataFrame(profiles)
-print(f"Loaded {len(df)} profiles")
+# Fetch and analyze
+gainers = get_gainers()
+df = pd.DataFrame(gainers)
+print(f"Found {len(df)} gainers")
+print(df[['symbol', 'price', 'changesPercentage']].head(10))
+df.to_csv('gainers_analysis.csv')
 \"\"\")
+''')
 
-# Cell 2: Analyze (df is still here!)
-execute_code(mode="notebook", code=\"\"\"
-# df persists from Cell 1!
-print(df[['companyName', 'mktCap', 'pe']].head())
-avg_mktcap = df['mktCap'].mean()
-print(f"Avg Market Cap: ${avg_mktcap:,.0f}")
-\"\"\")
-
-# Cell 3: Visualize (use df and avg_mktcap!)
-execute_code(mode="notebook", code=\"\"\"
-import matplotlib.pyplot as plt
-df.plot(x='companyName', y='mktCap', kind='bar')
-plt.axhline(avg_mktcap, color='r', linestyle='--', label='Average')
-plt.savefig('market_caps.png')
-\"\"\")
-
-# Reset if needed
-execute_code(mode="notebook", code="__reset_kernel__")
+# Step 2: Execute the file
+execute_code(filename="stock_analysis.py")
 ```
 
-**When to use notebook mode:**
-- ✅ Exploring data interactively
-- ✅ Debugging (inspect intermediate values)
-- ✅ Large dataset (load once, use many times)
-- ✅ Building up complex analysis step-by-step
-- ✅ Testing API responses before final code
+**When to use each approach:**
+- ✅ Inline: Quick tests, exploring APIs, checking file contents
+- ✅ File: Multi-step analysis, complex workflows, when you get NameErrors
 
-**When to use isolated mode:**
-- ✅ Final production scripts
-- ✅ One-off calculations
-- ✅ When you want guaranteed clean state
+**🚨 CRITICAL: Progressive Disclosure - ALWAYS Explore First**
 
-**🚨 CRITICAL: Progressive Disclosure - Discover Before Using**
+The execution environment has a `servers/` directory with API implementations.
+**NEVER assume imports exist - ALWAYS discover the structure first!**
 
-The execution environment contains a filesystem with API documentation and helpers.
-**ALWAYS explore before making API calls:**
-
+**Step 1: List available API servers**
 ```python
-# 1. See what's available in your environment
 import os
-print("Available files:", os.listdir('.'))
-print("API docs:", os.listdir('apis/'))
-
-# 2. Read API documentation
-with open('finch_runtime.py') as f:
-    print(f.read())
-
-# 3. Explore client structure dynamically
-from finch_runtime import fmp
-print("FMP categories:", dir(fmp.client))
-print("Company methods:", dir(fmp.company))
-
-# 4. Test with small samples first
-result = fmp.company.get_profile('AAPL')
-print(type(result))
-print(result.keys() if isinstance(result, dict) else result[:2])
+print("Available API servers:", os.listdir('servers'))
+# Example output: ['fmp', 'polygon', 'reddit', 'tradingview', 'README.md']
 ```
+
+**Step 2: Explore a server's categories**
+```python
+# See what's available in FMP
+print("FMP categories:", os.listdir('servers/fmp'))
+# Output: ['company', 'financials', 'market', 'insider', 'analyst', ...]
+```
+
+**Step 3: Read the server README for usage patterns**
+```python
+with open('servers/README.md') as f:
+    print(f.read())
+```
+
+**Step 4: Discover tools in a category**
+```python
+# See what company tools exist
+print("Company tools:", os.listdir('servers/fmp/company'))
+# Output: ['profile.py', 'executives.py', '__init__.py']
+```
+
+**Step 5: Read the tool file to see its signature and docs**
+```python
+with open('servers/fmp/company/profile.py') as f:
+    print(f.read())
+# Shows: function signature, docstring with params & returns
+```
+
+**Step 6: Import and use the tool**
+```python
+from servers.fmp.company.profile import get_profile
+profile = get_profile('AAPL')
+print(type(profile), profile.keys() if isinstance(profile, dict) else profile[:1])
+```
+
+**This discovery pattern is MANDATORY for all API usage!**
 
 **📁 File Operations (Pure Python - No Tool Calls Needed)**
 
@@ -345,35 +288,40 @@ py_files = [f for f in os.listdir('.') if fnmatch.fnmatch(f, '*.py')]
 - Images (.png, .jpg, .jpeg, .gif, .svg) embed inline automatically
 - CRITICAL: NEVER create "Files Created" sections or file summary lists with emojis (like "📁 Files Created"). Reference files naturally in your explanation text.
 
-**🌐 API Clients (Pre-configured & Ready)**
+**🌐 API Usage Examples (After Discovery)**
 
 ```python
-from finch_runtime import fmp, reddit, polygon
-
 # Financial Modeling Prep (fundamentals, insider trading)
 # ⚠️ Rate limited - prefer Polygon for price data
-profile = fmp.company.get_profile('AAPL')
-insider = fmp.insider.get_insider_trading('AAPL', limit=100)
-metrics = fmp.fundamental.get_key_metrics('AAPL', period='annual')
+from servers.fmp.company.profile import get_profile
+from servers.fmp.insider.insider_trading import get_insider_trading
+from servers.fmp.financials.key_metrics import get_key_metrics
+
+profile = get_profile('AAPL')
+insider = get_insider_trading('AAPL', limit=100)
+metrics = get_key_metrics('AAPL', period='annual')
 
 # Polygon (market data - PREFERRED for prices/quotes)
 # ✅ Better rate limits, use for backtesting
+from servers.polygon.market.historical_prices import get_historical_prices
+from servers.polygon.market.quote import get_quote
 from datetime import datetime, timedelta
+
 end = datetime.now()
 start = end - timedelta(days=365)
-aggs = polygon.get_aggs('AAPL', 1, 'day', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
-snapshot = polygon.get_snapshot_ticker('stocks', 'AAPL')
+prices = get_historical_prices('AAPL', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+quote = get_quote('AAPL')
 
 # Reddit sentiment (ApeWisdom)
-trending = reddit.get_trending(limit=20)
-sentiment = reddit.get_ticker_sentiment('GME')
+from servers.reddit.get_trending_stocks import get_trending_stocks
+trending = get_trending_stocks(limit=20)
 ```
 
-**🚨 Common API Mistakes (Read finch_runtime.py to avoid these!):**
-- ❌ `fmp.quotes.*` → Use `fmp.market.get_quote()`
-- ❌ `fmp.historical.*` → Use `fmp.market.get_historical_price()`  
-- ❌ `fmp.fundamentals.*` → Use `fmp.fundamental.*` (SINGULAR!)
-- ❌ `fmp.get_profile()` → Use `fmp.company.get_profile()`
+**🚨 Common Mistakes to Avoid:**
+- ❌ `from finch_runtime import fmp` - This doesn't exist!
+- ❌ Assuming import paths - Always discover first with `os.listdir()`
+- ❌ Using APIs without reading their docstrings
+- ✅ List → Explore → Read → Import → Test → Use
 
 **💾 Data Persistence & Multi-Step Workflows**
 
@@ -475,15 +423,27 @@ with open('results.csv', 'w') as f:
 
 Use this tool when you want explicit streaming feedback during file save."""
 
-READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem.
+READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports images for visual review!**
 
-**In code execution, prefer standard Python:**
+**When to use:**
+- Reading text files (code, data, configs)
+- **VIEWING IMAGES** - Use this to see charts/visualizations you've created and verify they look correct
+
+**For images:** Returns the image data so you can visually inspect it. Use this to:
+- Double-check your charts look correct before presenting to user
+- Verify axis labels, legends, and titles are readable
+- Check that data visualization makes sense
+
+**In code execution, prefer standard Python for text files:**
 ```python
 with open('data.csv') as f:
     content = f.read()
 ```
 
-Use this tool only if you need to read a file outside of code execution context."""
+**Example - Verify a chart:**
+After creating a chart, use this tool to view it:
+`read_chat_file(filename="portfolio_performance.png")`
+Then describe what you see to verify it matches your intent."""
 
 REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file (like str_replace in Cursor).
 
@@ -526,67 +486,3 @@ BUILD_CUSTOM_ETF_DESC = """Build a custom ETF portfolio with specified stocks we
 # MARKET DATA TOOLS (Polygon.io)
 # ============================================================================
 
-POLYGON_API_DOCS_DESC = """Polygon.io REST API - Real-time and historical market data
-
-**✅ PREFERRED FOR MARKET DATA: Polygon has better rate limits than FMP**
-
-**Best use cases for Polygon:**
-- Historical price data (OHLCV) - excellent for backtesting
-- Real-time quotes and snapshots
-- Batch data fetching for multiple tickers
-- High-frequency data needs
-- Previous close, daily aggregates
-
-**🎯 IMPORTANT: Use execute_code tool for Polygon API calls (not this tool directly)**
-
-This tool is API_DOCS_ONLY - it provides documentation but doesn't make API calls.
-To actually fetch Polygon data:
-1. Use `execute_code` tool with Python code
-2. Import from working directory: `from finch_runtime import polygon`
-3. Call polygon methods directly in your code
-
-**Usage in execute_code:**
-```python
-from finch_runtime import polygon
-from datetime import datetime
-
-# Historical price data (OHLCV) - Best for backtesting
-aggs = polygon.get_aggs(
-    ticker='AAPL',
-    multiplier=1,
-    timespan='day',  # 'minute', 'hour', 'day', 'week', 'month'
-    from_='2024-01-01',
-    to='2024-12-31'
-)
-# Returns iterator of aggregate bars with open, high, low, close, volume
-
-# Current snapshot (real-time quote)
-snapshot = polygon.get_snapshot_ticker('stocks', 'AAPL')
-
-# Ticker details (name, market cap, etc.)
-details = polygon.get_ticker_details('AAPL')
-
-# Previous day's close
-prev_close = polygon.get_previous_close_agg('AAPL')
-
-# Search tickers
-tickers = polygon.list_tickers(search='Apple', market='stocks', limit=10)
-
-# All stocks for a specific date
-all_stocks = polygon.get_grouped_daily_aggs('2024-12-10')
-```
-
-**Base URL:** https://api.polygon.io
-**API Key:** Automatically configured
-
-**Documentation:**
-- Python client: https://polygon.readthedocs.io/en/latest/Stocks.html
-- REST API: https://polygon.io/docs/stocks/getting-started
-
-**Common Methods:**
-- get_aggs(ticker, multiplier, timespan, from_, to): Historical OHLCV bars
-- get_snapshot_ticker(ticker_type, ticker): Current market snapshot
-- get_ticker_details(ticker): Ticker information
-- get_previous_close_agg(ticker): Previous day's data
-- list_tickers(search, market, limit): Search tickers
-- get_grouped_daily_aggs(date): All tickers for a date"""

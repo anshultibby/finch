@@ -31,15 +31,21 @@ class ChatService:
         self,
         message: str,
         chat_id: str,
-        user_id: str
+        user_id: str,
+        images: List[Dict[str, str]] = None
     ) -> AsyncGenerator[str, None]:
         """
-        Send a message and stream SSE events as they happen
+        Send a message and stream SSE events as they happen.
+        
+        Messages are saved INCREMENTALLY as they complete during streaming.
+        This ensures that if the stream is interrupted (user sends new message),
+        completed work is preserved in the database.
         
         Args:
             message: User message content
             chat_id: Chat identifier
             user_id: User identifier (for SnapTrade tools)
+            images: Optional list of image attachments [{"data": base64, "media_type": "image/png"}]
             
         Yields:
             SSE formatted strings (event: <type>\\ndata: <json>\\n\\n)
@@ -49,9 +55,8 @@ class ChatService:
         with tracer.start_as_current_span("chat_turn"):
             logger.info(f"Starting chat turn for user {user_id}")
             
-            # STEP 1: Load history and save user message (then close DB connection)
+            # STEP 1: Load history and save user message
             async with AsyncSessionLocal() as db:
-                # Database calls are auto-traced by OpenTelemetry
                 db_chat = await chat_async.get_chat(db, chat_id)
                 if not db_chat:
                     await chat_async.create_chat(db, chat_id, user_id)
@@ -61,37 +66,38 @@ class ChatService:
                 history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
                 
                 # Save user message FIRST before streaming
-                # Get next sequence from DB to avoid conflicts
-                start_sequence = await chat_async.get_next_sequence(db, chat_id)
+                current_sequence = await chat_async.get_next_sequence(db, chat_id)
                 await chat_async.create_message(
                     db=db,
                     chat_id=chat_id,
                     role="user",
                     content=message,
-                    sequence=start_sequence
+                    sequence=current_sequence
                 )
-            # DB connection closed here - don't hold it during streaming!
+                current_sequence += 1
             
-            # STEP 2: Process message (no DB connection held)
+            # STEP 2: Process message and save incrementally
             context = context_manager.get_all_context(user_id)
             
             agent_context = AgentContext(
                 user_id=user_id,
                 chat_id=chat_id,
-                data=context  # Additional context data (auth status, credentials, etc.)
+                data=context
             )
             
-            # Create agent using centralized factory (one per request to avoid state conflicts)
             agent = create_main_agent(
                 context=agent_context,
                 system_prompt=get_finch_system_prompt(),
                 model=Config.LLM_MODEL
             )
             
-            # Add user message to history
-            history.add_user_message(message)
+            # Add user message to history (with optional images for multimodal)
+            history.add_user_message(message, images=images)
             
-            # Stream events from agent (LLM calls auto-traced by OpenTelemetry)
+            # Track pending assistant message (with tool calls) for saving after tools complete
+            pending_assistant_msg = None
+            
+            # Stream events from agent and save completed messages incrementally
             with tracer.start_as_current_span("agent_processing"):
                 async for event in agent.process_message_stream(
                     message=message,
@@ -101,36 +107,74 @@ class ChatService:
                     # Log event type for debugging
                     if event.event == "tool_call_start":
                         logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
-                    # Yield the SSE formatted event
+                    
+                    # INCREMENTAL SAVE: Save completed messages as they happen
+                    # This ensures interrupted streams don't lose completed work
+                    
+                    if event.event == "message_end":
+                        # message_end signals a complete assistant message
+                        tool_calls = event.data.get("tool_calls")
+                        content = event.data.get("content", "")
+                        
+                        if tool_calls:
+                            # Assistant message with tool calls - save after tools complete
+                            pending_assistant_msg = {
+                                "content": content,
+                                "tool_calls": tool_calls
+                            }
+                        else:
+                            # Final assistant message (no tool calls) - save immediately
+                            async with AsyncSessionLocal() as db:
+                                await chat_async.create_message(
+                                    db=db,
+                                    chat_id=chat_id,
+                                    role="assistant",
+                                    content=content,
+                                    sequence=current_sequence
+                                )
+                                current_sequence += 1
+                                logger.info(f"💾 Saved final assistant message (seq={current_sequence-1})")
+                    
+                    elif event.event == "tools_end":
+                        # tools_end signals tool execution is complete
+                        # Now save: 1) assistant message with tool_calls, 2) tool result messages
+                        tool_messages = event.data.get("tool_messages", [])
+                        
+                        async with AsyncSessionLocal() as db:
+                            # Save assistant message with tool calls
+                            if pending_assistant_msg:
+                                await chat_async.create_message(
+                                    db=db,
+                                    chat_id=chat_id,
+                                    role="assistant",
+                                    content=pending_assistant_msg["content"],
+                                    sequence=current_sequence,
+                                    tool_calls=pending_assistant_msg["tool_calls"]
+                                )
+                                current_sequence += 1
+                                logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls (seq={current_sequence-1})")
+                                pending_assistant_msg = None
+                            
+                            # Save tool result messages
+                            for tool_msg in tool_messages:
+                                await chat_async.create_message(
+                                    db=db,
+                                    chat_id=chat_id,
+                                    role="tool",
+                                    content=tool_msg.get("content", ""),
+                                    sequence=current_sequence,
+                                    tool_call_id=tool_msg.get("tool_call_id"),
+                                    name=tool_msg.get("name")
+                                )
+                                current_sequence += 1
+                            
+                            if tool_messages:
+                                logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                    
+                    # Yield the SSE formatted event to client
                     yield event.to_sse_format()
             
-            # STEP 3: Save assistant messages (new DB connection)
-            async with AsyncSessionLocal() as db:
-                # After streaming, save new messages to database
-                new_messages = agent.get_new_messages()
-                logger.info(f"Saving {len(new_messages)} messages to database")
-                
-                # Save messages with proper sequencing
-                sequence = start_sequence + 1
-                
-                # Save the agent messages
-                for msg in new_messages:
-                    content = msg.content or ""
-                    
-                    # Convert to DB format and save
-                    await chat_async.create_message(
-                        db=db,
-                        chat_id=chat_id,
-                        role=msg.role,
-                        content=content,
-                        sequence=sequence,
-                        tool_calls=[tc.model_dump() for tc in msg.tool_calls] if msg.tool_calls else None,
-                        tool_call_id=msg.tool_call_id,
-                        name=msg.name
-                    )
-                    sequence += 1
-                
-                logger.info("Saved conversation history")
+            logger.info("Chat turn complete - all messages saved incrementally")
     
     async def get_chat_history(self, chat_id: str) -> List[dict]:
         """Get chat history for a chat, including tool calls (OpenAI format)"""

@@ -11,12 +11,13 @@ from datetime import datetime
 
 # Chat operations
 
-async def create_chat(db: AsyncSession, chat_id: str, user_id: str, title: Optional[str] = None) -> Chat:
+async def create_chat(db: AsyncSession, chat_id: str, user_id: str, title: Optional[str] = None, icon: Optional[str] = None) -> Chat:
     """Create a new chat session"""
     db_chat = Chat(
         chat_id=chat_id,
         user_id=user_id,
-        title=title
+        title=title,
+        icon=icon
     )
     db.add(db_chat)
     await db.commit()
@@ -33,11 +34,11 @@ async def get_chat(db: AsyncSession, chat_id: str) -> Optional[Chat]:
 
 
 async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> List[Chat]:
-    """Get all chats for a user, ordered by most recently updated"""
+    """Get all chats for a user, ordered by most recently created"""
     result = await db.execute(
         select(Chat)
         .where(Chat.user_id == user_id)
-        .order_by(Chat.updated_at.desc())
+        .order_by(Chat.created_at.desc())
         .limit(limit)
     )
     return list(result.scalars().all())
@@ -56,7 +57,7 @@ async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int
     result = await db.execute(
         select(Chat)
         .where(Chat.user_id == user_id)
-        .order_by(Chat.updated_at.desc())
+        .order_by(Chat.created_at.desc())
         .limit(limit)
     )
     chats = result.scalars().all()
@@ -103,6 +104,7 @@ async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int
         chats_list.append({
             "chat_id": chat.chat_id,
             "title": chat.title,
+            "icon": chat.icon,
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat(),
             "last_message": last_message
@@ -134,11 +136,13 @@ async def get_last_message_preview(db: AsyncSession, chat_id: str, max_length: i
     return None
 
 
-async def update_chat_title(db: AsyncSession, chat_id: str, title: str) -> Optional[Chat]:
-    """Update a chat's title"""
+async def update_chat_title(db: AsyncSession, chat_id: str, title: str, icon: Optional[str] = None) -> Optional[Chat]:
+    """Update a chat's title and optionally its icon"""
     db_chat = await get_chat(db, chat_id)
     if db_chat:
         db_chat.title = title
+        if icon is not None:
+            db_chat.icon = icon
         db_chat.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(db_chat)

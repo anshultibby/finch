@@ -27,6 +27,12 @@ class ToolCallStartEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
+class CodeOutput(BaseModel):
+    """Code execution output"""
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+
+
 class ToolCallCompleteEvent(BaseModel):
     """Event sent when a tool call completes"""
     tool_call_id: str
@@ -35,6 +41,7 @@ class ToolCallCompleteEvent(BaseModel):
     resource_id: Optional[str] = None
     error: Optional[str] = None
     result_summary: Optional[str] = None  # Brief summary of result for display to user
+    code_output: Optional[CodeOutput] = None  # Code execution output (stdout/stderr)
     timestamp: str = datetime.now().isoformat()
 
 

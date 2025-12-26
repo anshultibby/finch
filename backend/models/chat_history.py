@@ -3,9 +3,53 @@ Chat History Models - Type-safe conversation management
 
 Provides clean abstractions for managing chat history throughout the agent loop.
 """
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Tuple, Set
 from datetime import datetime
 from pydantic import BaseModel, Field
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _is_valid_tool_call_json(args: Any) -> bool:
+    """Check if tool call arguments are valid JSON."""
+    if isinstance(args, dict):
+        return True  # Already parsed
+    if not args or not isinstance(args, str):
+        return True  # Empty/None is fine
+    try:
+        json.loads(args)
+        return True
+    except json.JSONDecodeError:
+        return False
+
+
+def _sanitize_tool_calls(tool_calls: Optional[List[Dict[str, Any]]]) -> Tuple[List[Dict[str, Any]], Set[str]]:
+    """
+    Remove tool calls with malformed JSON arguments.
+    
+    Returns (valid_tool_calls, set_of_removed_tool_call_ids).
+    """
+    if not tool_calls:
+        return [], set()
+    
+    valid = []
+    removed_ids = set()
+    
+    for tc in tool_calls:
+        tc_id = tc.get("id", "")
+        func = tc.get("function", {})
+        func_name = func.get("name", "unknown")
+        args = func.get("arguments", "{}")
+        
+        if _is_valid_tool_call_json(args):
+            valid.append(tc)
+        else:
+            logger.warning(f"Removing malformed tool call '{func_name}' (id={tc_id}): truncated/invalid JSON")
+            removed_ids.add(tc_id)
+    
+    return valid, removed_ids
 
 
 class ToolCall(BaseModel):
@@ -13,6 +57,12 @@ class ToolCall(BaseModel):
     id: str
     type: Literal["function"] = "function"
     function: Dict[str, Any]  # {name: str, arguments: str}
+
+
+class ImageContent(BaseModel):
+    """Image content for multimodal messages"""
+    data: str  # Base64-encoded image data
+    media_type: str = "image/png"  # MIME type
 
 
 class ChatMessage(BaseModel):
@@ -23,6 +73,9 @@ class ChatMessage(BaseModel):
     """
     role: Literal["system", "user", "assistant", "tool"]
     content: Optional[str] = None
+    
+    # Multimodal support - images attached to user messages
+    images: Optional[List[ImageContent]] = None
     
     # Assistant messages with tool calls
     tool_calls: Optional[List[ToolCall]] = None
@@ -40,11 +93,38 @@ class ChatMessage(BaseModel):
         """
         Convert to OpenAI API format (only fields the API expects).
         
+        Handles multimodal messages for Claude:
+        - Text-only: content is a string
+        - With images: content is a list of content blocks
+        
         Returns clean dict for LLM API calls.
         """
         message = {"role": self.role}
         
-        if self.content is not None:
+        # Handle multimodal content (images + text)
+        if self.images and self.role == "user":
+            content_blocks = []
+            
+            # Add text first if present
+            if self.content:
+                content_blocks.append({
+                    "type": "text",
+                    "text": self.content
+                })
+            
+            # Add images (Claude format)
+            for img in self.images:
+                content_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.media_type,
+                        "data": img.data
+                    }
+                })
+            
+            message["content"] = content_blocks
+        elif self.content is not None:
             message["content"] = self.content
         
         if self.tool_calls:
@@ -141,9 +221,12 @@ class ChatHistory(BaseModel):
         """Add a system message"""
         self.add_message(ChatMessage(role="system", content=content))
     
-    def add_user_message(self, content: str) -> None:
-        """Add a user message"""
-        self.add_message(ChatMessage(role="user", content=content))
+    def add_user_message(self, content: str, images: List[Dict[str, str]] = None) -> None:
+        """Add a user message with optional image attachments for multimodal"""
+        image_contents = None
+        if images:
+            image_contents = [ImageContent(data=img["data"], media_type=img.get("media_type", "image/png")) for img in images]
+        self.add_message(ChatMessage(role="user", content=content, images=image_contents))
     
     def add_assistant_message(
         self,
@@ -278,10 +361,50 @@ class ChatHistory(BaseModel):
         """
         Create ChatHistory from database messages.
         
-        Convenience constructor for loading from DB.
+        Sanitizes malformed tool calls that may have been saved during interrupted streams.
+        Also removes orphaned tool responses that reference removed tool calls.
         """
         history = cls(chat_id=chat_id, user_id=user_id)
-        history.extend_from_db(db_messages)
+        
+        # First pass: collect messages and track removed tool call IDs
+        removed_tool_call_ids: Set[str] = set()
+        temp_messages = []
+        
+        for db_msg in db_messages:
+            msg_data = {
+                "role": db_msg.role,
+                "content": db_msg.content,
+                "tool_call_id": db_msg.tool_call_id,
+                "name": db_msg.name,
+                "resource_id": db_msg.resource_id,
+                "sequence": db_msg.sequence,
+                "timestamp": db_msg.timestamp,
+                "tool_calls": None
+            }
+            
+            # Sanitize tool_calls for assistant messages
+            if db_msg.role == "assistant" and db_msg.tool_calls:
+                valid_tcs, removed_ids = _sanitize_tool_calls(db_msg.tool_calls)
+                removed_tool_call_ids.update(removed_ids)
+                msg_data["tool_calls"] = valid_tcs if valid_tcs else None
+                
+                if removed_ids:
+                    logger.warning(f"Removed {len(removed_ids)} malformed tool calls from chat {chat_id}")
+            else:
+                msg_data["tool_calls"] = db_msg.tool_calls
+            
+            temp_messages.append(msg_data)
+        
+        # Second pass: filter out orphaned tool responses
+        for msg_data in temp_messages:
+            if msg_data["role"] == "tool":
+                tool_call_id = msg_data.get("tool_call_id")
+                if tool_call_id and tool_call_id in removed_tool_call_ids:
+                    logger.warning(f"Removing orphaned tool response for tool call {tool_call_id}")
+                    continue
+            
+            history.add_message(ChatMessage.from_dict(msg_data))
+        
         return history
     
     @classmethod

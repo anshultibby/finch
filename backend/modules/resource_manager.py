@@ -202,7 +202,7 @@ class ResourceManager:
             db.close()
     
     def read_chat_file(self, user_id: str, chat_id: str, filename: str) -> Optional[str]:
-        """Read a file from chat (from database)"""
+        """Read a file from chat (from database). For text files returns content, for images returns None."""
         from database import get_db
         from crud.chat_files import get_chat_file
         
@@ -210,6 +210,67 @@ class ResourceManager:
         try:
             file_obj = get_chat_file(db=db, chat_id=chat_id, filename=filename)
             return file_obj.content if file_obj else None
+        finally:
+            db.close()
+    
+    def read_chat_file_with_metadata(self, user_id: str, chat_id: str, filename: str) -> Optional[Dict]:
+        """
+        Read a file from chat with full metadata (supports images for multimodal).
+        
+        Returns:
+            Dict with keys:
+            - content: str (text content or base64 for images)
+            - file_type: str
+            - image_url: str (for images stored in Supabase)
+            - is_image: bool
+        """
+        from database import get_db
+        from crud.chat_files import get_chat_file
+        from services.storage import storage_service
+        import base64
+        import requests
+        
+        db = next(get_db())
+        try:
+            file_obj = get_chat_file(db=db, chat_id=chat_id, filename=filename)
+            if not file_obj:
+                return None
+            
+            is_image = file_obj.file_type == "image"
+            
+            result = {
+                "filename": file_obj.filename,
+                "file_type": file_obj.file_type,
+                "is_image": is_image,
+                "image_url": file_obj.image_url,
+                "content": file_obj.content
+            }
+            
+            # For images, try to get base64 data for LLM
+            if is_image:
+                if file_obj.content:
+                    # Already have base64 in DB
+                    result["image_base64"] = file_obj.content
+                elif file_obj.image_url:
+                    # Need to fetch from URL and encode
+                    try:
+                        response = requests.get(file_obj.image_url, timeout=10)
+                        if response.status_code == 200:
+                            result["image_base64"] = base64.b64encode(response.content).decode('utf-8')
+                    except Exception as e:
+                        logger.warning(f"Could not fetch image from URL {file_obj.image_url}: {e}")
+                
+                # Determine media type
+                media_type = "image/png"
+                if filename.lower().endswith(('.jpg', '.jpeg')):
+                    media_type = "image/jpeg"
+                elif filename.lower().endswith('.gif'):
+                    media_type = "image/gif"
+                elif filename.lower().endswith('.webp'):
+                    media_type = "image/webp"
+                result["media_type"] = media_type
+            
+            return result
         finally:
             db.close()
     

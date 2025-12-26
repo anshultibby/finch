@@ -29,6 +29,9 @@ matplotlib==3.9.0
 supabase==2.9.0
 httpx==0.26.0  # Specific version compatible with supabase
 
+# HTTP requests
+requests==2.32.5
+
 # Web scraping
 beautifulsoup4==4.12.3
 
@@ -40,6 +43,9 @@ fmp-data==1.0.2  # Financial Modeling Prep - Modern Python client
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
+
+# TradingView Technical Analysis
+tradingview-ta==3.3.0
 
 # Observability (optional - for distributed tracing)
 # Uncomment these to enable OpenTelemetry + Jaeger visual traces:

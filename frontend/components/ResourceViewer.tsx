@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Resource } from '@/lib/api';
 
 // Dynamic import for Plotly (client-side only)
@@ -411,9 +413,11 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
             </div>
           </div>
           <div className="overflow-x-auto max-h-[600px] overflow-y-auto p-6">
-            <pre className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap font-sans">
-              {fileContent}
-            </pre>
+            <div className="prose prose-sm prose-slate max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {fileContent}
+              </ReactMarkdown>
+            </div>
           </div>
         </div>
       );

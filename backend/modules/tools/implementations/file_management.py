@@ -377,22 +377,61 @@ def read_chat_file_impl(
     context: AgentContext,
     filename: str
 ):
-    """Read file from chat directory"""
+    """
+    Read file from chat directory.
+    
+    For text files: returns content as string
+    For images: returns image data that can be viewed by the LLM (multimodal)
+    """
     from modules.resource_manager import resource_manager
     
     try:
-        content = resource_manager.read_chat_file(
+        # Use the new method that supports images
+        file_data = resource_manager.read_chat_file_with_metadata(
             context.user_id,
             context.chat_id,
             filename
         )
-        if content is None:
+        
+        if file_data is None:
             return {"success": False, "error": f"File '{filename}' not found"}
         
+        # For images, return image data for multimodal viewing
+        if file_data.get("is_image"):
+            if file_data.get("image_base64"):
+                return {
+                    "success": True,
+                    "filename": filename,
+                    "file_type": "image",
+                    "is_image": True,
+                    "image": {
+                        "type": "base64",
+                        "media_type": file_data.get("media_type", "image/png"),
+                        "data": file_data["image_base64"]
+                    },
+                    "message": f"Image '{filename}' loaded. I can now see the image content."
+                }
+            elif file_data.get("image_url"):
+                return {
+                    "success": True,
+                    "filename": filename,
+                    "file_type": "image",
+                    "is_image": True,
+                    "image_url": file_data["image_url"],
+                    "message": f"Image '{filename}' is available at URL but could not be loaded for viewing."
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Image '{filename}' exists but has no accessible content"
+                }
+        
+        # For text files, return content
         return {
             "success": True,
-            "content": content,
-            "filename": filename
+            "content": file_data.get("content", ""),
+            "filename": filename,
+            "file_type": file_data.get("file_type", "text")
         }
     except Exception as e:
         logger.error(f"Error reading chat file: {str(e)}", exc_info=True)

@@ -3,16 +3,33 @@ Chat API routes
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import Optional
 import uuid
 import asyncio
 
 from models import ChatMessage, ChatResponse
 from modules import ChatService
+from services.chat_title import generate_chat_title
+from database import AsyncSessionLocal
+from crud import chat_async
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+class GenerateTitleRequest(BaseModel):
+    """Request model for generating chat title"""
+    chat_id: str
+    first_message: str
+
+
+class GenerateTitleResponse(BaseModel):
+    """Response model for chat title generation"""
+    title: str
+    icon: str
 
 # Initialize chat service
 chat_service = ChatService()
@@ -30,6 +47,8 @@ async def send_chat_message_stream(chat_message: ChatMessage):
     - done: Stream is complete
     - error: An error occurred
     
+    Supports multimodal messages with optional image attachments.
+    
     Returns:
         StreamingResponse with text/event-stream content type
     """
@@ -40,13 +59,19 @@ async def send_chat_message_stream(chat_message: ChatMessage):
         if not chat_message.chat_id:
             raise HTTPException(status_code=400, detail="chat_id is required")
         
+        # Extract images if present (convert to list of dicts for service layer)
+        images = None
+        if chat_message.images:
+            images = [{"data": img.data, "media_type": img.media_type} for img in chat_message.images]
+        
         # Create streaming generator with explicit flushing
         async def event_generator():
             try:
                 async for sse_data in chat_service.send_message_stream(
                     message=chat_message.message,
                     chat_id=chat_message.chat_id,
-                    user_id=chat_message.user_id
+                    user_id=chat_message.user_id,
+                    images=images
                 ):
                     # Yield event immediately
                     yield sse_data
@@ -150,14 +175,35 @@ async def create_new_chat(data: dict):
     try:
         chat_id = str(uuid.uuid4())
         # Actually create the chat in DB
-        from database import AsyncSessionLocal
-        from crud import chat_async
         async with AsyncSessionLocal() as db:
             await chat_async.create_chat(db, chat_id, user_id)
         return {"chat_id": chat_id}
     except Exception as e:
         import traceback
         logger.error(f"Failed to create chat: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-title", response_model=GenerateTitleResponse)
+async def generate_title(request: GenerateTitleRequest):
+    """
+    Generate a title and icon for a chat based on the first message.
+    Uses LLM to create a descriptive title and matching emoji.
+    """
+    try:
+        # Generate title and icon using LLM
+        title, icon = await generate_chat_title(request.first_message)
+        
+        # Update the chat in database
+        async with AsyncSessionLocal() as db:
+            await chat_async.update_chat_title(db, request.chat_id, title, icon)
+        
+        return GenerateTitleResponse(title=title, icon=icon)
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to generate title: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 

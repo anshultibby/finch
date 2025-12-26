@@ -9,10 +9,21 @@ const api = axios.create({
   },
 });
 
+export interface ImageAttachment {
+  data: string;  // Base64-encoded image data (without data: prefix)
+  media_type: string;  // MIME type (image/png, image/jpeg, etc.)
+}
+
 export interface ChatMessage {
   message: string;
   user_id?: string;  // Supabase user ID
   chat_id?: string;
+  images?: ImageAttachment[];  // Optional image attachments for multimodal
+}
+
+export interface CodeOutput {
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface ToolCallStatus {
@@ -23,6 +34,7 @@ export interface ToolCallStatus {
   error?: string;
   result_summary?: string;
   statusMessage?: string; // User-friendly description provided by LLM via 'description' parameter
+  code_output?: CodeOutput; // Code execution output (stdout/stderr)
 }
 
 export interface ChatResponse {
@@ -49,6 +61,7 @@ export interface SSEToolCallCompleteEvent {
   resource_id?: string;
   error?: string;
   result_summary?: string;
+  code_output?: CodeOutput; // Code execution output (stdout/stderr)
   timestamp: string;
 }
 
@@ -105,6 +118,11 @@ export interface SSEToolLogEvent {
   timestamp: string;
 }
 
+export interface SSECodeOutputEvent {
+  stream: 'stdout' | 'stderr';
+  content: string;
+}
+
 export interface SSEMessageEndEvent {
   role: string;
   content: string;
@@ -128,6 +146,7 @@ export interface SSEEventHandlers {
   onToolStatus?: (event: SSEToolStatusEvent) => void;
   onToolProgress?: (event: SSEToolProgressEvent) => void;
   onToolLog?: (event: SSEToolLogEvent) => void;
+  onCodeOutput?: (event: SSECodeOutputEvent) => void;               // Real-time code execution output
   
   // Other events
   onOptions?: (event: SSEOptionsEvent) => void;
@@ -171,10 +190,21 @@ export interface UserChatsResponse {
   chats: Array<{
     chat_id: string;
     title: string | null;
+    icon: string | null;
     created_at: string;
     updated_at: string;
     last_message?: string;
   }>;
+}
+
+export interface GenerateTitleRequest {
+  chat_id: string;
+  first_message: string;
+}
+
+export interface GenerateTitleResponse {
+  title: string;
+  icon: string;
 }
 
 export interface ResourceMetadata {
@@ -209,12 +239,14 @@ export const chatApi = {
   /**
    * Send a message and receive streaming SSE events
    * This is the recommended way to send messages for real-time updates
+   * Supports multimodal messages with optional image attachments
    */
   sendMessageStream: (
     message: string,
     userId: string,
     chatId: string,
-    handlers: SSEEventHandlers
+    handlers: SSEEventHandlers,
+    images?: ImageAttachment[]
   ): EventSource => {
     // Create SSE connection
     const url = new URL('/chat/stream', API_BASE_URL);
@@ -223,17 +255,25 @@ export const chatApi = {
     // So we'll use fetch with stream processing instead
     const abortController = new AbortController();
     
+    // Build request body
+    const requestBody: ChatMessage = {
+      message,
+      user_id: userId,
+      chat_id: chatId,
+    };
+    
+    // Add images if provided
+    if (images && images.length > 0) {
+      requestBody.images = images;
+    }
+    
     // Start the fetch request
     fetch(url.toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        message,
-        user_id: userId,
-        chat_id: chatId,
-      }),
+      body: JSON.stringify(requestBody),
       signal: abortController.signal,
     })
       .then(async (response) => {
@@ -310,6 +350,9 @@ export const chatApi = {
                 case 'tool_log':
                   handlers.onToolLog?.(eventData as SSEToolLogEvent);
                   break;
+                case 'code_output':
+                  handlers.onCodeOutput?.(eventData as SSECodeOutputEvent);
+                  break;
                 case 'tool_options':
                   handlers.onOptions?.(eventData as SSEOptionsEvent);
                   break;
@@ -370,6 +413,14 @@ export const chatApi = {
   createChat: async (userId: string): Promise<string> => {
     const response = await api.post<{ chat_id: string }>('/chat/create', { user_id: userId });
     return response.data.chat_id;
+  },
+
+  generateTitle: async (chatId: string, firstMessage: string): Promise<GenerateTitleResponse> => {
+    const response = await api.post<GenerateTitleResponse>('/chat/generate-title', {
+      chat_id: chatId,
+      first_message: firstMessage,
+    });
+    return response.data;
   },
 
   healthCheck: async (): Promise<{ status: string }> => {

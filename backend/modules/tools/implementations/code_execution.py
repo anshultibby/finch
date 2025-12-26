@@ -21,41 +21,9 @@ from pathlib import Path
 from datetime import datetime
 import json
 import time
+import asyncio
 
 logger = get_logger(__name__)
-
-
-def _wrap_code_for_notebook_mode(user_code: str) -> str:
-    """
-    Wrap user code with state persistence logic for notebook mode.
-    
-    Loads state from .finch_state.pkl before execution,
-    saves state after execution.
-    
-    This allows variables, imports, and functions to persist
-    between execute_code calls (like Jupyter cells).
-    
-    CRITICAL: State file is saved in working directory so it gets
-    synced back to DB by VirtualFilesystem.sync_changes()
-    """
-    load_state = '''import pickle as __p, os as __o
-if __o.path.exists('.finch_state.pkl'):
-    try:
-        with open('.finch_state.pkl', 'rb') as __f: globals().update(__p.load(__f))
-    except: pass
-
-'''
-    
-    save_state = '''
-try:
-    with open('.finch_state.pkl', 'wb') as __f:
-        __p.dump({k: v for k, v in globals().items() 
-                 if not k.startswith('_') and k not in ['pickle', 'os', 'sys']
-                 and __p.dumps(v) or True}, __f)
-except: pass
-'''
-    
-    return load_state + user_code + save_state
 
 
 def _save_code_execution_log(
@@ -109,19 +77,24 @@ def _save_code_execution_log(
 
 
 class ExecuteCodeParams(BaseModel):
-    """Execute Python code"""
+    """Execute Python code - provide either 'code' or 'filename' parameter"""
     code: Optional[str] = Field(
-        None,
+        default=None,
         description="Python code to execute directly in sandbox (provide this OR filename). Code runs immediately without creating any file - only output files are saved."
     )
     filename: Optional[str] = Field(
-        None,
+        default=None,
         description="Filename of saved code in chat directory to execute (provide this OR code). This runs an existing saved file from the filesystem."
     )
-    mode: Optional[str] = Field(
-        "isolated",
-        description="Execution mode: 'isolated' (default, fresh process each time) or 'notebook' (persistent state like Jupyter)"
-    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "anyOf": [
+                {"required": ["code"]},
+                {"required": ["filename"]}
+            ]
+        }
+    }
 
 
 class VirtualFilesystem:
@@ -162,7 +135,9 @@ class VirtualFilesystem:
         # Exclude finch_runtime from sync - this is a system file, not a user file
         self.exclude_from_sync.add('finch_runtime.py')
         
-        # Note: .finch_state.pkl is NOT excluded - it's a user file that persists notebook state
+        # Mount servers directory (progressive disclosure - Anthropic pattern)
+        self._mount_servers()
+        self.exclude_from_sync.add('servers')
         
         # Load all existing chat files from DB
         chat_files = resource_manager.list_chat_files(
@@ -278,13 +253,26 @@ class VirtualFilesystem:
         """
         Mount finch_runtime.py into the temp filesystem for discoverability.
         
+        PROGRESSIVE DISCLOSURE IMPLEMENTATION:
+        This method implements the key pattern from Anthropic's MCP article:
+        
+        1. Query MCP servers for available tools (dynamic discovery)
+        2. Generate finch_runtime.py with all APIs documented
+        3. Agent reads the module to understand what's available
+        4. Only the MODULE DEFINITION loads into context, not tool results
+        5. Agent writes code to call specific tools as needed
+        
         This allows the LLM to:
         1. See that finch_runtime exists when exploring the filesystem
         2. Read the source code to discover available methods
         3. Understand the API without relying solely on tool description
+        
+        Key insight: Tool DEFINITIONS are cheap (few KB), tool RESULTS are expensive.
+        By loading definitions on-demand from filesystem, we avoid bloating context.
         """
         try:
-            # Get path to finch_runtime.py
+            # Option 1: Use static finch_runtime.py (current approach)
+            # Good for: Stability, offline development, known APIs
             tools_dir = os.path.join(os.path.dirname(__file__), '..')
             finch_runtime_path = os.path.join(tools_dir, 'finch_runtime.py')
             
@@ -299,8 +287,50 @@ class VirtualFilesystem:
                     f.write(content)
                 
                 logger.info("Mounted finch_runtime.py for progressive discovery")
+            
+            # Option 2: Generate from MCP servers dynamically (future enhancement)
+            # Good for: Auto-updating as servers change, true progressive disclosure
+            # Uncomment when MCP servers are implemented:
+            #
+            # from modules.tools.mcp_runtime_generator import generate_runtime_sync
+            # dest_path = os.path.join(self.temp_dir, 'finch_runtime.py')
+            # generate_runtime_sync(dest_path)
+            # logger.info("Generated finch_runtime.py from MCP servers")
+            
         except Exception as e:
             logger.warning(f"Failed to mount finch_runtime.py: {e}")
+    
+    def _mount_servers(self):
+        """
+        Mount servers/ directory for progressive disclosure.
+        
+        Implements Anthropic's MCP pattern:
+        - One directory per server (fmp, polygon, reddit)
+        - One Python file per API endpoint
+        - Agent discovers by exploring filesystem
+        - Loads only what it needs (98% token savings!)
+        """
+        try:
+            # Path to servers directory
+            tools_dir = os.path.join(os.path.dirname(__file__), '..')
+            servers_source = os.path.join(tools_dir, 'servers')
+            
+            if not os.path.exists(servers_source):
+                logger.debug("No servers directory found - skipping mount")
+                return
+            
+            # Copy entire servers directory to VFS
+            servers_dest = os.path.join(self.temp_dir, 'servers')
+            shutil.copytree(servers_source, servers_dest)
+            
+            # Count what was mounted
+            server_count = len([d for d in os.listdir(servers_dest) 
+                              if os.path.isdir(os.path.join(servers_dest, d))])
+            
+            logger.info(f"Mounted servers directory with {server_count} API servers for progressive discovery")
+            
+        except Exception as e:
+            logger.warning(f"Failed to mount servers directory: {e}")
     
     @staticmethod
     def _format_tool_docs(tool) -> str:
@@ -454,12 +484,9 @@ async def execute_code_impl(
     """Execute Python code with virtual persistent filesystem"""
     from modules.resource_manager import resource_manager
     
-    # Determine execution mode
-    exec_mode = params.mode or "isolated"
-    
     yield SSEEvent(event="tool_status", data={
         "status": "loading",
-        "message": f"Setting up environment ({'notebook mode' if exec_mode == 'notebook' else 'isolated mode'})..."
+        "message": "Setting up environment..."
     })
     
     vfs = VirtualFilesystem(context.user_id, context.chat_id)
@@ -476,17 +503,6 @@ async def execute_code_impl(
             code = params.code
             source = "inline code"
             execution_mode = "inline"
-            
-            # Check for special kernel commands in notebook mode
-            if exec_mode == "notebook" and code.strip() == "__reset_kernel__":
-                # Reset kernel by deleting state file
-                try:
-                    resource_manager.delete_chat_file(context.user_id, context.chat_id, ".finch_state.pkl")
-                    yield {"success": True, "message": "♻️ Kernel state reset - starting fresh!"}
-                    return
-                except:
-                    yield {"success": True, "message": "♻️ Kernel state reset (no previous state)"}
-                    return
                     
         elif params.filename:
             # File-based execution - run existing file from VFS
@@ -503,10 +519,6 @@ async def execute_code_impl(
         else:
             yield {"success": False, "error": "Provide either 'code' or 'filename'"}
             return
-        
-        # Wrap code for notebook mode (state persistence)
-        if exec_mode == "notebook":
-            code = _wrap_code_for_notebook_mode(code)
         
         # Setup virtual filesystem (mount existing files)
         temp_dir = vfs.setup()
@@ -583,22 +595,128 @@ async def execute_code_impl(
             env['LOG_LEVEL'] = 'ERROR'  # Only show ERROR logs, suppress INFO/DEBUG
             env['CODE_SANDBOX'] = 'true'  # Flag to indicate we're in sandbox (for future use)
             
-            # Execute with subprocess
-            result = subprocess.run(
+            # Execute with subprocess - streaming mode for real-time output
+            import select
+            
+            process = subprocess.Popen(
                 ['python', script_path],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=60,
                 cwd=temp_dir,
-                env=env
+                env=env,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+            
+            # Stream stdout/stderr in real-time
+            stdout_lines = []
+            stderr_lines = []
+            start_time = time.time()
+            
+            # Use select to read from both stdout and stderr
+            import os as os_module
+            # Set non-blocking mode for pipes
+            import fcntl
+            fd_stdout = process.stdout.fileno()
+            fd_stderr = process.stderr.fileno()
+            fl_stdout = fcntl.fcntl(fd_stdout, fcntl.F_GETFL)
+            fl_stderr = fcntl.fcntl(fd_stderr, fcntl.F_GETFL)
+            fcntl.fcntl(fd_stdout, fcntl.F_SETFL, fl_stdout | os_module.O_NONBLOCK)
+            fcntl.fcntl(fd_stderr, fcntl.F_SETFL, fl_stderr | os_module.O_NONBLOCK)
+            
+            timeout_seconds = 60
+            last_output_time = time.time()
+            
+            while True:
+                # Check timeout
+                if time.time() - start_time > timeout_seconds:
+                    process.kill()
+                    process.wait()
+                    raise subprocess.TimeoutExpired(process.args, timeout_seconds)
+                
+                # Check if process has finished
+                returncode = process.poll()
+                
+                # Try to read from stdout
+                try:
+                    line = process.stdout.readline()
+                    if line:
+                        stdout_lines.append(line)
+                        last_output_time = time.time()
+                        # Stream to frontend - use code_output event for real-time streaming
+                        yield SSEEvent(event="code_output", data={
+                            "stream": "stdout",
+                            "content": line.rstrip()
+                        })
+                        logger.info(f"STDOUT: {line.rstrip()}")
+                except:
+                    pass
+                
+                # Try to read from stderr
+                try:
+                    line = process.stderr.readline()
+                    if line:
+                        stderr_lines.append(line)
+                        last_output_time = time.time()
+                        # Stream to frontend - use code_output event for real-time streaming
+                        yield SSEEvent(event="code_output", data={
+                            "stream": "stderr",
+                            "content": line.rstrip()
+                        })
+                        logger.warning(f"STDERR: {line.rstrip()}")
+                except:
+                    pass
+                
+                # If process finished and no more output, break
+                if returncode is not None:
+                    # Read any remaining output
+                    try:
+                        remaining_stdout = process.stdout.read()
+                        if remaining_stdout:
+                            for line in remaining_stdout.splitlines(keepends=True):
+                                stdout_lines.append(line)
+                                yield SSEEvent(event="code_output", data={
+                                    "stream": "stdout",
+                                    "content": line.rstrip()
+                                })
+                                logger.info(f"STDOUT: {line.rstrip()}")
+                    except:
+                        pass
+                    
+                    try:
+                        remaining_stderr = process.stderr.read()
+                        if remaining_stderr:
+                            for line in remaining_stderr.splitlines(keepends=True):
+                                stderr_lines.append(line)
+                                yield SSEEvent(event="code_output", data={
+                                    "stream": "stderr",
+                                    "content": line.rstrip()
+                                })
+                                logger.warning(f"STDERR: {line.rstrip()}")
+                    except:
+                        pass
+                    
+                    break
+                
+                # Small sleep to avoid busy waiting
+                await asyncio.sleep(0.01)
+            
+            # Build result object to match subprocess.run() interface
+            class Result:
+                def __init__(self, returncode, stdout, stderr):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                    self.stderr = stderr
+            
+            result = Result(
+                returncode=returncode,
+                stdout=''.join(stdout_lines),
+                stderr=''.join(stderr_lines)
             )
             
             # Log execution output to console for debugging
             logger.info(f"Code execution completed with exit code: {result.returncode}")
-            if result.stdout:
-                logger.info(f"STDOUT:\n{result.stdout}")
-            if result.stderr:
-                logger.warning(f"STDERR:\n{result.stderr}")
             
             # Sync changes back to database
             changes = vfs.sync_changes()

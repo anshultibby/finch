@@ -5,11 +5,18 @@ from pydantic import BaseModel
 from typing import Optional, Literal, List, Dict, Any
 
 
+class ImageAttachment(BaseModel):
+    """Image attachment for multimodal messages"""
+    data: str  # Base64-encoded image data
+    media_type: str = "image/png"  # MIME type (image/png, image/jpeg, etc.)
+
+
 class ChatMessage(BaseModel):
     """Request model for sending a chat message"""
     message: str
     user_id: Optional[str] = None  # Supabase user ID
     chat_id: Optional[str] = None
+    images: Optional[List[ImageAttachment]] = None  # Optional image attachments for multimodal
 
 
 class ChatResponse(BaseModel):

@@ -9,10 +9,6 @@ from modules.agent.context import AgentContext
 
 # Import tool descriptions
 from modules.tools.descriptions import (
-    # Portfolio
-    GET_PORTFOLIO_DESC, REQUEST_BROKERAGE_CONNECTION_DESC,
-    # Planning
-    CREATE_PLAN_DESC, ADVANCE_PLAN_DESC,
     # Control
     IDLE_DESC,
     # Code Execution (Universal Interface)
@@ -24,56 +20,8 @@ from modules.tools.descriptions import (
 )
 
 # Import implementations
-from modules.tools.implementations import planning, portfolio
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder
-
-
-# ============================================================================
-# PLANNING TOOLS
-# ============================================================================
-
-@tool(
-    description=CREATE_PLAN_DESC,
-    category="planning"
-)
-def create_plan(*, context: AgentContext, goal: str, phases: List[dict]):
-    """Create a structured plan for complex tasks"""
-    return planning.create_plan_impl(context, goal, phases)
-
-
-@tool(
-    description=ADVANCE_PLAN_DESC,
-    category="planning"
-)
-def advance_plan(*, context: AgentContext):
-    """Advance to the next phase in the plan"""
-    return planning.advance_plan_impl(context)
-
-
-# ============================================================================
-# PORTFOLIO & BROKERAGE TOOLS
-# ============================================================================
-
-@tool(
-    description=GET_PORTFOLIO_DESC,
-    category="portfolio",
-    requires_auth=True
-)
-async def get_portfolio(*, context: AgentContext):
-    """Get user's portfolio holdings"""
-    async for item in portfolio.get_portfolio_impl(context):
-        yield item
-
-
-@tool(
-    description=REQUEST_BROKERAGE_CONNECTION_DESC,
-    category="portfolio",
-    requires_auth=False
-)
-def request_brokerage_connection(*, context: AgentContext) -> Dict[str, Any]:
-    """Request user to connect their brokerage account"""
-    return portfolio.request_brokerage_connection_impl(context)
 
 
 # ============================================================================
@@ -107,8 +55,20 @@ def idle(*, context: AgentContext) -> Dict[str, Any]:
     description=EXECUTE_CODE_DESC,
     category="code"
 )
-async def execute_code(*, params: code_execution.ExecuteCodeParams, context: AgentContext):
-    """Execute Python code with virtual persistent filesystem"""
+async def execute_code(
+    *, 
+    code: Optional[str] = None,
+    filename: Optional[str] = None,
+    context: AgentContext
+):
+    """Execute Python code with virtual persistent filesystem
+    
+    Args:
+        code: Python code to execute directly (provide this OR filename)
+        filename: Filename of saved code to execute (provide this OR code)
+    """
+    # Construct params object for implementation
+    params = code_execution.ExecuteCodeParams(code=code, filename=filename)
     async for item in code_execution.execute_code_impl(params, context):
         yield item
 
@@ -168,10 +128,6 @@ async def build_custom_etf(*, params: etf_builder.BuildCustomETFParams, context:
 # ============================================================================
 
 __all__ = [
-    # Planning
-    'create_plan', 'advance_plan',
-    # Portfolio
-    'get_portfolio', 'request_brokerage_connection',
     # Control
     'idle',
     # Code Execution (Universal Interface)

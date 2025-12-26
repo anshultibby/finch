@@ -64,13 +64,14 @@ class Chat(Base):
     
     # Chat metadata
     title = Column(String, nullable=True)  # Auto-generated or user-set title
+    icon = Column(String(10), nullable=True)  # Emoji icon for the chat (LLM-generated)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<Chat(chat_id='{self.chat_id}', user_id='{self.user_id}', title='{self.title}')>"
+        return f"<Chat(chat_id='{self.chat_id}', user_id='{self.user_id}', title='{self.title}', icon='{self.icon}')>"
 
 
 class ChatMessage(Base):

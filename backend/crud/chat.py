@@ -9,12 +9,13 @@ from datetime import datetime
 
 # Chat operations
 
-def create_chat(db: Session, chat_id: str, user_id: str, title: Optional[str] = None) -> Chat:
+def create_chat(db: Session, chat_id: str, user_id: str, title: Optional[str] = None, icon: Optional[str] = None) -> Chat:
     """Create a new chat session"""
     db_chat = Chat(
         chat_id=chat_id,
         user_id=user_id,
-        title=title
+        title=title,
+        icon=icon
     )
     db.add(db_chat)
     db.commit()
@@ -28,19 +29,21 @@ def get_chat(db: Session, chat_id: str) -> Optional[Chat]:
 
 
 def get_user_chats(db: Session, user_id: str, limit: int = 50) -> List[Chat]:
-    """Get all chats for a user, ordered by most recently updated"""
+    """Get all chats for a user, ordered by most recently created"""
     return db.query(Chat).filter(
         Chat.user_id == user_id
     ).order_by(
-        Chat.updated_at.desc()
+        Chat.created_at.desc()
     ).limit(limit).all()
 
 
-def update_chat_title(db: Session, chat_id: str, title: str) -> Optional[Chat]:
-    """Update a chat's title"""
+def update_chat_title(db: Session, chat_id: str, title: str, icon: Optional[str] = None) -> Optional[Chat]:
+    """Update a chat's title and optionally its icon"""
     db_chat = get_chat(db, chat_id)
     if db_chat:
         db_chat.title = title
+        if icon is not None:
+            db_chat.icon = icon
         db_chat.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(db_chat)

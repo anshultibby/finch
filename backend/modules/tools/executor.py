@@ -596,6 +596,15 @@ class ToolExecutor:
                 # Show first 500 chars of the truncated result as a preview
                 result_summary = result.truncated_result[:500] if len(result.truncated_result) > 500 else result.truncated_result
             
+            # Extract code output if this is execute_code tool
+            code_output = None
+            if result.tool_name == "execute_code" and isinstance(result.raw_result, dict):
+                stdout = result.raw_result.get("stdout")
+                stderr = result.raw_result.get("stderr")
+                if stdout or stderr:
+                    from models.sse import CodeOutput
+                    code_output = CodeOutput(stdout=stdout, stderr=stderr).model_dump()
+            
             yield SSEEvent(
                 event="tool_call_complete",
                 data={
@@ -603,7 +612,8 @@ class ToolExecutor:
                     "tool_name": result.tool_name,
                     "status": "completed" if result.success else "error",
                     "error": result.error,
-                    "result_summary": result_summary
+                    "result_summary": result_summary,
+                    "code_output": code_output
                 }
             )
         
@@ -613,11 +623,33 @@ class ToolExecutor:
         execution_results = []
         
         for result in results:
+            # Check if result contains image data for multimodal
+            content = result.truncated_result
+            
+            if result.raw_result and isinstance(result.raw_result, dict):
+                image_data = result.raw_result.get("image")
+                if image_data and isinstance(image_data, dict) and image_data.get("type") == "base64":
+                    # Build multimodal content for Claude - image + text context
+                    content = [
+                        {
+                            "type": "text",
+                            "text": f"Image file '{result.raw_result.get('filename', 'unknown')}' contents:"
+                        },
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": image_data.get("media_type", "image/png"),
+                                "data": image_data.get("data", "")
+                            }
+                        }
+                    ]
+            
             tool_messages.append({
                 "role": "tool",
                 "tool_call_id": result.tool_call_id,
                 "name": result.tool_name,
-                "content": result.truncated_result
+                "content": content
             })
             
             execution_results.append({

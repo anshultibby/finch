@@ -159,7 +159,7 @@ class ToolTracer(BaseTracer):
     Usage:
         tool_tracer = ToolTracer(user_id=user_id, chat_id=chat_id)
         
-        with tool_tracer.execution(tool_name="get_portfolio", category="data"):
+        with tool_tracer.execution(tool_name="execute_code", category="code"):
             # Execute tool
             result = await tool.handler(**kwargs)
             tool_tracer.record_success(duration_ms=100)

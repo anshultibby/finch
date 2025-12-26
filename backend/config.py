@@ -60,7 +60,7 @@ class Config:
     # CORS - Parse comma-separated origins, with production defaults
     CORS_ORIGINS = os.getenv(
         "CORS_ORIGINS", 
-        "http://localhost:3000,http://localhost:3001,https://finch-omega.vercel.app"
+        "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,https://finch-omega.vercel.app"
     ).split(",")
     
     # LangFuse (optional - for LLM observability)
