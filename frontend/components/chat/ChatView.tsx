@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
 import ChatModeBanner from './ChatModeBanner';
@@ -27,32 +27,43 @@ import {
   FileContent
 } from '@/lib/api';
 
+// Per-chat state stored in refs (persists across chat switches)
+interface ChatStreamState {
+  messages: Message[];
+  streamingText: string;
+  streamingTools: ToolCallStatus[];
+  isLoading: boolean;
+  error: string | null;
+  pendingOptions: SSEOptionsEvent | null;
+  resources: Resource[];
+  stream: { close: () => void } | null;
+}
+
 export default function ChatView() {
   const { user } = useAuth();
   const { mode } = useChatMode();
   
-  // Core state
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [chatId, setChatId] = useState<string | null>(null);
-  const [isNewChat, setIsNewChat] = useState(false); // True when in new chat mode (not yet in DB)
-  const [isCreatingChat, setIsCreatingChat] = useState(false); // True while creating chat + generating title
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Current chat being viewed
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [isNewChat, setIsNewChat] = useState(false);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
   
-  // Streaming state
+  // Display state (reflects the currently viewed chat)
+  const [messages, setMessages] = useState<Message[]>([]);
   const [streamingText, setStreamingText] = useState('');
   const [streamingTools, setStreamingTools] = useState<ToolCallStatus[]>([]);
-  const streamingTextRef = useRef('');
-  const streamingToolsRef = useRef<ToolCallStatus[]>([]);
-  const activeStreamRef = useRef<{ close: () => void } | null>(null);
-  const activeStreamChatIdRef = useRef<string | null>(null); // Track which chat the stream belongs to
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
+  const [resources, setResources] = useState<Resource[]>([]);
   
-  // Computer panel state (unified for both terminal and file viewing)
+  // Per-chat state storage (keyed by chatId)
+  const chatStatesRef = useRef<Map<string, ChatStreamState>>(new Map());
+  
+  // Computer panel state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
   
-  // Other state
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
+  // UI state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isResourcesOpen, setIsResourcesOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
@@ -60,12 +71,69 @@ export default function ChatView() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const skipNextHistoryLoad = useRef(false);
 
   const userId = user?.id || null;
 
-  // Auto-select streaming tool with output (code or file)
+  // Get or create chat state
+  const getChatState = useCallback((chatId: string): ChatStreamState => {
+    if (!chatStatesRef.current.has(chatId)) {
+      chatStatesRef.current.set(chatId, {
+        messages: [],
+        streamingText: '',
+        streamingTools: [],
+        isLoading: false,
+        error: null,
+        pendingOptions: null,
+        resources: [],
+        stream: null,
+      });
+    }
+    return chatStatesRef.current.get(chatId)!;
+  }, []);
+
+  // Update chat state and sync to display if it's the current chat
+  const updateChatState = useCallback((chatId: string, updates: Partial<ChatStreamState>) => {
+    const state = getChatState(chatId);
+    Object.assign(state, updates);
+    
+    // If this is the currently viewed chat, update display state
+    if (chatId === currentChatId) {
+      if ('messages' in updates) setMessages(state.messages);
+      if ('streamingText' in updates) setStreamingText(state.streamingText);
+      if ('streamingTools' in updates) setStreamingTools(state.streamingTools);
+      if ('isLoading' in updates) setIsLoading(state.isLoading);
+      if ('error' in updates) setError(state.error);
+      if ('pendingOptions' in updates) setPendingOptions(state.pendingOptions);
+      if ('resources' in updates) setResources(state.resources);
+    }
+  }, [currentChatId, getChatState]);
+
+  // Sync display state when switching chats
+  const syncDisplayToChat = useCallback((chatId: string | null) => {
+    if (!chatId) {
+      setMessages([]);
+      setStreamingText('');
+      setStreamingTools([]);
+      setIsLoading(false);
+      setError(null);
+      setPendingOptions(null);
+      setResources([]);
+      return;
+    }
+    
+    const state = getChatState(chatId);
+    setMessages(state.messages);
+    setStreamingText(state.streamingText);
+    setStreamingTools(state.streamingTools);
+    setIsLoading(state.isLoading);
+    setError(state.error);
+    setPendingOptions(state.pendingOptions);
+    setResources(state.resources);
+  }, [getChatState]);
+
+  // Auto-select streaming tool with output
   useEffect(() => {
-    // Check for streaming code tool with output
     const streamingCodeTool = streamingTools.find(
       t => t.status === 'calling' && 
       (t.tool_name === 'execute_code' || t.tool_name === 'run_python') &&
@@ -77,7 +145,6 @@ export default function ChatView() {
       return;
     }
     
-    // Check for streaming file tool with content (write or edit)
     const streamingFileTool = streamingTools.find(
       t => t.status === 'calling' && 
       (t.tool_name === 'write_chat_file' || t.tool_name === 'replace_in_chat_file') &&
@@ -89,7 +156,7 @@ export default function ChatView() {
     }
   }, [streamingTools]);
 
-  // Update selected tool when streaming tools change (for live output)
+  // Update selected tool when streaming tools change
   useEffect(() => {
     if (selectedTool) {
       const updated = streamingTools.find(t => t.tool_call_id === selectedTool.tool_call_id);
@@ -107,18 +174,15 @@ export default function ChatView() {
       try {
         const response = await chatApi.getUserChats(userId);
         if (response.chats && response.chats.length > 0) {
-          // Load the most recent chat
-          setChatId(response.chats[0].chat_id);
+          setCurrentChatId(response.chats[0].chat_id);
           setIsNewChat(false);
         } else {
-          // No chats exist - start in new chat mode (don't create in DB yet)
-          setChatId(null);
+          setCurrentChatId(null);
           setIsNewChat(true);
         }
       } catch (err) {
         console.error('Error initializing chat:', err);
-        // On error, start fresh with new chat mode
-        setChatId(null);
+        setCurrentChatId(null);
         setIsNewChat(true);
       }
     };
@@ -126,38 +190,52 @@ export default function ChatView() {
     initializeChat();
   }, [userId]);
 
-  // Load chat history (only when switching to existing chat, not when creating new)
-  const skipNextHistoryLoad = useRef(false);
-  
+  // Load chat history when switching to a chat
   useEffect(() => {
     const loadChatData = async () => {
-      if (!chatId) return;
+      if (!currentChatId) return;
       
-      // Skip loading history if we just created this chat (we're about to send a message)
       if (skipNextHistoryLoad.current) {
         skipNextHistoryLoad.current = false;
         return;
       }
       
+      const state = getChatState(currentChatId);
+      
+      // If this chat is currently streaming, just sync the display
+      if (state.isLoading || state.stream) {
+        syncDisplayToChat(currentChatId);
+        return;
+      }
+      
+      // If we already have messages loaded and no active stream, use cached state
+      if (state.messages.length > 0) {
+        syncDisplayToChat(currentChatId);
+        return;
+      }
+      
       try {
-        const displayData = await chatApi.getChatHistoryForDisplay(chatId);
+        const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
         const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
           role: msg.role,
           content: msg.content,
           timestamp: msg.timestamp || new Date().toISOString(),
           toolCalls: msg.tool_calls
         }));
-        setMessages(loadedMessages);
         
-        const chatResources = await resourcesApi.getChatResources(chatId);
-        setResources(chatResources);
+        const chatResources = await resourcesApi.getChatResources(currentChatId);
+        
+        updateChatState(currentChatId, {
+          messages: loadedMessages,
+          resources: chatResources,
+        });
       } catch (err) {
         console.error('Error loading chat data:', err);
       }
     };
     
     loadChatData();
-  }, [chatId]);
+  }, [currentChatId, getChatState, syncDisplayToChat, updateChatState]);
 
   // Check portfolio connection
   useEffect(() => {
@@ -173,67 +251,78 @@ export default function ChatView() {
     checkConnection();
   }, [userId]);
 
-  // Stop the current stream and save partial state
-  const stopCurrentStream = (savePartialResponse: boolean = false) => {
-    if (activeStreamRef.current) {
-      activeStreamRef.current.close();
-      activeStreamRef.current = null;
+  // Stop a specific chat's stream
+  const stopChatStream = useCallback((chatId: string, savePartialResponse: boolean = false) => {
+    const state = getChatState(chatId);
+    
+    if (state.stream) {
+      state.stream.close();
     }
     
     if (savePartialResponse) {
-      // Save any accumulated tools as a partial message
-      const tools = streamingToolsRef.current;
-      const text = streamingTextRef.current;
+      const newMessages = [...state.messages];
       
-      if (tools.length > 0) {
-        setMessages(prev => [...prev, {
+      if (state.streamingTools.length > 0) {
+        newMessages.push({
           role: 'assistant',
           content: '',
           timestamp: new Date().toISOString(),
-          toolCalls: tools.map(t => ({ ...t, status: t.status === 'calling' ? 'completed' : t.status })),
-        }]);
+          toolCalls: state.streamingTools.map(t => ({ 
+            ...t, 
+            status: t.status === 'calling' ? 'completed' : t.status 
+          })),
+        });
       }
       
-      if (text) {
-        setMessages(prev => [...prev, {
+      if (state.streamingText) {
+        newMessages.push({
           role: 'assistant',
-          content: text + ' [interrupted]',
+          content: state.streamingText + ' [interrupted]',
           timestamp: new Date().toISOString(),
-        }]);
+        });
       }
+      
+      updateChatState(chatId, {
+        messages: newMessages,
+        streamingText: '',
+        streamingTools: [],
+        isLoading: false,
+        stream: null,
+      });
+    } else {
+      updateChatState(chatId, {
+        streamingText: '',
+        streamingTools: [],
+        isLoading: false,
+        stream: null,
+      });
     }
-    
-    // Clear streaming state
-    streamingTextRef.current = '';
-    streamingToolsRef.current = [];
-    setStreamingText('');
-    setStreamingTools([]);
-    setIsLoading(false);
-  };
+  }, [getChatState, updateChatState]);
 
   const handleSendMessage = async (content: string, images?: ImageAttachment[]) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
     
     const trimmedContent = content.trim();
-    let activeChatId = chatId;
+    let targetChatId = currentChatId;
 
-    // If currently streaming, interrupt it
-    if (isLoading && activeStreamRef.current) {
-      stopCurrentStream(true);
+    // If currently streaming in this chat, interrupt it
+    if (targetChatId && getChatState(targetChatId).isLoading) {
+      stopChatStream(targetChatId, true);
     }
 
-    // Handle new chat: create chat in DB, generate title, then send message
-    if (isNewChat || !chatId) {
+    // Handle new chat creation
+    if (isNewChat || !currentChatId) {
       setIsCreatingChat(true);
       try {
-        // Create the chat
         const newChatId = await chatApi.createChat(userId);
-        activeChatId = newChatId;
-        skipNextHistoryLoad.current = true; // Don't reload empty history, we're about to add a message
-        setChatId(newChatId);
+        targetChatId = newChatId;
+        skipNextHistoryLoad.current = true;
+        setCurrentChatId(newChatId);
         setIsNewChat(false);
         
-        // Generate title immediately (don't await - let sidebar update when ready)
+        // Initialize state for new chat
+        getChatState(newChatId);
+        
         chatApi.generateTitle(newChatId, trimmedContent)
           .then(() => {
             setIsCreatingChat(false);
@@ -252,9 +341,8 @@ export default function ChatView() {
       }
     }
 
-    if (!activeChatId) return;
+    if (!targetChatId) return;
 
-    // Show image indicator in user message display
     const displayContent = trimmedContent + (images && images.length > 0 ? ` [${images.length} image${images.length > 1 ? 's' : ''} attached]` : '');
 
     const userMessage: Message = {
@@ -262,63 +350,62 @@ export default function ChatView() {
       content: displayContent,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
-    setError(null);
-    
-    streamingTextRef.current = '';
-    streamingToolsRef.current = [];
-    setStreamingText('');
-    setStreamingTools([]);
-    
-    // Store images for API call
+
+    const state = getChatState(targetChatId);
+    updateChatState(targetChatId, {
+      messages: [...state.messages, userMessage],
+      streamingText: '',
+      streamingTools: [],
+      isLoading: true,
+      error: null,
+    });
+
     const attachedImages = images;
 
-    const saveAccumulatedTools = () => {
-      const tools = streamingToolsRef.current;
-      if (tools.length > 0) {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: '',
-          timestamp: new Date().toISOString(),
-          toolCalls: [...tools],
-        }]);
-        streamingToolsRef.current = [];
-        setStreamingTools([]);
+    // Helper to save accumulated tools to messages
+    const saveAccumulatedTools = (chatId: string) => {
+      const s = getChatState(chatId);
+      if (s.streamingTools.length > 0) {
+        updateChatState(chatId, {
+          messages: [...s.messages, {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            toolCalls: [...s.streamingTools],
+          }],
+          streamingTools: [],
+        });
       }
     };
 
-    // Track which chat this stream belongs to
-    activeStreamChatIdRef.current = activeChatId;
-    
-    // Helper to check if we're still viewing this chat
-    const isCurrentChat = () => activeStreamChatIdRef.current === activeChatId;
-    
     try {
-      const stream = chatApi.sendMessageStream(trimmedContent, userId, activeChatId, {
+      const stream = chatApi.sendMessageStream(trimmedContent, userId, targetChatId, {
         onMessageDelta: (event) => {
-          streamingTextRef.current += event.delta;
-          if (isCurrentChat()) {
-            setStreamingText(streamingTextRef.current);
-          }
+          const s = getChatState(targetChatId);
+          updateChatState(targetChatId, {
+            streamingText: s.streamingText + event.delta,
+          });
         },
         
         onMessageEnd: (event) => {
-          if (event.content && isCurrentChat()) {
-            setMessages(prev => [...prev, {
-              role: 'assistant',
-              content: event.content,
-              timestamp: event.timestamp,
-            }]);
-          }
-          streamingTextRef.current = '';
-          if (isCurrentChat()) {
-            setStreamingText('');
+          if (event.content) {
+            const s = getChatState(targetChatId);
+            updateChatState(targetChatId, {
+              messages: [...s.messages, {
+                role: 'assistant',
+                content: event.content,
+                timestamp: event.timestamp,
+              }],
+              streamingText: '',
+            });
+          } else {
+            updateChatState(targetChatId, { streamingText: '' });
           }
         },
         
         onToolCallStart: (event: SSEToolCallStartEvent) => {
-          if (streamingToolsRef.current.some(t => t.tool_call_id === event.tool_call_id)) {
+          const s = getChatState(targetChatId);
+          if (s.streamingTools.some(t => t.tool_call_id === event.tool_call_id)) {
             return;
           }
           const newTool: ToolCallStatus = {
@@ -328,191 +415,164 @@ export default function ChatView() {
             statusMessage: event.user_description || event.tool_name,
             arguments: event.arguments,
           };
-          streamingToolsRef.current = [...streamingToolsRef.current, newTool];
-          if (isCurrentChat()) {
-            setStreamingTools([...streamingToolsRef.current]);
-          }
+          updateChatState(targetChatId, {
+            streamingTools: [...s.streamingTools, newTool],
+          });
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
-          streamingToolsRef.current = streamingToolsRef.current.map(t => {
-            if (t.tool_call_id === event.tool_call_id) {
-              const hasStreamedOutput = t.code_output && (t.code_output.stdout || t.code_output.stderr);
-              return { 
-                ...t, 
-                status: event.status, 
-                error: event.error, 
-                code_output: hasStreamedOutput ? t.code_output : event.code_output 
-              };
-            }
-            return t;
-          });
-          if (isCurrentChat()) {
-            setStreamingTools([...streamingToolsRef.current]);
-          }
-        },
-        
-        onCodeOutput: (event) => {
-          const executeCodeTools = streamingToolsRef.current.filter(t => t.tool_name === 'execute_code');
-          if (executeCodeTools.length > 0) {
-            const latestTool = executeCodeTools[executeCodeTools.length - 1];
-            streamingToolsRef.current = streamingToolsRef.current.map(t => {
-              if (t.tool_call_id === latestTool.tool_call_id) {
-                const currentOutput = t.code_output || { stdout: '', stderr: '' };
-                return {
-                  ...t,
-                  code_output: {
-                    stdout: event.stream === 'stdout' 
-                      ? (currentOutput.stdout || '') + event.content + '\n'
-                      : currentOutput.stdout,
-                    stderr: event.stream === 'stderr'
-                      ? (currentOutput.stderr || '') + event.content + '\n'
-                      : currentOutput.stderr
-                  }
+          const s = getChatState(targetChatId);
+          updateChatState(targetChatId, {
+            streamingTools: s.streamingTools.map(t => {
+              if (t.tool_call_id === event.tool_call_id) {
+                const hasStreamedOutput = t.code_output && (t.code_output.stdout || t.code_output.stderr);
+                return { 
+                  ...t, 
+                  status: event.status, 
+                  error: event.error, 
+                  code_output: hasStreamedOutput ? t.code_output : event.code_output 
                 };
               }
               return t;
+            }),
+          });
+        },
+        
+        onCodeOutput: (event) => {
+          const s = getChatState(targetChatId);
+          const executeCodeTools = s.streamingTools.filter(t => t.tool_name === 'execute_code');
+          if (executeCodeTools.length > 0) {
+            const latestTool = executeCodeTools[executeCodeTools.length - 1];
+            updateChatState(targetChatId, {
+              streamingTools: s.streamingTools.map(t => {
+                if (t.tool_call_id === latestTool.tool_call_id) {
+                  const currentOutput = t.code_output || { stdout: '', stderr: '' };
+                  return {
+                    ...t,
+                    code_output: {
+                      stdout: event.stream === 'stdout' 
+                        ? (currentOutput.stdout || '') + event.content + '\n'
+                        : currentOutput.stdout,
+                      stderr: event.stream === 'stderr'
+                        ? (currentOutput.stderr || '') + event.content + '\n'
+                        : currentOutput.stderr
+                    }
+                  };
+                }
+                return t;
+              }),
             });
-            if (isCurrentChat()) {
-              setStreamingTools([...streamingToolsRef.current]);
-            }
           }
         },
         
         onFileContent: (event: SSEFileContentEvent) => {
-          // Find the tool by tool_call_id and update its file_content
-          streamingToolsRef.current = streamingToolsRef.current.map(t => {
-            if (t.tool_call_id === event.tool_call_id) {
-              // If is_complete, keep existing content; otherwise append new content
-              const currentContent = t.file_content?.content || '';
-              const newContent = event.is_complete 
-                ? currentContent  // Keep existing on completion signal
-                : (event.content ? currentContent + event.content : currentContent);
-              
-              return {
-                ...t,
-                file_content: {
-                  filename: event.filename,
-                  content: newContent,
-                  file_type: event.file_type,
-                  is_complete: event.is_complete
-                }
-              };
-            }
-            return t;
+          const s = getChatState(targetChatId);
+          updateChatState(targetChatId, {
+            streamingTools: s.streamingTools.map(t => {
+              if (t.tool_call_id === event.tool_call_id) {
+                const currentContent = t.file_content?.content || '';
+                const newContent = event.is_complete 
+                  ? currentContent
+                  : (event.content ? currentContent + event.content : currentContent);
+                
+                return {
+                  ...t,
+                  file_content: {
+                    filename: event.filename,
+                    content: newContent,
+                    file_type: event.file_type,
+                    is_complete: event.is_complete
+                  }
+                };
+              }
+              return t;
+            }),
           });
-          if (isCurrentChat()) {
-            setStreamingTools([...streamingToolsRef.current]);
-          }
         },
         
         onToolsEnd: () => {
-          if (isCurrentChat()) {
-            saveAccumulatedTools();
-          }
+          saveAccumulatedTools(targetChatId);
         },
         
         onOptions: (event: SSEOptionsEvent) => {
-          if (isCurrentChat()) {
-            setPendingOptions(event);
-          }
+          updateChatState(targetChatId, { pendingOptions: event });
         },
         
         onDone: async () => {
-          const wasCurrentChat = isCurrentChat();
-          activeStreamRef.current = null;
-          activeStreamChatIdRef.current = null;
+          saveAccumulatedTools(targetChatId);
           
-          if (wasCurrentChat) {
-            setIsLoading(false);
-            saveAccumulatedTools();
-            
-            try {
-              const chatResources = await resourcesApi.getChatResources(activeChatId);
-              setResources(chatResources);
-            } catch (err) {
-              console.error('Error reloading resources:', err);
-            }
+          try {
+            const chatResources = await resourcesApi.getChatResources(targetChatId);
+            updateChatState(targetChatId, {
+              isLoading: false,
+              stream: null,
+              resources: chatResources,
+            });
+          } catch (err) {
+            console.error('Error reloading resources:', err);
+            updateChatState(targetChatId, {
+              isLoading: false,
+              stream: null,
+            });
           }
           
-          // Always refresh sidebar to show updated chat
           setChatHistoryRefresh(prev => prev + 1);
         },
         
         onError: (event) => {
           console.error('SSE error:', event.error);
-          if (isCurrentChat()) {
-            setError(event.error);
-            setIsLoading(false);
-          }
-          activeStreamRef.current = null;
-          activeStreamChatIdRef.current = null;
+          updateChatState(targetChatId, {
+            error: event.error,
+            isLoading: false,
+            stream: null,
+          });
         },
       }, attachedImages);
       
-      // Store stream reference for potential interruption
-      activeStreamRef.current = stream;
+      // Store stream reference
+      updateChatState(targetChatId, { stream });
     } catch (err) {
-      setError('Failed to send message');
-      activeStreamRef.current = null;
-      setIsLoading(false);
+      updateChatState(targetChatId, {
+        error: 'Failed to send message',
+        isLoading: false,
+        stream: null,
+      });
     }
   };
 
   const handleStopStream = () => {
-    stopCurrentStream(true);
+    if (currentChatId) {
+      stopChatStream(currentChatId, true);
+    }
   };
 
   const handleOptionSelect = async (option: OptionButton) => {
-    setPendingOptions(null);
+    if (currentChatId) {
+      updateChatState(currentChatId, { pendingOptions: null });
+    }
     await handleSendMessage(option.value);
   };
 
   const handleSelectChat = async (selectedChatId: string) => {
-    // Don't interrupt the running stream - let it complete in the background
-    // Just switch the view to the selected chat
-    setChatId(selectedChatId);
+    if (selectedChatId === currentChatId) return;
+    
+    setCurrentChatId(selectedChatId);
     setIsNewChat(false);
-    setMessages([]);
-    setError(null);
-    setPendingOptions(null);
     setSelectedTool(null);
     
-    // Check if this chat is currently streaming
-    const isSwitchingToStreamingChat = activeStreamChatIdRef.current === selectedChatId;
-    
-    if (isSwitchingToStreamingChat) {
-      // Restore streaming state from refs
-      setStreamingText(streamingTextRef.current);
-      setStreamingTools([...streamingToolsRef.current]);
-      setIsLoading(true);
-    } else {
-      // Different chat - clear streaming display
-      setStreamingText('');
-      setStreamingTools([]);
-      streamingTextRef.current = '';
-      streamingToolsRef.current = [];
-      setIsLoading(false);
-    }
+    // Sync display to the selected chat's state
+    syncDisplayToChat(selectedChatId);
   };
 
   const handleNewChat = async () => {
     if (!userId) return;
-    // Don't create chat in DB yet - just enter new chat mode
-    // Chat will be created when user sends their first message
-    // Don't interrupt running streams - let them complete in background
-    setChatId(null);
-    setIsNewChat(true);
-    setMessages([]);
-    setError(null);
-    setPendingOptions(null);
-    setSelectedTool(null);
-    setResources([]);
     
-    // Clear streaming display (but don't clear refs - stream continues in background)
-    setStreamingText('');
-    setStreamingTools([]);
-    setIsLoading(false);
+    setCurrentChatId(null);
+    setIsNewChat(true);
+    setSelectedTool(null);
+    
+    // Clear display state for new chat
+    syncDisplayToChat(null);
   };
 
   const handleSelectTool = async (tool: ToolCallStatus) => {
@@ -520,40 +580,55 @@ export default function ChatView() {
       tool_name: tool.tool_name,
       arguments: tool.arguments,
       resources_count: resources.length,
-      has_file_content: !!tool.file_content
+      has_file_content: !!tool.file_content,
+      has_code_output: !!tool.code_output
     });
     
     const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'run_python';
     const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
     
-    // Toggle: if clicking the same tool, close it
     if (selectedTool?.tool_call_id === tool.tool_call_id) {
       setSelectedTool(null);
       return;
     }
     
     if (isFileTool) {
-      // If tool already has file content (from streaming), use it directly
       if (tool.file_content) {
         setSelectedTool(tool);
         return;
       }
       
-      // Otherwise, fetch file content and add it to the tool
       const filename = tool.arguments?.filename || tool.arguments?.params?.filename;
       console.log('📁 File tool clicked, looking for filename:', filename);
       
-      if (filename && chatId) {
+      if (filename && currentChatId) {
         try {
-          // Fetch file content from the API
           const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-          const response = await fetch(`${API_BASE_URL}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`);
+          const response = await fetch(`${API_BASE_URL}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`);
           
           if (response.ok) {
-            const content = await response.text();
-            const fileType = filename.split('.').pop() || 'text';
+            const fileType = filename.split('.').pop()?.toLowerCase() || 'text';
+            const isImageFile = /\.(png|jpg|jpeg|gif|webp)$/i.test(filename);
             
-            // Create a modified tool with file_content
+            let content: string;
+            if (isImageFile) {
+              // For binary images, fetch as blob and convert to base64
+              const blob = await response.blob();
+              content = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const base64 = reader.result as string;
+                  // Extract just the base64 data (remove data URL prefix)
+                  const base64Data = base64.split(',')[1] || base64;
+                  resolve(base64Data);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } else {
+              content = await response.text();
+            }
+            
             const toolWithContent: ToolCallStatus = {
               ...tool,
               file_content: {
@@ -565,7 +640,6 @@ export default function ChatView() {
             };
             setSelectedTool(toolWithContent);
           } else {
-            // File not found, show error in panel
             const toolWithError: ToolCallStatus = {
               ...tool,
               file_content: {
@@ -579,7 +653,6 @@ export default function ChatView() {
           }
         } catch (err) {
           console.error('Error fetching file:', err);
-          // Show error in panel
           const toolWithError: ToolCallStatus = {
             ...tool,
             file_content: {
@@ -591,12 +664,31 @@ export default function ChatView() {
           };
           setSelectedTool(toolWithError);
         }
+      } else {
+        const toolWithError: ToolCallStatus = {
+          ...tool,
+          file_content: {
+            filename: 'unknown',
+            content: 'Could not determine filename from tool call.',
+            file_type: 'text',
+            is_complete: true
+          }
+        };
+        setSelectedTool(toolWithError);
       }
     } else if (isCodeTool) {
-      // For code tools, show terminal if there's any output
       const hasOutput = tool.code_output?.stdout || tool.code_output?.stderr || tool.error || tool.result_summary;
       if (hasOutput) {
         setSelectedTool(tool);
+      } else {
+        const toolWithPlaceholder: ToolCallStatus = {
+          ...tool,
+          code_output: {
+            stdout: '(Code output is only available during the session when the code was executed)',
+            stderr: ''
+          }
+        };
+        setSelectedTool(toolWithPlaceholder);
       }
     }
   };
@@ -620,7 +712,7 @@ export default function ChatView() {
     <div className="flex h-full bg-white">
       <ChatHistorySidebar
         userId={userId}
-        currentChatId={chatId}
+        currentChatId={currentChatId}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
         isCollapsed={isSidebarCollapsed}
@@ -629,7 +721,6 @@ export default function ChatView() {
         isCreatingChat={isCreatingChat}
       />
 
-      {/* Main content area - shrinks when computer panel is open, constrained width otherwise */}
       <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${showComputerPanel ? 'mr-[620px]' : 'max-w-5xl mx-auto w-full'}`}>
         <button
           onClick={() => setIsResourcesOpen(true)}
@@ -646,7 +737,7 @@ export default function ChatView() {
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="px-6 py-4">
-            {!chatId && !isNewChat ? (
+            {!currentChatId && !isNewChat ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
                   <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" />
@@ -667,7 +758,7 @@ export default function ChatView() {
                     role={msg.role}
                     content={msg.content}
                     toolCalls={msg.toolCalls}
-                    chatId={chatId || undefined}
+                    chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     resources={resources}
                     onFileClick={(resource) => setSelectedResource(resource)}
@@ -679,7 +770,7 @@ export default function ChatView() {
                     role="assistant" 
                     content="" 
                     toolCalls={streamingTools} 
-                    chatId={chatId || undefined}
+                    chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     resources={resources}
                     onFileClick={(resource) => setSelectedResource(resource)}
@@ -690,7 +781,7 @@ export default function ChatView() {
                   <ChatMessage 
                     role="assistant" 
                     content={streamingText} 
-                    chatId={chatId || undefined}
+                    chatId={currentChatId || undefined}
                     resources={resources}
                     onFileClick={(resource) => setSelectedResource(resource)}
                   />
@@ -737,7 +828,6 @@ export default function ChatView() {
           </div>
         )}
 
-        {/* Only show bottom input when there are messages */}
         {messages.length > 0 && (
           <div className="border-t border-gray-200 bg-white">
             <div className="max-w-4xl mx-auto">
@@ -753,12 +843,10 @@ export default function ChatView() {
         )}
       </div>
 
-      {/* Computer Panel - fixed on right side (unified for terminal and file viewing) */}
       {showComputerPanel && selectedTool && (
         <div className="fixed right-0 top-0 h-full w-[620px] z-40">
           <ComputerPanel
             mode={selectedTool.file_content ? 'file' : 'terminal'}
-            // Terminal props
             command={selectedTool.tool_name.replace(/_/g, ' ')}
             output={
               selectedTool.code_output?.stdout || 
@@ -768,22 +856,20 @@ export default function ChatView() {
               ''
             }
             isError={selectedTool.status === 'error' || !!selectedTool.error || !!selectedTool.code_output?.stderr}
-            // File props
             filename={selectedTool.file_content?.filename}
             fileContent={selectedTool.file_content?.content}
             fileType={selectedTool.file_content?.file_type}
-            // Common props
             isStreaming={selectedTool.status === 'calling'}
             onClose={() => setSelectedTool(null)}
           />
         </div>
       )}
       
-      {chatId && (
+      {currentChatId && (
         <ChatFilesModal
           isOpen={isResourcesOpen}
           onClose={() => setIsResourcesOpen(false)}
-          chatId={chatId}
+          chatId={currentChatId}
           onSelectResource={(resource) => {
             setSelectedResource(resource);
             setIsResourcesOpen(false);

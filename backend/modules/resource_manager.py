@@ -119,6 +119,8 @@ class ResourceManager:
             file_type = "csv"
         elif filename.endswith('.json'):
             file_type = "json"
+        elif filename.endswith('.html'):
+            file_type = "html"
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
             file_type = "image"
         

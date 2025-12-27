@@ -165,6 +165,20 @@ const getLanguage = (filename?: string, fileType?: string): string => {
   return 'text';
 };
 
+// Check if file is an image
+const isImageFile = (filename?: string): boolean => {
+  if (!filename) return false;
+  return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename);
+};
+
+// Get image MIME type from filename
+const getImageMimeType = (filename: string): string => {
+  const ext = filename.split('.').pop()?.toLowerCase() || 'png';
+  if (ext === 'svg') return 'image/svg+xml';
+  if (ext === 'jpg') return 'image/jpeg';
+  return `image/${ext}`;
+};
+
 // Parse terminal output to add syntax highlighting (light theme)
 const formatTerminalLine = (line: string, isError: boolean) => {
   // Color prompt patterns (user@host:path$)
@@ -340,6 +354,26 @@ export default function ComputerPanel({
           {formatTerminalLine(line, detectError)}
         </div>
       ));
+    }
+
+    // File mode - check if it's an image
+    if (mode === 'file' && isImageFile(filename)) {
+      const mimeType = getImageMimeType(filename || '');
+      const isSvg = filename?.toLowerCase().endsWith('.svg');
+      // SVG content is text, other images are base64
+      const imageSrc = isSvg
+        ? `data:${mimeType};base64,${btoa(content)}`
+        : `data:${mimeType};base64,${content}`;
+      
+      return (
+        <div className="flex items-center justify-center h-full p-4">
+          <img 
+            src={imageSrc} 
+            alt={filename || 'Image'}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-md border border-gray-200"
+          />
+        </div>
+      );
     }
 
     // File mode with syntax highlighting

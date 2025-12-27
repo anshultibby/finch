@@ -105,11 +105,35 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
             sizeBytes: resource.data.size_bytes
           });
           
+          // Check if this is a binary image file
+          const isImageFile = filename.match(/\.(png|jpg|jpeg|gif|webp)$/i);
+          
           const response = await fetch(url);
           if (response.ok) {
-            const content = await response.text();
-            console.log('✅ File content loaded successfully:', content.length, 'characters');
-            setFileContent(content);
+            if (isImageFile) {
+              // For binary images, fetch as blob and convert to base64
+              const blob = await response.blob();
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64 = reader.result as string;
+                // Extract just the base64 data (remove data URL prefix)
+                const base64Data = base64.split(',')[1] || base64;
+                console.log('✅ Image content loaded successfully as base64:', base64Data.length, 'characters');
+                setFileContent(base64Data);
+                setFileLoading(false);
+              };
+              reader.onerror = () => {
+                console.error('❌ Failed to read blob as base64');
+                setFileError('Failed to process image file');
+                setFileLoading(false);
+              };
+              reader.readAsDataURL(blob);
+              return; // Don't set loading to false here, wait for reader callback
+            } else {
+              const content = await response.text();
+              console.log('✅ File content loaded successfully:', content.length, 'characters');
+              setFileContent(content);
+            }
           } else {
             const errorText = await response.text();
             console.error('❌ Failed to fetch file:', {
@@ -216,15 +240,13 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
     // Image files - render as image
     const isImage = filename.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i);
     if (isImage) {
-      // Check if content is base64 encoded (from binary files)
-      const isBase64 = fileContent.length > 100 && !fileContent.includes('\n') && 
-                       /^[A-Za-z0-9+/=]+$/.test(fileContent.substring(0, 100));
-      
       const imageExtension = filename.split('.').pop()?.toLowerCase() || 'png';
       const mimeType = imageExtension === 'svg' ? 'image/svg+xml' : `image/${imageExtension}`;
-      const imageSrc = isBase64 
-        ? `data:${mimeType};base64,${fileContent}`
-        : fileContent; // For SVG or already-formatted data URLs
+      // Binary images are fetched as base64, SVGs are fetched as text
+      const isSvg = imageExtension === 'svg';
+      const imageSrc = isSvg 
+        ? `data:${mimeType};base64,${btoa(fileContent)}`
+        : `data:${mimeType};base64,${fileContent}`;
       
       return (
         <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">

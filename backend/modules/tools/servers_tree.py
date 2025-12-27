@@ -117,8 +117,8 @@ The following APIs are available as importable Python modules:
 **Usage Examples:**
 
 ```python
-# Historical prices (Polygon)
-from servers.polygon.market.historical_prices import get_historical_prices
+# Historical prices (Polygon.io)
+from servers.polygon_io.market.historical_prices import get_historical_prices
 prices = get_historical_prices('AAPL', '2024-01-01', '2024-12-31', timespan='day')
 
 # Company profile (FMP)
@@ -139,7 +139,7 @@ widget_html = get_embed_widget('AAPL', interval='D', theme='dark')
 ```
 
 **Important:**
-- Use `polygon` for historical OHLCV price data
+- Use `polygon_io` for historical OHLCV price data
 - Use `financial_modeling_prep` for fundamentals, financials, quotes
 - Use `tradingview` for interactive chart widgets
 """

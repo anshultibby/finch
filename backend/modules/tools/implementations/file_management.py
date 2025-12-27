@@ -15,8 +15,12 @@ logger = get_logger(__name__)
 class ReplaceInFileParams(BaseModel):
     """Replace text in a file"""
     filename: str = Field(..., description="Filename in current chat directory")
-    old_str: str = Field(..., description="Text to find")
+    old_str: str = Field(..., description="Text to find (must be unique unless replace_all=True)")
     new_str: str = Field(..., description="Text to replace with")
+    replace_all: bool = Field(
+        default=False,
+        description="Replace all occurrences. Default False requires unique match for safety."
+    )
 
 
 class FindInFileParams(BaseModel):
@@ -31,7 +35,8 @@ async def replace_in_chat_file_impl(
     old_str: str,
     new_str: str,
     filename: str,
-    context: AgentContext
+    context: AgentContext,
+    replace_all: bool = False
 ):
     """Replace text in file with streaming content to frontend"""
     from modules.resource_manager import resource_manager
@@ -55,14 +60,29 @@ async def replace_in_chat_file_impl(
         count = content.count(old_str)
         
         if count == 0:
+            # Truncate long strings in error message
+            display_str = f"'{old_str[:100]}...'" if len(old_str) > 100 else f"'{old_str}'"
             yield {
                 "success": False,
-                "error": f"Text not found: '{old_str}'"
+                "error": f"Text not found: {display_str}"
             }
             return
         
-        # Replace
-        new_content = content.replace(old_str, new_str)
+        # If not replace_all and multiple matches, fail for safety
+        if count > 1 and not replace_all:
+            yield {
+                "success": False,
+                "error": f"Found {count} occurrences of the text. Either:\n"
+                         f"1. Include more surrounding context to make it unique, OR\n"
+                         f"2. Set replace_all=True to replace all {count} occurrences"
+            }
+            return
+        
+        # Replace (single or all based on flag)
+        if replace_all:
+            new_content = content.replace(old_str, new_str)
+        else:
+            new_content = content.replace(old_str, new_str, 1)  # Only replace first (unique) match
         
         # Determine file type
         file_type = "text"
@@ -74,6 +94,8 @@ async def replace_in_chat_file_impl(
             file_type = "csv"
         elif filename.endswith('.json'):
             file_type = "json"
+        elif filename.endswith('.html'):
+            file_type = "html"
         
         # Stream the updated file content to frontend
         yield SSEEvent(
@@ -123,11 +145,12 @@ async def replace_in_chat_file_impl(
             }
         )
         
+        actual_replacements = count if replace_all else 1
         yield {
             "success": True,
             "filename": filename,
-            "replacements": count,
-            "message": f"Replaced {count} occurrence(s) of '{old_str}'"
+            "replacements": actual_replacements,
+            "message": f"Replaced {actual_replacements} occurrence(s)"
         }
     
     except Exception as e:
@@ -392,6 +415,8 @@ async def write_chat_file_impl(
             file_type = "csv"
         elif filename.endswith('.json'):
             file_type = "json"
+        elif filename.endswith('.html'):
+            file_type = "html"
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
             file_type = "image"
         

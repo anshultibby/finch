@@ -42,7 +42,7 @@ def validate_and_fix_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[s
                     # Malformed JSON - log and replace with empty object
                     logger.warning(
                         f"Malformed tool call arguments for {func.get('name', 'unknown')}: "
-                        f"{args_str[:100]}... (error: {e})"
+                        f"{args_str}... (error: {e})"
                     )
                     func["arguments"] = "{}"
             

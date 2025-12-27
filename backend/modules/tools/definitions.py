@@ -103,9 +103,9 @@ def read_chat_file(*, context: AgentContext, filename: str):
     description=REPLACE_IN_CHAT_FILE_DESC,
     category="files"
 )
-async def replace_in_chat_file(*, old_str: str, new_str: str, filename: str, context: AgentContext):
-    """Replace text in file (like str_replace)"""
-    async for item in file_management.replace_in_chat_file_impl(old_str, new_str, filename, context):
+async def replace_in_chat_file(*, old_str: str, new_str: str, filename: str, replace_all: bool = False, context: AgentContext):
+    """Replace text in file (targeted editing, requires unique match unless replace_all=True)"""
+    async for item in file_management.replace_in_chat_file_impl(old_str, new_str, filename, context, replace_all):
         yield item
 
 

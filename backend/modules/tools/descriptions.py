@@ -108,7 +108,13 @@ READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supp
 - Check that data visualization makes sense
 """
 
-REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file
+REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file (targeted editing).
+
+**CRITICAL: old_str must UNIQUELY identify the text to replace.**
+
+If multiple matches exist, the operation will FAIL. Either:
+1. Include more surrounding context (3-5 lines before/after) to make it unique
+2. Set replace_all=True to replace ALL occurrences
 
 **Use for:**
 - Fixing code errors after execution
