@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 class TruncationPolicy(BaseModel):
     """Policy for truncating tool results before sending to LLM"""
-    max_chars: int = Field(default=10000, description="Maximum characters to keep")
+    max_chars: int = Field(default=100000, description="Maximum characters to keep")
     
     class Config:
         arbitrary_types_allowed = True
@@ -448,7 +448,7 @@ class ToolExecutor:
                 continue  # Don't emit event for hidden tools like 'idle'
             
             # Extract user_description from arguments (provided by LLM)
-            user_description = call.arguments.get('description', None)
+            user_description = call.arguments.get('user_description', None)
             
             logger.info(f"📤 Emitting tool_call_start event: {call.name} (id: {call.id})")
             yield SSEEvent(
@@ -477,11 +477,14 @@ class ToolExecutor:
                 start_time = asyncio.get_event_loop().time()
                 final_result = None
                 
+                # Create context with current tool_call_id for streaming events
+                tool_context = context.model_copy(update={"current_tool_call_id": call.id})
+                
                 try:
                     async for item in self.runner.execute(
                         tool_name=call.name,
                         arguments=call.arguments,
-                        context=context
+                        context=tool_context
                     ):
                         if isinstance(item, SSEEvent):
                             # Enrich event with tool metadata for frontend
@@ -552,10 +555,13 @@ class ToolExecutor:
                 start_time = asyncio.get_event_loop().time()
                 final_result = None
                 
+                # Create context with current tool_call_id for streaming events
+                tool_context = context.model_copy(update={"current_tool_call_id": call.id})
+                
                 async for item in self.runner.execute(
                     tool_name=call.name,
                     arguments=call.arguments,
-                    context=context
+                    context=tool_context
                 ):
                     if isinstance(item, SSEEvent):
                         if enable_tool_streaming:
@@ -623,33 +629,44 @@ class ToolExecutor:
         execution_results = []
         
         for result in results:
-            # Check if result contains image data for multimodal
-            content = result.truncated_result
+            # ALWAYS use list format for content (multimodal-safe)
+            # This ensures consistent handling throughout the codebase
+            content_blocks = []
             
             if result.raw_result and isinstance(result.raw_result, dict):
                 image_data = result.raw_result.get("image")
                 if image_data and isinstance(image_data, dict) and image_data.get("type") == "base64":
-                    # Build multimodal content for Claude - image + text context
-                    content = [
-                        {
-                            "type": "text",
-                            "text": f"Image file '{result.raw_result.get('filename', 'unknown')}' contents:"
-                        },
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": image_data.get("media_type", "image/png"),
-                                "data": image_data.get("data", "")
-                            }
+                    # Multimodal content: image + text context
+                    content_blocks.append({
+                        "type": "text",
+                        "text": f"Image file '{result.raw_result.get('filename', 'unknown')}' contents:"
+                    })
+                    content_blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": image_data.get("media_type", "image/png"),
+                            "data": image_data.get("data", "")
                         }
-                    ]
+                    })
+                else:
+                    # Text-only result - still use list format
+                    content_blocks.append({
+                        "type": "text",
+                        "text": result.truncated_result
+                    })
+            else:
+                # Text-only result - still use list format
+                content_blocks.append({
+                    "type": "text",
+                    "text": result.truncated_result
+                })
             
             tool_messages.append({
                 "role": "tool",
                 "tool_call_id": result.tool_call_id,
                 "name": result.tool_name,
-                "content": content
+                "content": content_blocks
             })
             
             execution_results.append({

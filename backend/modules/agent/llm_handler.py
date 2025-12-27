@@ -139,7 +139,7 @@ class LLMHandler:
                 first_chunk_time = time.time()
                 ttfb_ms = (first_chunk_time - start_time) * 1000
                 add_span_event("First chunk received", {"ttfb_ms": ttfb_ms})
-                logger.debug(f"TTFB: {ttfb_ms:.0f}ms")
+                logger.info(f"⏱️  TTFB: {ttfb_ms:.0f}ms (time to first token)")
             
             
             # Capture usage info (comes in final chunk for Claude)
@@ -168,13 +168,13 @@ class LLMHandler:
         
         # Log usage stats
         if usage_info:
-            self._log_usage_stats(usage_info)
+            self._log_usage_stats(usage_info, duration_ms, first_chunk_time, start_time)
         
         # Chat logging
         if self.chat_logger:
             self._log_chat_turn_streaming(kwargs, accumulated_response, usage_info)
         
-        logger.debug(f"LLM stream completed in {duration_ms:.0f}ms ({chunk_count} chunks)")
+        logger.info(f"✅ LLM stream completed in {duration_ms/1000:.1f}s ({chunk_count} chunks)")
     
     def _accumulate_chunk(self, chunk: Any, accumulated: Dict[str, Any]):
         """Accumulate streaming chunk into response dict"""
@@ -216,7 +216,7 @@ class LLMHandler:
         if hasattr(choice, "finish_reason") and choice.finish_reason:
             accumulated["finish_reason"] = choice.finish_reason
     
-    def _log_usage_stats(self, usage_info: Any):
+    def _log_usage_stats(self, usage_info: Any, duration_ms: float = 0, first_chunk_time: float = None, start_time: float = None):
         """Log token usage and cache statistics"""
         prompt_tokens = getattr(usage_info, 'prompt_tokens', 0)
         completion_tokens = getattr(usage_info, 'completion_tokens', 0)
@@ -228,6 +228,13 @@ class LLMHandler:
             "llm.tokens.completion": completion_tokens,
             "llm.tokens.total": prompt_tokens + completion_tokens
         })
+        
+        # Calculate generation speed
+        if completion_tokens > 0 and first_chunk_time and start_time:
+            generation_time_ms = (time.time() - first_chunk_time) * 1000
+            if generation_time_ms > 0:
+                tokens_per_sec = completion_tokens / (generation_time_ms / 1000)
+                logger.info(f"🚀 Generation speed: {tokens_per_sec:.0f} tokens/sec ({completion_tokens} tokens in {generation_time_ms/1000:.1f}s)")
         
         if cache_creation > 0 or cache_read > 0:
             add_span_attributes({
@@ -250,6 +257,7 @@ class LLMHandler:
             logger.info(f"  📥 New input tokens: {new_input_tokens:,} (uncached)")
             logger.info(f"  📖 Cache read: {cache_read:,} tokens ({cache_percentage:.1f}% of total)")
             logger.info(f"  📊 Total input: {total_input_tokens:,} tokens")
+            logger.info(f"  📤 Output tokens: {completion_tokens:,} (generated)")
             logger.info(f"  ✏️  Cache write: {cache_creation:,} tokens")
             logger.info(f"  💰 Cost savings: {cost_savings_pct:.1f}% (cache reads are 90% cheaper)")
             

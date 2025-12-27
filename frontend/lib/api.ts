@@ -26,6 +26,13 @@ export interface CodeOutput {
   stderr?: string;
 }
 
+export interface FileContent {
+  filename: string;
+  content: string;
+  file_type: string;
+  is_complete: boolean;
+}
+
 export interface ToolCallStatus {
   tool_call_id: string;
   tool_name: string;
@@ -33,8 +40,10 @@ export interface ToolCallStatus {
   resource_id?: string;
   error?: string;
   result_summary?: string;
-  statusMessage?: string; // User-friendly description provided by LLM via 'description' parameter
+  statusMessage?: string; // User-friendly description provided by LLM via 'user_description' parameter
+  arguments?: Record<string, any>; // Tool arguments (for extracting filename, etc.)
   code_output?: CodeOutput; // Code execution output (stdout/stderr)
+  file_content?: FileContent; // Streaming file content for write_chat_file
 }
 
 export interface ChatResponse {
@@ -123,6 +132,14 @@ export interface SSECodeOutputEvent {
   content: string;
 }
 
+export interface SSEFileContentEvent {
+  tool_call_id: string;
+  filename: string;
+  content: string;
+  file_type: string;
+  is_complete: boolean;
+}
+
 export interface SSEMessageEndEvent {
   role: string;
   content: string;
@@ -147,6 +164,7 @@ export interface SSEEventHandlers {
   onToolProgress?: (event: SSEToolProgressEvent) => void;
   onToolLog?: (event: SSEToolLogEvent) => void;
   onCodeOutput?: (event: SSECodeOutputEvent) => void;               // Real-time code execution output
+  onFileContent?: (event: SSEFileContentEvent) => void;             // Real-time file content streaming
   
   // Other events
   onOptions?: (event: SSEOptionsEvent) => void;
@@ -352,6 +370,9 @@ export const chatApi = {
                   break;
                 case 'code_output':
                   handlers.onCodeOutput?.(eventData as SSECodeOutputEvent);
+                  break;
+                case 'file_content':
+                  handlers.onFileContent?.(eventData as SSEFileContentEvent);
                   break;
                 case 'tool_options':
                   handlers.onOptions?.(eventData as SSEOptionsEvent);

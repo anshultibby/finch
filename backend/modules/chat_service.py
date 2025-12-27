@@ -3,6 +3,7 @@ Chat service for managing chat sessions and interactions
 """
 from typing import List, AsyncGenerator, Dict, Any
 import json
+import asyncio
 from .agent.prompts import get_finch_system_prompt
 from .agent.agent_config import create_main_agent
 from config import Config
@@ -118,29 +119,36 @@ class ChatService:
                         
                         if tool_calls:
                             # Assistant message with tool calls - save after tools complete
+                            logger.info(f"📝 message_end with {len(tool_calls)} tool calls - setting pending_assistant_msg")
                             pending_assistant_msg = {
                                 "content": content,
                                 "tool_calls": tool_calls
                             }
                         else:
-                            # Final assistant message (no tool calls) - save immediately
+                            # Final assistant message (no tool calls) - save synchronously
+                            seq = current_sequence
+                            current_sequence += 1
+                            
                             async with AsyncSessionLocal() as db:
                                 await chat_async.create_message(
                                     db=db,
                                     chat_id=chat_id,
                                     role="assistant",
                                     content=content,
-                                    sequence=current_sequence
+                                    sequence=seq
                                 )
-                                current_sequence += 1
-                                logger.info(f"💾 Saved final assistant message (seq={current_sequence-1})")
+                                logger.info(f"💾 Saved final assistant message (seq={seq})")
                     
                     elif event.event == "tools_end":
                         # tools_end signals tool execution is complete
                         # Now save: 1) assistant message with tool_calls, 2) tool result messages
                         tool_messages = event.data.get("tool_messages", [])
                         
+                        logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages")
+                        
+                        # Save synchronously to ensure proper message ordering
                         async with AsyncSessionLocal() as db:
+                            seq = current_sequence
                             # Save assistant message with tool calls
                             if pending_assistant_msg:
                                 await chat_async.create_message(
@@ -148,28 +156,36 @@ class ChatService:
                                     chat_id=chat_id,
                                     role="assistant",
                                     content=pending_assistant_msg["content"],
-                                    sequence=current_sequence,
+                                    sequence=seq,
                                     tool_calls=pending_assistant_msg["tool_calls"]
                                 )
+                                logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls (seq={seq})")
+                                seq += 1
                                 current_sequence += 1
-                                logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls (seq={current_sequence-1})")
-                                pending_assistant_msg = None
                             
                             # Save tool result messages
                             for tool_msg in tool_messages:
+                                # Handle multimodal content (list) by serializing to JSON
+                                content = tool_msg.get("content", "")
+                                if isinstance(content, list):
+                                    content = json.dumps(content)
+                                
                                 await chat_async.create_message(
                                     db=db,
                                     chat_id=chat_id,
                                     role="tool",
-                                    content=tool_msg.get("content", ""),
-                                    sequence=current_sequence,
+                                    content=content,
+                                    sequence=seq,
                                     tool_call_id=tool_msg.get("tool_call_id"),
                                     name=tool_msg.get("name")
                                 )
+                                seq += 1
                                 current_sequence += 1
                             
                             if tool_messages:
                                 logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                        
+                        pending_assistant_msg = None
                     
                     # Yield the SSE formatted event to client
                     yield event.to_sse_format()
@@ -249,13 +265,14 @@ class ChatService:
                                     args = {}
                                 
                                 # Use statusMessage to match ToolCallStatus interface
-                                # Fall back to tool_name if no description provided
-                                status_message = args.get("description") or tool_name
+                                # Fall back to tool_name if no user_description provided
+                                status_message = args.get("user_description") or tool_name
                                 
                                 tool_calls.append({
                                     "tool_call_id": tc.get("id"),
                                     "tool_name": tool_name,
                                     "statusMessage": status_message,
+                                    "arguments": args,  # Include arguments for filename extraction
                                     "status": "completed"
                                 })
                             except Exception as e:

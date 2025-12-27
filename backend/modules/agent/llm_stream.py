@@ -6,6 +6,7 @@ import json
 from models.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
+from .message_processor import validate_and_fix_tool_calls
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -16,74 +17,6 @@ def _estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def _calculate_token_breakdown(
-    system_prompt: Optional[str],
-    tools: Optional[List[Dict[str, Any]]],
-    messages: List[Dict[str, Any]]
-) -> Dict[str, Any]:
-    """
-    Calculate detailed token breakdown for what's being sent to the LLM.
-    
-    Returns a breakdown showing:
-    - System prompt tokens
-    - Tools tokens
-    - Per-message token counts
-    - Total expected input tokens
-    """
-    breakdown = {
-        "system_prompt_tokens": 0,
-        "tools_tokens": 0,
-        "messages_breakdown": [],
-        "total_estimated_tokens": 0
-    }
-    
-    # System prompt
-    if system_prompt:
-        breakdown["system_prompt_tokens"] = _estimate_tokens(system_prompt)
-    
-    # Tools
-    if tools:
-        tools_str = json.dumps(tools)
-        breakdown["tools_tokens"] = _estimate_tokens(tools_str)
-    
-    # Messages
-    for i, msg in enumerate(messages):
-        msg_tokens = {
-            "index": i,
-            "role": msg.get("role", "unknown"),
-            "tokens": 0,
-            "has_cache_control": False
-        }
-        
-        # Content
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            msg_tokens["tokens"] = _estimate_tokens(content)
-        elif isinstance(content, list):
-            content_str = json.dumps(content)
-            msg_tokens["tokens"] = _estimate_tokens(content_str)
-            # Check for cache control
-            for block in content:
-                if isinstance(block, dict) and "cache_control" in block:
-                    msg_tokens["has_cache_control"] = True
-                    break
-        
-        # Tool calls
-        if "tool_calls" in msg:
-            tool_calls_str = json.dumps(msg["tool_calls"])
-            msg_tokens["tokens"] += _estimate_tokens(tool_calls_str)
-            msg_tokens["has_tool_calls"] = True
-        
-        breakdown["messages_breakdown"].append(msg_tokens)
-    
-    # Calculate total
-    breakdown["total_estimated_tokens"] = (
-        breakdown["system_prompt_tokens"] +
-        breakdown["tools_tokens"] +
-        sum(m["tokens"] for m in breakdown["messages_breakdown"])
-    )
-    
-    return breakdown
 
 
 def _is_claude_model(model: str) -> bool:
@@ -140,11 +73,20 @@ def _add_cache_control_to_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, A
     return tools_copy
 
 
+def _deep_copy_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+    """Deep copy a message to avoid mutating the original."""
+    import copy
+    return copy.deepcopy(msg)
+
+
 def _add_cache_control_to_messages(
     messages: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """
     Add cache control breakpoints to conversation history.
+    
+    IMPORTANT: Returns a deep copy to avoid mutating original messages.
+    Cache control should NEVER be persisted to the database.
     
     KEY INSIGHT: Each cache_control breakpoint caches the ENTIRE PREFIX up to that point
     (system + tools + all messages up to the breakpoint).
@@ -155,19 +97,17 @@ def _add_cache_control_to_messages(
     - Place breakpoint at the END of conversation to cache everything
     - Optionally add one more in the middle for very long conversations
     
-    The backward sequential checking means we should ALWAYS cache at the end,
-    and the system will automatically find cache hits for unchanged prefixes.
-    
     Args:
         messages: List of conversation messages
         
     Returns:
-        Messages with cache_control added at strategic positions
+        Deep copy of messages with cache_control added at strategic positions
     """
     if len(messages) <= 1:
-        return messages
+        return [_deep_copy_message(m) for m in messages]
     
-    messages_copy = [msg.copy() for msg in messages]
+    # Deep copy to avoid mutating originals (which get saved to DB)
+    messages_copy = [_deep_copy_message(m) for m in messages]
     
     def add_cache_to_message(idx: int):
         """Add cache control to message at given index"""
@@ -185,10 +125,10 @@ def _add_cache_control_to_messages(
                 }
             ]
         elif isinstance(msg.get("content"), list):
-            content_blocks = [b.copy() if isinstance(b, dict) else b for b in msg["content"]]
+            # Already deep copied, safe to modify
+            content_blocks = msg["content"]
             if content_blocks and isinstance(content_blocks[-1], dict):
-                content_blocks[-1] = {**content_blocks[-1], "cache_control": {"type": "ephemeral"}}
-                messages_copy[idx]["content"] = content_blocks
+                content_blocks[-1]["cache_control"] = {"type": "ephemeral"}
     
     msg_count = len(messages)
     
@@ -374,12 +314,16 @@ async def stream_llm_response(
                     if tc.function.arguments:
                         tool_calls[idx]["function"]["arguments"] += tc.function.arguments
     
+    # Validate tool calls before emitting - fix any malformed JSON arguments
+    # This prevents litellm from failing when sending these back to Anthropic
+    validated_tool_calls = validate_and_fix_tool_calls(tool_calls)
+    
     # Emit end event
     yield SSEEvent(
         event="llm_end",
         data=LLMEndEvent(
             content=content,
-            tool_calls=tool_calls
+            tool_calls=validated_tool_calls
         ).model_dump()
     )
 

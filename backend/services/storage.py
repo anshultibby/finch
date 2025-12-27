@@ -16,6 +16,8 @@ from typing import Optional, BinaryIO
 from utils.logger import get_logger
 import uuid
 from pathlib import Path
+import time
+import httpx
 
 logger = get_logger(__name__)
 
@@ -65,10 +67,11 @@ class StorageService:
         chat_id: str,
         filename: str,
         file_data: bytes,
-        content_type: str = "image/png"
+        content_type: str = "image/png",
+        max_retries: int = 3
     ) -> Optional[str]:
         """
-        Upload an image to Supabase Storage
+        Upload an image to Supabase Storage with retry logic
         
         Args:
             user_id: User ID
@@ -76,6 +79,7 @@ class StorageService:
             filename: Original filename
             file_data: Raw image bytes
             content_type: MIME type (e.g., 'image/png', 'image/jpeg')
+            max_retries: Maximum number of retry attempts for transient errors
         
         Returns:
             Public URL of the uploaded image, or None if upload failed
@@ -84,30 +88,49 @@ class StorageService:
             logger.warning("Storage service not available, cannot upload image")
             return None
         
-        try:
-            # Generate storage path
-            storage_path = self._get_file_path(user_id, chat_id, filename)
-            
-            # Upload file to storage bucket
-            result = self.supabase.storage.from_(self.bucket_name).upload(
-                path=storage_path,
-                file=file_data,
-                file_options={
-                    "content-type": content_type,
-                    "cache-control": "3600",  # Cache for 1 hour
-                    "upsert": "true"  # Overwrite if exists
-                }
-            )
-            
-            # Get public URL
-            public_url = self.supabase.storage.from_(self.bucket_name).get_public_url(storage_path)
-            
-            logger.info(f"Uploaded image {filename} to storage: {public_url}")
-            return public_url
+        # Generate storage path
+        storage_path = self._get_file_path(user_id, chat_id, filename)
         
-        except Exception as e:
-            logger.error(f"Failed to upload image {filename} to storage: {e}", exc_info=True)
-            return None
+        for attempt in range(max_retries):
+            try:
+                # Upload file to storage bucket
+                result = self.supabase.storage.from_(self.bucket_name).upload(
+                    path=storage_path,
+                    file=file_data,
+                    file_options={
+                        "content-type": content_type,
+                        "cache-control": "3600",  # Cache for 1 hour
+                        "upsert": "true"  # Overwrite if exists
+                    }
+                )
+                
+                # Get public URL
+                public_url = self.supabase.storage.from_(self.bucket_name).get_public_url(storage_path)
+                
+                logger.info(f"Uploaded image {filename} to storage: {public_url}")
+                return public_url
+            
+            except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as e:
+                # Transient network errors - retry with exponential backoff
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(
+                        f"Transient network error uploading {filename} (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error(
+                        f"Failed to upload image {filename} after {max_retries} attempts due to network errors: {e}"
+                    )
+                    return None
+            
+            except Exception as e:
+                # Non-retryable errors
+                logger.error(f"Failed to upload image {filename} to storage: {e}", exc_info=True)
+                return None
+        
+        return None
     
     def delete_image(self, user_id: str, chat_id: str, filename: str) -> bool:
         """

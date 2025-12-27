@@ -36,22 +36,22 @@ def tool(
             context: AgentContext,  # Hidden from LLM - injected by executor
             include_closed: bool = False  # Visible to LLM
         ) -> Dict[str, Any]:
-            # 'description' param is auto-injected into schema but NOT in function signature
-            # LLM provides it when calling: get_portfolio(description="...", include_closed=True)
+            # 'user_description' param is auto-injected into schema but NOT in function signature
+            # LLM provides it when calling: get_portfolio(user_description="...", include_closed=True)
             # Executor strips it before calling this function
             pass
     
     Requirements:
     - Function must accept keyword-only arguments (use * separator)
     - Function must have a 'context' parameter of type AgentContext
-    - Function should NOT have a 'description' parameter (it's auto-injected into schema)
+    - Function should NOT have a 'user_description' parameter (it's auto-injected into schema)
     - The 'context' parameter is EXCLUDED from OpenAI schema
     - All other parameters will be exposed to the LLM in the tool schema
     
     Special Parameters:
     - 'context': AgentContext - Hidden from LLM, injected by executor, contains user_id, chat_id
-    - 'description': str - Auto-injected into ALL tool schemas for LLM to provide user-friendly text
-                          Extracted by executor before calling tool function (never reaches tool)
+    - 'user_description': str - Auto-injected into ALL tool schemas for LLM to provide user-friendly text
+                               Extracted by executor before calling tool function (never reaches tool)
     
     Args:
         description: Description of what the tool does (for LLM documentation)
@@ -89,8 +89,8 @@ def tool(
         
         for param_name, param in sig.parameters.items():
             # Skip special hidden parameters
-            if param_name in ('context', 'description'):
-                continue  # Skip context and description - handled by executor
+            if param_name in ('context', 'user_description'):
+                continue  # Skip context and user_description - handled by executor
             
             # Check if parameter is a Pydantic model (best practice)
             param_schema = _get_pydantic_schema(param.annotation)
@@ -120,15 +120,15 @@ def tool(
             if param.default == inspect.Parameter.empty:
                 required.append(param_name)
         
-        # Automatically inject 'description' parameter for most tools
+        # Automatically inject 'user_description' parameter for most tools
         # BUT exclude it for message_notify_user and message_ask_user (they ARE the description!)
         if tool_name not in ('message_notify_user', 'message_ask_user'):
-            properties["description"] = {
+            properties["user_description"] = {
                 "type": "string",
                 "description": "User-friendly description of what this specific tool call is doing (will be shown to the user)"
             }
-            # Make description required for better UI display
-            required.append('description')
+            # Make user_description required for better UI display
+            required.append('user_description')
         
         # Build OpenAI parameters schema
         parameters_schema = {

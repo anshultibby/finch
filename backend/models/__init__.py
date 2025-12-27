@@ -54,7 +54,6 @@ from .chat_history import (
     ChatHistory,
     ChatMessage as HistoryChatMessage,
     ToolCall,
-    ChatTurn
 )
 
 __all__ = [
@@ -100,6 +99,5 @@ __all__ = [
     "ChatHistory",
     "HistoryChatMessage",
     "ToolCall",
-    "ChatTurn"
 ]
 

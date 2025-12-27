@@ -87,7 +87,7 @@ class ChatLogger:
             usage_data: Token usage and cache stats for this turn
             model: Model name
             system_prompt: System prompt (Claude format, may be list of blocks)
-            tools: Tool schemas sent to Claude (OpenAI format)
+            tools: Full tool definitions sent to LLM (OpenAI format) - saved to logs
         """
         try:
             # Create log directory if needed
@@ -197,15 +197,9 @@ class ChatLogger:
                 # Note: Claude streaming doesn't always include usage stats
                 data["note"] = "Usage statistics unavailable in Claude streaming mode"
             
-            # Add tools summary on first log
-            if not self.conversation_file.exists() and tools:
-                data["tools_available"] = [
-                    {
-                        "name": tool.get("function", {}).get("name"),
-                        "description": tool.get("function", {}).get("description", "")[:100]
-                    }
-                    for tool in tools
-                ]
+            # Add full tool definitions (sent to LLM)
+            if tools:
+                data["tools"] = tools
             
             # Replace file with current state
             with open(self.conversation_file, "w") as f:

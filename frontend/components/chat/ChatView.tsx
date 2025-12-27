@@ -8,7 +8,7 @@ import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatFilesModal from './ChatFilesModal';
 import NewChatWelcome from './NewChatWelcome';
 import ResourceViewer from '../ResourceViewer';
-import TerminalPanel from '../TerminalPanel';
+import ComputerPanel from '../ComputerPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { 
@@ -21,8 +21,10 @@ import {
   SSEToolCallStartEvent,
   SSEToolCallCompleteEvent,
   SSEOptionsEvent,
+  SSEFileContentEvent,
   OptionButton,
-  ImageAttachment
+  ImageAttachment,
+  FileContent
 } from '@/lib/api';
 
 export default function ChatView() {
@@ -45,7 +47,7 @@ export default function ChatView() {
   const activeStreamRef = useRef<{ close: () => void } | null>(null);
   const activeStreamChatIdRef = useRef<string | null>(null); // Track which chat the stream belongs to
   
-  // Terminal panel state
+  // Computer panel state (unified for both terminal and file viewing)
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
   
   // Other state
@@ -61,13 +63,9 @@ export default function ChatView() {
 
   const userId = user?.id || null;
 
-  // Auto-select streaming code tool with output
+  // Auto-select streaming tool with output (code or file)
   useEffect(() => {
-    const allTools = [...streamingTools];
-    messages.forEach(m => {
-      if (m.toolCalls) allTools.push(...m.toolCalls);
-    });
-    
+    // Check for streaming code tool with output
     const streamingCodeTool = streamingTools.find(
       t => t.status === 'calling' && 
       (t.tool_name === 'execute_code' || t.tool_name === 'run_python') &&
@@ -76,8 +74,20 @@ export default function ChatView() {
     
     if (streamingCodeTool) {
       setSelectedTool(streamingCodeTool);
+      return;
     }
-  }, [streamingTools, messages]);
+    
+    // Check for streaming file tool with content (write or edit)
+    const streamingFileTool = streamingTools.find(
+      t => t.status === 'calling' && 
+      (t.tool_name === 'write_chat_file' || t.tool_name === 'replace_in_chat_file') &&
+      t.file_content
+    );
+    
+    if (streamingFileTool) {
+      setSelectedTool(streamingFileTool);
+    }
+  }, [streamingTools]);
 
   // Update selected tool when streaming tools change (for live output)
   useEffect(() => {
@@ -316,6 +326,7 @@ export default function ChatView() {
             tool_name: event.tool_name,
             status: 'calling',
             statusMessage: event.user_description || event.tool_name,
+            arguments: event.arguments,
           };
           streamingToolsRef.current = [...streamingToolsRef.current, newTool];
           if (isCurrentChat()) {
@@ -365,6 +376,33 @@ export default function ChatView() {
             if (isCurrentChat()) {
               setStreamingTools([...streamingToolsRef.current]);
             }
+          }
+        },
+        
+        onFileContent: (event: SSEFileContentEvent) => {
+          // Find the tool by tool_call_id and update its file_content
+          streamingToolsRef.current = streamingToolsRef.current.map(t => {
+            if (t.tool_call_id === event.tool_call_id) {
+              // If is_complete, keep existing content; otherwise append new content
+              const currentContent = t.file_content?.content || '';
+              const newContent = event.is_complete 
+                ? currentContent  // Keep existing on completion signal
+                : (event.content ? currentContent + event.content : currentContent);
+              
+              return {
+                ...t,
+                file_content: {
+                  filename: event.filename,
+                  content: newContent,
+                  file_type: event.file_type,
+                  is_complete: event.is_complete
+                }
+              };
+            }
+            return t;
+          });
+          if (isCurrentChat()) {
+            setStreamingTools([...streamingToolsRef.current]);
           }
         },
         
@@ -477,11 +515,89 @@ export default function ChatView() {
     setIsLoading(false);
   };
 
-  const handleSelectTool = (tool: ToolCallStatus) => {
+  const handleSelectTool = async (tool: ToolCallStatus) => {
+    console.log('🖱️ handleSelectTool called:', {
+      tool_name: tool.tool_name,
+      arguments: tool.arguments,
+      resources_count: resources.length,
+      has_file_content: !!tool.file_content
+    });
+    
     const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'run_python';
-    const hasOutput = isCodeTool && tool.code_output?.stdout;
-    if (hasOutput) {
-      setSelectedTool(tool);
+    const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
+    
+    // Toggle: if clicking the same tool, close it
+    if (selectedTool?.tool_call_id === tool.tool_call_id) {
+      setSelectedTool(null);
+      return;
+    }
+    
+    if (isFileTool) {
+      // If tool already has file content (from streaming), use it directly
+      if (tool.file_content) {
+        setSelectedTool(tool);
+        return;
+      }
+      
+      // Otherwise, fetch file content and add it to the tool
+      const filename = tool.arguments?.filename || tool.arguments?.params?.filename;
+      console.log('📁 File tool clicked, looking for filename:', filename);
+      
+      if (filename && chatId) {
+        try {
+          // Fetch file content from the API
+          const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          const response = await fetch(`${API_BASE_URL}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`);
+          
+          if (response.ok) {
+            const content = await response.text();
+            const fileType = filename.split('.').pop() || 'text';
+            
+            // Create a modified tool with file_content
+            const toolWithContent: ToolCallStatus = {
+              ...tool,
+              file_content: {
+                filename,
+                content,
+                file_type: fileType,
+                is_complete: true
+              }
+            };
+            setSelectedTool(toolWithContent);
+          } else {
+            // File not found, show error in panel
+            const toolWithError: ToolCallStatus = {
+              ...tool,
+              file_content: {
+                filename,
+                content: `File "${filename}" not found or could not be loaded.`,
+                file_type: 'text',
+                is_complete: true
+              }
+            };
+            setSelectedTool(toolWithError);
+          }
+        } catch (err) {
+          console.error('Error fetching file:', err);
+          // Show error in panel
+          const toolWithError: ToolCallStatus = {
+            ...tool,
+            file_content: {
+              filename: filename || 'unknown',
+              content: `Error loading file: ${err}`,
+              file_type: 'text',
+              is_complete: true
+            }
+          };
+          setSelectedTool(toolWithError);
+        }
+      }
+    } else if (isCodeTool) {
+      // For code tools, show terminal if there's any output
+      const hasOutput = tool.code_output?.stdout || tool.code_output?.stderr || tool.error || tool.result_summary;
+      if (hasOutput) {
+        setSelectedTool(tool);
+      }
     }
   };
 
@@ -498,7 +614,7 @@ export default function ChatView() {
     );
   }
 
-  const showTerminal = selectedTool !== null;
+  const showComputerPanel = selectedTool !== null;
 
   return (
     <div className="flex h-full bg-white">
@@ -513,8 +629,8 @@ export default function ChatView() {
         isCreatingChat={isCreatingChat}
       />
 
-      {/* Main content area - shrinks when terminal is open */}
-      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${showTerminal ? 'mr-[420px]' : ''}`}>
+      {/* Main content area - shrinks when computer panel is open, constrained width otherwise */}
+      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${showComputerPanel ? 'mr-[620px]' : 'max-w-5xl mx-auto w-full'}`}>
         <button
           onClick={() => setIsResourcesOpen(true)}
           className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 hover:bg-white border border-gray-200 rounded-md shadow-sm backdrop-blur-sm transition-all text-xs font-medium text-gray-700 hover:border-blue-400"
@@ -528,89 +644,91 @@ export default function ChatView() {
 
         <ChatModeBanner />
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-          {!chatId && !isNewChat ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="flex space-x-2">
-                <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" />
-                <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="px-6 py-4">
+            {!chatId && !isNewChat ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex space-x-2">
+                  <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" />
+                  <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                  <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                </div>
               </div>
-            </div>
-          ) : messages.length === 0 && !isLoading ? (
-            <NewChatWelcome 
-              onSendMessage={handleSendMessage}
-              disabled={isLoading || isConnecting}
-            />
-          ) : (
-            <>
-              {messages.map((msg, i) => (
-                <ChatMessage
-                  key={i}
-                  role={msg.role}
-                  content={msg.content}
-                  toolCalls={msg.toolCalls}
-                  chatId={chatId || undefined}
-                  onSelectTool={handleSelectTool}
-                  resources={resources}
-                  onFileClick={(resource) => setSelectedResource(resource)}
-                />
-              ))}
+            ) : messages.length === 0 && !isLoading ? (
+              <NewChatWelcome 
+                onSendMessage={handleSendMessage}
+                disabled={isLoading || isConnecting}
+              />
+            ) : (
+              <>
+                {messages.map((msg, i) => (
+                  <ChatMessage
+                    key={i}
+                    role={msg.role}
+                    content={msg.content}
+                    toolCalls={msg.toolCalls}
+                    chatId={chatId || undefined}
+                    onSelectTool={handleSelectTool}
+                    resources={resources}
+                    onFileClick={(resource) => setSelectedResource(resource)}
+                  />
+                ))}
 
-              {streamingTools.length > 0 && (
-                <ChatMessage 
-                  role="assistant" 
-                  content="" 
-                  toolCalls={streamingTools} 
-                  chatId={chatId || undefined}
-                  onSelectTool={handleSelectTool}
-                  resources={resources}
-                  onFileClick={(resource) => setSelectedResource(resource)}
-                />
-              )}
+                {streamingTools.length > 0 && (
+                  <ChatMessage 
+                    role="assistant" 
+                    content="" 
+                    toolCalls={streamingTools} 
+                    chatId={chatId || undefined}
+                    onSelectTool={handleSelectTool}
+                    resources={resources}
+                    onFileClick={(resource) => setSelectedResource(resource)}
+                  />
+                )}
 
-              {streamingText && (
-                <ChatMessage 
-                  role="assistant" 
-                  content={streamingText} 
-                  chatId={chatId || undefined}
-                  resources={resources}
-                  onFileClick={(resource) => setSelectedResource(resource)}
-                />
-              )}
+                {streamingText && (
+                  <ChatMessage 
+                    role="assistant" 
+                    content={streamingText} 
+                    chatId={chatId || undefined}
+                    resources={resources}
+                    onFileClick={(resource) => setSelectedResource(resource)}
+                  />
+                )}
 
-              {pendingOptions && (
-                <div className="flex justify-start mb-4">
-                  <div className="max-w-[80%] px-3 py-2">
-                    <p className="text-gray-900 font-medium mb-3">{pendingOptions.question}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {pendingOptions.options.map(opt => (
-                        <button
-                          key={opt.id}
-                          onClick={() => handleOptionSelect(opt)}
-                          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm"
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
+                {pendingOptions && (
+                  <div className="flex justify-start mb-4">
+                    <div className="max-w-[80%] px-3 py-2">
+                      <p className="text-gray-900 font-medium mb-3">{pendingOptions.question}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {pendingOptions.options.map(opt => (
+                          <button
+                            key={opt.id}
+                            onClick={() => handleOptionSelect(opt)}
+                            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {isLoading && !streamingText && streamingTools.length === 0 && (
-                <div className="flex justify-start mb-4 px-3">
-                  <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                {isLoading && !streamingText && streamingTools.length === 0 && (
+                  <div className="flex justify-start mb-4 px-3">
+                    <div className="flex space-x-2">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               <div ref={messagesEndRef} />
             </>
           )}
+          </div>
         </div>
 
         {error && (
@@ -635,11 +753,12 @@ export default function ChatView() {
         )}
       </div>
 
-      {/* Terminal Panel - fixed on right side */}
-      {showTerminal && selectedTool && (
+      {/* Computer Panel - fixed on right side (unified for terminal and file viewing) */}
+      {showComputerPanel && selectedTool && (
         <div className="fixed right-0 top-0 h-full w-[620px] z-40">
-          <TerminalPanel
-            title={selectedTool.statusMessage || selectedTool.tool_name}
+          <ComputerPanel
+            mode={selectedTool.file_content ? 'file' : 'terminal'}
+            // Terminal props
             command={selectedTool.tool_name.replace(/_/g, ' ')}
             output={
               selectedTool.code_output?.stdout || 
@@ -648,8 +767,13 @@ export default function ChatView() {
               selectedTool.error ||
               ''
             }
-            isStreaming={selectedTool.status === 'calling'}
             isError={selectedTool.status === 'error' || !!selectedTool.error || !!selectedTool.code_output?.stderr}
+            // File props
+            filename={selectedTool.file_content?.filename}
+            fileContent={selectedTool.file_content?.content}
+            fileType={selectedTool.file_content?.file_type}
+            // Common props
+            isStreaming={selectedTool.status === 'calling'}
             onClose={() => setSelectedTool(null)}
           />
         </div>

@@ -27,11 +27,13 @@ class FindInFileParams(BaseModel):
 
 # Basic file tools (read, write, list) plus advanced tools (replace, find)
 
-def replace_in_chat_file_impl(
-    params: ReplaceInFileParams,
+async def replace_in_chat_file_impl(
+    old_str: str,
+    new_str: str,
+    filename: str,
     context: AgentContext
 ):
-    """Replace text in file"""
+    """Replace text in file with streaming content to frontend"""
     from modules.resource_manager import resource_manager
     
     try:
@@ -39,49 +41,103 @@ def replace_in_chat_file_impl(
         content = resource_manager.read_chat_file(
             context.user_id,
             context.chat_id,
-            params.filename
+            filename
         )
         
         if content is None:
-            return {
+            yield {
                 "success": False,
-                "error": f"File '{params.filename}' not found"
+                "error": f"File '{filename}' not found"
             }
+            return
         
         # Count occurrences
-        count = content.count(params.old_str)
+        count = content.count(old_str)
         
         if count == 0:
-            return {
+            yield {
                 "success": False,
-                "error": f"Text not found: '{params.old_str}'"
+                "error": f"Text not found: '{old_str}'"
             }
+            return
         
         # Replace
-        new_content = content.replace(params.old_str, params.new_str)
+        new_content = content.replace(old_str, new_str)
+        
+        # Determine file type
+        file_type = "text"
+        if filename.endswith('.py'):
+            file_type = "python"
+        elif filename.endswith('.md'):
+            file_type = "markdown"
+        elif filename.endswith('.csv'):
+            file_type = "csv"
+        elif filename.endswith('.json'):
+            file_type = "json"
+        
+        # Stream the updated file content to frontend
+        yield SSEEvent(
+            event="file_content",
+            data={
+                "tool_call_id": context.current_tool_call_id or "",
+                "filename": filename,
+                "content": new_content,
+                "file_type": file_type,
+                "is_complete": False
+            }
+        )
         
         # Write back
-        path = resource_manager.write_chat_file(
+        file_id = resource_manager.write_chat_file(
             context.user_id,
             context.chat_id,
-            params.filename,
+            filename,
             new_content
         )
         
-        return {
+        # Send completion signal
+        yield SSEEvent(
+            event="file_content",
+            data={
+                "tool_call_id": context.current_tool_call_id or "",
+                "filename": filename,
+                "content": "",
+                "file_type": file_type,
+                "is_complete": True
+            }
+        )
+        
+        # Emit SSE resource event so frontend updates the file in resources
+        yield SSEEvent(
+            event="resource",
+            data={
+                "resource_type": "file",
+                "tool_name": "replace_in_chat_file",
+                "title": filename,
+                "data": {
+                    "filename": filename,
+                    "file_type": file_type,
+                    "size_bytes": len(new_content.encode('utf-8')),
+                    "file_id": file_id
+                }
+            }
+        )
+        
+        yield {
             "success": True,
-            "filename": params.filename,
+            "filename": filename,
             "replacements": count,
-            "message": f"Replaced {count} occurrence(s) of '{params.old_str}'"
+            "message": f"Replaced {count} occurrence(s) of '{old_str}'"
         }
     
     except Exception as e:
         logger.error(f"Error replacing in file: {str(e)}", exc_info=True)
-        return {"success": False, "error": str(e)}
+        yield {"success": False, "error": str(e)}
 
 
 def find_in_chat_file_impl(
-    params: FindInFileParams,
+    pattern: str,
+    filename: str,
     context: AgentContext
 ):
     """Find pattern in file"""
@@ -92,13 +148,13 @@ def find_in_chat_file_impl(
         content = resource_manager.read_chat_file(
             context.user_id,
             context.chat_id,
-            params.filename
+            filename
         )
         
         if content is None:
             return {
                 "success": False,
-                "error": f"File '{params.filename}' not found"
+                "error": f"File '{filename}' not found"
             }
         
         # Search
@@ -106,7 +162,7 @@ def find_in_chat_file_impl(
         matches = []
         
         for i, line in enumerate(lines):
-            if re.search(params.pattern, line):
+            if re.search(pattern, line):
                 matches.append({
                     "line": i,
                     "content": line.strip()
@@ -114,8 +170,8 @@ def find_in_chat_file_impl(
         
         return {
             "success": True,
-            "filename": params.filename,
-            "pattern": params.pattern,
+            "filename": filename,
+            "pattern": pattern,
             "matches": matches,
             "count": len(matches)
         }
@@ -322,18 +378,11 @@ async def write_chat_file_impl(
     filename: str,
     content: str
 ):
-    """Write file to chat directory"""
+    """Write file to chat directory with streaming content to frontend"""
     from modules.resource_manager import resource_manager
     
     try:
-        file_id = resource_manager.write_chat_file(
-            context.user_id,
-            context.chat_id,
-            filename,
-            content
-        )
-        
-        # Determine file type
+        # Determine file type first
         file_type = "text"
         if filename.endswith('.py'):
             file_type = "python"
@@ -346,7 +395,40 @@ async def write_chat_file_impl(
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
             file_type = "image"
         
-        # Emit SSE resource event so frontend shows the file
+        # Stream the file content to frontend immediately (before writing to DB)
+        # This allows the side panel to show content as it's "being written"
+        yield SSEEvent(
+            event="file_content",
+            data={
+                "tool_call_id": context.current_tool_call_id or "",
+                "filename": filename,
+                "content": content,
+                "file_type": file_type,
+                "is_complete": False
+            }
+        )
+        
+        # Now write to DB
+        file_id = resource_manager.write_chat_file(
+            context.user_id,
+            context.chat_id,
+            filename,
+            content
+        )
+        
+        # Send completion signal
+        yield SSEEvent(
+            event="file_content",
+            data={
+                "tool_call_id": context.current_tool_call_id or "",
+                "filename": filename,
+                "content": "",  # No additional content
+                "file_type": file_type,
+                "is_complete": True
+            }
+        )
+        
+        # Emit SSE resource event so frontend shows the file in resources
         yield SSEEvent(
             event="resource",
             data={

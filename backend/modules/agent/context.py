@@ -13,10 +13,12 @@ class AgentContext(BaseModel):
     by the LLM and instead come from code:
     - User identification
     - Chat session ID
+    - Current tool call ID (for streaming events)
     - Additional context data (e.g., auth status, credentials)
     """
     user_id: str  # Supabase user ID (OAuth identifier) - REQUIRED
     chat_id: str  # Chat session ID - REQUIRED
+    current_tool_call_id: Optional[str] = None  # Current tool call ID for streaming events
     data: Optional[Dict[str, Any]] = None  # Additional context data (e.g., auth status, credentials) - OPTIONAL
     
     class Config:

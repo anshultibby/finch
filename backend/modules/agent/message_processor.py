@@ -3,6 +3,53 @@ Message history processing and validation utilities
 """
 from typing import List, Dict, Any, Set
 from datetime import datetime
+import json
+
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def validate_and_fix_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Validate tool call arguments JSON and fix malformed ones.
+    
+    This handles the case where the LLM streams incomplete/truncated JSON arguments.
+    If we don't fix these, litellm will fail when trying to send them back to Anthropic.
+    
+    Args:
+        tool_calls: List of tool calls from LLM response
+        
+    Returns:
+        List of tool calls with valid JSON arguments (malformed ones get empty {})
+    """
+    if not tool_calls:
+        return tool_calls
+    
+    fixed_calls = []
+    for tc in tool_calls:
+        tc_copy = tc.copy()
+        if "function" in tc_copy:
+            func = tc_copy["function"].copy()
+            args_str = func.get("arguments", "")
+            
+            # Try to parse the JSON arguments
+            if args_str:
+                try:
+                    json.loads(args_str)
+                    # Valid JSON, keep as-is
+                except json.JSONDecodeError as e:
+                    # Malformed JSON - log and replace with empty object
+                    logger.warning(
+                        f"Malformed tool call arguments for {func.get('name', 'unknown')}: "
+                        f"{args_str[:100]}... (error: {e})"
+                    )
+                    func["arguments"] = "{}"
+            
+            tc_copy["function"] = func
+        fixed_calls.append(tc_copy)
+    
+    return fixed_calls
 
 
 def clean_incomplete_tool_calls(

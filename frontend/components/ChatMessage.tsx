@@ -282,7 +282,7 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
   if (isUser) {
     return (
       <div className="flex justify-end mb-3">
-        <div className="max-w-[80%]">
+        <div className="max-w-2xl">
           <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-none shadow-sm">
             <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
           </div>
@@ -294,7 +294,7 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
   if (content && (!toolCalls || toolCalls.length === 0)) {
     return (
       <div className="flex justify-start mb-2">
-        <div className="max-w-[80%] px-3">
+        <div className="w-full px-3">
           {hasFileReferences ? (
             <div className="prose prose-sm prose-slate max-w-none">
               {parsedContent?.map((part, idx) => 
@@ -320,7 +320,7 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
   if (toolCalls && toolCalls.length > 0 && !content) {
     return (
       <div className="flex justify-start mb-2">
-        <div className="max-w-[80%] px-3">
+        <div className="w-full px-3">
           <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} />
         </div>
       </div>
@@ -329,7 +329,7 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
 
   return (
     <div className="flex justify-start mb-2">
-      <div className="max-w-[80%] px-3">
+      <div className="w-full px-3">
         {content && (
           hasFileReferences ? (
             <div className="prose prose-sm prose-slate max-w-none mb-2">

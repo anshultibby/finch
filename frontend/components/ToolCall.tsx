@@ -47,22 +47,37 @@ const isFileOperation = (toolName: string) => {
   return ['write_chat_file', 'create_file', 'write_file', 'edit_file', 'replace_in_chat_file', 'read_chat_file'].includes(toolName);
 };
 
-// Extract filename from statusMessage or tool description
-const extractFilename = (statusMessage: string | undefined): string | null => {
+// Extract filename from arguments or statusMessage
+const extractFilename = (toolCall: ToolCallStatus): string | null => {
+  // First try to get filename directly from arguments (most reliable)
+  if (toolCall.arguments) {
+    // Direct filename argument
+    if (toolCall.arguments.filename) {
+      const filename = toolCall.arguments.filename;
+      // Get just the filename without path
+      return filename.split('/').pop() || filename;
+    }
+    // For replace_in_chat_file, filename is inside params
+    if (toolCall.arguments.params?.filename) {
+      const filename = toolCall.arguments.params.filename;
+      return filename.split('/').pop() || filename;
+    }
+  }
+  
+  // Fallback: try to extract from statusMessage
+  const statusMessage = toolCall.statusMessage;
   if (!statusMessage) return null;
   
-  // Common patterns: "Writing file.py", "Creating analysis.csv", "Editing config.json"
-  // Also handles: "file.py" directly, or paths like "/path/to/file.py"
   const patterns = [
-    /(?:Writing|Creating|Editing|Reading|Updating)\s+([^\s]+\.\w+)/i,
-    /(?:file|to)\s+([^\s]+\.\w+)/i,
+    /(?:Writing|Creating|Editing|Reading|Updating)\s+`?([^\s`]+\.\w+)`?/i,
+    /(?:file|to)\s+`?([^\s`]+\.\w+)`?/i,
+    /`([^\s`]+\.\w{1,5})`/,  // Match filename in backticks
     /([^\s\/]+\.\w{1,5})$/,  // Match filename at end
   ];
   
   for (const pattern of patterns) {
     const match = statusMessage.match(pattern);
     if (match) {
-      // Get just the filename without path
       const filename = match[1].split('/').pop() || match[1];
       return filename;
     }
@@ -123,7 +138,17 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
   
   const toolName = getToolDisplayName(toolCall.tool_name);
   const isFile = isFileOperation(toolCall.tool_name);
-  const filename = isFile ? extractFilename(description) : null;
+  const filename = isFile ? extractFilename(toolCall) : null;
+  
+  // Debug logging
+  if (isFile) {
+    console.log('🔍 ToolCall debug:', {
+      tool_name: toolCall.tool_name,
+      arguments: toolCall.arguments,
+      statusMessage: toolCall.statusMessage,
+      extractedFilename: filename
+    });
+  }
 
   return (
     <div 
@@ -147,8 +172,8 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
         </span>
       )}
 
-      {/* Description for non-file operations - can shrink/truncate */}
-      {!isFile && description && description !== toolCall.tool_name && (
+      {/* Description - show for all tools when available and not just the tool name */}
+      {description && description !== toolCall.tool_name && !filename && (
         <span className={`text-sm ${styles.muted} truncate min-w-0`}>
           {description}
         </span>

@@ -52,9 +52,10 @@ class ThinkingEvent(BaseModel):
 
 
 class MessageEndEvent(BaseModel):
-    """Event sent when text message is complete"""
+    """Event sent when assistant message is complete (with or without tool calls)"""
     role: str = "assistant"
     content: str
+    tool_calls: Optional[List[Dict[str, Any]]] = None
     timestamp: str = datetime.now().isoformat()
 
 
@@ -123,6 +124,16 @@ class LLMStartEvent(BaseModel):
 class AssistantMessageDeltaEvent(BaseModel):
     """Event sent for each content delta during streaming"""
     delta: str  # The incremental content
+
+
+class FileContentEvent(BaseModel):
+    """Event sent when file content is being written (for streaming file writes)"""
+    tool_call_id: str
+    filename: str
+    content: str  # The file content (can be sent in chunks or all at once)
+    file_type: str = "text"  # python, json, csv, markdown, etc.
+    is_complete: bool = False  # True when file write is complete
+    timestamp: str = datetime.now().isoformat()
 
 
 class LLMEndEvent(BaseModel):

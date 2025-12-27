@@ -82,9 +82,9 @@ async def execute_code(
     description=WRITE_CHAT_FILE_DESC,
     category="files"
 )
-async def write_chat_file(*, context: AgentContext, filename: str, content: str):
+async def write_chat_file(*, context: AgentContext, filename: str, file_content: str):
     """Write file to chat directory with DB sync"""
-    async for item in file_management.write_chat_file_impl(context, filename, content):
+    async for item in file_management.write_chat_file_impl(context, filename, file_content):
         yield item
 
 
@@ -103,9 +103,10 @@ def read_chat_file(*, context: AgentContext, filename: str):
     description=REPLACE_IN_CHAT_FILE_DESC,
     category="files"
 )
-def replace_in_chat_file(*, params: file_management.ReplaceInFileParams, context: AgentContext):
+async def replace_in_chat_file(*, old_str: str, new_str: str, filename: str, context: AgentContext):
     """Replace text in file (like str_replace)"""
-    return file_management.replace_in_chat_file_impl(params, context)
+    async for item in file_management.replace_in_chat_file_impl(old_str, new_str, filename, context):
+        yield item
 
 
 # ============================================================================
