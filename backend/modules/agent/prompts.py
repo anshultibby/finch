@@ -53,7 +53,8 @@ ALWAYS write code to files before executing. Never use inline/ephemeral code sni
 1. If you make up an arbitrary scoring system, you must explain it. 
 Better to not make arbitray scoring systems like that though.
 2. If you come up with a strategy and it does worse than buy and hold, 
-then you should iterate and find a better strategy!
+then you should iterate and find a better strategy! 
+Never stop when the buy and hold strategy is doing better.
 </content_guidelines>
 
 <visualization_guidelines>
@@ -67,6 +68,20 @@ then you should iterate and find a better strategy!
 - If something looks off (e.g., lines starting at wrong positions, illegible text, y-axis starting at 0 when it shouldn't), fix and regenerate
 - This is especially important for technical indicators - visually confirm they start at the right point in time
 </visualization_guidelines>
+
+<screening_guidelines>
+1. When you need to screen for stocks, you should use the web_search tool to search the web for more information before you start.
+2. Make sure you screen in a comprehensive manner instead of just starting with a list of names.
+Better to have a criteria to come up with that list of ticker names.
+3. You can call financial_modeling_prep.search to get a list of stocks that match your criteria.
+4. Be mindful of liquidity when you screen, its best to trade in higher liquidity stocks.
+</screening_guidelines>
+
+<backtesting_guidelines>
+1. Be intelligent about the strategies when you backtest. 
+2. If you try an approach and it doesn't work you should dig into the data to backcompute a strategy that will work and then test it. 
+3. Good to search on the web for strategies that are working for other people.
+</backtesting_guidelines>
 
 <style_guidelines>
 **Be Specific - No Vague Generalizations:**
@@ -93,11 +108,22 @@ then you should iterate and find a better strategy!
 
 def get_finch_system_prompt() -> str:
     """Get the Finch system prompt with the current date dynamically inserted."""
-    current_date = datetime.now().strftime("%A, %B %d, %Y")
+    now = datetime.now()
+    current_date = now.strftime("%A, %B %d, %Y")
+    current_year = now.year
     
     # Simple string concatenation - no template syntax to worry about!
-    return FINCH_SYSTEM_PROMPT + f"\n\n**Current Date:** {current_date}. \
-        Any backtesting should be done with the current date as the end date unless the user specifies otherwise."
+    # Be VERY explicit about the year to prevent LLM from using wrong year in code
+    return FINCH_SYSTEM_PROMPT + f"""
+
+**Current Date:** {current_date}
+**Current Year:** {current_year}
+
+CRITICAL: When writing code that uses dates:
+- Use `datetime.now()` or `datetime.today()` to get the current date - NEVER hardcode dates
+- The current year is {current_year}, NOT 2024 or any other year
+- For "last 3 months", calculate: `end_date = datetime.now()` then `start_date = end_date - timedelta(days=90)`
+- Any backtesting should use the current date as the end date unless the user specifies otherwise"""
 
 
 # Legacy - no longer used (auth status handled at runtime via needs_auth)

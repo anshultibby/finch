@@ -133,9 +133,10 @@ income = get_income_statement('AAPL', period='annual', limit=5)
 from servers.financial_modeling_prep.market.quote import get_quote
 quote = get_quote('AAPL')
 
-# TradingView chart widget
-from servers.tradingview.charts.embed import get_embed_widget
-widget_html = get_embed_widget('AAPL', interval='D', theme='dark')
+# TradingView chart (save as HTML file, embed in chat)
+from servers.tradingview.charts.generate import create_chart_for_chat
+chart = create_chart_for_chat('AAPL', interval='1d', indicators=['RSI', 'MACD'])
+# Save chart['html'] to file, reference with [file:AAPL_chart.html]
 ```
 
 **Important:**

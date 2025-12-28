@@ -579,8 +579,16 @@ async def execute_code_impl(
             # Go up 3 levels: implementations -> tools -> modules -> backend
             backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
             env = os.environ.copy()
-            env['FMP_API_KEY'] = os.getenv('FMP_API_KEY', '')
-            env['POLYGON_API_KEY'] = os.getenv('POLYGON_API_KEY', '')
+            
+            # Pass API keys to sandbox from centralized config
+            from config import settings
+            sandbox_api_keys = {
+                'FMP_API_KEY': settings.FMP_API_KEY,
+                'POLYGON_API_KEY': settings.POLYGON_API_KEY,
+                'SERPER_API_KEY': settings.SERPER_API_KEY,
+            }
+            for key, value in sandbox_api_keys.items():
+                env[key] = value or ''
             
             # Add both temp_dir and backend directory to PYTHONPATH
             # temp_dir: allows "from finch_runtime import X" (direct import)

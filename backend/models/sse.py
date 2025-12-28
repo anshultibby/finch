@@ -148,4 +148,3 @@ class ToolsEndEvent(BaseModel):
     tool_messages: List[Dict[str, Any]]
     execution_results: Optional[List[Dict[str, Any]]] = None  # Optional: detailed results for tracking
     timestamp: str = datetime.now().isoformat()
-

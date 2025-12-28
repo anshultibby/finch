@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatMessage from '../ChatMessage';
 import ChatInput from '../ChatInput';
 import ChatModeBanner from './ChatModeBanner';
-import ChatHistorySidebar from './ChatHistorySidebar';
+import ChatHistorySidebar, { ChatHistorySidebarRef } from './ChatHistorySidebar';
 import ChatFilesModal from './ChatFilesModal';
 import NewChatWelcome from './NewChatWelcome';
 import ResourceViewer from '../ResourceViewer';
@@ -72,8 +72,13 @@ export default function ChatView() {
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipNextHistoryLoad = useRef(false);
+  const currentChatIdRef = useRef<string | null>(null);
+  const chatHistorySidebarRef = useRef<ChatHistorySidebarRef>(null);
 
   const userId = user?.id || null;
+  
+  // Keep ref in sync with state
+  currentChatIdRef.current = currentChatId;
 
   // Get or create chat state
   const getChatState = useCallback((chatId: string): ChatStreamState => {
@@ -93,12 +98,14 @@ export default function ChatView() {
   }, []);
 
   // Update chat state and sync to display if it's the current chat
+  // Uses ref instead of state to avoid stale closure issues during streaming
   const updateChatState = useCallback((chatId: string, updates: Partial<ChatStreamState>) => {
     const state = getChatState(chatId);
     Object.assign(state, updates);
     
     // If this is the currently viewed chat, update display state
-    if (chatId === currentChatId) {
+    // Use ref to get the latest value (avoids stale closure from React state)
+    if (chatId === currentChatIdRef.current) {
       if ('messages' in updates) setMessages(state.messages);
       if ('streamingText' in updates) setStreamingText(state.streamingText);
       if ('streamingTools' in updates) setStreamingTools(state.streamingTools);
@@ -107,7 +114,7 @@ export default function ChatView() {
       if ('pendingOptions' in updates) setPendingOptions(state.pendingOptions);
       if ('resources' in updates) setResources(state.resources);
     }
-  }, [currentChatId, getChatState]);
+  }, [getChatState]);
 
   // Sync display state when switching chats
   const syncDisplayToChat = useCallback((chatId: string | null) => {
@@ -303,47 +310,30 @@ export default function ChatView() {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
     
     const trimmedContent = content.trim();
-    let targetChatId = currentChatId;
+    const displayContent = trimmedContent + (images && images.length > 0 ? ` [${images.length} image${images.length > 1 ? 's' : ''} attached]` : '');
+    const attachedImages = images;
 
-    // If currently streaming in this chat, interrupt it
-    if (targetChatId && getChatState(targetChatId).isLoading) {
-      stopChatStream(targetChatId, true);
-    }
-
-    // Handle new chat creation
+    // Determine target chat ID - generate immediately if new chat
+    let targetChatId: string;
+    
     if (isNewChat || !currentChatId) {
-      setIsCreatingChat(true);
-      try {
-        const newChatId = await chatApi.createChat(userId);
-        targetChatId = newChatId;
-        skipNextHistoryLoad.current = true;
-        setCurrentChatId(newChatId);
-        setIsNewChat(false);
-        
-        // Initialize state for new chat
-        getChatState(newChatId);
-        
-        chatApi.generateTitle(newChatId, trimmedContent)
-          .then(() => {
-            setIsCreatingChat(false);
-            setChatHistoryRefresh(prev => prev + 1);
-          })
-          .catch(err => {
-            console.error('Error generating chat title:', err);
-            setIsCreatingChat(false);
-            setChatHistoryRefresh(prev => prev + 1);
-          });
-      } catch (err) {
-        console.error('Error creating chat:', err);
-        setIsCreatingChat(false);
-        setError('Failed to create chat');
-        return;
+      // Generate UUID client-side for immediate use
+      targetChatId = crypto.randomUUID();
+      skipNextHistoryLoad.current = true;
+      currentChatIdRef.current = targetChatId;
+      setCurrentChatId(targetChatId);
+      setIsNewChat(false);
+      
+      // Initialize state for new chat
+      getChatState(targetChatId);
+    } else {
+      targetChatId = currentChatId;
+      
+      // If currently streaming in this chat, interrupt it
+      if (getChatState(targetChatId).isLoading) {
+        stopChatStream(targetChatId, true);
       }
     }
-
-    if (!targetChatId) return;
-
-    const displayContent = trimmedContent + (images && images.length > 0 ? ` [${images.length} image${images.length > 1 ? 's' : ''} attached]` : '');
 
     const userMessage: Message = {
       role: 'user',
@@ -351,16 +341,20 @@ export default function ChatView() {
       timestamp: new Date().toISOString(),
     };
 
+    // Update ref state
     const state = getChatState(targetChatId);
-    updateChatState(targetChatId, {
-      messages: [...state.messages, userMessage],
-      streamingText: '',
-      streamingTools: [],
-      isLoading: true,
-      error: null,
-    });
+    state.messages = [...state.messages, userMessage];
+    state.isLoading = true;
 
-    const attachedImages = images;
+    // Show user message and loading state IMMEDIATELY
+    setMessages([...state.messages]);
+    setStreamingText('');
+    setStreamingTools([]);
+    setIsLoading(true);
+    setError(null);
+
+    // Track if this is the first message (for title generation)
+    const isFirstMessage = state.messages.length === 1;
 
     // Helper to save accumulated tools to messages
     const saveAccumulatedTools = (chatId: string) => {
@@ -377,6 +371,26 @@ export default function ChatView() {
         });
       }
     };
+
+    // Generate title for first message (fire and forget - backend creates chat on stream request)
+    if (isFirstMessage) {
+      setIsCreatingChat(true);
+      // Small delay to ensure stream request reaches backend first and creates the chat
+      setTimeout(() => {
+        chatApi.generateTitle(targetChatId, trimmedContent)
+          .then((response) => {
+            setIsCreatingChat(false);
+            // Update sidebar directly with the new title instead of full refresh
+            chatHistorySidebarRef.current?.updateChatTitle(targetChatId, response.title, response.icon);
+          })
+          .catch(err => {
+            console.error('Error generating chat title:', err);
+            setIsCreatingChat(false);
+            // On error, still refresh to show the chat (with default title)
+            setChatHistoryRefresh(prev => prev + 1);
+          });
+      }, 100);
+    }
 
     try {
       const stream = chatApi.sendMessageStream(trimmedContent, userId, targetChatId, {
@@ -532,11 +546,19 @@ export default function ChatView() {
       // Store stream reference
       updateChatState(targetChatId, { stream });
     } catch (err) {
+      // Network error - message wasn't sent to backend
+      // Remove optimistically added user message and show error
+      const state = getChatState(targetChatId);
+      const messagesWithoutLast = state.messages.slice(0, -1);
       updateChatState(targetChatId, {
+        messages: messagesWithoutLast,
         error: 'Failed to send message',
         isLoading: false,
         stream: null,
       });
+      setMessages(messagesWithoutLast);
+      setIsLoading(false);
+      setError('Failed to send message');
     }
   };
 
@@ -681,10 +703,12 @@ export default function ChatView() {
       if (hasOutput) {
         setSelectedTool(tool);
       } else {
+        // No output - could be from an old session before we started persisting output,
+        // or the code simply didn't produce any output
         const toolWithPlaceholder: ToolCallStatus = {
           ...tool,
           code_output: {
-            stdout: '(Code output is only available during the session when the code was executed)',
+            stdout: '(No output recorded)',
             stderr: ''
           }
         };
@@ -711,6 +735,7 @@ export default function ChatView() {
   return (
     <div className="flex h-full bg-white">
       <ChatHistorySidebar
+        ref={chatHistorySidebarRef}
         userId={userId}
         currentChatId={currentChatId}
         onSelectChat={handleSelectChat}
@@ -721,7 +746,7 @@ export default function ChatView() {
         isCreatingChat={isCreatingChat}
       />
 
-      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${showComputerPanel ? 'mr-[620px]' : 'max-w-5xl mx-auto w-full'}`}>
+      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${showComputerPanel ? 'mr-[620px]' : ''}`}>
         <button
           onClick={() => setIsResourcesOpen(true)}
           className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 hover:bg-white border border-gray-200 rounded-md shadow-sm backdrop-blur-sm transition-all text-xs font-medium text-gray-700 hover:border-blue-400"
@@ -736,8 +761,8 @@ export default function ChatView() {
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="px-6 py-4">
-            {!currentChatId && !isNewChat ? (
+          <div className={`py-4 ${showComputerPanel ? 'px-6' : 'max-w-5xl mx-auto w-full px-6'}`}>
+            {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
                   <div className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" />
@@ -823,7 +848,7 @@ export default function ChatView() {
         </div>
 
         {error && (
-          <div className="px-6 py-3 bg-red-50 border-t border-red-200">
+          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-6' : 'max-w-5xl mx-auto w-full px-6'}`}>
             <p className="text-sm text-red-600">{error}</p>
           </div>
         )}

@@ -9,7 +9,7 @@ Usage:
 """
 import asyncio
 import os
-from modules.tools.etf_builder_tools import BuildCustomETFParams, build_custom_etf
+from modules.tools.implementations.etf_builder import BuildCustomETFParams, build_custom_etf_impl as build_custom_etf
 from modules.agent.context import AgentContext
 
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 import asyncio
+import json
 
 from models import ChatMessage, ChatResponse
 from modules import ChatService
@@ -84,7 +85,6 @@ async def send_chat_message_stream(chat_message: ChatMessage):
                 tb = traceback.format_exc()
                 logger.error(f"ERROR in stream: {error_msg}\nFull traceback:\n{tb}")
                 # Send error event
-                import json
                 # Use string concatenation to avoid f-string interpreting JSON curly braces as format specs
                 yield "event: error\ndata: " + json.dumps({'error': error_msg}) + "\n\n"
         

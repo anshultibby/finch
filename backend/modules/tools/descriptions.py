@@ -51,6 +51,7 @@ Most of the other tools are available as various files that can be imported from
 Each execution starts FRESH - NO variables or imports persist between calls.
 
 **Required workflow:**
+0. If you don't have enough info then search the web for more information before you start.
 1. Use `write_chat_file` to save your code to a descriptive .py file (e.g., `nvda_analysis.py`)
 2. Use `execute_code(filename="nvda_analysis.py")` to run it
 3. If errors occur, use `replace_in_chat_file` to fix and re-execute
@@ -148,6 +149,68 @@ BUILD_CUSTOM_ETF_DESC = """Build a custom ETF portfolio with specified stocks we
 - Build custom indices for backtesting
 
 **Returns:** Portfolio composition with weights, prices, and market caps"""
+
+
+# ============================================================================
+# WEB SEARCH TOOLS
+# ============================================================================
+
+WEB_SEARCH_DESC = """Search the web using Google via Serper API.
+
+**Use this tool when you need:**
+- Current information not in your training data
+- Recent news about companies, markets, or events
+- Research on specific topics
+- Verification of current facts
+
+**Search types:**
+- "search" (default): General web search
+- "news": Google News search for recent articles
+- "images": Image search
+
+**Returns:**
+- organic: List of web results with title, link, snippet
+- news: List of news articles (if search_type="news")
+- answerBox: Featured snippet if available
+- knowledgeGraph: Knowledge panel if available
+
+**Examples:**
+- "NVIDIA Q4 2024 earnings results"
+- "Federal Reserve interest rate decision January 2025"
+- "best dividend stocks 2025"
+"""
+
+NEWS_SEARCH_DESC = """Search Google News for recent articles.
+
+Shortcut for web_search with search_type="news".
+
+**Use for:**
+- Breaking news about companies
+- Market-moving events
+- Industry trends and developments
+- Recent announcements
+
+**Returns:** List of news articles with title, link, snippet, date, and source.
+"""
+
+SCRAPE_URL_DESC = """Scrape a webpage and convert to clean markdown text.
+
+Uses Jina AI Reader which:
+- Removes ads, navigation, footers
+- Extracts main content
+- Converts to clean markdown
+- Handles JavaScript-rendered pages
+
+**Use after web_search to:**
+- Read full article content
+- Extract detailed information from search results
+- Get complete context from a webpage
+
+**Returns:**
+- content: Clean markdown text of the page
+- title: Page title
+- url: Final URL (after redirects)
+"""
 
 
 # ============================================================================

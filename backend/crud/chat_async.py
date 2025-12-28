@@ -178,6 +178,7 @@ async def create_message(
     sequence: int,
     resource_id: Optional[str] = None,
     tool_calls: Optional[list] = None,
+    tool_results: Optional[dict] = None,
     tool_call_id: Optional[str] = None,
     name: Optional[str] = None,
     latency_ms: Optional[int] = None
@@ -193,6 +194,7 @@ async def create_message(
         sequence: Message sequence number
         resource_id: Optional resource ID (for 'tool' role messages linking to resources)
         tool_calls: Optional tool calls data (for 'assistant' role messages)
+        tool_results: Optional tool execution results keyed by tool_call_id (for 'assistant' role)
         tool_call_id: Optional tool call ID (for 'tool' role messages)
         name: Optional tool name (for 'tool' role messages)
         latency_ms: Optional latency in milliseconds (for 'assistant' role messages)
@@ -204,6 +206,7 @@ async def create_message(
         sequence=sequence,
         resource_id=resource_id,
         tool_calls=tool_calls,
+        tool_results=tool_results,
         tool_call_id=tool_call_id,
         name=name,
         latency_ms=latency_ms

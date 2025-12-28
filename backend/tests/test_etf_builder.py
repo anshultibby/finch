@@ -5,7 +5,7 @@ Tests the build_custom_etf tool and integration with other tools.
 """
 import pytest
 from modules.agent.context import AgentContext
-from modules.tools.etf_builder_tools import BuildCustomETFParams, build_custom_etf
+from modules.tools.implementations.etf_builder import BuildCustomETFParams, build_custom_etf_impl as build_custom_etf
 
 
 class TestETFBuilder:
@@ -202,5 +202,5 @@ class TestETFBuilderIntegration:
 
 
 # Run tests with: pytest tests/test_etf_builder.py -v
-# Run with coverage: pytest tests/test_etf_builder.py --cov=modules.tools.etf_builder_tools
+# Run with coverage: pytest tests/test_etf_builder.py --cov=modules.tools.implementations.etf_builder
 

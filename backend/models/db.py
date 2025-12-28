@@ -104,6 +104,10 @@ class ChatMessage(Base):
     # Tool call data (for assistant messages that call tools)
     tool_calls = Column(JSONB, nullable=True)
     
+    # Tool execution results (for assistant messages with tool_calls)
+    # Stores code_output, result_summary, errors etc. keyed by tool_call_id
+    tool_results = Column(JSONB, nullable=True)
+    
     # Tool result metadata (for tool role messages)
     tool_call_id = Column(String, nullable=True, index=True)
     name = Column(String, nullable=True)  # Tool/function name

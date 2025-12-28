@@ -98,7 +98,7 @@ if __name__ == "__main__":
         app, 
         host=Config.API_HOST, 
         port=Config.API_PORT,
-        timeout_keep_alive=5,
+        timeout_keep_alive=120,  # 2 minutes - long enough for SSE streams
         log_level="info"
     )
 

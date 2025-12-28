@@ -2,19 +2,11 @@
 Chat title and icon generation service using LLM
 """
 import json
-from typing import Optional, Tuple
-from pydantic import BaseModel
-from anthropic import Anthropic
-from config import Config
+from typing import Tuple
+from litellm import acompletion
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-class ChatTitleResponse(BaseModel):
-    """Response from the chat title generation"""
-    title: str
-    icon: str
 
 
 # System prompt for title generation
@@ -59,22 +51,23 @@ async def generate_chat_title(first_message: str) -> Tuple[str, str]:
         Tuple of (title, icon)
     """
     try:
-        client = Anthropic(api_key=Config.ANTHROPIC_API_KEY)
-        
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",  # Use Sonnet for better titles
+        response = await acompletion(
+            model="anthropic/claude-sonnet-4-20250514",
             max_tokens=100,
             messages=[
+                {
+                    "role": "system",
+                    "content": TITLE_GENERATION_PROMPT
+                },
                 {
                     "role": "user",
                     "content": f"Generate a title and icon for a chat that starts with this message:\n\n\"{first_message[:500]}\""
                 }
-            ],
-            system=TITLE_GENERATION_PROMPT
+            ]
         )
         
         # Parse the response
-        content = response.content[0].text.strip()
+        content = response.choices[0].message.content.strip()
         
         # Try to parse JSON
         try:

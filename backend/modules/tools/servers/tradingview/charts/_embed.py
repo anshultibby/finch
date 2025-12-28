@@ -1,10 +1,10 @@
-"""TradingView Chart Embedding - Generate embeddable chart widgets"""
-from typing import Optional, List
+"""Internal helpers for TradingView Chart Embedding - Generate embeddable chart widgets"""
+from typing import List
 
 
 def generate_chart_widget(
     symbol: str,
-    exchange: str = "NASDAQ",
+    exchange: str = "",
     interval: str = "D",
     theme: str = "dark",
     width: str = "100%",
@@ -14,26 +14,7 @@ def generate_chart_widget(
     allow_symbol_change: bool = True,
     save_image: bool = True
 ):
-    """
-    Generate TradingView advanced chart widget HTML
-    
-    Args:
-        symbol: Ticker symbol (e.g., 'AAPL', 'TSLA')
-        exchange: Exchange (NASDAQ, NYSE, BINANCE, etc)
-        interval: Timeframe (1, 3, 5, 15, 30, 60, 120, 180, D, W, M)
-        theme: "dark" or "light"
-        width: Chart width (e.g., "100%", "800px")
-        height: Chart height in pixels
-        studies: List of technical indicators to display
-            Options: ["RSI@tv-basicstudies", "MACD@tv-basicstudies", 
-                     "BB@tv-basicstudies", "EMA@tv-basicstudies", etc]
-        hide_side_toolbar: Hide the side toolbar
-        allow_symbol_change: Allow users to change symbol
-        save_image: Allow saving chart as image
-        
-    Returns:
-        dict: HTML code and iframe code for embedding
-    """
+    """Generate TradingView advanced chart widget HTML"""
     
     # Map interval format
     interval_map = {
@@ -47,6 +28,9 @@ def generate_chart_widget(
     studies_param = ""
     if studies:
         studies_param = f'"studies": {studies},'
+    
+    # Use just symbol (TradingView auto-detects) or exchange:symbol if specified
+    tv_symbol = f"{exchange}:{symbol}" if exchange else symbol
     
     # Generate the widget HTML
     html = f'''
@@ -63,7 +47,7 @@ def generate_chart_widget(
   new TradingView.widget({{
     "width": "{width}",
     "height": {height},
-    "symbol": "{exchange}:{symbol}",
+    "symbol": "{tv_symbol}",
     "interval": "{tv_interval}",
     "timezone": "Etc/UTC",
     "theme": "{theme}",
@@ -83,7 +67,7 @@ def generate_chart_widget(
 '''
     
     return {
-        "symbol": f"{exchange}:{symbol}",
+        "symbol": tv_symbol,
         "interval": tv_interval,
         "html": html.strip(),
         "type": "advanced_chart"
@@ -92,24 +76,13 @@ def generate_chart_widget(
 
 def generate_mini_chart(
     symbol: str,
-    exchange: str = "NASDAQ",
+    exchange: str = "",
     width: str = "350",
     height: str = "220",
     theme: str = "dark"
 ):
-    """
-    Generate compact mini chart widget (smaller, for quick views)
-    
-    Args:
-        symbol: Ticker symbol
-        exchange: Exchange
-        width: Width in pixels
-        height: Height in pixels
-        theme: "dark" or "light"
-        
-    Returns:
-        dict: HTML for mini chart
-    """
+    """Generate compact mini chart widget (smaller, for quick views)"""
+    tv_symbol = f"{exchange}:{symbol}" if exchange else symbol
     
     html = f'''
 <!-- TradingView Widget BEGIN -->
@@ -117,7 +90,7 @@ def generate_mini_chart(
   <div class="tradingview-widget-container__widget"></div>
   <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
   {{
-    "symbol": "{exchange}:{symbol}",
+    "symbol": "{tv_symbol}",
     "width": "{width}",
     "height": "{height}",
     "locale": "en",
@@ -133,7 +106,7 @@ def generate_mini_chart(
 '''
     
     return {
-        "symbol": f"{exchange}:{symbol}",
+        "symbol": tv_symbol,
         "html": html.strip(),
         "type": "mini_chart"
     }
@@ -141,28 +114,14 @@ def generate_mini_chart(
 
 def generate_symbol_overview(
     symbol: str,
-    exchange: str = "NASDAQ",
+    exchange: str = "",
     width: str = "1000",
     height: str = "400",
     theme: str = "dark",
     show_chart: bool = True
 ):
-    """
-    Generate symbol overview widget (price + stats + chart)
-    
-    Includes: current price, change %, volume, market cap, and chart
-    
-    Args:
-        symbol: Ticker symbol
-        exchange: Exchange
-        width: Width in pixels or percentage
-        height: Height in pixels
-        theme: "dark" or "light"
-        show_chart: Show price chart
-        
-    Returns:
-        dict: HTML for symbol overview
-    """
+    """Generate symbol overview widget (price + stats + chart)"""
+    tv_symbol = f"{exchange}:{symbol}" if exchange else symbol
     
     html = f'''
 <!-- TradingView Widget BEGIN -->
@@ -171,7 +130,7 @@ def generate_symbol_overview(
   <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js" async>
   {{
     "symbols": [
-      ["{exchange}:{symbol}"]
+      ["{tv_symbol}"]
     ],
     "chartOnly": {str(not show_chart).lower()},
     "width": "{width}",
@@ -199,7 +158,7 @@ def generate_symbol_overview(
 '''
     
     return {
-        "symbol": f"{exchange}:{symbol}",
+        "symbol": tv_symbol,
         "html": html.strip(),
         "type": "symbol_overview"
     }
@@ -207,28 +166,14 @@ def generate_symbol_overview(
 
 def generate_technical_analysis_widget(
     symbol: str,
-    exchange: str = "NASDAQ",
+    exchange: str = "",
     interval: str = "1d",
     width: str = "425",
     height: str = "450",
     theme: str = "dark"
 ):
-    """
-    Generate technical analysis widget (shows recommendations)
-    
-    Displays buy/sell/neutral signals from multiple indicators
-    
-    Args:
-        symbol: Ticker symbol
-        exchange: Exchange
-        interval: Timeframe (1m, 5m, 15m, 1h, 4h, 1d, 1W, 1M)
-        width: Width in pixels
-        height: Height in pixels
-        theme: "dark" or "light"
-        
-    Returns:
-        dict: HTML for technical analysis widget
-    """
+    """Generate technical analysis widget (shows recommendations)"""
+    tv_symbol = f"{exchange}:{symbol}" if exchange else symbol
     
     html = f'''
 <!-- TradingView Widget BEGIN -->
@@ -240,7 +185,7 @@ def generate_technical_analysis_widget(
     "width": "{width}",
     "isTransparent": false,
     "height": "{height}",
-    "symbol": "{exchange}:{symbol}",
+    "symbol": "{tv_symbol}",
     "showIntervalTabs": true,
     "locale": "en",
     "colorTheme": "{theme}"
@@ -251,7 +196,7 @@ def generate_technical_analysis_widget(
 '''
     
     return {
-        "symbol": f"{exchange}:{symbol}",
+        "symbol": tv_symbol,
         "interval": interval,
         "html": html.strip(),
         "type": "technical_analysis_widget"
@@ -260,26 +205,13 @@ def generate_technical_analysis_widget(
 
 def generate_multi_chart_layout(
     symbols: List[str],
-    exchange: str = "NASDAQ",
+    exchange: str = "",
     interval: str = "D",
     theme: str = "dark",
     columns: int = 2
 ):
-    """
-    Generate multi-chart grid layout
+    """Generate multi-chart grid layout"""
     
-    Args:
-        symbols: List of ticker symbols (e.g., ['AAPL', 'TSLA', 'MSFT', 'NVDA'])
-        exchange: Exchange
-        interval: Timeframe
-        theme: "dark" or "light"
-        columns: Number of columns in grid
-        
-    Returns:
-        dict: HTML for multi-chart grid
-    """
-    
-    chart_width = f"{100 // columns}%"
     charts = []
     
     for symbol in symbols:
@@ -293,7 +225,7 @@ def generate_multi_chart_layout(
 '''
     
     return {
-        "symbols": [f"{exchange}:{s}" for s in symbols],
+        "symbols": symbols,
         "html": grid_html.strip(),
         "type": "multi_chart_grid"
     }

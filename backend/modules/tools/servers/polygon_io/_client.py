@@ -1,12 +1,12 @@
-"""Polygon.io API Client - Direct HTTP implementation"""
-import os
+"""Polygon.io API Client"""
 import requests
 from datetime import datetime
+from .._env import get_api_key
 
 
 def call_polygon_api(endpoint: str, params: dict = None):
     """Call Polygon.io API endpoint"""
-    api_key = os.getenv('POLYGON_API_KEY', '')
+    api_key = get_api_key('POLYGON')
     if not api_key:
         return {"error": "POLYGON_API_KEY not set"}
     
@@ -22,7 +22,6 @@ def call_polygon_api(endpoint: str, params: dict = None):
         return response.json()
     
     except requests.exceptions.HTTPError as e:
-        # Check for specific error codes
         if response.status_code == 403:
             return {"error": "API access denied - check your Polygon subscription tier"}
         return {"error": f"HTTP {response.status_code}: {str(e)}"}

@@ -237,6 +237,51 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
     const fileType = resource?.data?.file_type || 'text';
     const filename = resource?.data?.filename || '';
     
+    // HTML files - render in iframe (for TradingView widgets, etc.)
+    const isHtml = filename.match(/\.html$/i);
+    if (isHtml) {
+      // Create a blob URL from the HTML content for sandboxed iframe
+      const blob = new Blob([fileContent], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      
+      return (
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+          <div className="px-5 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-gray-900 text-sm">{filename}</h4>
+                  <p className="text-xs text-gray-600">Interactive Widget • HTML</p>
+                </div>
+              </div>
+              <span className="text-xs text-gray-500 font-mono">
+                {(resource?.data?.size_bytes || 0).toLocaleString()} bytes
+              </span>
+            </div>
+          </div>
+          <div className="bg-gray-900">
+            <iframe
+              src={blobUrl}
+              className="w-full border-0"
+              style={{ height: '650px', minHeight: '500px' }}
+              sandbox="allow-scripts allow-same-origin"
+              title={filename}
+              onLoad={() => {
+                // Clean up blob URL after iframe loads
+                // Note: We delay cleanup to ensure iframe has loaded
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+              }}
+            />
+          </div>
+        </div>
+      );
+    }
+
     // Image files - render as image
     const isImage = filename.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i);
     if (isImage) {
@@ -662,24 +707,26 @@ export default function ResourceViewer({ resource, isOpen, onClose }: ResourceVi
           )}
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-            {isPlot ? (
-              <div className="bg-white rounded-xl shadow-sm overflow-hidden h-full min-h-[600px]">
-                {renderPlot()}
-              </div>
-            ) : isFile ? (
-              renderFile()
-            ) : viewMode === 'table' ? (
-              <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                {renderAsTable(resource.data)}
-              </div>
-            ) : (
-              <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden">
-                <pre className="text-gray-100 p-6 text-sm overflow-x-auto leading-relaxed">
-                  {formatJson(resource.data)}
-                </pre>
-              </div>
-            )}
+          <div className="flex-1 overflow-y-auto bg-gray-50">
+            <div className="p-6">
+              {isPlot ? (
+                <div className="bg-white rounded-xl shadow-sm overflow-hidden h-full min-h-[600px]">
+                  {renderPlot()}
+                </div>
+              ) : isFile ? (
+                renderFile()
+              ) : viewMode === 'table' ? (
+                <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                  {renderAsTable(resource.data)}
+                </div>
+              ) : (
+                <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden">
+                  <pre className="text-gray-100 p-6 text-sm overflow-x-auto leading-relaxed">
+                    {formatJson(resource.data)}
+                  </pre>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Footer */}

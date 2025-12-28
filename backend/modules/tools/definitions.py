@@ -16,12 +16,14 @@ from modules.tools.descriptions import (
     # File Management (Convenient wrappers with DB sync)
     WRITE_CHAT_FILE_DESC, READ_CHAT_FILE_DESC, REPLACE_IN_CHAT_FILE_DESC,
     # ETF Builder
-    BUILD_CUSTOM_ETF_DESC
+    BUILD_CUSTOM_ETF_DESC,
+    # Web Search
+    WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC
 )
 
 # Import implementations
 from modules.tools.implementations import control
-from modules.tools.implementations import code_execution, file_management, etf_builder
+from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
 
 
 # ============================================================================
@@ -125,6 +127,56 @@ async def build_custom_etf(*, params: etf_builder.BuildCustomETFParams, context:
 
 
 # ============================================================================
+# WEB SEARCH TOOLS
+# ============================================================================
+
+@tool(
+    name="web_search",
+    description=WEB_SEARCH_DESC,
+    category="web"
+)
+def web_search_tool(
+    *,
+    query: str,
+    num_results: int = 10,
+    search_type: str = "search",
+    context: AgentContext
+):
+    """Search the web using Google via Serper API"""
+    return web_search.web_search_impl(query, context, num_results, search_type)
+
+
+@tool(
+    name="news_search",
+    description=NEWS_SEARCH_DESC,
+    category="web"
+)
+def news_search(
+    *,
+    query: str,
+    num_results: int = 10,
+    context: AgentContext
+):
+    """Search Google News for recent articles"""
+    return web_search.news_search_impl(query, context, num_results)
+
+
+@tool(
+    name="scrape_url",
+    description=SCRAPE_URL_DESC,
+    category="web"
+)
+def scrape_url(
+    *,
+    url: str,
+    timeout: int = 30,
+    context: AgentContext
+):
+    """Scrape a webpage and convert to clean markdown text"""
+    return web_search.scrape_url_impl(url, context, timeout)
+
+
+# ============================================================================
 # TOOL EXPORTS
 # ============================================================================
 
@@ -136,6 +188,8 @@ __all__ = [
     # File Management (Essential utilities)
     'write_chat_file', 'read_chat_file', 'replace_in_chat_file',
     # ETF Builder
-    'build_custom_etf'
+    'build_custom_etf',
+    # Web Search
+    'web_search_tool', 'news_search', 'scrape_url'
 ]
 

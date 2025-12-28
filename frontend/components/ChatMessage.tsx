@@ -25,6 +25,10 @@ const isCsvFile = (filename: string): boolean => {
   return /\.csv$/i.test(filename);
 };
 
+const isHtmlFile = (filename: string): boolean => {
+  return /\.html$/i.test(filename);
+};
+
 const getChatFileUrl = (chatId: string | undefined, filename: string): string => {
   if (!chatId) return '';
   return `${API_BASE_URL}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`;
@@ -163,6 +167,137 @@ function CsvPreview({
   );
 }
 
+// Inline HTML Preview Component (for TradingView charts, etc.)
+function HtmlPreview({ 
+  filename, 
+  chatId, 
+  onOpen
+}: { 
+  filename: string; 
+  chatId: string | undefined;
+  onOpen?: () => void;
+}) {
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let currentBlobUrl: string | null = null;
+    
+    const fetchHtml = async () => {
+      if (!chatId) {
+        console.log('HtmlPreview: No chatId provided');
+        setLoading(false);
+        setError('No chat ID');
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        setError(null);
+        const url = getChatFileUrl(chatId, filename);
+        console.log('HtmlPreview: Fetching HTML from:', url);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to load HTML: ${response.status}`);
+        }
+        
+        const content = await response.text();
+        console.log('HtmlPreview: Loaded HTML content, length:', content.length);
+        setHtmlContent(content);
+        
+        // Create blob URL for iframe
+        const blob = new Blob([content], { type: 'text/html' });
+        currentBlobUrl = URL.createObjectURL(blob);
+        setBlobUrl(currentBlobUrl);
+        setLoading(false);
+      } catch (err) {
+        console.error('HtmlPreview: Error loading HTML:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load HTML');
+        setLoading(false);
+      }
+    };
+    
+    fetchHtml();
+    
+    // Cleanup blob URL on unmount
+    return () => {
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+      }
+    };
+  }, [chatId, filename]);
+
+  if (loading) {
+    return (
+      <div className="my-3 p-4 bg-gray-900 rounded-lg border border-gray-700 animate-pulse">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 bg-gray-600 rounded"></div>
+          <div className="h-4 bg-gray-600 rounded w-48"></div>
+        </div>
+        <div className="mt-3 h-64 bg-gray-800 rounded"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    console.log('HtmlPreview: Showing error state for', filename, '- error:', error);
+    return (
+      <button
+        onClick={onOpen}
+        className="inline-flex items-center gap-2 px-3 py-2 my-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-sm border border-red-200 transition-colors cursor-pointer"
+      >
+        ⚠️ {filename} (click to view)
+      </button>
+    );
+  }
+
+  if (!blobUrl) {
+    console.log('HtmlPreview: No blob URL yet for', filename);
+    return (
+      <button
+        onClick={onOpen}
+        className="inline-flex items-center gap-2 px-3 py-2 my-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm border border-indigo-200 transition-colors cursor-pointer"
+      >
+        📊 {filename}
+      </button>
+    );
+  }
+
+  return (
+    <div className="my-3 rounded-lg overflow-hidden border border-gray-700 bg-gray-900 shadow-lg">
+      {/* Header */}
+      <div className="px-4 py-2.5 bg-gradient-to-r from-indigo-900/50 to-purple-900/50 border-b border-gray-700 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <span className="font-medium text-gray-200 text-sm">{filename}</span>
+        </div>
+        <button
+          onClick={onOpen}
+          className="text-xs text-gray-400 hover:text-indigo-400 transition-colors"
+        >
+          Open fullscreen →
+        </button>
+      </div>
+      
+      {/* Embedded iframe */}
+      <div className="bg-gray-900">
+        <iframe
+          src={blobUrl}
+          className="w-full border-0"
+          style={{ height: '500px', minHeight: '400px' }}
+          sandbox="allow-scripts allow-same-origin"
+          title={filename}
+        />
+      </div>
+    </div>
+  );
+}
+
 // Helper to find resource by filename
 const findResourceByFilename = (resources: Resource[] | undefined, filename: string): Resource | null => {
   if (!resources) return null;
@@ -229,6 +364,22 @@ const parseFileReferences = (
           chatId={chatId}
           onOpen={handleOpen}
           resources={resources}
+        />
+      );
+    } else if (isHtmlFile(filename)) {
+      // Render inline HTML preview (TradingView charts, etc.)
+      const handleOpen = () => {
+        if (!onFileClick || !chatId) return;
+        const resource = findResourceByFilename(resources, filename) || createPseudoResource(filename, chatId);
+        onFileClick(resource);
+      };
+      
+      parts.push(
+        <HtmlPreview
+          key={`html-${match.index}`}
+          filename={filename}
+          chatId={chatId}
+          onOpen={handleOpen}
         />
       );
     } else {

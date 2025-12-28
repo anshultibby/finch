@@ -56,6 +56,13 @@ class ChatService:
         with tracer.start_as_current_span("chat_turn"):
             logger.info(f"Starting chat turn for user {user_id}")
             
+            # Send immediate acknowledgment so frontend knows connection is alive
+            from models.sse import SSEEvent, ThinkingEvent
+            yield SSEEvent(
+                event="thinking",
+                data=ThinkingEvent(message="Processing your message...").model_dump()
+            ).to_sse_format()
+            
             # STEP 1: Load history and save user message
             async with AsyncSessionLocal() as db:
                 db_chat = await chat_async.get_chat(db, chat_id)
@@ -143,13 +150,36 @@ class ChatService:
                         # tools_end signals tool execution is complete
                         # Now save: 1) assistant message with tool_calls, 2) tool result messages
                         tool_messages = event.data.get("tool_messages", [])
+                        execution_results = event.data.get("execution_results", [])
                         
-                        logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages")
+                        logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages, {len(execution_results)} execution results")
+                        
+                        # Build tool_results dict keyed by tool_call_id for persistence
+                        # This stores code_output, result_summary, errors etc. for viewing in previous sessions
+                        tool_results = {}
+                        for exec_result in execution_results:
+                            tool_call_id = exec_result.get("tool_call_id")
+                            if tool_call_id:
+                                result_data = exec_result.get("result_data", {})
+                                tool_results[tool_call_id] = {
+                                    "status": exec_result.get("status", "completed"),
+                                    "error": exec_result.get("error"),
+                                    "result_summary": result_data.get("message") if isinstance(result_data, dict) else None,
+                                }
+                                # Extract code_output for execute_code tool
+                                if isinstance(result_data, dict):
+                                    stdout = result_data.get("stdout")
+                                    stderr = result_data.get("stderr")
+                                    if stdout is not None or stderr is not None:
+                                        tool_results[tool_call_id]["code_output"] = {
+                                            "stdout": stdout or "",
+                                            "stderr": stderr or ""
+                                        }
                         
                         # Save synchronously to ensure proper message ordering
                         async with AsyncSessionLocal() as db:
                             seq = current_sequence
-                            # Save assistant message with tool calls
+                            # Save assistant message with tool calls AND tool_results
                             if pending_assistant_msg:
                                 await chat_async.create_message(
                                     db=db,
@@ -157,9 +187,10 @@ class ChatService:
                                     role="assistant",
                                     content=pending_assistant_msg["content"],
                                     sequence=seq,
-                                    tool_calls=pending_assistant_msg["tool_calls"]
+                                    tool_calls=pending_assistant_msg["tool_calls"],
+                                    tool_results=tool_results if tool_results else None
                                 )
-                                logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls (seq={seq})")
+                                logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
                                 seq += 1
                                 current_sequence += 1
                             
@@ -244,9 +275,13 @@ class ChatService:
                 elif msg.role == "assistant":
                     # Parse tool_calls if present
                     tool_calls = []
+                    # Get stored tool_results for this message (keyed by tool_call_id)
+                    tool_results = msg.tool_results or {}
+                    
                     if msg.tool_calls:
                         for tc in msg.tool_calls:
                             tool_name = tc.get("function", {}).get("name")
+                            tool_call_id = tc.get("id")
                             
                             # Skip hidden tools
                             tool_obj = tool_registry.get_tool(tool_name)
@@ -268,13 +303,24 @@ class ChatService:
                                 # Fall back to tool_name if no user_description provided
                                 status_message = args.get("user_description") or tool_name
                                 
-                                tool_calls.append({
-                                    "tool_call_id": tc.get("id"),
+                                # Get stored execution result for this tool call
+                                stored_result = tool_results.get(tool_call_id, {})
+                                
+                                tool_call_data = {
+                                    "tool_call_id": tool_call_id,
                                     "tool_name": tool_name,
                                     "statusMessage": status_message,
                                     "arguments": args,  # Include arguments for filename extraction
-                                    "status": "completed"
-                                })
+                                    "status": stored_result.get("status", "completed"),
+                                    "error": stored_result.get("error"),
+                                    "result_summary": stored_result.get("result_summary"),
+                                }
+                                
+                                # Include code_output if present (for execute_code tool)
+                                if "code_output" in stored_result:
+                                    tool_call_data["code_output"] = stored_result["code_output"]
+                                
+                                tool_calls.append(tool_call_data)
                             except Exception as e:
                                 logger.warning(f"Failed to parse tool call {tool_name}: {e}")
                                 logger.exception(e)

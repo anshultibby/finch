@@ -443,10 +443,12 @@ export default function ComputerPanel({
         <pre 
           ref={contentRef}
           onScroll={handleScroll}
-          className="h-full p-4 text-[13px] font-mono overflow-y-auto whitespace-pre-wrap break-words leading-[1.6] scrollbar-thin"
+          className="h-full text-[13px] font-mono overflow-y-auto whitespace-pre-wrap break-words leading-[1.6] scrollbar-thin"
           style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace" }}
         >
-          {renderContent()}
+          <div className="p-4">
+            {renderContent()}
+          </div>
         </pre>
 
         {/* Gradient fade at bottom when scrollable */}

@@ -383,6 +383,9 @@ export const chatApi = {
                 case 'error':
                   handlers.onError?.(eventData as SSEErrorEvent);
                   break;
+                case 'thinking':
+                  // Thinking events are informational - just ignore them
+                  break;
               }
             }
           }

@@ -1,11 +1,11 @@
-"""FMP API Client - Internal implementation"""
-import os
+"""FMP API Client"""
 import requests
+from .._env import get_api_key
 
 
 def call_fmp_api(endpoint: str, params: dict = None):
     """Call FMP API endpoint"""
-    api_key = os.getenv('FMP_API_KEY', '')
+    api_key = get_api_key('FMP')
     if not api_key:
         return {"error": "FMP_API_KEY not set"}
     
@@ -28,4 +28,3 @@ def call_fmp_api(endpoint: str, params: dict = None):
     
     except Exception as e:
         return {"error": str(e)}
-

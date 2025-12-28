@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { chatApi } from '@/lib/api';
 
 interface Chat {
@@ -23,7 +23,11 @@ interface ChatHistorySidebarProps {
   isCreatingChat?: boolean; // True when a new chat is being created + title generated
 }
 
-export default function ChatHistorySidebar({
+export interface ChatHistorySidebarRef {
+  updateChatTitle: (chatId: string, title: string, icon: string) => void;
+}
+
+const ChatHistorySidebar = forwardRef<ChatHistorySidebarRef, ChatHistorySidebarProps>(({
   userId,
   currentChatId,
   onSelectChat,
@@ -32,7 +36,7 @@ export default function ChatHistorySidebar({
   onToggle,
   refreshTrigger,
   isCreatingChat,
-}: ChatHistorySidebarProps) {
+}, ref) => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -49,6 +53,35 @@ export default function ChatHistorySidebar({
       setIsLoading(false);
     }
   }, [userId]);
+
+  // Update a specific chat's title without full refresh
+  const updateChatTitle = useCallback((chatId: string, title: string, icon: string) => {
+    setChats(prevChats => {
+      const existingChat = prevChats.find(c => c.chat_id === chatId);
+      if (existingChat) {
+        // Update existing chat
+        return prevChats.map(chat => 
+          chat.chat_id === chatId 
+            ? { ...chat, title, icon }
+            : chat
+        );
+      } else {
+        // Add new chat at the top
+        return [{
+          chat_id: chatId,
+          title,
+          icon,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, ...prevChats];
+      }
+    });
+  }, []);
+
+  // Expose updateChatTitle to parent via ref
+  useImperativeHandle(ref, () => ({
+    updateChatTitle,
+  }), [updateChatTitle]);
 
   // Load chats on mount and when refresh trigger changes
   useEffect(() => {
@@ -200,4 +233,8 @@ export default function ChatHistorySidebar({
 
     </div>
   );
-}
+});
+
+ChatHistorySidebar.displayName = 'ChatHistorySidebar';
+
+export default ChatHistorySidebar;
