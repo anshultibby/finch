@@ -117,16 +117,9 @@ class Settings(BaseSettings):
         default=8000,
         description="Port for the API server"
     )
-    CORS_ORIGINS: List[str] = Field(
-        default=[
-            "http://localhost:3000",
-            "http://localhost:3001", 
-            "http://localhost:3002",
-            "http://localhost:3003",
-            "http://localhost:3004",
-            "https://finch-omega.vercel.app"
-        ],
-        description="Allowed CORS origins (comma-separated in env)"
+    CORS_ORIGINS: str = Field(
+        default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,https://finch-omega.vercel.app",
+        description="Allowed CORS origins (comma-separated)"
     )
     
     # =========================================================================
@@ -197,13 +190,10 @@ class Settings(BaseSettings):
     # =========================================================================
     # Validators
     # =========================================================================
-    @field_validator('CORS_ORIGINS', mode='before')
-    @classmethod
-    def parse_cors_origins(cls, v):
-        """Parse comma-separated CORS origins from env string"""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(',') if origin.strip()]
-        return v
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse comma-separated CORS origins into a list"""
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(',') if origin.strip()]
     
     @field_validator('API_PORT', mode='before')
     @classmethod
@@ -268,7 +258,7 @@ class Config:
     # API Server
     API_HOST = settings.API_HOST
     API_PORT = settings.API_PORT
-    CORS_ORIGINS = settings.CORS_ORIGINS
+    CORS_ORIGINS = settings.cors_origins_list
     
     # Chat
     CHAT_HISTORY_LIMIT = settings.CHAT_HISTORY_LIMIT
