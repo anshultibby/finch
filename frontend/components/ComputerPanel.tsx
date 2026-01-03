@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { SearchResults, SearchResult } from '@/lib/api';
+import FileTree from './FileTree';
 
-type PanelMode = 'terminal' | 'file';
+type PanelMode = 'terminal' | 'file' | 'search';
 
 interface ComputerPanelProps {
   mode: PanelMode;
@@ -12,6 +14,10 @@ interface ComputerPanelProps {
   filename?: string;
   fileContent?: string;
   fileType?: string;
+  chatId?: string; // For loading file tree
+  onFileSelect?: (filename: string) => void; // Callback when user selects a different file
+  // Search mode props
+  searchResults?: SearchResults;
   // Common props
   isStreaming: boolean;
   onClose: () => void;
@@ -225,6 +231,89 @@ const formatTerminalLine = (line: string, isError: boolean) => {
   return <span className="text-gray-700">{line}</span>;
 };
 
+// Extract domain from URL for favicon
+const getDomain = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch {
+    return '';
+  }
+};
+
+// Get favicon URL for a domain
+const getFaviconUrl = (url: string): string => {
+  const domain = getDomain(url);
+  if (!domain) return '';
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+};
+
+// Search result item component
+const SearchResultItem = ({ result, index }: { result: SearchResult; index: number }) => {
+  const domain = getDomain(result.link);
+  const faviconUrl = getFaviconUrl(result.link);
+  
+  return (
+    <a 
+      href={result.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors group"
+    >
+      <div className="flex items-start gap-3">
+        {/* Favicon */}
+        <div className="flex-shrink-0 w-6 h-6 mt-0.5 rounded-md bg-gray-100 flex items-center justify-center overflow-hidden">
+          {faviconUrl ? (
+            <img 
+              src={faviconUrl} 
+              alt="" 
+              className="w-4 h-4"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+            </svg>
+          )}
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Title */}
+          <h3 className="text-sm font-medium text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2">
+            {result.title}
+          </h3>
+          
+          {/* Snippet */}
+          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+            {result.snippet}
+          </p>
+          
+          {/* Meta info */}
+          <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400">
+            <span className="truncate max-w-[200px]">{domain}</span>
+            {result.date && (
+              <>
+                <span>•</span>
+                <span>{result.date}</span>
+              </>
+            )}
+            {result.source && (
+              <>
+                <span>•</span>
+                <span className="text-gray-500">{result.source}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+};
+
 export default function ComputerPanel({ 
   mode,
   command,
@@ -233,15 +322,21 @@ export default function ComputerPanel({
   filename,
   fileContent = '',
   fileType,
+  chatId,
+  onFileSelect,
+  searchResults,
   isStreaming, 
   onClose 
 }: ComputerPanelProps) {
   const contentRef = useRef<HTMLPreElement>(null);
+  const searchContentRef = useRef<HTMLDivElement>(null);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
 
   const content = mode === 'terminal' ? output : fileContent;
   const lines = content ? content.split('\n') : [];
-  const hasContent = content && content.trim().length > 0;
+  const hasContent = mode === 'search' 
+    ? (searchResults?.results && searchResults.results.length > 0)
+    : (content && content.trim().length > 0);
   const detectError = mode === 'terminal' && (isError || output?.toLowerCase().includes('error') || output?.toLowerCase().includes('traceback'));
 
   useEffect(() => {
@@ -260,6 +355,14 @@ export default function ComputerPanel({
 
   // Get icon and title based on mode
   const getIcon = () => {
+    if (mode === 'search') {
+      return (
+        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.35-4.35"/>
+        </svg>
+      );
+    }
     if (mode === 'file') {
       return (
         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -276,6 +379,9 @@ export default function ComputerPanel({
   };
 
   const getTitle = () => {
+    if (mode === 'search' && searchResults?.query) {
+      return searchResults.query;
+    }
     if (mode === 'file' && filename) {
       return filename;
     }
@@ -283,6 +389,9 @@ export default function ComputerPanel({
   };
 
   const getSubtitle = () => {
+    if (mode === 'search') {
+      return isStreaming ? 'Searching...' : 'Search';
+    }
     if (mode === 'file') {
       return isStreaming ? 'Writing file...' : 'File';
     }
@@ -294,7 +403,7 @@ export default function ComputerPanel({
       return (
         <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-          {mode === 'file' ? 'Writing' : 'Running'}
+          {mode === 'search' ? 'Searching' : mode === 'file' ? 'Writing' : 'Running'}
         </span>
       );
     }
@@ -313,9 +422,19 @@ export default function ComputerPanel({
         <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M5 13l4 4L19 7" />
         </svg>
-        {mode === 'file' ? 'Saved' : 'Done'}
+        {mode === 'search' ? 'Done' : mode === 'file' ? 'Saved' : 'Done'}
       </span>
     );
+  };
+
+  const getIconBgColor = () => {
+    if (mode === 'search') {
+      return 'bg-gradient-to-br from-violet-500 to-purple-600';
+    }
+    if (mode === 'file') {
+      return 'bg-gradient-to-br from-blue-500 to-indigo-600';
+    }
+    return 'bg-gradient-to-br from-emerald-500 to-teal-600';
   };
 
   // Memoize syntax highlighting for performance
@@ -328,6 +447,96 @@ export default function ComputerPanel({
   }, [mode, content, language, hasContent]);
 
   const renderContent = () => {
+    // Search mode
+    if (mode === 'search') {
+      if (!searchResults?.results || searchResults.results.length === 0) {
+        return (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
+            {isStreaming ? (
+              <>
+                <div className="relative">
+                  <div className="w-10 h-10 rounded-full border-2 border-gray-200 border-t-violet-500 animate-spin" />
+                </div>
+                <span className="text-sm">Searching the web...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8"/>
+                  <path d="m21 21-4.35-4.35"/>
+                </svg>
+                <span className="text-sm">No results found</span>
+              </>
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <div ref={searchContentRef} className="h-full overflow-y-auto">
+          {/* Answer box if available */}
+          {searchResults.answerBox && (
+            <div className="mx-4 mt-4 mb-2 p-4 bg-violet-50 border border-violet-200 rounded-lg">
+              {searchResults.answerBox.title && (
+                <h4 className="text-sm font-semibold text-violet-900 mb-1">
+                  {searchResults.answerBox.title}
+                </h4>
+              )}
+              {searchResults.answerBox.answer && (
+                <p className="text-sm text-violet-800">
+                  {searchResults.answerBox.answer}
+                </p>
+              )}
+              {searchResults.answerBox.snippet && !searchResults.answerBox.answer && (
+                <p className="text-sm text-violet-700">
+                  {searchResults.answerBox.snippet}
+                </p>
+              )}
+            </div>
+          )}
+          
+          {/* Knowledge graph if available */}
+          {searchResults.knowledgeGraph && (
+            <div className="mx-4 mt-4 mb-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                {searchResults.knowledgeGraph.imageUrl && (
+                  <img 
+                    src={searchResults.knowledgeGraph.imageUrl}
+                    alt=""
+                    className="w-16 h-16 rounded-lg object-cover"
+                  />
+                )}
+                <div>
+                  {searchResults.knowledgeGraph.title && (
+                    <h4 className="text-sm font-semibold text-blue-900">
+                      {searchResults.knowledgeGraph.title}
+                    </h4>
+                  )}
+                  {searchResults.knowledgeGraph.type && (
+                    <p className="text-xs text-blue-600 mt-0.5">
+                      {searchResults.knowledgeGraph.type}
+                    </p>
+                  )}
+                  {searchResults.knowledgeGraph.description && (
+                    <p className="text-sm text-blue-800 mt-1 line-clamp-3">
+                      {searchResults.knowledgeGraph.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Results list */}
+          <div className="divide-y divide-gray-100">
+            {searchResults.results.map((result, index) => (
+              <SearchResultItem key={index} result={result} index={index} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     if (!hasContent) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
@@ -385,6 +594,14 @@ export default function ComputerPanel({
     return <code className="text-gray-700">{content}</code>;
   };
 
+  const getFooterInfo = () => {
+    if (mode === 'search') {
+      const count = searchResults?.results?.length || 0;
+      return `${count} ${count === 1 ? 'result' : 'results'}`;
+    }
+    return `${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`;
+  };
+
   return (
     <div className="h-full flex flex-col bg-white border-l border-gray-200 shadow-xl">
       {/* Header */}
@@ -405,11 +622,7 @@ export default function ComputerPanel({
           
           {/* Title */}
           <div className="flex items-center gap-2 ml-3">
-            <div className={`w-5 h-5 rounded flex items-center justify-center ${
-              mode === 'file' 
-                ? 'bg-gradient-to-br from-blue-500 to-indigo-600' 
-                : 'bg-gradient-to-br from-emerald-500 to-teal-600'
-            }`}>
+            <div className={`w-5 h-5 rounded flex items-center justify-center ${getIconBgColor()}`}>
               {getIcon()}
             </div>
             <span className="text-sm text-gray-800 font-semibold">Finch Computer</span>
@@ -422,39 +635,79 @@ export default function ComputerPanel({
         </div>
       </div>
 
-      {/* Info bar */}
-      <div className="px-4 py-2 bg-gray-50/50 border-b border-gray-100 flex items-center gap-2">
-        {mode === 'file' ? (
-          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-            <polyline points="14,2 14,8 20,8" />
-          </svg>
-        ) : (
-          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        )}
-        <span className="text-xs text-gray-500 font-medium">{getSubtitle()}</span>
-        <span className="text-xs text-gray-700 font-mono truncate flex-1">{getTitle()}</span>
-      </div>
+      {/* Info bar - only show for terminal and search modes (file mode has its own tab) */}
+      {mode !== 'file' && (
+        <div className="px-4 py-2 bg-gray-50/50 border-b border-gray-100 flex items-center gap-2">
+          {mode === 'search' ? (
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+          ) : (
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          )}
+          <span className="text-xs text-gray-500 font-medium">{getSubtitle()}</span>
+          <span className="text-xs text-gray-700 font-mono truncate flex-1">{getTitle()}</span>
+        </div>
+      )}
       
       {/* Content */}
-      <div className="flex-1 overflow-hidden relative bg-white">
-        <pre 
-          ref={contentRef}
-          onScroll={handleScroll}
-          className="h-full text-[13px] font-mono overflow-y-auto whitespace-pre-wrap break-words leading-[1.6] scrollbar-thin"
-          style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace" }}
-        >
-          <div className="p-4">
-            {renderContent()}
-          </div>
-        </pre>
-
-        {/* Gradient fade at bottom when scrollable */}
-        {hasContent && (
-          <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+      <div className="flex-1 overflow-hidden relative bg-white flex">
+        {/* File tree sidebar - only show in file mode with chatId */}
+        {mode === 'file' && chatId && (
+          <FileTree
+            chatId={chatId}
+            selectedFile={filename}
+            onFileSelect={(selectedFilename) => {
+              if (onFileSelect && selectedFilename !== filename) {
+                onFileSelect(selectedFilename);
+              }
+            }}
+          />
         )}
+        
+        {/* Main content area */}
+        <div className="flex-1 overflow-hidden relative flex flex-col">
+          {/* File tab header - only for file mode */}
+          {mode === 'file' && filename && (
+            <div className="flex-shrink-0 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-center">
+                <div className="px-3 py-1.5 bg-white border-r border-gray-200 flex items-center gap-2">
+                  <svg className="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14,2 14,8 20,8" />
+                  </svg>
+                  <span className="text-xs font-medium text-gray-700">{filename}</span>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Content */}
+          <div className="flex-1 overflow-hidden relative">
+            {mode === 'search' ? (
+              renderContent()
+            ) : (
+              <pre 
+                ref={contentRef}
+                onScroll={handleScroll}
+                className="h-full text-[13px] font-mono overflow-y-auto whitespace-pre-wrap break-words leading-[1.6] scrollbar-thin"
+                style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace" }}
+              >
+                <div className="p-4">
+                  {renderContent()}
+                </div>
+              </pre>
+            )}
+
+            {/* Gradient fade at bottom when scrollable */}
+            {hasContent && mode !== 'search' && (
+              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+            )}
+          </div>
+        </div>
       </div>
       
       {/* Footer */}
@@ -467,12 +720,11 @@ export default function ComputerPanel({
           </span>
         )}
 
-        {/* Line count */}
+        {/* Count */}
         <span className="text-xs text-gray-400 tabular-nums">
-          {lines.length} {lines.length === 1 ? 'line' : 'lines'}
+          {getFooterInfo()}
         </span>
       </div>
     </div>
   );
 }
-

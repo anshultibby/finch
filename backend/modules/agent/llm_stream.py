@@ -3,13 +3,141 @@ Standalone LLM streaming functions - clean separation from agent logic
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
 import json
-from models.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent
+import re
+from models.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
 from .message_processor import validate_and_fix_tool_calls
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Tools that should have their file content streamed during LLM generation
+FILE_STREAMING_TOOLS = {'write_chat_file', 'replace_in_chat_file'}
+
+
+def _get_file_type_from_filename(filename: str) -> str:
+    """Determine file type from filename extension."""
+    if filename.endswith('.py'):
+        return "python"
+    elif filename.endswith('.md'):
+        return "markdown"
+    elif filename.endswith('.csv'):
+        return "csv"
+    elif filename.endswith('.json'):
+        return "json"
+    elif filename.endswith('.html'):
+        return "html"
+    elif filename.endswith('.js'):
+        return "javascript"
+    elif filename.endswith('.ts'):
+        return "typescript"
+    elif filename.endswith('.tsx'):
+        return "typescript"
+    elif filename.endswith('.jsx'):
+        return "javascript"
+    return "text"
+
+
+class FileContentExtractor:
+    """
+    Incrementally extracts file content from streaming JSON arguments.
+    
+    For write_chat_file: extracts 'file_content' field
+    For replace_in_chat_file: extracts 'new_str' field
+    """
+    
+    def __init__(self, tool_name: str):
+        self.tool_name = tool_name
+        self.arguments_buffer = ""
+        self.filename: Optional[str] = None
+        self.content_field = "file_content" if tool_name == "write_chat_file" else "new_str"
+        self.content_start_pos: Optional[int] = None
+        self.last_extracted_len = 0
+        self.in_content_string = False
+        self.escape_next = False
+    
+    def add_chunk(self, chunk: str) -> Optional[str]:
+        """
+        Add a chunk of JSON arguments and return any new file content extracted.
+        
+        Returns None if no new content, or the delta string if new content found.
+        """
+        self.arguments_buffer += chunk
+        
+        # Try to find filename if we don't have it yet
+        if self.filename is None:
+            self._try_extract_filename()
+        
+        # Try to extract content delta
+        return self._extract_content_delta()
+    
+    def _try_extract_filename(self):
+        """Try to extract filename from the buffer."""
+        # Look for "filename": "value" pattern
+        match = re.search(r'"filename"\s*:\s*"([^"]*)"', self.arguments_buffer)
+        if match:
+            self.filename = match.group(1)
+    
+    def _extract_content_delta(self) -> Optional[str]:
+        """Extract any new content from the content field."""
+        # Look for the start of our content field if we haven't found it
+        if self.content_start_pos is None:
+            # Pattern: "file_content": " or "new_str": "
+            pattern = f'"{self.content_field}"\\s*:\\s*"'
+            match = re.search(pattern, self.arguments_buffer)
+            if match:
+                self.content_start_pos = match.end()
+                self.last_extracted_len = 0
+                self.in_content_string = True
+        
+        if self.content_start_pos is None:
+            return None
+        
+        # Extract content from the string, handling escapes
+        content_portion = self.arguments_buffer[self.content_start_pos:]
+        
+        # Find the end of the string (unescaped quote)
+        extracted = []
+        i = 0
+        while i < len(content_portion):
+            char = content_portion[i]
+            
+            if self.escape_next:
+                # Handle escape sequences
+                if char == 'n':
+                    extracted.append('\n')
+                elif char == 't':
+                    extracted.append('\t')
+                elif char == 'r':
+                    extracted.append('\r')
+                elif char == '\\':
+                    extracted.append('\\')
+                elif char == '"':
+                    extracted.append('"')
+                else:
+                    extracted.append(char)
+                self.escape_next = False
+            elif char == '\\':
+                self.escape_next = True
+            elif char == '"':
+                # End of string - but don't include the closing quote
+                self.in_content_string = False
+                break
+            else:
+                extracted.append(char)
+            
+            i += 1
+        
+        full_content = ''.join(extracted)
+        
+        # Return only the new portion
+        if len(full_content) > self.last_extracted_len:
+            delta = full_content[self.last_extracted_len:]
+            self.last_extracted_len = len(full_content)
+            return delta
+        
+        return None
 
 
 def _estimate_tokens(text: str) -> int:
@@ -267,6 +395,10 @@ async def stream_llm_response(
     tool_calls = []
     reasoning_content = ""
     
+    # Track file content extractors for streaming file tools
+    # Key: tool call index, Value: FileContentExtractor
+    file_extractors: Dict[int, FileContentExtractor] = {}
+    
     # Process stream
     async for chunk in stream_response:
         if not hasattr(chunk, 'choices') or not chunk.choices:
@@ -296,7 +428,7 @@ async def stream_llm_response(
                 async for event in on_content_delta(delta.content):
                     yield event
         
-        # Accumulate tool calls
+        # Accumulate tool calls and stream file content for file tools
         if hasattr(delta, 'tool_calls') and delta.tool_calls:
             for tc in delta.tool_calls:
                 idx = tc.index
@@ -311,8 +443,35 @@ async def stream_llm_response(
                 if hasattr(tc, 'function') and tc.function:
                     if tc.function.name:
                         tool_calls[idx]["function"]["name"] = tc.function.name
+                        # Initialize file extractor for file streaming tools
+                        if tc.function.name in FILE_STREAMING_TOOLS and idx not in file_extractors:
+                            file_extractors[idx] = FileContentExtractor(tc.function.name)
+                    
                     if tc.function.arguments:
                         tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                        
+                        # Stream file content if this is a file tool
+                        if idx in file_extractors:
+                            extractor = file_extractors[idx]
+                            content_delta = extractor.add_chunk(tc.function.arguments)
+                            
+                            if content_delta:
+                                # Emit file content streaming event
+                                tool_call_id = tool_calls[idx]["id"]
+                                tool_name = tool_calls[idx]["function"]["name"]
+                                filename = extractor.filename or "unknown"
+                                file_type = _get_file_type_from_filename(filename) if extractor.filename else "text"
+                                
+                                yield SSEEvent(
+                                    event="tool_call_streaming",
+                                    data=ToolCallStreamingEvent(
+                                        tool_call_id=tool_call_id,
+                                        tool_name=tool_name,
+                                        arguments_delta=tc.function.arguments,
+                                        filename=filename,
+                                        file_content_delta=content_delta
+                                    ).model_dump()
+                                )
     
     # Validate tool calls before emitting - fix any malformed JSON arguments
     # This prevents litellm from failing when sending these back to Anthropic

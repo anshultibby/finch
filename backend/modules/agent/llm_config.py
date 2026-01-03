@@ -127,7 +127,7 @@ class LLMConfig(BaseModel):
         Get the appropriate API key based on model provider
         
         Args:
-            model: Model name (e.g., "gpt-5", "claude-sonnet-4-20250514")
+            model: Model name (e.g., "gpt-5", "claude-sonnet-4-20250514", "gemini/gemini-2.5-pro")
         
         Returns:
             API key for the model's provider
@@ -139,6 +139,10 @@ class LLMConfig(BaseModel):
         # Anthropic Claude models
         if model_lower.startswith("claude"):
             return Config.ANTHROPIC_API_KEY
+        
+        # Google Gemini models (both "gemini/" prefix and direct "gemini-" names)
+        if model_lower.startswith("gemini"):
+            return Config.GEMINI_API_KEY
         
         # OpenAI models (default)
         return Config.OPENAI_API_KEY
@@ -181,8 +185,8 @@ class LLMConfig(BaseModel):
         """
         from config import Config
         
-        # Determine model
-        selected_model = model or Config.LLM_MODEL
+        # Determine model (default to MASTER_LLM_MODEL if not specified)
+        selected_model = model or Config.MASTER_LLM_MODEL
         
         # Get model-specific defaults
         model_defaults = LLMConfig._get_model_defaults(selected_model)

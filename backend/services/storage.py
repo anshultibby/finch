@@ -110,7 +110,7 @@ class StorageService:
                 logger.info(f"Uploaded image {filename} to storage: {public_url}")
                 return public_url
             
-            except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as e:
+            except (httpx.ReadError, httpx.WriteError, httpx.ConnectError, httpx.TimeoutException) as e:
                 # Transient network errors - retry with exponential backoff
                 if attempt < max_retries - 1:
                     wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
@@ -120,12 +120,31 @@ class StorageService:
                     )
                     time.sleep(wait_time)
                 else:
-                    logger.error(
-                        f"Failed to upload image {filename} after {max_retries} attempts due to network errors: {e}"
+                    logger.warning(
+                        f"Failed to upload image {filename} after {max_retries} attempts due to network errors: {e}. "
+                        f"Falling back to database storage."
                     )
                     return None
             
             except Exception as e:
+                # Check if it's a wrapped network error from the storage3 library bug
+                # (UnboundLocalError when response isn't set due to network failure)
+                if isinstance(e, UnboundLocalError) or "Broken pipe" in str(e):
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.warning(
+                            f"Network error uploading {filename} (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Retrying in {wait_time}s..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning(
+                            f"Failed to upload image {filename} after {max_retries} attempts: {e}. "
+                            f"Falling back to database storage."
+                        )
+                        return None
+                
                 # Non-retryable errors
                 logger.error(f"Failed to upload image {filename} to storage: {e}", exc_info=True)
                 return None

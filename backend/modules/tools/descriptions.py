@@ -214,6 +214,47 @@ Uses Jina AI Reader which:
 
 
 # ============================================================================
+# DELEGATION TOOL (Two-tier agent system)
+# ============================================================================
+
+DELEGATE_EXECUTION_DESC = """Delegate execution to the Executor Agent.
+
+**Prerequisites:** You must first create `tasks.md` with a checklist of tasks.
+
+**How it works:**
+1. You write `tasks.md` with `- [ ]` checklist items
+2. Call this tool with a direction (what to focus on)
+3. Executor works through tasks, creates files, executes code
+4. Executor calls `finish_execution` with summary of what it did
+5. You review results and update `tasks.md`
+
+**Direction examples:**
+- "Complete all the data fetching tasks"
+- "Fix the chart generation error and retry"  
+- "Finish the remaining analysis tasks"
+
+**After delegation:**
+- Review the summary and files_created in the result
+- Read output files to verify quality
+- Update `tasks.md` to mark completed tasks `[x]`
+"""
+
+
+FINISH_EXECUTION_DESC = """Signal that you're done and return results to Master Agent.
+
+**Call this when:**
+- You've completed all the tasks you can
+- You hit an unrecoverable error
+- You need to stop and report back
+
+**Required:** summary of what you completed
+**Optional:** list of files created, success status, error message
+
+This returns control to the Master Agent with your results.
+"""
+
+
+# ============================================================================
 # MARKET DATA TOOLS (Polygon.io)
 # ============================================================================
 

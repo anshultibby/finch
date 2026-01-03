@@ -32,6 +32,7 @@ def validate_and_fix_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[s
         if "function" in tc_copy:
             func = tc_copy["function"].copy()
             args_str = func.get("arguments", "")
+            json_args = json.loads(args_str)
             
             # Try to parse the JSON arguments
             if args_str:
@@ -42,7 +43,7 @@ def validate_and_fix_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[s
                     # Malformed JSON - log and replace with empty object
                     logger.warning(
                         f"Malformed tool call arguments for {func.get('name', 'unknown')}: "
-                        f"{args_str}... (error: {e})"
+                        f"{args_str} (error: {e})"
                     )
                     func["arguments"] = "{}"
             

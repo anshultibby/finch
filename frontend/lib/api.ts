@@ -33,6 +33,34 @@ export interface FileContent {
   is_complete: boolean;
 }
 
+// Search result from web_search or news_search
+export interface SearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+  date?: string;      // For news results
+  source?: string;    // For news results (publication name)
+  imageUrl?: string;  // Thumbnail/favicon
+  position?: number;  // Result rank
+}
+
+export interface SearchResults {
+  query: string;
+  results: SearchResult[];
+  answerBox?: {
+    title?: string;
+    answer?: string;
+    snippet?: string;
+  };
+  knowledgeGraph?: {
+    title?: string;
+    type?: string;
+    description?: string;
+    imageUrl?: string;
+  };
+  is_complete: boolean;
+}
+
 export interface ToolCallStatus {
   tool_call_id: string;
   tool_name: string;
@@ -44,6 +72,7 @@ export interface ToolCallStatus {
   arguments?: Record<string, any>; // Tool arguments (for extracting filename, etc.)
   code_output?: CodeOutput; // Code execution output (stdout/stderr)
   file_content?: FileContent; // Streaming file content for write_chat_file
+  search_results?: SearchResults; // Web/news search results
 }
 
 export interface ChatResponse {
@@ -71,6 +100,7 @@ export interface SSEToolCallCompleteEvent {
   error?: string;
   result_summary?: string;
   code_output?: CodeOutput; // Code execution output (stdout/stderr)
+  search_results?: SearchResults; // Web/news search results
   timestamp: string;
 }
 
@@ -140,6 +170,15 @@ export interface SSEFileContentEvent {
   is_complete: boolean;
 }
 
+export interface SSEToolCallStreamingEvent {
+  tool_call_id: string;
+  tool_name: string;
+  arguments_delta: string;
+  filename?: string;
+  file_content_delta?: string;
+  timestamp: string;
+}
+
 export interface SSEMessageEndEvent {
   role: string;
   content: string;
@@ -165,6 +204,7 @@ export interface SSEEventHandlers {
   onToolLog?: (event: SSEToolLogEvent) => void;
   onCodeOutput?: (event: SSECodeOutputEvent) => void;               // Real-time code execution output
   onFileContent?: (event: SSEFileContentEvent) => void;             // Real-time file content streaming
+  onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void; // File content streaming during LLM generation
   
   // Other events
   onOptions?: (event: SSEOptionsEvent) => void;
@@ -373,6 +413,9 @@ export const chatApi = {
                   break;
                 case 'file_content':
                   handlers.onFileContent?.(eventData as SSEFileContentEvent);
+                  break;
+                case 'tool_call_streaming':
+                  handlers.onToolCallStreaming?.(eventData as SSEToolCallStreamingEvent);
                   break;
                 case 'tool_options':
                   handlers.onOptions?.(eventData as SSEOptionsEvent);

@@ -37,9 +37,13 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Configuration
     # =========================================================================
-    LLM_MODEL: str = Field(
-        default="claude-sonnet-4-5-20250929",
-        description="LLM model to use (supports OpenAI, Anthropic, Google via LiteLLM)"
+    MASTER_LLM_MODEL: str = Field(
+        default="gemini/gemini-3-pro-preview",
+        description="LLM model to use for the Master Agent"
+    )
+    EXECUTOR_LLM_MODEL: str = Field(
+        default="gemini/gemini-3-pro-preview",
+        description="LLM model to use for the Executor Agent"
     )
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
@@ -48,6 +52,10 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = Field(
         default=None,
         description="Anthropic API key (required for Claude models)"
+    )
+    GEMINI_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Google Gemini API key (required for Gemini models)"
     )
     
     # =========================================================================
@@ -130,6 +138,35 @@ class Settings(BaseSettings):
     )
     
     # =========================================================================
+    # Agent Tool Configuration
+    # =========================================================================
+    # Shared tools available to all agents
+    AGENT_TOOLS: List[str] = Field(
+        default=[
+            'execute_code',
+            'write_chat_file',
+            'read_chat_file',
+            'replace_in_chat_file',
+            'web_search',
+            'news_search',
+            'scrape_url',
+        ],
+        description="Base tools available to all agents"
+    )
+    
+    # Master agent gets delegation + ETF builder
+    MASTER_AGENT_EXTRA_TOOLS: List[str] = Field(
+        default=['delegate_execution', 'build_custom_etf'],
+        description="Additional tools for Master Agent"
+    )
+    
+    # Executor agent gets finish_execution
+    EXECUTOR_AGENT_EXTRA_TOOLS: List[str] = Field(
+        default=['finish_execution'],
+        description="Additional tools for Executor Agent"
+    )
+    
+    # =========================================================================
     # Observability (LangFuse)
     # =========================================================================
     LANGFUSE_PUBLIC_KEY: Optional[str] = Field(
@@ -207,9 +244,11 @@ class Config:
     USE_POOLER = settings.USE_POOLER
     
     # LLM
-    LLM_MODEL = settings.LLM_MODEL
+    MASTER_LLM_MODEL = settings.MASTER_LLM_MODEL
+    EXECUTOR_LLM_MODEL = settings.EXECUTOR_LLM_MODEL
     OPENAI_API_KEY = settings.OPENAI_API_KEY
     ANTHROPIC_API_KEY = settings.ANTHROPIC_API_KEY
+    GEMINI_API_KEY = settings.GEMINI_API_KEY
     
     # External APIs
     SNAPTRADE_CLIENT_ID = settings.SNAPTRADE_CLIENT_ID
@@ -242,6 +281,11 @@ class Config:
     # Debug
     DEBUG_CHAT_LOGS = settings.DEBUG_CHAT_LOGS
     ENABLE_TIMING_LOGS = settings.ENABLE_TIMING_LOGS
+    
+    # Agent Tools
+    AGENT_TOOLS = settings.AGENT_TOOLS
+    MASTER_AGENT_TOOLS = settings.AGENT_TOOLS + settings.MASTER_AGENT_EXTRA_TOOLS
+    EXECUTOR_AGENT_TOOLS = settings.AGENT_TOOLS + settings.EXECUTOR_AGENT_EXTRA_TOOLS
     
     @classmethod
     def get_database_url(cls) -> str:

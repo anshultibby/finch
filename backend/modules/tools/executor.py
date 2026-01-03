@@ -611,6 +611,61 @@ class ToolExecutor:
                     from models.sse import CodeOutput
                     code_output = CodeOutput(stdout=stdout, stderr=stderr).model_dump()
             
+            # Extract search results for web_search and news_search tools
+            search_results = None
+            if result.tool_name in ("web_search", "news_search") and isinstance(result.raw_result, dict):
+                if result.raw_result.get("success"):
+                    from models.sse import SearchResults, SearchResult, SearchAnswerBox, SearchKnowledgeGraph
+                    
+                    # Extract organic results
+                    organic = result.raw_result.get("organic", [])
+                    news = result.raw_result.get("news", [])
+                    results_list = organic if organic else news
+                    
+                    search_result_items = []
+                    for i, item in enumerate(results_list[:20]):  # Limit to 20 results
+                        search_result_items.append(SearchResult(
+                            title=item.get("title", ""),
+                            link=item.get("link", ""),
+                            snippet=item.get("snippet", ""),
+                            date=item.get("date"),
+                            source=item.get("source"),
+                            imageUrl=item.get("imageUrl"),
+                            position=i + 1
+                        ))
+                    
+                    # Extract answer box if present
+                    answer_box = None
+                    if result.raw_result.get("answerBox"):
+                        ab = result.raw_result["answerBox"]
+                        answer_box = SearchAnswerBox(
+                            title=ab.get("title"),
+                            answer=ab.get("answer"),
+                            snippet=ab.get("snippet")
+                        )
+                    
+                    # Extract knowledge graph if present
+                    knowledge_graph = None
+                    if result.raw_result.get("knowledgeGraph"):
+                        kg = result.raw_result["knowledgeGraph"]
+                        knowledge_graph = SearchKnowledgeGraph(
+                            title=kg.get("title"),
+                            type=kg.get("type"),
+                            description=kg.get("description"),
+                            imageUrl=kg.get("imageUrl")
+                        )
+                    
+                    # Get query from arguments
+                    query = result.arguments.get("query", "Search")
+                    
+                    search_results = SearchResults(
+                        query=query,
+                        results=search_result_items,
+                        answerBox=answer_box,
+                        knowledgeGraph=knowledge_graph,
+                        is_complete=True
+                    ).model_dump()
+            
             yield SSEEvent(
                 event="tool_call_complete",
                 data={
@@ -619,7 +674,8 @@ class ToolExecutor:
                     "status": "completed" if result.success else "error",
                     "error": result.error,
                     "result_summary": result_summary,
-                    "code_output": code_output
+                    "code_output": code_output,
+                    "search_results": search_results
                 }
             )
         

@@ -2,6 +2,7 @@
 CRUD operations for resources
 """
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from models.db import Resource
 from typing import List, Optional, Dict, Any
 import uuid
@@ -20,8 +21,31 @@ def create_resource(
     resource_id: Optional[str] = None
 ) -> Resource:
     """
-    Create a new resource
+    Create or update a resource.
+    
+    If a resource with the same chat_id, title, and resource_type already exists,
+    it will be updated instead of creating a duplicate.
     """
+    # Check for existing resource with same chat_id + title + resource_type
+    existing = db.query(Resource).filter(
+        and_(
+            Resource.chat_id == chat_id,
+            Resource.title == title,
+            Resource.resource_type == resource_type
+        )
+    ).first()
+    
+    if existing:
+        # Update existing resource
+        existing.tool_name = tool_name
+        existing.data = data
+        if resource_metadata is not None:
+            existing.resource_metadata = resource_metadata
+        db.commit()
+        db.refresh(existing)
+        return existing
+    
+    # Create new resource
     if resource_id is None:
         resource_id = str(uuid.uuid4())
     

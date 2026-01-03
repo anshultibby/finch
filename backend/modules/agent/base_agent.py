@@ -298,7 +298,7 @@ class BaseAgent:
             )
             
             # Create LLM configuration
-            llm_config = LLMConfig.from_config(stream=True)
+            llm_config = LLMConfig.from_config(model=self.model, stream=True)
             
             # Stream all events directly from agent loop
             async for event in self.run_tool_loop_streaming(

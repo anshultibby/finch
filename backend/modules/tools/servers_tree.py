@@ -117,32 +117,72 @@ The following APIs are available as importable Python modules:
 **Usage Examples:**
 
 ```python
-# Historical prices (Polygon.io)
+# Intraday bars (Polygon.io) - for backtesting/strategies
+from servers.polygon_io.market.intraday import get_intraday_bars
+response = get_intraday_bars(
+    symbol='NVDA',              # Stock ticker (required)
+    from_datetime='2024-12-01', # Start date YYYY-MM-DD (required)
+    to_datetime='2024-12-31',   # End date YYYY-MM-DD (required)
+    timespan='15min'            # '1min', '5min', '15min', '30min', '1hour'
+)
+# ALWAYS check for errors before accessing data!
+if 'error' in response:
+    print(f"Error: {{response['error']}}")
+else:
+    df = pd.DataFrame(response['bars'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
+# Historical daily prices (Polygon.io)
 from servers.polygon_io.market.historical_prices import get_historical_prices
-prices = get_historical_prices('AAPL', '2024-01-01', '2024-12-31', timespan='day')
+response = get_historical_prices(
+    symbol='AAPL',              # Stock ticker (required)
+    from_date='2024-01-01',     # Start date YYYY-MM-DD (required)
+    to_date='2024-12-31',       # End date YYYY-MM-DD (required)
+    timespan='day'              # 'day', 'week', 'month' (default='day')
+)
+if 'error' in response:
+    print(f"Error: {{response['error']}}")
+else:
+    df = pd.DataFrame(response['bars'])
+
+# Quote snapshot with fundamentals (FMP)
+from servers.financial_modeling_prep.market.quote import get_quote_snapshot
+quotes = get_quote_snapshot('AAPL')  # Returns LIST even for single stock!
+quote = quotes[0]  # Access first result
+print(f"{{quote['symbol']}}: ${{quote['price']}} | PE: {{quote['pe']}}")
+
+# Market gainers (FMP) - filter for liquid stocks!
+from servers.financial_modeling_prep.market.gainers import get_gainers
+gainers = get_gainers()
+liquid = [g for g in gainers if g.get('price', 0) > 10]
 
 # Company profile (FMP)
 from servers.financial_modeling_prep.company.profile import get_profile
 profile = get_profile('AAPL')
-
-# Financial statements (FMP)
-from servers.financial_modeling_prep.financials.income_statement import get_income_statement
-income = get_income_statement('AAPL', period='annual', limit=5)
-
-# Current quote (FMP)
-from servers.financial_modeling_prep.market.quote import get_quote
-quote = get_quote('AAPL')
-
-# TradingView chart (save as HTML file, embed in chat)
-from servers.tradingview.charts.generate import create_chart_for_chat
-chart = create_chart_for_chat('AAPL', interval='1d', indicators=['RSI', 'MACD'])
-# Save chart['html'] to file, reference with [file:AAPL_chart.html]
 ```
 
-**Important:**
-- Use `polygon_io` for historical OHLCV price data
-- Use `financial_modeling_prep` for fundamentals, financials, quotes
-- Use `tradingview` for interactive chart widgets
+**⚠️ COMMON MISTAKES TO AVOID:**
+- ALL Polygon price functions use `symbol=` not `ticker=`:
+  - `get_historical_prices(symbol='AAPL', ...)` ✓
+  - `get_intraday_bars(symbol='NVDA', ...)` ✓
+  - `get_historical_prices(ticker='AAPL', ...)` ✗ WRONG!
+- **ALWAYS check for errors before accessing data:**
+  ```python
+  response = get_historical_prices(symbol='AAPL', ...)
+  if 'error' in response:
+      print(f"Error: {{response['error']}}")  # Handle error!
+  else:
+      df = pd.DataFrame(response['bars'])  # Safe to access
+  ```
+- `get_quote_snapshot()` returns a LIST, use `quotes[0]` for single stock
+- Response from price APIs is a dict with `'bars'` key, not a list directly
+- Always convert timestamp: `pd.to_datetime(df['timestamp'], unit='ms')`
+
+**When to use which API:**
+- `polygon_io.market.intraday` → Intraday bars (1min to 1hour)
+- `polygon_io.market.historical_prices` → Daily/weekly/monthly bars
+- `financial_modeling_prep.market.quote` → Quote with PE, market cap, EPS
+- `financial_modeling_prep.market.gainers` → Market movers (filter for liquidity!)
 """
 
 

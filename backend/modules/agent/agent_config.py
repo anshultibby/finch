@@ -1,63 +1,68 @@
 """
-Agent Configuration - Centralized agent creation and tool registry
+Agent Configuration - Two-tier agent system
 
-Factory functions for creating properly configured agents.
-Currently supports one main chat agent, but designed for easy expansion.
+Based on Anthropic's "Effective harnesses for long-running agents":
+- Master Agent: Planning, coordination, writes _tasks.md, reviews results
+- Executor Agent: Reads _tasks.md, executes tasks, marks them done
+
+All agent configuration (model, tools, prompts) is centralized here.
 """
-from typing import List
+from config import Config
+from .prompts import get_master_agent_prompt, get_executor_agent_prompt
 
 
-# ============================================================================
-# MAIN CHAT AGENT TOOLS
-# ============================================================================
-
-# All tools available to the main Finch chat agent
-MAIN_AGENT_TOOLS = [
-    # Code Execution (Primary Tool)
-    'execute_code',                # Execute Python code - main interface for all operations
-    
-    # File Management
-    'write_chat_file',             # Write file to chat directory
-    'read_chat_file',              # Read file from chat directory
-    'replace_in_chat_file',        # Edit files (search/replace)
-    
-    # Custom ETF Builder
-    'build_custom_etf',            # Build custom ETF portfolios with weighting strategies
-]
-
-
-# ============================================================================
-# AGENT FACTORY FUNCTIONS
-# ============================================================================
-
-def create_main_agent(context, system_prompt: str, model: str):
+def create_master_agent(context):
     """
-    Create a properly configured main chat agent.
+    Create the Master Agent.
     
-    Args:
-        context: AgentContext with user_id, chat_id, data
-        system_prompt: System prompt for the agent
-        model: LLM model name
-        
-    Returns:
-        BaseAgent instance configured with all main agent tools
+    Master Agent:
+    - Plans and coordinates
+    - Writes _tasks.md with checklist
+    - Delegates to Executor via delegate_execution()
+    - Reviews results and updates tasks
     """
     from .base_agent import BaseAgent
     
     return BaseAgent(
         context=context,
-        system_prompt=system_prompt,
-        model=model,
-        tool_names=MAIN_AGENT_TOOLS,
+        system_prompt=get_master_agent_prompt(),
+        model=Config.MASTER_LLM_MODEL,
+        tool_names=Config.MASTER_AGENT_TOOLS,
         enable_tool_streaming=True
     )
 
 
-# ============================================================================
-# CONVENIENCE FUNCTIONS (for backward compatibility)
-# ============================================================================
+def create_executor_agent(context):
+    """
+    Create the Executor Agent.
+    
+    Executor Agent:
+    - Reads _tasks.md
+    - Works through unchecked tasks
+    - Marks tasks complete
+    - Calls finish_execution when done
+    """
+    from .base_agent import BaseAgent
+    
+    return BaseAgent(
+        context=context,
+        system_prompt=get_executor_agent_prompt(),
+        model=Config.EXECUTOR_LLM_MODEL,
+        tool_names=Config.EXECUTOR_AGENT_TOOLS,
+        enable_tool_streaming=True
+    )
 
-def get_main_agent_tools() -> List[str]:
-    """Get the list of tools available to the main chat agent"""
-    return MAIN_AGENT_TOOLS.copy()
 
+def create_main_agent(context):
+    """
+    Create single agent with base tools (legacy/simple mode).
+    """
+    from .base_agent import BaseAgent
+    
+    return BaseAgent(
+        context=context,
+        system_prompt=get_master_agent_prompt(),
+        model=Config.MASTER_LLM_MODEL,
+        tool_names=Config.AGENT_TOOLS,
+        enable_tool_streaming=True
+    )

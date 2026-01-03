@@ -20,12 +20,26 @@ import {
   Resource,
   SSEToolCallStartEvent,
   SSEToolCallCompleteEvent,
+  SSEToolCallStreamingEvent,
   SSEOptionsEvent,
   SSEFileContentEvent,
   OptionButton,
   ImageAttachment,
   FileContent
 } from '@/lib/api';
+
+// Helper to determine file type from filename
+const getFileType = (filename: string): string => {
+  if (filename.endsWith('.py')) return 'python';
+  if (filename.endsWith('.md')) return 'markdown';
+  if (filename.endsWith('.csv')) return 'csv';
+  if (filename.endsWith('.json')) return 'json';
+  if (filename.endsWith('.html')) return 'html';
+  if (filename.endsWith('.js')) return 'javascript';
+  if (filename.endsWith('.ts') || filename.endsWith('.tsx')) return 'typescript';
+  if (filename.endsWith('.jsx')) return 'javascript';
+  return 'text';
+};
 
 // Per-chat state stored in refs (persists across chat switches)
 interface ChatStreamState {
@@ -160,6 +174,17 @@ export default function ChatView() {
     
     if (streamingFileTool) {
       setSelectedTool(streamingFileTool);
+      return;
+    }
+    
+    // Auto-select search tools when they have results
+    const searchTool = streamingTools.find(
+      t => (t.tool_name === 'web_search' || t.tool_name === 'news_search') &&
+      t.search_results?.results && t.search_results.results.length > 0
+    );
+    
+    if (searchTool) {
+      setSelectedTool(searchTool);
     }
   }, [streamingTools]);
 
@@ -419,9 +444,25 @@ export default function ChatView() {
         
         onToolCallStart: (event: SSEToolCallStartEvent) => {
           const s = getChatState(targetChatId);
-          if (s.streamingTools.some(t => t.tool_call_id === event.tool_call_id)) {
+          const existingTool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
+          
+          if (existingTool) {
+            // Tool already exists from streaming - update with full arguments
+            updateChatState(targetChatId, {
+              streamingTools: s.streamingTools.map(t => {
+                if (t.tool_call_id === event.tool_call_id) {
+                  return {
+                    ...t,
+                    arguments: event.arguments,
+                    statusMessage: event.user_description || t.statusMessage,
+                  };
+                }
+                return t;
+              }),
+            });
             return;
           }
+          
           const newTool: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
@@ -444,7 +485,8 @@ export default function ChatView() {
                   ...t, 
                   status: event.status, 
                   error: event.error, 
-                  code_output: hasStreamedOutput ? t.code_output : event.code_output 
+                  code_output: hasStreamedOutput ? t.code_output : event.code_output,
+                  search_results: event.search_results
                 };
               }
               return t;
@@ -502,6 +544,52 @@ export default function ChatView() {
               return t;
             }),
           });
+        },
+        
+        // Handle streaming file content during LLM generation (before tool_call_start)
+        onToolCallStreaming: (event: SSEToolCallStreamingEvent) => {
+          if (!event.file_content_delta) return;
+          
+          const s = getChatState(targetChatId);
+          const existingTool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
+          
+          if (existingTool) {
+            // Update existing tool with new file content
+            updateChatState(targetChatId, {
+              streamingTools: s.streamingTools.map(t => {
+                if (t.tool_call_id === event.tool_call_id) {
+                  const currentContent = t.file_content?.content || '';
+                  return {
+                    ...t,
+                    file_content: {
+                      filename: event.filename || t.file_content?.filename || 'unknown',
+                      content: currentContent + event.file_content_delta,
+                      file_type: getFileType(event.filename || ''),
+                      is_complete: false
+                    }
+                  };
+                }
+                return t;
+              }),
+            });
+          } else {
+            // Create new tool entry for streaming (tool_call_start hasn't arrived yet)
+            const newTool: ToolCallStatus = {
+              tool_call_id: event.tool_call_id,
+              tool_name: event.tool_name,
+              status: 'calling',
+              statusMessage: `Writing ${event.filename || 'file'}...`,
+              file_content: {
+                filename: event.filename || 'unknown',
+                content: event.file_content_delta,
+                file_type: getFileType(event.filename || ''),
+                is_complete: false
+              }
+            };
+            updateChatState(targetChatId, {
+              streamingTools: [...s.streamingTools, newTool],
+            });
+          }
         },
         
         onToolsEnd: () => {
@@ -603,14 +691,38 @@ export default function ChatView() {
       arguments: tool.arguments,
       resources_count: resources.length,
       has_file_content: !!tool.file_content,
-      has_code_output: !!tool.code_output
+      has_code_output: !!tool.code_output,
+      has_search_results: !!tool.search_results
     });
     
     const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'run_python';
     const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
+    const isSearchTool = tool.tool_name === 'web_search' || tool.tool_name === 'news_search';
     
     if (selectedTool?.tool_call_id === tool.tool_call_id) {
       setSelectedTool(null);
+      return;
+    }
+    
+    // Handle search tools
+    if (isSearchTool) {
+      // If already has search results, just show them
+      if (tool.search_results) {
+        setSelectedTool(tool);
+        return;
+      }
+      
+      // Create placeholder while searching or if no results
+      const query = tool.arguments?.query || 'Unknown query';
+      const toolWithPlaceholder: ToolCallStatus = {
+        ...tool,
+        search_results: {
+          query,
+          results: [],
+          is_complete: tool.status === 'completed'
+        }
+      };
+      setSelectedTool(toolWithPlaceholder);
       return;
     }
     
@@ -746,7 +858,13 @@ export default function ChatView() {
         isCreatingChat={isCreatingChat}
       />
 
-      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${showComputerPanel ? 'mr-[620px]' : ''}`}>
+      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${
+        showComputerPanel 
+          ? selectedTool?.file_content 
+            ? 'mr-[650px]'  // File view with tree
+            : 'mr-[520px]'  // Terminal/search
+          : ''
+      }`}>
         <button
           onClick={() => setIsResourcesOpen(true)}
           className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 hover:bg-white border border-gray-200 rounded-md shadow-sm backdrop-blur-sm transition-all text-xs font-medium text-gray-700 hover:border-blue-400"
@@ -869,9 +987,17 @@ export default function ChatView() {
       </div>
 
       {showComputerPanel && selectedTool && (
-        <div className="fixed right-0 top-0 h-full w-[620px] z-40">
+        <div className={`fixed right-0 top-0 h-full z-40 ${
+          selectedTool.file_content 
+            ? 'w-[650px]'  // File view with tree
+            : 'w-[520px]'  // Terminal/search
+        }`}>
           <ComputerPanel
-            mode={selectedTool.file_content ? 'file' : 'terminal'}
+            mode={
+              selectedTool.search_results ? 'search' : 
+              selectedTool.file_content ? 'file' : 
+              'terminal'
+            }
             command={selectedTool.tool_name.replace(/_/g, ' ')}
             output={
               selectedTool.code_output?.stdout || 
@@ -884,6 +1010,51 @@ export default function ChatView() {
             filename={selectedTool.file_content?.filename}
             fileContent={selectedTool.file_content?.content}
             fileType={selectedTool.file_content?.file_type}
+            chatId={currentChatId || undefined}
+            onFileSelect={async (filename) => {
+              // Load the selected file content
+              if (!currentChatId) return;
+              try {
+                const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                const response = await fetch(`${API_BASE_URL}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`);
+                
+                if (response.ok) {
+                  const fileType = filename.split('.').pop()?.toLowerCase() || 'text';
+                  const isImageFile = /\.(png|jpg|jpeg|gif|webp)$/i.test(filename);
+                  
+                  let content: string;
+                  if (isImageFile) {
+                    const blob = await response.blob();
+                    content = await new Promise<string>((resolve, reject) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        const base64 = reader.result as string;
+                        const base64Data = base64.split(',')[1] || base64;
+                        resolve(base64Data);
+                      };
+                      reader.onerror = reject;
+                      reader.readAsDataURL(blob);
+                    });
+                  } else {
+                    content = await response.text();
+                  }
+                  
+                  // Update selectedTool with new file content
+                  setSelectedTool({
+                    ...selectedTool,
+                    file_content: {
+                      filename,
+                      content,
+                      file_type: fileType,
+                      is_complete: true
+                    }
+                  });
+                }
+              } catch (err) {
+                console.error('Error loading file:', err);
+              }
+            }}
+            searchResults={selectedTool.search_results}
             isStreaming={selectedTool.status === 'calling'}
             onClose={() => setSelectedTool(null)}
           />

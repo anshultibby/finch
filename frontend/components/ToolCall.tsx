@@ -47,6 +47,18 @@ const isFileOperation = (toolName: string) => {
   return ['write_chat_file', 'create_file', 'write_file', 'edit_file', 'replace_in_chat_file', 'read_chat_file'].includes(toolName);
 };
 
+const isSearchOperation = (toolName: string) => {
+  return ['web_search', 'news_search'].includes(toolName);
+};
+
+// Extract search query from arguments
+const extractSearchQuery = (toolCall: ToolCallStatus): string | null => {
+  if (toolCall.arguments?.query) {
+    return toolCall.arguments.query;
+  }
+  return null;
+};
+
 // Extract filename from arguments or statusMessage
 const extractFilename = (toolCall: ToolCallStatus): string | null => {
   // First try to get filename directly from arguments (most reliable)
@@ -122,7 +134,8 @@ const getToolDisplayName = (toolName: string): string => {
     'replace_in_chat_file': 'Edit File',
     'execute_code': 'Execute Code',
     'run_python': 'Run Python',
-    'web_search': 'Web Search',
+    'web_search': 'Search',
+    'news_search': 'News Search',
     'get_fmp_data': 'Get FMP Data',
     'get_reddit_trending_stocks': 'Get Reddit Trending',
     'get_reddit_ticker_sentiment': 'Get Reddit Sentiment',
@@ -138,7 +151,9 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
   
   const toolName = getToolDisplayName(toolCall.tool_name);
   const isFile = isFileOperation(toolCall.tool_name);
+  const isSearch = isSearchOperation(toolCall.tool_name);
   const filename = isFile ? extractFilename(toolCall) : null;
+  const searchQuery = isSearch ? extractSearchQuery(toolCall) : null;
   
   // Debug logging
   if (isFile) {
@@ -149,6 +164,11 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
       extractedFilename: filename
     });
   }
+
+  // Truncate search query for display
+  const displayQuery = searchQuery && searchQuery.length > 40 
+    ? searchQuery.substring(0, 40) + '...' 
+    : searchQuery;
 
   return (
     <div 
@@ -172,8 +192,15 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
         </span>
       )}
 
+      {/* Search query pill for search operations */}
+      {displayQuery && (
+        <span className={`text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+          {displayQuery}
+        </span>
+      )}
+
       {/* Description - show for all tools when available and not just the tool name */}
-      {description && description !== toolCall.tool_name && !filename && (
+      {description && description !== toolCall.tool_name && !filename && !displayQuery && (
         <span className={`text-sm ${styles.muted} truncate min-w-0`}>
           {description}
         </span>

@@ -4,8 +4,8 @@ Chat service for managing chat sessions and interactions
 from typing import List, AsyncGenerator, Dict, Any
 import json
 import asyncio
-from .agent.prompts import get_finch_system_prompt
-from .agent.agent_config import create_main_agent
+from .agent.agent_config import create_master_agent
+from .agent.llm_handler import LLMHandler
 from config import Config
 from .context_manager import context_manager
 from database import AsyncSessionLocal
@@ -93,11 +93,7 @@ class ChatService:
                 data=context
             )
             
-            agent = create_main_agent(
-                context=agent_context,
-                system_prompt=get_finch_system_prompt(),
-                model=Config.LLM_MODEL
-            )
+            agent = create_master_agent(agent_context)
             
             # Add user message to history (with optional images for multimodal)
             history.add_user_message(message, images=images)
@@ -220,6 +216,9 @@ class ChatService:
                     
                     # Yield the SSE formatted event to client
                     yield event.to_sse_format()
+            
+            # Log session usage summary (token counts and costs)
+            LLMHandler.finalize_session(chat_id)
             
             logger.info("Chat turn complete - all messages saved incrementally")
     

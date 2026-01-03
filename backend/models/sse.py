@@ -33,6 +33,41 @@ class CodeOutput(BaseModel):
     stderr: Optional[str] = None
 
 
+class SearchResult(BaseModel):
+    """A single search result"""
+    title: str
+    link: str
+    snippet: str
+    date: Optional[str] = None  # For news results
+    source: Optional[str] = None  # For news results (publication name)
+    imageUrl: Optional[str] = None  # Thumbnail/favicon
+    position: Optional[int] = None  # Result rank
+
+
+class SearchAnswerBox(BaseModel):
+    """Featured snippet / answer box from search"""
+    title: Optional[str] = None
+    answer: Optional[str] = None
+    snippet: Optional[str] = None
+
+
+class SearchKnowledgeGraph(BaseModel):
+    """Knowledge panel from search"""
+    title: Optional[str] = None
+    type: Optional[str] = None
+    description: Optional[str] = None
+    imageUrl: Optional[str] = None
+
+
+class SearchResults(BaseModel):
+    """Web/news search results"""
+    query: str
+    results: List[SearchResult]
+    answerBox: Optional[SearchAnswerBox] = None
+    knowledgeGraph: Optional[SearchKnowledgeGraph] = None
+    is_complete: bool = False
+
+
 class ToolCallCompleteEvent(BaseModel):
     """Event sent when a tool call completes"""
     tool_call_id: str
@@ -42,6 +77,7 @@ class ToolCallCompleteEvent(BaseModel):
     error: Optional[str] = None
     result_summary: Optional[str] = None  # Brief summary of result for display to user
     code_output: Optional[CodeOutput] = None  # Code execution output (stdout/stderr)
+    search_results: Optional[SearchResults] = None  # Web/news search results
     timestamp: str = datetime.now().isoformat()
 
 
@@ -133,6 +169,21 @@ class FileContentEvent(BaseModel):
     content: str  # The file content (can be sent in chunks or all at once)
     file_type: str = "text"  # python, json, csv, markdown, etc.
     is_complete: bool = False  # True when file write is complete
+    timestamp: str = datetime.now().isoformat()
+
+
+class ToolCallStreamingEvent(BaseModel):
+    """Event sent during LLM streaming when tool call arguments are being generated.
+    
+    This is used to stream file content BEFORE tool execution starts,
+    allowing the UI to show file content as the LLM generates it.
+    """
+    tool_call_id: str
+    tool_name: str
+    arguments_delta: str  # The incremental JSON argument string
+    # For file tools, we extract and send these directly for easier frontend handling
+    filename: Optional[str] = None
+    file_content_delta: Optional[str] = None  # Incremental file content
     timestamp: str = datetime.now().isoformat()
 
 

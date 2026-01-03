@@ -18,12 +18,15 @@ from modules.tools.descriptions import (
     # ETF Builder
     BUILD_CUSTOM_ETF_DESC,
     # Web Search
-    WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC
+    WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC,
+    # Delegation (Two-tier agent)
+    DELEGATE_EXECUTION_DESC,
+    FINISH_EXECUTION_DESC,
 )
 
 # Import implementations
 from modules.tools.implementations import control
-from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
+from modules.tools.implementations import code_execution, file_management, etf_builder, web_search, delegation
 
 
 # ============================================================================
@@ -177,6 +180,49 @@ def scrape_url(
 
 
 # ============================================================================
+# DELEGATION TOOL (Two-tier agent system)
+# ============================================================================
+
+@tool(
+    name="delegate_execution",
+    description=DELEGATE_EXECUTION_DESC,
+    category="execution"
+)
+async def delegate_execution(
+    *,
+    direction: str,
+    context: AgentContext
+):
+    """Delegate execution to Executor Agent. Provide direction, tool loads tasks.md for context."""
+    params = delegation.DelegateExecutionParams(direction=direction)
+    async for item in delegation.delegate_execution_impl(params, context):
+        yield item
+
+
+@tool(
+    name="finish_execution",
+    description=FINISH_EXECUTION_DESC,
+    category="execution"
+)
+def finish_execution(
+    *,
+    summary: str,
+    files_created: List[str] = None,
+    success: bool = True,
+    error: str = None,
+    context: AgentContext
+):
+    """Signal execution is complete and return results to Master Agent."""
+    params = delegation.FinishExecutionParams(
+        summary=summary,
+        files_created=files_created or [],
+        success=success,
+        error=error
+    )
+    return delegation.finish_execution_impl(params, context)
+
+
+# ============================================================================
 # TOOL EXPORTS
 # ============================================================================
 
@@ -190,6 +236,9 @@ __all__ = [
     # ETF Builder
     'build_custom_etf',
     # Web Search
-    'web_search_tool', 'news_search', 'scrape_url'
+    'web_search_tool', 'news_search', 'scrape_url',
+    # Delegation
+    'delegate_execution',
+    'finish_execution',
 ]
 
