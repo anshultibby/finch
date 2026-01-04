@@ -9,7 +9,7 @@ from .agent.llm_handler import LLMHandler
 from config import Config
 from .context_manager import context_manager
 from database import AsyncSessionLocal
-from modules.agent.context import AgentContext
+from modules.agent.context import AgentContext, generate_agent_id
 from models.chat_history import ChatHistory
 from crud import chat_async
 from utils.logger import get_logger
@@ -88,6 +88,7 @@ class ChatService:
             context = context_manager.get_all_context(user_id)
             
             agent_context = AgentContext(
+                agent_id=generate_agent_id(),  # Unique ID for this master agent instance
                 user_id=user_id,
                 chat_id=chat_id,
                 data=context

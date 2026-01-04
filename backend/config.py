@@ -9,6 +9,7 @@ from typing import Optional, List
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 
+from models.llm_models import Models
 
 class Settings(BaseSettings):
     """
@@ -38,11 +39,11 @@ class Settings(BaseSettings):
     # LLM Configuration
     # =========================================================================
     MASTER_LLM_MODEL: str = Field(
-        default="gemini/gemini-3-pro-preview",
+        default=Models.CLAUDE_OPUS_4_5,
         description="LLM model to use for the Master Agent"
     )
     EXECUTOR_LLM_MODEL: str = Field(
-        default="gemini/gemini-3-pro-preview",
+        default=Models.CLAUDE_SONNET_4_5,
         description="LLM model to use for the Executor Agent"
     )
     OPENAI_API_KEY: Optional[str] = Field(

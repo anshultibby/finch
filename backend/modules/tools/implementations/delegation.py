@@ -7,15 +7,12 @@ Executor works through tasks and calls finish_execution when done.
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from models.sse import SSEEvent
-from modules.agent.context import AgentContext
+from modules.agent.context import AgentContext, generate_agent_id
 from modules.agent.prompts import TASK_FILE
 from modules.agent import agent_config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-# Global to capture finish_execution result from Executor
-_executor_finish_result: Optional[Dict[str, Any]] = None
 
 
 class DelegateExecutionParams(BaseModel):
@@ -53,24 +50,41 @@ def finish_execution_impl(
     """
     Signal that Executor is done and pass results back to Master.
     
-    This sets a global that delegate_execution reads after Executor finishes.
+    Returns a result that delegate_execution_impl detects in the event stream.
     """
-    global _executor_finish_result
+    logger.info(f"🏁 Executor finished: {params.summary[:100]}")
     
-    _executor_finish_result = {
+    # Return the finish signal - delegate_execution_impl will detect this
+    return {
+        "status": "finished",
         "summary": params.summary,
         "files_created": params.files_created,
         "success": params.success,
         "error": params.error,
     }
+
+
+def _extract_finish_result_from_event(event: SSEEvent) -> Optional[Dict[str, Any]]:
+    """
+    Check if a tools_end event contains a finish_execution result.
     
-    logger.info(f"🏁 Executor finished: {params.summary[:100]}")
+    Uses execution_results which contains structured result_data,
+    avoiding fragile JSON parsing of content blocks.
     
-    # Return acknowledgment to Executor
-    return {
-        "status": "finished",
-        "message": "Execution complete. Returning control to Master Agent."
-    }
+    Returns the finish result if found, None otherwise.
+    """
+    if not isinstance(event, SSEEvent) or event.event != "tools_end":
+        return None
+    
+    # Use execution_results for cleaner access to tool results
+    execution_results = event.data.get("execution_results", [])
+    for result in execution_results:
+        if result.get("tool_name") == "finish_execution":
+            result_data = result.get("result_data", {})
+            if isinstance(result_data, dict) and result_data.get("status") == "finished":
+                return result_data
+    
+    return None
 
 
 async def delegate_execution_impl(
@@ -83,13 +97,8 @@ async def delegate_execution_impl(
     Combines the direction param with tasks.md content for full context.
     Executor calls finish_execution when done to pass results back.
     """
-    global _executor_finish_result
-    
     from modules.resource_manager import resource_manager
     from models.chat_history import ChatHistory
-    
-    # Reset finish result
-    _executor_finish_result = None
     
     # Load tasks.md for context
     tasks_content = resource_manager.read_chat_file(
@@ -107,12 +116,30 @@ async def delegate_execution_impl(
     
     logger.info(f"🔄 Delegating: {params.direction}")
     
+    # Create a new agent ID for the executor
+    executor_agent_id = generate_agent_id()
+    
+    # Signal delegation start to frontend with agent IDs
     yield SSEEvent(
-        event="tool_status",
-        data={"status": "delegating", "message": f"Executor: {params.direction[:50]}..."}
+        event="delegation_start",
+        data={
+            "direction": params.direction,
+            "agent_id": executor_agent_id,
+            "parent_agent_id": context.agent_id
+        }
     )
     
-    executor = agent_config.create_executor_agent(context)
+    # Create a new context for the executor with its own agent_id
+    # parent_agent_id links back to the master agent
+    executor_context = AgentContext(
+        agent_id=executor_agent_id,
+        user_id=context.user_id,
+        chat_id=context.chat_id,
+        parent_agent_id=context.agent_id,  # Link to parent (master) agent
+        data=context.data
+    )
+    
+    executor = agent_config.create_executor_agent(executor_context)
     
     # Create minimal history
     history = ChatHistory(chat_id=context.chat_id, user_id=context.user_id)
@@ -126,31 +153,44 @@ Here is the current task file (`{TASK_FILE}`):
 """
     history.add_user_message(user_message)
     
-    # Run executor and stream events
+    finish_result = None
     async for event in executor.process_message_stream(
         message=user_message,
         chat_history=history,
         history_limit=10
     ):
         yield event
+        
+        # Capture finish_execution result when it appears
+        result = _extract_finish_result_from_event(event)
+        if result:
+            finish_result = result
     
-    # Check if Executor called finish_execution
-    if _executor_finish_result:
-        result = _executor_finish_result
-        yield {
-            "success": result["success"],
-            "error": result.get("error"),
-            "summary": result["summary"],
-            "files_created": result["files_created"],
-            "message": result["summary"]
+    # Build the final result
+    if finish_result:
+        final_result = {
+            "success": finish_result.get("success", True),
+            "error": finish_result.get("error"),
+            "summary": finish_result.get("summary", "Execution completed"),
+            "files_created": finish_result.get("files_created", []),
+            "message": finish_result.get("summary", "Execution completed")
         }
     else:
-        # Executor didn't call finish_execution - return generic result
-        yield {
+        final_result = {
             "success": True,
             "summary": "Executor completed without explicit finish signal",
             "files_created": [],
             "message": "Execution completed"
         }
     
-    logger.info(f"✅ Executor finished")
+    # Signal delegation end to frontend
+    yield SSEEvent(
+        event="delegation_end",
+        data=final_result
+    )
+    
+    logger.info(f"✅ Executor finished, yielding final result: {final_result}")
+    
+    # Yield the result dict for the tool response
+    # This is what the tool executor uses to build tool_call_complete
+    yield final_result

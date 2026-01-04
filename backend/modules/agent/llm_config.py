@@ -102,8 +102,8 @@ class LLMConfig(BaseModel):
                 "seed": 42,
             }
         
-        # Anthropic Claude
-        elif model_lower.startswith("claude"):
+        # Anthropic Claude (handles both "claude-..." and "anthropic/claude-...")
+        elif model_lower.startswith("claude") or model_lower.startswith("anthropic/"):
             return {
                 "caching": True,
             }
@@ -136,8 +136,8 @@ class LLMConfig(BaseModel):
         
         model_lower = model.lower()
         
-        # Anthropic Claude models
-        if model_lower.startswith("claude"):
+        # Anthropic Claude models (handles both "claude-..." and "anthropic/claude-...")
+        if model_lower.startswith("claude") or model_lower.startswith("anthropic/"):
             return Config.ANTHROPIC_API_KEY
         
         # Google Gemini models (both "gemini/" prefix and direct "gemini-" names)

@@ -451,14 +451,20 @@ class ToolExecutor:
             user_description = call.arguments.get('user_description', None)
             
             logger.info(f"📤 Emitting tool_call_start event: {call.name} (id: {call.id})")
+            event_data = {
+                "tool_call_id": call.id,
+                "tool_name": call.name,
+                "arguments": call.arguments,
+                "user_description": user_description,
+                "agent_id": context.agent_id  # Which agent is running this tool
+            }
+            # Include parent_agent_id if this is a sub-agent (e.g., executor)
+            if context.parent_agent_id:
+                event_data["parent_agent_id"] = context.parent_agent_id
+            
             yield SSEEvent(
                 event="tool_call_start",
-                data={
-                    "tool_call_id": call.id,
-                    "tool_name": call.name,
-                    "arguments": call.arguments,
-                    "user_description": user_description
-                }
+                data=event_data
             )
         
         # Execute tools and collect results
@@ -666,17 +672,24 @@ class ToolExecutor:
                         is_complete=True
                     ).model_dump()
             
+            logger.info(f"📤 Emitting tool_call_complete for {result.tool_name} (id: {result.tool_call_id})")
+            complete_event_data = {
+                "tool_call_id": result.tool_call_id,
+                "tool_name": result.tool_name,
+                "status": "completed" if result.success else "error",
+                "error": result.error,
+                "result_summary": result_summary,
+                "code_output": code_output,
+                "search_results": search_results,
+                "agent_id": context.agent_id  # Which agent ran this tool
+            }
+            # Include parent_agent_id if this is a sub-agent (e.g., executor)
+            if context.parent_agent_id:
+                complete_event_data["parent_agent_id"] = context.parent_agent_id
+            
             yield SSEEvent(
                 event="tool_call_complete",
-                data={
-                    "tool_call_id": result.tool_call_id,
-                    "tool_name": result.tool_name,
-                    "status": "completed" if result.success else "error",
-                    "error": result.error,
-                    "result_summary": result_summary,
-                    "code_output": code_output,
-                    "search_results": search_results
-                }
+                data=complete_event_data
             )
         
         # Build tool messages for conversation

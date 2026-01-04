@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-interface FileItem {
+export interface FileItem {
   id: string;
   filename: string;
   file_type: string;
@@ -15,6 +15,9 @@ interface FileTreeProps {
   chatId: string;
   selectedFile?: string;
   onFileSelect: (filename: string) => void;
+  // Optional: pass cached files to avoid re-fetching
+  cachedFiles?: FileItem[];
+  onFilesLoaded?: (files: FileItem[]) => void;
 }
 
 // Get icon for file type
@@ -96,17 +99,41 @@ const formatSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export default function FileTree({ chatId, selectedFile, onFileSelect }: FileTreeProps) {
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function FileTree({ chatId, selectedFile, onFileSelect, cachedFiles, onFilesLoaded }: FileTreeProps) {
+  // Use cached files immediately if available - no local state needed when cached
+  const [fetchedFiles, setFetchedFiles] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
+  const fetchedForChatRef = useRef<string | null>(null);
+  const onFilesLoadedRef = useRef(onFilesLoaded);
+  
+  // Keep callback ref updated
+  onFilesLoadedRef.current = onFilesLoaded;
+  
+  // Prefer cached files, fall back to fetched files
+  const files = (cachedFiles && cachedFiles.length > 0) ? cachedFiles : fetchedFiles;
+  const hasFiles = files.length > 0;
 
   useEffect(() => {
     const loadFiles = async () => {
       if (!chatId) return;
       
-      setLoading(true);
+      // Skip fetch if we already have cached files for this chat
+      if (cachedFiles && cachedFiles.length > 0) {
+        setLoading(false);
+        return;
+      }
+      
+      // Skip fetch if we already fetched for this chat
+      if (fetchedForChatRef.current === chatId && fetchedFiles.length > 0) {
+        return;
+      }
+      
+      // Show loading only if we have nothing to show
+      if (!hasFiles) {
+        setLoading(true);
+      }
       setError(null);
       
       try {
@@ -115,7 +142,10 @@ export default function FileTree({ chatId, selectedFile, onFileSelect }: FileTre
         
         if (response.ok) {
           const data = await response.json();
-          setFiles(data);
+          setFetchedFiles(data);
+          fetchedForChatRef.current = chatId;
+          // Notify parent to cache the files
+          onFilesLoadedRef.current?.(data);
         } else {
           setError('Failed to load files');
         }
@@ -128,7 +158,7 @@ export default function FileTree({ chatId, selectedFile, onFileSelect }: FileTre
     };
     
     loadFiles();
-  }, [chatId]);
+  }, [chatId, cachedFiles, hasFiles, fetchedFiles.length]);
 
   if (loading) {
     return (

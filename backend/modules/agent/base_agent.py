@@ -251,6 +251,13 @@ class BaseAgent:
                     for tool_msg in tool_messages:
                         self._new_messages.append(HistoryChatMessage.from_dict(tool_msg))
                     
+                    # Check if finish_execution was called - cleanly exit the loop
+                    # This properly terminates the generator instead of leaving it running
+                    for tool_msg in tool_messages:
+                        if tool_msg.get("name") == "finish_execution":
+                            logger.info("🏁 finish_execution called - exiting agent loop")
+                            return
+                    
                     # Check if any tool requires user input (e.g., message_ask_user)
                     # If so, pause the agent loop and wait for user response
                     requires_user_input = False

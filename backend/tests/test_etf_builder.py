@@ -15,6 +15,7 @@ class TestETFBuilder:
     def agent_context(self):
         """Create a test agent context"""
         return AgentContext(
+            agent_id="test_agent",
             user_id="test_user",
             chat_id="test_chat",
             data={}

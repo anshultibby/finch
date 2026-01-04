@@ -237,6 +237,9 @@ DELEGATE_EXECUTION_DESC = """Delegate execution to the Executor Agent.
 - Review the summary and files_created in the result
 - Read output files to verify quality
 - Update `tasks.md` to mark completed tasks `[x]`
+
+Guidelines:
+1. Make sure the direction is formatted well as we will display it to the user as well.
 """
 
 

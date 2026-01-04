@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { SearchResults, SearchResult } from '@/lib/api';
-import FileTree from './FileTree';
+import FileTree, { FileItem } from './FileTree';
 
 type PanelMode = 'terminal' | 'file' | 'search';
 
@@ -16,8 +16,14 @@ interface ComputerPanelProps {
   fileType?: string;
   chatId?: string; // For loading file tree
   onFileSelect?: (filename: string) => void; // Callback when user selects a different file
+  cachedFiles?: FileItem[]; // Cached file list for instant display
+  onFilesLoaded?: (files: FileItem[]) => void; // Callback when files are loaded
   // Search mode props
   searchResults?: SearchResults;
+  // Edit/diff props
+  isEditOperation?: boolean; // True for replace_in_chat_file
+  oldStr?: string; // Original text for diff
+  newStr?: string; // New text for diff
   // Common props
   isStreaming: boolean;
   onClose: () => void;
@@ -169,6 +175,35 @@ const getLanguage = (filename?: string, fileType?: string): string => {
   if (fileType === 'markdown' || filename?.endsWith('.md')) return 'markdown';
   if (fileType === 'csv' || filename?.endsWith('.csv')) return 'csv';
   return 'text';
+};
+
+// Generate a simple diff view from old_str and new_str
+const generateDiffView = (oldStr: string, newStr: string): React.ReactNode[] => {
+  const oldLines = oldStr.split('\n');
+  const newLines = newStr.split('\n');
+  const result: React.ReactNode[] = [];
+  
+  // Show removed lines (red)
+  oldLines.forEach((line, i) => {
+    result.push(
+      <div key={`old-${i}`} className="min-h-[1.6em] bg-red-50 border-l-2 border-red-400 pl-2 -ml-2">
+        <span className="text-red-600 font-medium select-none mr-2">−</span>
+        <span className="text-red-700">{line || ' '}</span>
+      </div>
+    );
+  });
+  
+  // Show added lines (green)
+  newLines.forEach((line, i) => {
+    result.push(
+      <div key={`new-${i}`} className="min-h-[1.6em] bg-green-50 border-l-2 border-green-400 pl-2 -ml-2">
+        <span className="text-green-600 font-medium select-none mr-2">+</span>
+        <span className="text-green-700">{line || ' '}</span>
+      </div>
+    );
+  });
+  
+  return result;
 };
 
 // Check if file is an image
@@ -324,7 +359,12 @@ export default function ComputerPanel({
   fileType,
   chatId,
   onFileSelect,
+  cachedFiles,
+  onFilesLoaded,
   searchResults,
+  isEditOperation = false,
+  oldStr,
+  newStr,
   isStreaming, 
   onClose 
 }: ComputerPanelProps) {
@@ -585,6 +625,11 @@ export default function ComputerPanel({
       );
     }
 
+    // Edit operation - show diff view with old_str and new_str
+    if (mode === 'file' && isEditOperation && oldStr && newStr) {
+      return <code>{generateDiffView(oldStr, newStr)}</code>;
+    }
+
     // File mode with syntax highlighting
     if (highlightedCode) {
       return <code>{highlightedCode}</code>;
@@ -665,6 +710,8 @@ export default function ComputerPanel({
                 onFileSelect(selectedFilename);
               }
             }}
+            cachedFiles={cachedFiles}
+            onFilesLoaded={onFilesLoaded}
           />
         )}
         

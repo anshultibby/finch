@@ -21,6 +21,7 @@ async def example_tech_etf():
     
     # Create agent context (minimal for testing)
     context = AgentContext(
+        agent_id="test_agent",
         user_id="test_user",
         chat_id="test_chat",
         data={}
@@ -80,6 +81,7 @@ async def example_with_invalid_tickers():
     print("="*60)
     
     context = AgentContext(
+        agent_id="test_agent",
         user_id="test_user",
         chat_id="test_chat",
         data={}

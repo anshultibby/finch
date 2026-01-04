@@ -73,6 +73,11 @@ export interface ToolCallStatus {
   code_output?: CodeOutput; // Code execution output (stdout/stderr)
   file_content?: FileContent; // Streaming file content for write_chat_file
   search_results?: SearchResults; // Web/news search results
+  agent_id?: string; // Which agent ran this tool
+  parent_agent_id?: string; // If set, this tool belongs to a sub-agent (parent agent ID)
+  executorAgentId?: string; // For delegate_execution: the sub-agent's ID (for matching nested tools)
+  nestedTools?: ToolCallStatus[]; // Computed at render time: tools from sub-agents
+  thinkingText?: string; // For delegate_execution: ephemeral thinking text from sub-agent
 }
 
 export interface ChatResponse {
@@ -89,6 +94,8 @@ export interface SSEToolCallStartEvent {
   tool_name: string;
   arguments: Record<string, any>;
   user_description?: string;  // User-friendly description for display
+  agent_id: string;  // Which agent is running this tool
+  parent_agent_id?: string;  // If set, this is a sub-agent tool (parent agent ID)
   timestamp: string;
 }
 
@@ -101,6 +108,8 @@ export interface SSEToolCallCompleteEvent {
   result_summary?: string;
   code_output?: CodeOutput; // Code execution output (stdout/stderr)
   search_results?: SearchResults; // Web/news search results
+  agent_id: string;  // Which agent ran this tool
+  parent_agent_id?: string;  // If set, this is a sub-agent tool (parent agent ID)
   timestamp: string;
 }
 
@@ -205,6 +214,10 @@ export interface SSEEventHandlers {
   onCodeOutput?: (event: SSECodeOutputEvent) => void;               // Real-time code execution output
   onFileContent?: (event: SSEFileContentEvent) => void;             // Real-time file content streaming
   onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void; // File content streaming during LLM generation
+  
+  // Delegation events
+  onDelegationStart?: (event: { direction: string; agent_id: string; parent_agent_id: string }) => void;
+  onDelegationEnd?: (event: { success: boolean; summary: string; files_created: string[]; error?: string }) => void;
   
   // Other events
   onOptions?: (event: SSEOptionsEvent) => void;
@@ -404,6 +417,14 @@ export const chatApi = {
                   break;
                 case 'tool_progress':
                   handlers.onToolProgress?.(eventData as SSEToolProgressEvent);
+                  break;
+                case 'delegation_start':
+                  console.log('🔄 Received delegation_start event:', eventData);
+                  handlers.onDelegationStart?.(eventData);
+                  break;
+                case 'delegation_end':
+                  console.log('🏁 Received delegation_end event:', eventData);
+                  handlers.onDelegationEnd?.(eventData);
                   break;
                 case 'tool_log':
                   handlers.onToolLog?.(eventData as SSEToolLogEvent);

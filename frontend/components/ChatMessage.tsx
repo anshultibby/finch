@@ -412,13 +412,61 @@ const parseFileReferences = (
 };
 
 function ToolCallList({ toolCalls, onSelectTool }: { toolCalls: ToolCallStatus[], onSelectTool?: (tool: ToolCallStatus) => void }) {
+  // Group tools by agent hierarchy:
+  // 1. Top-level tools (no parent_agent_id) - render directly  
+  // 2. delegate_execution tools - render with their nested sub-agent tools
+  // 3. Sub-agent tools (have parent_agent_id) - nest under matching delegate_execution by agent_id
+  // 4. finish_execution - hidden (internal signal)
+  
+  // Top-level tools (no parent_agent_id, not delegate_execution)
+  const topLevelTools = toolCalls.filter(t => 
+    !t.parent_agent_id && t.tool_name !== 'delegate_execution'
+  );
+  
+  // All delegation tools
+  const delegationTools = toolCalls.filter(t => t.tool_name === 'delegate_execution');
+  
+  // Sub-agent tools grouped by their parent_agent_id (exclude finish_execution)
+  const subAgentToolsByParent = new Map<string, ToolCallStatus[]>();
+  toolCalls
+    .filter(t => !!t.parent_agent_id && t.tool_name !== 'finish_execution')
+    .forEach(t => {
+      const parentId = t.parent_agent_id!;
+      if (!subAgentToolsByParent.has(parentId)) {
+        subAgentToolsByParent.set(parentId, []);
+      }
+      subAgentToolsByParent.get(parentId)!.push(t);
+    });
+  
+  // Attach nested tools to each delegation based on executorAgentId or agent_id
+  const delegationsWithNested = delegationTools.map(delegation => {
+    // The delegation's executorAgentId (set when delegation starts) tells us which sub-agent it spawned
+    // Sub-agent tools have parent_agent_id = the master agent's id
+    // We need to match: sub-agent's agent_id should be the executor's id
+    // But sub-agent tools have parent_agent_id pointing to master, not executor
+    // So we match by: delegation.agent_id (master) === sub-agent.parent_agent_id
+    const nestedTools = subAgentToolsByParent.get(delegation.agent_id || '') || [];
+    return { ...delegation, nestedTools };
+  });
+  
   return (
     <div className="flex flex-col gap-1">
-      {toolCalls.map((tool) => (
+      {/* Render top-level tools */}
+      {topLevelTools.map((tool) => (
         <ToolCall 
           key={tool.tool_call_id} 
           toolCall={tool}
           onShowOutput={() => onSelectTool?.(tool)}
+        />
+      ))}
+      
+      {/* Render each delegation with its nested sub-agent tools */}
+      {delegationsWithNested.map((delegation) => (
+        <ToolCall 
+          key={delegation.tool_call_id} 
+          toolCall={delegation}
+          onShowOutput={() => onSelectTool?.(delegation)}
+          onNestedToolClick={onSelectTool}
         />
       ))}
     </div>

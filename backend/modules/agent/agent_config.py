@@ -40,7 +40,7 @@ def create_executor_agent(context):
     - Reads _tasks.md
     - Works through unchecked tasks
     - Marks tasks complete
-    - Calls finish_execution when done
+    - Calls finish_execution when done (which triggers loop exit)
     """
     from .base_agent import BaseAgent
     
