@@ -1,5 +1,5 @@
 import React from 'react';
-import { ToolCallStatus } from '@/lib/api';
+import type { ToolCallStatus } from '@/lib/types';
 
 interface ToolCallProps {
   toolCall: ToolCallStatus;
@@ -146,7 +146,7 @@ const getToolDisplayName = (toolName: string): string => {
     'get_fmp_data': 'Get FMP Data',
     'get_reddit_trending_stocks': 'Get Reddit Trending',
     'get_reddit_ticker_sentiment': 'Get Reddit Sentiment',
-    'delegate_execution': 'Executor',
+    'delegate_execution': 'Task Executor',
     'finish_execution': 'Done',
   };
   

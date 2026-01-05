@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Resource } from '@/lib/api';
+import type { Resource } from '@/lib/types';
 
 // Dynamic import for Plotly (client-side only)
 let Plot: any = null;

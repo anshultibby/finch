@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Image, Code, Link as LinkIcon, Folder } from 'lucide-react';
-import { resourcesApi, Resource } from '@/lib/api';
+import { resourcesApi } from '@/lib/api';
+import type { Resource } from '@/lib/types';
 
 interface ChatFilesModalProps {
   isOpen: boolean;

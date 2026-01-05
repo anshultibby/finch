@@ -1,5 +1,5 @@
 import React, { useState, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
-import { ImageAttachment } from '@/lib/api';
+import type { ImageAttachment } from '@/lib/types';
 
 interface ChatInputProps {
   onSendMessage: (message: string, images?: ImageAttachment[]) => void;

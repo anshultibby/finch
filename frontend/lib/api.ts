@@ -1,4 +1,38 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// API Client
+// ═══════════════════════════════════════════════════════════════════════════
+
 import axios from 'axios';
+
+// Re-export all types for backward compatibility
+export * from './types';
+
+import type {
+  ChatResponse,
+  ChatHistory,
+  UserChatsResponse,
+  GenerateTitleResponse,
+  Resource,
+  SnapTradeConnectionResponse,
+  SnapTradeStatusResponse,
+  BrokerageAccountsResponse,
+  BrokeragesResponse,
+  ImageAttachment,
+  SSEAssistantMessageDeltaEvent,
+  SSEMessageEndEvent,
+  SSEToolCallStartEvent,
+  SSEToolCallCompleteEvent,
+  SSEToolStatusEvent,
+  SSEToolProgressEvent,
+  SSEToolLogEvent,
+  SSECodeOutputEvent,
+  SSEFileContentEvent,
+  SSEToolCallStreamingEvent,
+  SSEOptionsEvent,
+  SSEDoneEvent,
+  SSEErrorEvent,
+  ToolCallStatus,
+} from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -9,291 +43,32 @@ const api = axios.create({
   },
 });
 
-export interface ImageAttachment {
-  data: string;  // Base64-encoded image data (without data: prefix)
-  media_type: string;  // MIME type (image/png, image/jpeg, etc.)
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// SSE Event Handlers Interface
+// ─────────────────────────────────────────────────────────────────────────────
 
-export interface ChatMessage {
-  message: string;
-  user_id?: string;  // Supabase user ID
-  chat_id?: string;
-  images?: ImageAttachment[];  // Optional image attachments for multimodal
-}
-
-export interface CodeOutput {
-  stdout?: string;
-  stderr?: string;
-}
-
-export interface FileContent {
-  filename: string;
-  content: string;
-  file_type: string;
-  is_complete: boolean;
-}
-
-// Search result from web_search or news_search
-export interface SearchResult {
-  title: string;
-  link: string;
-  snippet: string;
-  date?: string;      // For news results
-  source?: string;    // For news results (publication name)
-  imageUrl?: string;  // Thumbnail/favicon
-  position?: number;  // Result rank
-}
-
-export interface SearchResults {
-  query: string;
-  results: SearchResult[];
-  answerBox?: {
-    title?: string;
-    answer?: string;
-    snippet?: string;
-  };
-  knowledgeGraph?: {
-    title?: string;
-    type?: string;
-    description?: string;
-    imageUrl?: string;
-  };
-  is_complete: boolean;
-}
-
-export interface ToolCallStatus {
-  tool_call_id: string;
-  tool_name: string;
-  status: 'calling' | 'completed' | 'error';
-  resource_id?: string;
-  error?: string;
-  result_summary?: string;
-  statusMessage?: string; // User-friendly description provided by LLM via 'user_description' parameter
-  arguments?: Record<string, any>; // Tool arguments (for extracting filename, etc.)
-  code_output?: CodeOutput; // Code execution output (stdout/stderr)
-  file_content?: FileContent; // Streaming file content for write_chat_file
-  search_results?: SearchResults; // Web/news search results
-  agent_id?: string; // Which agent ran this tool
-  parent_agent_id?: string; // If set, this tool belongs to a sub-agent (parent agent ID)
-  _insertionOrder?: number; // Internal: tracks insertion order for stable rendering
-}
-
-export interface ChatResponse {
-  response: string;
-  user_id: string;
-  timestamp: string;
-  needs_auth?: boolean;
-  tool_calls?: ToolCallStatus[];
-}
-
-// SSE Event types
-export interface SSEToolCallStartEvent {
-  tool_call_id: string;
-  tool_name: string;
-  arguments: Record<string, any>;
-  user_description?: string;  // User-friendly description for display
-  agent_id: string;  // Which agent is running this tool
-  parent_agent_id?: string;  // If set, this is a sub-agent tool (parent agent ID)
-  timestamp: string;
-}
-
-export interface SSEToolCallCompleteEvent {
-  tool_call_id: string;
-  tool_name: string;
-  status: 'completed' | 'error';
-  resource_id?: string;
-  error?: string;
-  result_summary?: string;
-  code_output?: CodeOutput; // Code execution output (stdout/stderr)
-  search_results?: SearchResults; // Web/news search results
-  agent_id: string;  // Which agent ran this tool
-  parent_agent_id?: string;  // If set, this is a sub-agent tool (parent agent ID)
-  timestamp: string;
-}
-
-export interface SSEAssistantMessageDeltaEvent {
-  delta: string;
-}
-
-export interface SSEDoneEvent {
-  message: string;
-  timestamp: string;
-}
-
-export interface SSEErrorEvent {
-  error: string;
-  details?: string;
-  timestamp: string;
-}
-
-export interface OptionButton {
-  id: string;
-  label: string;
-  value: string;
-  description?: string;
-}
-
-export interface SSEOptionsEvent {
-  type: string;
-  question: string;
-  options: OptionButton[];
-  timestamp: string;
-}
-
-export interface SSEToolStatusEvent {
-  tool_call_id?: string;
-  tool_name?: string;
-  status: string;
-  message?: string;
-  timestamp: string;
-}
-
-export interface SSEToolProgressEvent {
-  tool_call_id?: string;
-  tool_name?: string;
-  percent: number;
-  message?: string;
-  timestamp: string;
-}
-
-export interface SSEToolLogEvent {
-  tool_call_id?: string;
-  tool_name?: string;
-  level: 'debug' | 'info' | 'warning' | 'error';
-  message: string;
-  timestamp: string;
-}
-
-export interface SSECodeOutputEvent {
-  stream: 'stdout' | 'stderr';
-  content: string;
-}
-
-export interface SSEFileContentEvent {
-  tool_call_id: string;
-  filename: string;
-  content: string;
-  file_type: string;
-  is_complete: boolean;
-}
-
-export interface SSEToolCallStreamingEvent {
-  tool_call_id: string;
-  tool_name: string;
-  arguments_delta: string;
-  filename?: string;
-  file_content_delta?: string;
-  timestamp: string;
-}
-
-export interface SSEMessageEndEvent {
-  role: string;
-  content: string;
-  timestamp: string;
-}
-
-export interface SSEToolsEndEvent {
-  // tools_end signals to save current tool calls as a message
-}
-
-// Callback types for SSE event handlers
 export interface SSEEventHandlers {
-  // Message events
-  onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;  // Text streaming
-  onMessageEnd?: (event: SSEMessageEndEvent) => void;               // Save text message
-  
-  // Tool events
-  onToolCallStart?: (event: SSEToolCallStartEvent) => void;         // Tool begins
-  onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;   // Tool done
-  onToolsEnd?: () => void;                                          // All tools done - save tool container
+  onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
+  onMessageEnd?: (event: SSEMessageEndEvent) => void;
+  onToolCallStart?: (event: SSEToolCallStartEvent) => void;
+  onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
+  onToolsEnd?: () => void;
   onToolStatus?: (event: SSEToolStatusEvent) => void;
   onToolProgress?: (event: SSEToolProgressEvent) => void;
   onToolLog?: (event: SSEToolLogEvent) => void;
-  onCodeOutput?: (event: SSECodeOutputEvent) => void;               // Real-time code execution output
-  onFileContent?: (event: SSEFileContentEvent) => void;             // Real-time file content streaming
-  onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void; // File content streaming during LLM generation
-  
-  // Delegation events
+  onCodeOutput?: (event: SSECodeOutputEvent) => void;
+  onFileContent?: (event: SSEFileContentEvent) => void;
+  onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void;
   onDelegationStart?: (event: { direction: string; agent_id: string; parent_agent_id: string }) => void;
   onDelegationEnd?: (event: { success: boolean; summary: string; files_created: string[]; error?: string }) => void;
-  
-  // Other events
   onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
 }
 
-export interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  toolCalls?: ToolCallStatus[]; // Tool calls that preceded this message
-}
-
-export interface ChatHistory {
-  user_id: string;
-  messages: Message[];
-}
-
-export interface SnapTradeConnectionRequest {
-  user_id: string;
-  redirect_uri: string;
-}
-
-export interface SnapTradeConnectionResponse {
-  success: boolean;
-  message: string;
-  redirect_uri?: string;
-}
-
-export interface SnapTradeStatusResponse {
-  success: boolean;
-  message: string;
-  is_connected: boolean;
-  account_count?: number;
-  brokerages?: string[];
-}
-
-export interface UserChatsResponse {
-  user_id: string;
-  chats: Array<{
-    chat_id: string;
-    title: string | null;
-    icon: string | null;
-    created_at: string;
-    updated_at: string;
-    last_message?: string;
-  }>;
-}
-
-export interface GenerateTitleRequest {
-  chat_id: string;
-  first_message: string;
-}
-
-export interface GenerateTitleResponse {
-  title: string;
-  icon: string;
-}
-
-export interface ResourceMetadata {
-  parameters?: Record<string, any>;
-  tool_call_id?: string;
-  execution_time_ms?: number;
-  total_count?: number;
-}
-
-export interface Resource {
-  id: string;
-  chat_id: string;
-  user_id: string;
-  tool_name: string;
-  resource_type: string;
-  title: string;
-  data: Record<string, any>;
-  metadata?: ResourceMetadata;
-  created_at: string;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat API
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const chatApi = {
   sendMessage: async (message: string, userId: string, chatId: string): Promise<ChatResponse> => {
@@ -305,43 +80,26 @@ export const chatApi = {
     return response.data;
   },
 
-  /**
-   * Send a message and receive streaming SSE events
-   * This is the recommended way to send messages for real-time updates
-   * Supports multimodal messages with optional image attachments
-   */
   sendMessageStream: (
     message: string,
     userId: string,
     chatId: string,
     handlers: SSEEventHandlers,
     images?: ImageAttachment[]
-  ): EventSource => {
-    // Create SSE connection
+  ): { close: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
-    
-    // We need to POST data, but EventSource only supports GET
-    // So we'll use fetch with stream processing instead
     const abortController = new AbortController();
-    
-    // Build request body
-    const requestBody: ChatMessage = {
+
+    const requestBody = {
       message,
       user_id: userId,
       chat_id: chatId,
+      ...(images && images.length > 0 && { images }),
     };
-    
-    // Add images if provided
-    if (images && images.length > 0) {
-      requestBody.images = images;
-    }
-    
-    // Start the fetch request
+
     fetch(url.toString(), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
       signal: abortController.signal,
     })
@@ -349,104 +107,86 @@ export const chatApi = {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
-        
+
         if (!reader) {
           throw new Error('Response body is null');
         }
-        
+
         let buffer = '';
-        
+
         while (true) {
           const { done, value } = await reader.read();
-          
-          if (done) {
-            break;
-          }
-          
-          // Log when chunks arrive in browser
-          console.log(`🌐 Browser received chunk: ${value.length} bytes at ${new Date().toISOString()}`);
-          
-          // Decode chunk and add to buffer
+          if (done) break;
+
           buffer += decoder.decode(value, { stream: true });
-          
-          // Process complete SSE messages
           const lines = buffer.split('\n\n');
-          buffer = lines.pop() || ''; // Keep incomplete message in buffer
-          
-          console.log(`📦 Processing ${lines.length} complete SSE events`);
-          
+          buffer = lines.pop() || '';
+
           for (const line of lines) {
             if (!line.trim()) continue;
-            
-            // Parse SSE format: event: <type>\ndata: <json>
+
             const eventMatch = line.match(/event:\s*(\w+)/);
             const dataMatch = line.match(/data:\s*([\s\S]+)/);
-            
+
             if (eventMatch && dataMatch) {
               const eventType = eventMatch[1];
               const eventData = JSON.parse(dataMatch[1]);
-              
-              // Call appropriate handler
+
               switch (eventType) {
                 case 'assistant_message_delta':
                 case 'message_delta':
-                  handlers.onMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
+                  handlers.onMessageDelta?.(eventData);
                   break;
                 case 'message_end':
-                  console.log('📨 Received message_end event:', eventData);
-                  handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
+                  handlers.onMessageEnd?.(eventData);
                   break;
                 case 'tool_call_start':
-                  console.log('🔧 Received tool_call_start event:', eventData);
-                  handlers.onToolCallStart?.(eventData as SSEToolCallStartEvent);
+                  handlers.onToolCallStart?.(eventData);
                   break;
                 case 'tool_call_complete':
-                  console.log('✅ Received tool_call_complete event:', eventData);
-                  handlers.onToolCallComplete?.(eventData as SSEToolCallCompleteEvent);
+                  handlers.onToolCallComplete?.(eventData);
                   break;
                 case 'tools_end':
                   handlers.onToolsEnd?.();
                   break;
                 case 'tool_status':
-                  handlers.onToolStatus?.(eventData as SSEToolStatusEvent);
+                  handlers.onToolStatus?.(eventData);
                   break;
                 case 'tool_progress':
-                  handlers.onToolProgress?.(eventData as SSEToolProgressEvent);
+                  handlers.onToolProgress?.(eventData);
                   break;
                 case 'delegation_start':
-                  console.log('🔄 Received delegation_start event:', eventData);
                   handlers.onDelegationStart?.(eventData);
                   break;
                 case 'delegation_end':
-                  console.log('🏁 Received delegation_end event:', eventData);
                   handlers.onDelegationEnd?.(eventData);
                   break;
                 case 'tool_log':
-                  handlers.onToolLog?.(eventData as SSEToolLogEvent);
+                  handlers.onToolLog?.(eventData);
                   break;
                 case 'code_output':
-                  handlers.onCodeOutput?.(eventData as SSECodeOutputEvent);
+                  handlers.onCodeOutput?.(eventData);
                   break;
                 case 'file_content':
-                  handlers.onFileContent?.(eventData as SSEFileContentEvent);
+                  handlers.onFileContent?.(eventData);
                   break;
                 case 'tool_call_streaming':
-                  handlers.onToolCallStreaming?.(eventData as SSEToolCallStreamingEvent);
+                  handlers.onToolCallStreaming?.(eventData);
                   break;
                 case 'tool_options':
-                  handlers.onOptions?.(eventData as SSEOptionsEvent);
+                  handlers.onOptions?.(eventData);
                   break;
                 case 'done':
-                  handlers.onDone?.(eventData as SSEDoneEvent);
+                  handlers.onDone?.(eventData);
                   break;
                 case 'error':
-                  handlers.onError?.(eventData as SSEErrorEvent);
+                  handlers.onError?.(eventData);
                   break;
                 case 'thinking':
-                  // Thinking events are informational - just ignore them
+                  // Informational - ignore
                   break;
               }
             }
@@ -462,11 +202,8 @@ export const chatApi = {
           });
         }
       });
-    
-    // Return a mock EventSource with close method
-    return {
-      close: () => abortController.abort(),
-    } as EventSource;
+
+    return { close: () => abortController.abort() };
   },
 
   getChatHistory: async (chatId: string): Promise<ChatHistory> => {
@@ -515,36 +252,9 @@ export const chatApi = {
   },
 };
 
-export interface BrokerageAccount {
-  id: string;
-  account_id: string;
-  broker_id: string;
-  broker_name: string;
-  name: string;
-  number: string;
-  type: string;
-  balance: number;
-  connected_at: string;
-  last_synced_at: string | null;
-}
-
-export interface Brokerage {
-  id: string;
-  name: string;
-  logo: string;
-}
-
-export interface BrokerageAccountsResponse {
-  success: boolean;
-  accounts: BrokerageAccount[];
-  message: string;
-}
-
-export interface BrokeragesResponse {
-  success: boolean;
-  brokerages: Brokerage[];
-  message: string;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// SnapTrade API
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const snaptradeApi = {
   initiateConnection: async (userId: string, redirectUri: string): Promise<SnapTradeConnectionResponse> => {
@@ -598,6 +308,10 @@ export const snaptradeApi = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Resources API
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const resourcesApi = {
   getChatResources: async (chatId: string, limit?: number): Promise<Resource[]> => {
     const response = await api.get<Resource[]>(`/resources/chat/${chatId}`, {
@@ -624,4 +338,3 @@ export const resourcesApi = {
 };
 
 export default api;
-

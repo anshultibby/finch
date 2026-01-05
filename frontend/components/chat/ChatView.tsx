@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import ChatMessage from '../ChatMessage';
-import ChatInput from '../ChatInput';
+import ChatMessage from './ChatMessage';
+import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import ChatHistorySidebar, { ChatHistorySidebarRef } from './ChatHistorySidebar';
 import ChatFilesModal from './ChatFilesModal';
@@ -12,12 +12,11 @@ import ComputerPanel from '../ComputerPanel';
 import { FileItem } from '../FileTree';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
-import { 
-  chatApi, 
-  snaptradeApi, 
-  resourcesApi, 
-  Message, 
-  ToolCallStatus, 
+import { chatApi, snaptradeApi, resourcesApi } from '@/lib/api';
+import { getFileType, getApiBaseUrl } from '@/lib/utils';
+import type {
+  Message,
+  ToolCallStatus,
   Resource,
   SSEToolCallStartEvent,
   SSEToolCallCompleteEvent,
@@ -26,21 +25,35 @@ import {
   SSEFileContentEvent,
   OptionButton,
   ImageAttachment,
-  FileContent
-} from '@/lib/api';
+} from '@/lib/types';
 
-// Helper to determine file type from filename
-const getFileType = (filename: string): string => {
-  if (filename.endsWith('.py')) return 'python';
-  if (filename.endsWith('.md')) return 'markdown';
-  if (filename.endsWith('.csv')) return 'csv';
-  if (filename.endsWith('.json')) return 'json';
-  if (filename.endsWith('.html')) return 'html';
-  if (filename.endsWith('.js')) return 'javascript';
-  if (filename.endsWith('.ts') || filename.endsWith('.tsx')) return 'typescript';
-  if (filename.endsWith('.jsx')) return 'javascript';
-  return 'text';
-};
+// Helper to convert internal/technical errors to user-friendly messages
+function formatErrorForUser(error: string): string {
+  // JSON parsing errors (internal backend errors)
+  if (error.includes('Expecting') && error.includes('delimiter') || 
+      error.includes('JSONDecodeError') ||
+      error.match(/line \d+ column \d+/)) {
+    return 'Something went wrong processing the response. Please try again.';
+  }
+  
+  // Python tracebacks
+  if (error.includes('Traceback') || error.includes('File "')) {
+    return 'An internal error occurred. Please try again.';
+  }
+  
+  // Generic internal errors
+  if (error.includes('Internal Server Error') || error.includes('500')) {
+    return 'Server error. Please try again in a moment.';
+  }
+  
+  // Connection errors
+  if (error.includes('fetch') || error.includes('network') || error.includes('ECONNREFUSED')) {
+    return 'Connection error. Please check your internet connection.';
+  }
+  
+  // If it's already user-friendly, return as-is
+  return error;
+}
 
 // Per-chat state stored in refs (persists across chat switches)
 interface ChatStreamState {
@@ -186,17 +199,16 @@ export default function ChatView() {
 
 
   // Update selected tool when streaming tools change
-  // Close panel when streaming ends (tool no longer in streamingTools)
+  // Keep panel open - only update content if the same tool is being updated
   useEffect(() => {
     if (selectedTool) {
       const updated = streamingTools.find(t => t.tool_call_id === selectedTool.tool_call_id);
       
       if (updated) {
+        // Update the content of the currently viewed tool
         setSelectedTool(updated);
-      } else if (streamingTools.length === 0) {
-        // Close panel when streaming ends
-        setSelectedTool(null);
       }
+      // Don't close the panel when streaming ends - let user close it manually
     }
   }, [streamingTools, selectedTool?.tool_call_id]);
 
@@ -425,10 +437,32 @@ export default function ChatView() {
 
     try {
       const stream = chatApi.sendMessageStream(trimmedContent, userId, targetChatId, {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // MESSAGE STREAMING DESIGN (Foolproof Architecture)
+        // ═══════════════════════════════════════════════════════════════════════════
+        // 
+        // PRINCIPLE: message_end is the ONLY place that saves text to messages.
+        // streamingText is purely for live display during streaming.
+        //
+        // Event Flow:
+        // 1. message_delta → accumulate to streamingText (display only)
+        // 2. tool_call_start → add tool to streamingTools, flush any pending text
+        // 3. tool_call_complete → update tool status
+        // 4. message_end → SAVE text to messages (authoritative), clear streamingText
+        // 5. tools_end → (no-op, tools saved on done)
+        // 6. done → save any remaining tools, cleanup
+        //
+        // Key Invariants:
+        // - Text is NEVER saved to messages except in message_end
+        // - message_end with tool_calls means "text precedes tools" - save text first
+        // - message_end without tool_calls means "final text response" - save text
+        // - streamingText is always cleared after message_end
+        // ═══════════════════════════════════════════════════════════════════════════
+        
         onMessageDelta: (event) => {
           const s = getChatState(targetChatId);
           
-          // If text is starting and there are tools, save tools to messages first
+          // If text is starting and there are accumulated tools, save tools to messages first
           // This locks in the tools' position above the incoming text
           if (!s.streamingText && s.streamingTools.length > 0) {
             const sortedTools = [...s.streamingTools].sort((a, b) => 
@@ -447,47 +481,70 @@ export default function ChatView() {
             return;
           }
           
+          // Simply accumulate text for display - message_end will save it
           updateChatState(targetChatId, {
             streamingText: s.streamingText + event.delta,
           });
         },
         
         onMessageEnd: (event) => {
+          // ═══════════════════════════════════════════════════════════════════════
+          // message_end is the AUTHORITATIVE signal for saving text to messages
+          // ═══════════════════════════════════════════════════════════════════════
           const s = getChatState(targetChatId);
+          const hasToolCalls = event.tool_calls && event.tool_calls.length > 0;
           
-          if (event.content) {
-            updateChatState(targetChatId, {
-              messages: [...s.messages, {
-                role: 'assistant',
-                content: event.content,
-                timestamp: event.timestamp,
-              }],
-              streamingText: '',
-            });
+          if (hasToolCalls) {
+            // Text followed by tools: save text now, tools will be added via tool_call_start
+            // The text in event.content is what we streamed - save it as a message
+            if (event.content?.trim()) {
+              updateChatState(targetChatId, {
+                messages: [...s.messages, {
+                  role: 'assistant',
+                  content: event.content,
+                  timestamp: event.timestamp,
+                }],
+                streamingText: '',  // Clear display buffer
+              });
+            } else {
+              // No text content, just clear the buffer
+              updateChatState(targetChatId, { streamingText: '' });
+            }
           } else {
-            updateChatState(targetChatId, { streamingText: '' });
+            // Final text response (no tools following): save text
+            if (event.content?.trim()) {
+              updateChatState(targetChatId, {
+                messages: [...s.messages, {
+                  role: 'assistant',
+                  content: event.content,
+                  timestamp: event.timestamp,
+                }],
+                streamingText: '',
+              });
+            } else {
+              updateChatState(targetChatId, { streamingText: '' });
+            }
           }
         },
         
         onToolCallStart: (event: SSEToolCallStartEvent) => {
           const s = getChatState(targetChatId);
+          const isNewTool = !s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
           
-          // If there's streaming text and this is a NEW tool, save the text to messages first
-          // but keep all tools together in streamingTools (don't split tool groups)
-          const existingToolIndex = s.streamingTools.findIndex(t => t.tool_call_id === event.tool_call_id);
-          if (existingToolIndex < 0 && s.streamingText.trim()) {
-            // Save only the text to messages, keep tools in streamingTools
-            updateChatState(targetChatId, {
-              messages: [...s.messages, {
-                role: 'assistant',
-                content: s.streamingText,
-                timestamp: new Date().toISOString(),
-              }],
-              streamingText: '',
-            });
+          // NOTE: We do NOT save streamingText here anymore!
+          // message_end already saved it (or will save it if events arrive out of order)
+          // This prevents double-saving text
+          
+          // Just clear streamingText if there's any left (defensive)
+          // This handles edge cases where message_end hasn't fired yet
+          const updates: Partial<ChatStreamState> = {};
+          if (isNewTool && s.streamingText.trim()) {
+            // Don't save - message_end is responsible for that
+            // Just clear for display purposes
+            updates.streamingText = '';
           }
           
-          // Create or update tool - addOrUpdateTool handles both cases and maintains order
+          // Create or update tool
           const newTool: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
@@ -499,22 +556,55 @@ export default function ChatView() {
           };
           
           updateChatState(targetChatId, {
+            ...updates,
             streamingTools: addOrUpdateTool(targetChatId, newTool),
           });
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
           const s = getChatState(targetChatId);
-          
-          // Find existing tool - we'll preserve all its fields
           const existingTool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
+          
+          // Also check if tool was already saved to messages (happens when text starts streaming)
+          // This is important for long-running tools like delegate_execution
+          const toolInMessages = !existingTool && s.messages.some(msg => 
+            msg.toolCalls?.some(t => t.tool_call_id === event.tool_call_id)
+          );
+          
+          if (toolInMessages) {
+            // Update the tool status in messages
+            const updatedMessages = s.messages.map(msg => {
+              if (!msg.toolCalls) return msg;
+              const hasThisTool = msg.toolCalls.some(t => t.tool_call_id === event.tool_call_id);
+              if (!hasThisTool) return msg;
+              
+              return {
+                ...msg,
+                toolCalls: msg.toolCalls.map(t => {
+                  if (t.tool_call_id !== event.tool_call_id) return t;
+                  return {
+                    ...t,
+                    status: event.status,
+                    error: event.error,
+                    code_output: event.code_output || t.code_output,
+                    search_results: event.search_results || t.search_results,
+                    agent_id: event.agent_id,
+                    parent_agent_id: event.parent_agent_id,
+                  };
+                })
+              };
+            });
+            
+            updateChatState(targetChatId, { messages: updatedMessages });
+            return;
+          }
+          
+          // Preserve streamed output if we have it
           const hasStreamedOutput = existingTool?.code_output && 
             (existingTool.code_output.stdout || existingTool.code_output.stderr);
           
-          // Spread existing tool first to preserve all fields (arguments, statusMessage, etc.)
-          // Then override with completion data from the event
           const completedTool: ToolCallStatus = {
-            ...existingTool,  // Preserve everything from tool_call_start
+            ...existingTool,
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
             status: event.status,
@@ -532,8 +622,6 @@ export default function ChatView() {
         
         onCodeOutput: (event) => {
           const s = getChatState(targetChatId);
-          
-          // Find the latest execute_code tool that's still calling
           const executeCodeTools = s.streamingTools.filter(
             t => t.tool_name === 'execute_code' && t.status === 'calling'
           );
@@ -563,8 +651,6 @@ export default function ChatView() {
         
         onFileContent: (event: SSEFileContentEvent) => {
           const s = getChatState(targetChatId);
-          
-          // Find tool by ID in flat list
           const tool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
           if (!tool) return;
           
@@ -590,17 +676,14 @@ export default function ChatView() {
           });
         },
         
-        // Handle streaming file content during LLM generation (before tool_call_start)
         onToolCallStreaming: (event: SSEToolCallStreamingEvent) => {
+          // Handle streaming file content during LLM generation (before tool_call_start)
           if (!event.file_content_delta) return;
           
           const s = getChatState(targetChatId);
-          
-          // Check for existing tool in flat list
           const existingTool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
           const currentContent = existingTool?.file_content?.content || '';
           
-          // Create or update tool with file content
           const toolWithContent: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
@@ -612,7 +695,6 @@ export default function ChatView() {
               file_type: getFileType(event.filename || ''),
               is_complete: false
             },
-            // Preserve existing fields or set defaults (including _insertionOrder for stable ordering)
             ...(existingTool && {
               arguments: existingTool.arguments,
               agent_id: existingTool.agent_id,
@@ -621,26 +703,21 @@ export default function ChatView() {
             }),
           };
           
-          // If there's streaming text and this is a NEW tool, save the text to messages first
-          // but keep all tools together in streamingTools (don't split tool groups)
+          // NOTE: We do NOT save streamingText here - message_end handles that
+          // Just clear it for display if this is a new tool
+          const updates: Partial<ChatStreamState> = {};
           if (!existingTool && s.streamingText.trim()) {
-            updateChatState(targetChatId, {
-              messages: [...s.messages, {
-                role: 'assistant',
-                content: s.streamingText,
-                timestamp: new Date().toISOString(),
-              }],
-              streamingText: '',
-            });
+            updates.streamingText = '';
           }
           
           updateChatState(targetChatId, {
+            ...updates,
             streamingTools: addOrUpdateTool(targetChatId, toolWithContent),
           });
         },
         
         onToolsEnd: () => {
-          // Don't save tools here - wait for onDone to ensure all tools are collected
+          // No-op: tools are saved on done to ensure all are collected
         },
         
         onOptions: (event: SSEOptionsEvent) => {
@@ -658,7 +735,7 @@ export default function ChatView() {
             // Fetch resources and chat files in parallel
             const [chatResources, chatFilesResponse] = await Promise.all([
               resourcesApi.getChatResources(targetChatId),
-              fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/chat-files/${targetChatId}`)
+              fetch(`${getApiBaseUrl()}/api/chat-files/${targetChatId}`)
                 .then(r => r.ok ? r.json() : [])
                 .catch(() => [])
             ]);
@@ -758,8 +835,9 @@ export default function ChatView() {
     const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
     const isSearchTool = tool.tool_name === 'web_search' || tool.tool_name === 'news_search';
     
+    // If clicking on the same tool, don't toggle - just keep it open
+    // User can close via the X button on the panel
     if (selectedTool?.tool_call_id === tool.tool_call_id) {
-      setSelectedTool(null);
       return;
     }
     
@@ -796,8 +874,7 @@ export default function ChatView() {
       
       if (filename && currentChatId) {
         try {
-          const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-          const response = await fetch(`${API_BASE_URL}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`);
+          const response = await fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`);
           
           if (response.ok) {
             const fileType = filename.split('.').pop()?.toLowerCase() || 'text';
@@ -884,6 +961,29 @@ export default function ChatView() {
           }
         };
         setSelectedTool(toolWithPlaceholder);
+      }
+    } else if (tool.tool_name === 'delegate_execution') {
+      // Task Executor - show the result summary
+      const summary = tool.result_summary || tool.statusMessage || 'Task execution in progress...';
+      const toolWithOutput: ToolCallStatus = {
+        ...tool,
+        code_output: {
+          stdout: summary,
+          stderr: tool.error || ''
+        }
+      };
+      setSelectedTool(toolWithOutput);
+    } else {
+      // Generic tool - show result_summary if available
+      if (tool.result_summary || tool.error) {
+        const toolWithOutput: ToolCallStatus = {
+          ...tool,
+          code_output: {
+            stdout: tool.result_summary || '',
+            stderr: tool.error || ''
+          }
+        };
+        setSelectedTool(toolWithOutput);
       }
     }
   };
@@ -1033,7 +1133,7 @@ export default function ChatView() {
 
         {error && (
           <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-6' : 'max-w-5xl mx-auto w-full px-6'}`}>
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600">{formatErrorForUser(error)}</p>
           </div>
         )}
 
@@ -1086,8 +1186,7 @@ export default function ChatView() {
               // Load the selected file content
               if (!currentChatId) return;
               try {
-                const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-                const response = await fetch(`${API_BASE_URL}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`);
+                const response = await fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`);
                 
                 if (response.ok) {
                   const fileType = filename.split('.').pop()?.toLowerCase() || 'text';

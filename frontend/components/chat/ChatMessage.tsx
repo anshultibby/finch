@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ToolCallStatus, Resource } from '@/lib/api';
 import ToolCall from './ToolCall';
+import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
+import type { ToolCallStatus, Resource } from '@/lib/types';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
@@ -15,23 +16,9 @@ interface ChatMessageProps {
   onFileClick?: (resource: Resource) => void;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-const isImageFile = (filename: string): boolean => {
-  return /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filename);
-};
-
-const isCsvFile = (filename: string): boolean => {
-  return /\.csv$/i.test(filename);
-};
-
-const isHtmlFile = (filename: string): boolean => {
-  return /\.html$/i.test(filename);
-};
-
 const getChatFileUrl = (chatId: string | undefined, filename: string): string => {
   if (!chatId) return '';
-  return `${API_BASE_URL}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`;
+  return `${getApiBaseUrl()}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`;
 };
 
 // Inline CSV Preview Component

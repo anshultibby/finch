@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { snaptradeApi, BrokerageAccount, Brokerage } from '@/lib/api';
+import { snaptradeApi } from '@/lib/api';
+import type { BrokerageAccount, Brokerage } from '@/lib/types';
 
 interface AccountManagementModalProps {
   isOpen: boolean;

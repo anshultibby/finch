@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { SearchResults, SearchResult } from '@/lib/api';
 import FileTree, { FileItem } from './FileTree';
+import type { SearchResults, SearchResult } from '@/lib/types';
 
 type PanelMode = 'terminal' | 'file' | 'search';
 
