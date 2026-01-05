@@ -75,9 +75,7 @@ export interface ToolCallStatus {
   search_results?: SearchResults; // Web/news search results
   agent_id?: string; // Which agent ran this tool
   parent_agent_id?: string; // If set, this tool belongs to a sub-agent (parent agent ID)
-  executorAgentId?: string; // For delegate_execution: the sub-agent's ID (for matching nested tools)
-  nestedTools?: ToolCallStatus[]; // Computed at render time: tools from sub-agents
-  thinkingText?: string; // For delegate_execution: ephemeral thinking text from sub-agent
+  _insertionOrder?: number; // Internal: tracks insertion order for stable rendering
 }
 
 export interface ChatResponse {

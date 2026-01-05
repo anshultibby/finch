@@ -53,6 +53,7 @@ interface ChatStreamState {
   resources: Resource[];
   stream: { close: () => void } | null;
   chatFiles: FileItem[]; // Cached file list for file explorer
+  toolInsertionCounter: number; // Counter for assigning stable insertion order to tools
 }
 
 export default function ChatView() {
@@ -80,10 +81,6 @@ export default function ChatView() {
   // Computer panel state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
   
-  // Delegation tracking - track active delegation info
-  // - toolCallId: for routing thinking text to the right delegation card
-  // - agentId: master agent's ID, used to set parent_agent_id on streaming sub-agent tools
-  const activeDelegationRef = useRef<{ toolCallId: string; agentId: string } | null>(null);
   
   // UI state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -115,6 +112,7 @@ export default function ChatView() {
         resources: [],
         stream: null,
         chatFiles: [],
+        toolInsertionCounter: 0,
       });
     }
     return chatStatesRef.current.get(chatId)!;
@@ -137,6 +135,27 @@ export default function ChatView() {
       if ('pendingOptions' in updates) setPendingOptions(state.pendingOptions);
       if ('resources' in updates) setResources(state.resources);
       if ('chatFiles' in updates) setChatFiles(state.chatFiles);
+    }
+  }, [getChatState]);
+
+  // Helper to add or update a tool while maintaining stable insertion order
+  // Each tool gets a unique _insertionOrder when first seen, which never changes
+  // Tools are always sorted by _insertionOrder for display, ensuring stable rendering
+  const addOrUpdateTool = useCallback((chatId: string, newTool: ToolCallStatus): ToolCallStatus[] => {
+    const state = getChatState(chatId);
+    const existingTool = state.streamingTools.find(t => t.tool_call_id === newTool.tool_call_id);
+    
+    if (existingTool) {
+      // Update existing tool - preserve its original insertion order
+      return state.streamingTools.map(t => 
+        t.tool_call_id === newTool.tool_call_id 
+          ? { ...t, ...newTool, _insertionOrder: existingTool._insertionOrder } 
+          : t
+      );
+    } else {
+      // New tool - assign next insertion order and append
+      const insertionOrder = state.toolInsertionCounter++;
+      return [...state.streamingTools, { ...newTool, _insertionOrder: insertionOrder }];
     }
   }, [getChatState]);
 
@@ -165,62 +184,18 @@ export default function ChatView() {
     setChatFiles(state.chatFiles);
   }, [getChatState]);
 
-  // Auto-select streaming tool with output
-  useEffect(() => {
-    const streamingCodeTool = streamingTools.find(
-      t => t.status === 'calling' && 
-      (t.tool_name === 'execute_code' || t.tool_name === 'run_python') &&
-      t.code_output?.stdout
-    );
-    
-    if (streamingCodeTool) {
-      setSelectedTool(streamingCodeTool);
-      return;
-    }
-    
-    const streamingFileTool = streamingTools.find(
-      t => t.status === 'calling' && 
-      (t.tool_name === 'write_chat_file' || t.tool_name === 'replace_in_chat_file') &&
-      t.file_content
-    );
-    
-    if (streamingFileTool) {
-      setSelectedTool(streamingFileTool);
-      return;
-    }
-    
-    // Auto-select search tools when they have results
-    const searchTool = streamingTools.find(
-      t => (t.tool_name === 'web_search' || t.tool_name === 'news_search') &&
-      t.search_results?.results && t.search_results.results.length > 0
-    );
-    
-    if (searchTool) {
-      setSelectedTool(searchTool);
-    }
-  }, [streamingTools]);
 
   // Update selected tool when streaming tools change
+  // Close panel when streaming ends (tool no longer in streamingTools)
   useEffect(() => {
     if (selectedTool) {
-      // First check top-level tools
-      let updated = streamingTools.find(t => t.tool_call_id === selectedTool.tool_call_id);
-      
-      // If not found, check nested tools inside delegations
-      if (!updated) {
-        for (const tool of streamingTools) {
-          if (tool.tool_name === 'delegate_execution' && tool.nestedTools) {
-            const nested = tool.nestedTools.find(nt => nt.tool_call_id === selectedTool.tool_call_id);
-            if (nested) {
-              updated = nested;
-              break;
-            }
-          }
-        }
-      }
+      const updated = streamingTools.find(t => t.tool_call_id === selectedTool.tool_call_id);
       
       if (updated) {
         setSelectedTool(updated);
+      } else if (streamingTools.length === 0) {
+        // Close panel when streaming ends
+        setSelectedTool(null);
       }
     }
   }, [streamingTools, selectedTool?.tool_call_id]);
@@ -397,6 +372,7 @@ export default function ChatView() {
     const state = getChatState(targetChatId);
     state.messages = [...state.messages, userMessage];
     state.isLoading = true;
+    state.toolInsertionCounter = 0; // Reset counter for new message stream
 
     // Show user message and loading state IMMEDIATELY
     setMessages([...state.messages]);
@@ -408,16 +384,19 @@ export default function ChatView() {
     // Track if this is the first message (for title generation)
     const isFirstMessage = state.messages.length === 1;
 
-    // Helper to save accumulated tools to messages
+    // Helper to save accumulated tools to messages, sorted by insertion order
     const saveAccumulatedTools = (chatId: string) => {
       const s = getChatState(chatId);
       if (s.streamingTools.length > 0) {
+        const sortedTools = [...s.streamingTools].sort((a, b) => 
+          (a._insertionOrder ?? 0) - (b._insertionOrder ?? 0)
+        );
         updateChatState(chatId, {
           messages: [...s.messages, {
             role: 'assistant',
             content: '',
             timestamp: new Date().toISOString(),
-            toolCalls: [...s.streamingTools],
+            toolCalls: sortedTools,
           }],
           streamingTools: [],
         });
@@ -449,45 +428,33 @@ export default function ChatView() {
         onMessageDelta: (event) => {
           const s = getChatState(targetChatId);
           
-          // If there's an active delegation, route text to the delegation's thinkingText
-          const activeDelegation = activeDelegationRef.current;
-          if (activeDelegation) {
+          // If text is starting and there are tools, save tools to messages first
+          // This locks in the tools' position above the incoming text
+          if (!s.streamingText && s.streamingTools.length > 0) {
+            const sortedTools = [...s.streamingTools].sort((a, b) => 
+              (a._insertionOrder ?? 0) - (b._insertionOrder ?? 0)
+            );
             updateChatState(targetChatId, {
-              streamingTools: s.streamingTools.map(t => {
-                if (t.tool_call_id === activeDelegation.toolCallId) {
-                  return {
-                    ...t,
-                    thinkingText: (t.thinkingText || '') + event.delta,
-                  };
-                }
-                return t;
-              }),
+              messages: [...s.messages, {
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toISOString(),
+                toolCalls: sortedTools,
+              }],
+              streamingTools: [],
+              streamingText: event.delta,
             });
-          } else {
-            // Normal streaming text (not in delegation)
-            updateChatState(targetChatId, {
-              streamingText: s.streamingText + event.delta,
-            });
+            return;
           }
+          
+          updateChatState(targetChatId, {
+            streamingText: s.streamingText + event.delta,
+          });
         },
         
         onMessageEnd: (event) => {
           const s = getChatState(targetChatId);
           
-          // If there's an active delegation, clear the thinking text (it's ephemeral)
-          if (activeDelegationRef.current) {
-            updateChatState(targetChatId, {
-              streamingTools: s.streamingTools.map(t => {
-                if (t.tool_call_id === activeDelegationRef.current!.toolCallId) {
-                  return { ...t, thinkingText: '' };
-                }
-                return t;
-              }),
-            });
-            return;
-          }
-          
-          // Normal message end (not in delegation)
           if (event.content) {
             updateChatState(targetChatId, {
               messages: [...s.messages, {
@@ -505,27 +472,22 @@ export default function ChatView() {
         onToolCallStart: (event: SSEToolCallStartEvent) => {
           const s = getChatState(targetChatId);
           
-          // Track active delegation - store both tool_call_id (for thinking text) and agent_id (for sub-agent grouping)
-          if (event.tool_name === 'delegate_execution') {
-            activeDelegationRef.current = { toolCallId: event.tool_call_id, agentId: event.agent_id };
-          }
-          
-          // Check if tool already exists (may have been created by onToolCallStreaming)
-          const existingIndex = s.streamingTools.findIndex(t => t.tool_call_id === event.tool_call_id);
-          
-          if (existingIndex >= 0) {
-            // Update existing tool with agent IDs from the event
+          // If there's streaming text and this is a NEW tool, save the text to messages first
+          // but keep all tools together in streamingTools (don't split tool groups)
+          const existingToolIndex = s.streamingTools.findIndex(t => t.tool_call_id === event.tool_call_id);
+          if (existingToolIndex < 0 && s.streamingText.trim()) {
+            // Save only the text to messages, keep tools in streamingTools
             updateChatState(targetChatId, {
-              streamingTools: s.streamingTools.map(t => 
-                t.tool_call_id === event.tool_call_id
-                  ? { ...t, agent_id: event.agent_id, parent_agent_id: event.parent_agent_id }
-                  : t
-              ),
+              messages: [...s.messages, {
+                role: 'assistant',
+                content: s.streamingText,
+                timestamp: new Date().toISOString(),
+              }],
+              streamingText: '',
             });
-            return;
           }
           
-          // Create new tool and add to flat list - UI will group by parent_agent_id
+          // Create or update tool - addOrUpdateTool handles both cases and maintains order
           const newTool: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
             tool_name: event.tool_name,
@@ -537,55 +499,34 @@ export default function ChatView() {
           };
           
           updateChatState(targetChatId, {
-            streamingTools: [...s.streamingTools, newTool],
+            streamingTools: addOrUpdateTool(targetChatId, newTool),
           });
         },
         
         onToolCallComplete: (event: SSEToolCallCompleteEvent) => {
           const s = getChatState(targetChatId);
           
-          // Clear delegation tracking when delegate_execution completes
-          if (event.tool_name === 'delegate_execution') {
-            activeDelegationRef.current = null;
-          }
+          // Find existing tool - we'll preserve all its fields
+          const existingTool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
+          const hasStreamedOutput = existingTool?.code_output && 
+            (existingTool.code_output.stdout || existingTool.code_output.stderr);
           
-          // Find tool in flat list
-          const toolIndex = s.streamingTools.findIndex(t => t.tool_call_id === event.tool_call_id);
-          
-          if (toolIndex === -1) {
-            // Tool doesn't exist yet (complete arrived before start) - create it
-            const newTool: ToolCallStatus = {
-              tool_call_id: event.tool_call_id,
-              tool_name: event.tool_name,
-              status: event.status,
-              error: event.error,
-              code_output: event.code_output,
-              search_results: event.search_results,
-              agent_id: event.agent_id,
-              parent_agent_id: event.parent_agent_id,
-            };
-            updateChatState(targetChatId, {
-              streamingTools: [...s.streamingTools, newTool],
-            });
-            return;
-          }
-          
-          // Update existing tool
-          const tool = s.streamingTools[toolIndex];
-          const hasStreamedOutput = tool.code_output && (tool.code_output.stdout || tool.code_output.stderr);
+          // Spread existing tool first to preserve all fields (arguments, statusMessage, etc.)
+          // Then override with completion data from the event
+          const completedTool: ToolCallStatus = {
+            ...existingTool,  // Preserve everything from tool_call_start
+            tool_call_id: event.tool_call_id,
+            tool_name: event.tool_name,
+            status: event.status,
+            error: event.error,
+            code_output: hasStreamedOutput ? existingTool!.code_output : event.code_output,
+            search_results: event.search_results,
+            agent_id: event.agent_id,
+            parent_agent_id: event.parent_agent_id,
+          };
           
           updateChatState(targetChatId, {
-            streamingTools: s.streamingTools.map(t => 
-              t.tool_call_id === event.tool_call_id
-                ? {
-                    ...t,
-                    status: event.status,
-                    error: event.error,
-                    code_output: hasStreamedOutput ? t.code_output : event.code_output,
-                    search_results: event.search_results
-                  }
-                : t
-            ),
+            streamingTools: addOrUpdateTool(targetChatId, completedTool),
           });
         },
         
@@ -657,67 +598,58 @@ export default function ChatView() {
           
           // Check for existing tool in flat list
           const existingTool = s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
+          const currentContent = existingTool?.file_content?.content || '';
           
-          if (existingTool) {
-            // Update existing tool
-            const currentContent = existingTool.file_content?.content || '';
+          // Create or update tool with file content
+          const toolWithContent: ToolCallStatus = {
+            tool_call_id: event.tool_call_id,
+            tool_name: event.tool_name,
+            status: 'calling',
+            statusMessage: existingTool?.statusMessage || `Writing ${event.filename || 'file'}...`,
+            file_content: {
+              filename: event.filename || existingTool?.file_content?.filename || 'unknown',
+              content: currentContent + event.file_content_delta,
+              file_type: getFileType(event.filename || ''),
+              is_complete: false
+            },
+            // Preserve existing fields or set defaults (including _insertionOrder for stable ordering)
+            ...(existingTool && {
+              arguments: existingTool.arguments,
+              agent_id: existingTool.agent_id,
+              parent_agent_id: existingTool.parent_agent_id,
+              _insertionOrder: existingTool._insertionOrder,
+            }),
+          };
+          
+          // If there's streaming text and this is a NEW tool, save the text to messages first
+          // but keep all tools together in streamingTools (don't split tool groups)
+          if (!existingTool && s.streamingText.trim()) {
             updateChatState(targetChatId, {
-              streamingTools: s.streamingTools.map(t => 
-                t.tool_call_id === event.tool_call_id
-                  ? {
-                      ...t,
-                      file_content: {
-                        filename: event.filename || t.file_content?.filename || 'unknown',
-                        content: currentContent + event.file_content_delta,
-                        file_type: getFileType(event.filename || ''),
-                        is_complete: false
-                      }
-                    }
-                  : t
-              ),
-            });
-          } else {
-            // Create new tool entry for streaming (tool_call_start hasn't arrived yet)
-            // If there's an active delegation, this is a sub-agent tool - set parent_agent_id
-            const newTool: ToolCallStatus = {
-              tool_call_id: event.tool_call_id,
-              tool_name: event.tool_name,
-              status: 'calling',
-              statusMessage: `Writing ${event.filename || 'file'}...`,
-              file_content: {
-                filename: event.filename || 'unknown',
-                content: event.file_content_delta,
-                file_type: getFileType(event.filename || ''),
-                is_complete: false
-              },
-              // If delegation is active, mark this as a sub-agent tool
-              parent_agent_id: activeDelegationRef.current?.agentId,
-            };
-            
-            updateChatState(targetChatId, {
-              streamingTools: [...s.streamingTools, newTool],
+              messages: [...s.messages, {
+                role: 'assistant',
+                content: s.streamingText,
+                timestamp: new Date().toISOString(),
+              }],
+              streamingText: '',
             });
           }
+          
+          updateChatState(targetChatId, {
+            streamingTools: addOrUpdateTool(targetChatId, toolWithContent),
+          });
         },
         
         onToolsEnd: () => {
-          // Don't save tools here - wait for onDone to ensure all sub-agent tools are collected
-          // This prevents clearing streamingTools while delegation is still in progress
+          // Don't save tools here - wait for onDone to ensure all tools are collected
         },
         
         onOptions: (event: SSEOptionsEvent) => {
           updateChatState(targetChatId, { pendingOptions: event });
         },
         
-        onDelegationStart: (event) => {
-          console.log('🔄 Delegation started:', event.direction);
-          // No action needed - sub-agent tools are grouped by parent_agent_id
-        },
+        onDelegationStart: () => {},
         
-        onDelegationEnd: (event) => {
-          console.log('🏁 Delegation ended:', event);
-          // No action needed - delegate_execution tool_call_complete handles status
-        },
+        onDelegationEnd: () => {},
         
         onDone: async () => {
           saveAccumulatedTools(targetChatId);

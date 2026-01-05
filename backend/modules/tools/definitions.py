@@ -213,9 +213,22 @@ def finish_execution(
     context: AgentContext
 ):
     """Signal execution is complete and return results to Master Agent."""
+    # Handle case where LLM sends files_created as a string representation of a list
+    parsed_files = files_created or []
+    if isinstance(parsed_files, str):
+        # Try to parse string like "['file1', 'file2']" into actual list
+        import ast
+        try:
+            parsed_files = ast.literal_eval(parsed_files)
+            if not isinstance(parsed_files, list):
+                parsed_files = []
+        except (ValueError, SyntaxError):
+            # If parsing fails, treat as single filename or empty
+            parsed_files = [parsed_files] if parsed_files.strip() else []
+    
     params = delegation.FinishExecutionParams(
         summary=summary,
-        files_created=files_created or [],
+        files_created=parsed_files,
         success=success,
         error=error
     )

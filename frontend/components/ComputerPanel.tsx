@@ -606,7 +606,8 @@ export default function ComputerPanel({
     }
 
     // File mode - check if it's an image
-    if (mode === 'file' && isImageFile(filename)) {
+    // Also verify fileType is not 'text' (which indicates an error message, not actual image data)
+    if (mode === 'file' && isImageFile(filename) && fileType !== 'text') {
       const mimeType = getImageMimeType(filename || '');
       const isSvg = filename?.toLowerCase().endsWith('.svg');
       // SVG content is text, other images are base64
@@ -732,22 +733,27 @@ export default function ComputerPanel({
             </div>
           )}
           
-          {/* Content */}
-          <div className="flex-1 overflow-hidden relative">
-            {mode === 'search' ? (
-              renderContent()
-            ) : (
-              <pre 
-                ref={contentRef}
-                onScroll={handleScroll}
-                className="h-full text-[13px] font-mono overflow-y-auto whitespace-pre-wrap break-words leading-[1.6] scrollbar-thin"
-                style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace" }}
-              >
-                <div className="p-4">
-                  {renderContent()}
-                </div>
-              </pre>
-            )}
+        {/* Content */}
+        <div className="flex-1 overflow-hidden relative">
+          {mode === 'search' ? (
+            renderContent()
+          ) : mode === 'file' && isImageFile(filename) && fileType !== 'text' ? (
+            // Images need direct rendering without <pre> wrapper for proper sizing
+            <div className="h-full overflow-auto">
+              {renderContent()}
+            </div>
+          ) : (
+            <pre 
+              ref={contentRef}
+              onScroll={handleScroll}
+              className="h-full text-[13px] font-mono overflow-y-auto whitespace-pre-wrap break-words leading-[1.6] scrollbar-thin"
+              style={{ fontFamily: "'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace" }}
+            >
+              <div className="p-4">
+                {renderContent()}
+              </div>
+            </pre>
+          )}
 
             {/* Gradient fade at bottom when scrollable */}
             {hasContent && mode !== 'search' && (
