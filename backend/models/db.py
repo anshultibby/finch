@@ -307,6 +307,57 @@ class TradeAnalytics(Base):
         return f"<TradeAnalytics(id='{self.id}', symbol='{self.symbol}')>"
 
 
+class UserSettings(Base):
+    """
+    Stores user settings with encrypted API credentials
+    
+    SECURITY ARCHITECTURE:
+    - `encrypted_api_keys`: Contains ALL API credentials as a single encrypted blob
+      The entire JSON object is encrypted with Fernet (AES-128-CBC + HMAC)
+      before storage - not individual fields. This ensures:
+      1. No partial leaks possible
+      2. Can't query/filter on credential values
+      3. Encryption is all-or-nothing
+    
+    - `settings`: Non-sensitive preferences (theme, etc.) stored as plain JSONB
+    
+    Encrypted blob structure (decrypted):
+    {
+        "kalshi": {
+            "api_key_id": "abc123",
+            "private_key": "-----BEGIN PRIVATE KEY-----...",
+            "created_at": "2024-01-01T00:00:00Z"
+        }
+    }
+    
+    SECURITY NOTES:
+    - Decrypted credentials should NEVER be logged
+    - Decrypted credentials should NEVER be returned to frontend
+    - Frontend only sees: service name, masked key ID, has_private_key bool
+    - All decryption happens server-side, on-demand, for API calls only
+    - Fernet key must be kept secret (ENCRYPTION_KEY env var)
+    """
+    __tablename__ = "user_settings"
+    
+    # Primary key is user_id (one row per user)
+    user_id = Column(String, primary_key=True, index=True)
+    
+    # Encrypted API credentials blob (Fernet encrypted JSON string)
+    # This is the ONLY place secrets are stored
+    encrypted_api_keys = Column(Text, nullable=True)
+    
+    # Non-sensitive settings (theme, preferences, etc.)
+    settings = Column(JSONB, nullable=False, default=dict)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        # Never log anything about credentials
+        return f"<UserSettings(user_id='{self.user_id}')>"
+
+
 class ChatFile(Base):
     """
     Stores files created during chat sessions (Manus-inspired)
@@ -347,4 +398,114 @@ class ChatFile(Base):
     
     def __repr__(self):
         return f"<ChatFile(id='{self.id}', chat='{self.chat_id}', filename='{self.filename}')>"
+
+
+class Strategy(Base):
+    """
+    Automated trading strategies owned by users
+    
+    Strategies are:
+    - Created via chat (LLM generates code files)
+    - Stored as references to ChatFile IDs
+    - Executed on schedule or manually
+    - Require approval before live trading
+    
+    Uses JSONB for flexibility - only essential query fields are columns.
+    
+    config JSONB structure:
+    {
+        "description": "Plain language description",
+        "source_chat_id": "chat_abc123",
+        "file_ids": ["file_1", "file_2"],
+        "entrypoint": "strategy.py",
+        "schedule": "0 * * * *",  # Cron expression
+        "schedule_description": "Every hour",
+        "risk_limits": {
+            "max_order_usd": 100,
+            "max_daily_usd": 500,
+            "allowed_services": ["kalshi", "alpaca"]
+        },
+        "approved_at": "2025-01-08T..."
+    }
+    
+    stats JSONB structure:
+    {
+        "total_runs": 42,
+        "successful_runs": 40,
+        "failed_runs": 2,
+        "last_run_at": "2025-01-08T...",
+        "last_run_status": "success",
+        "last_run_summary": "Bought 2 contracts for $35",
+        "total_spent_usd": 1250.00,
+        "total_profit_usd": 320.00,
+        ... any other stats we want to track
+    }
+    """
+    __tablename__ = "strategies"
+    
+    # Primary key
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    
+    # Owner (indexed for user queries)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Core identity (indexed)
+    name = Column(String, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=False, index=True)
+    approved = Column(Boolean, nullable=False, default=False)
+    
+    # Flexible JSONB columns
+    config = Column(JSONB, nullable=False, default=dict)  # Configuration, file refs, risk limits
+    stats = Column(JSONB, nullable=False, default=dict)  # Execution stats, P&L tracking
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Strategy(id='{self.id}', name='{self.name}', enabled={self.enabled})>"
+
+
+class StrategyExecution(Base):
+    """
+    Audit log of strategy executions
+    
+    Every time a strategy runs (scheduled, manual, or dry run), we log it.
+    Uses JSONB for all execution details.
+    
+    data JSONB structure:
+    {
+        "trigger": "scheduled" | "manual" | "dry_run",
+        "completed_at": "2025-01-08T...",
+        "result": { ... return value from strategy ... },
+        "error": "Error message if failed",
+        "logs": ["log line 1", "log line 2"],
+        "summary": "Checked 5 markets, bought 2 for $45",
+        "actions": [
+            {"type": "kalshi_order", "ticker": "FED-25JAN", "side": "yes", "amount_usd": 25},
+            {"type": "kalshi_order", "ticker": "FED-25MAR", "side": "yes", "amount_usd": 20}
+        ],
+        "duration_ms": 1234,
+        "markets_checked": 5,
+        ... any other execution metadata
+    }
+    """
+    __tablename__ = "strategy_executions"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Foreign keys (indexed)
+    strategy_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Indexed for queries
+    status = Column(String, nullable=False)  # 'running', 'success', 'failed'
+    started_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    
+    # Everything else in JSONB
+    data = Column(JSONB, nullable=False, default=dict)
+    
+    def __repr__(self):
+        return f"<StrategyExecution(id='{self.id}', strategy='{self.strategy_id}', status='{self.status}')>"
 

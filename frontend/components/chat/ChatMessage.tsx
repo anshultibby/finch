@@ -5,6 +5,14 @@ import ToolCall from './ToolCall';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import type { ToolCallStatus, Resource } from '@/lib/types';
 
+export interface MessageAction {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}
+
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
@@ -14,6 +22,8 @@ interface ChatMessageProps {
   onSelectTool?: (tool: ToolCallStatus) => void;
   resources?: Resource[];
   onFileClick?: (resource: Resource) => void;
+  actions?: MessageAction[];
+  isLastAssistantMessage?: boolean;
 }
 
 const getChatFileUrl = (chatId: string | undefined, filename: string): string => {
@@ -420,7 +430,29 @@ function ToolCallList({ toolCalls, onSelectTool }: { toolCalls: ToolCallStatus[]
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, chatId, onSelectTool, resources, onFileClick }: ChatMessageProps) {
+function MessageActions({ actions }: { actions: MessageAction[] }) {
+  return (
+    <div className="flex items-center gap-1 mt-2 -ml-1">
+      {actions.map((action, idx) => (
+        <button
+          key={idx}
+          onClick={action.onClick}
+          disabled={action.disabled || action.loading}
+          className="flex items-center gap-1.5 px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          title={action.label}
+        >
+          {action.loading ? (
+            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />
+          ) : (
+            action.icon
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export default function ChatMessage({ role, content, toolCalls, chatId, onSelectTool, resources, onFileClick, actions, isLastAssistantMessage }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[file:[^\]]+\]/.test(content);
   const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, resources, onFileClick) : null;
@@ -457,6 +489,9 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
                 {content}
               </ReactMarkdown>
             </div>
+          )}
+          {actions && actions.length > 0 && isLastAssistantMessage && (
+            <MessageActions actions={actions} />
           )}
         </div>
       </div>
@@ -497,6 +532,9 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
         )}
         {toolCalls && toolCalls.length > 0 && (
           <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} />
+        )}
+        {actions && actions.length > 0 && isLastAssistantMessage && (
+          <MessageActions actions={actions} />
         )}
       </div>
     </div>

@@ -185,10 +185,11 @@ class ToolRunner:
                     logger.info(f"Tool {tool_name} completed successfully, streamed {event_count} events")
                     tool_tracer.record_success(success=True, events_count=event_count)
                 else:
-                    logger.warning(f"Tool {tool_name} returned success=False: {result.get('message', 'No message')}")
+                    error_info = result.get('message') or result.get('error') or 'No message'
+                    logger.warning(f"Tool {tool_name} returned success=False: {error_info}")
                     tool_tracer.record_success(
                         success=False,
-                        error_message=result.get("message", "Tool returned success=False")
+                        error_message=error_info
                     )
                 
                 # Yield final result as last item

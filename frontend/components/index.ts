@@ -20,4 +20,5 @@ export { default as ResourcesSidebar } from './ResourcesSidebar';
 export { default as AccountManagementModal } from './AccountManagementModal';
 export { default as ProfileDropdown } from './ProfileDropdown';
 export { default as PasswordGate } from './PasswordGate';
+export { default as ApiKeysModal } from './ApiKeysModal';
 

@@ -536,9 +536,31 @@ class ToolExecutor:
             tasks = [asyncio.create_task(execute_and_stream(call)) for call in tool_calls]
             
             # Stream events from queue as they arrive
+            # Use a timeout to prevent hanging forever if a tool never completes
+            QUEUE_TIMEOUT = 120  # 2 minutes - longer than any tool's internal timeout
             completed_count = 0
             while completed_count < len(tool_calls):
-                item = await event_queue.get()
+                try:
+                    item = await asyncio.wait_for(event_queue.get(), timeout=QUEUE_TIMEOUT)
+                except asyncio.TimeoutError:
+                    # A tool is taking too long - check which ones haven't completed
+                    logger.error(f"Tool execution queue timeout after {QUEUE_TIMEOUT}s. "
+                                f"Completed {completed_count}/{len(tool_calls)} tools.")
+                    # Create error results for any tools that didn't complete
+                    completed_tool_ids = {r.tool_call_id for r in results}
+                    for call in tool_calls:
+                        if call.id not in completed_tool_ids:
+                            logger.error(f"Tool {call.name} (id={call.id}) did not complete in time")
+                            results.append(self._build_execution_result(
+                                call,
+                                {
+                                    "success": False,
+                                    "error": f"Tool execution timed out after {QUEUE_TIMEOUT}s",
+                                    "message": f"Tool {call.name} did not complete within timeout"
+                                },
+                                QUEUE_TIMEOUT * 1000
+                            ))
+                    break  # Exit the while loop
                 
                 if item[0] == "event":
                     # Real-time SSE event from a tool
@@ -552,7 +574,10 @@ class ToolExecutor:
                     results.append(self._build_execution_result(call, final_result, duration))
                     completed_count += 1
             
-            # Wait for all tasks to complete (should already be done)
+            # Cancel any remaining tasks and wait for cleanup
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             
         else:

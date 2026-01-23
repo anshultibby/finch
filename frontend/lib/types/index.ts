@@ -318,3 +318,33 @@ export interface BrokeragesResponse {
   message: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// API Keys Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ApiKeyInfo {
+  service: string;
+  api_key_id: string;
+  api_key_id_masked: string;
+  has_private_key: boolean;
+  created_at: string | null;
+}
+
+export interface ApiKeysResponse {
+  success: boolean;
+  keys: ApiKeyInfo[];
+  message: string;
+}
+
+export interface ApiKeyResponse {
+  success: boolean;
+  message: string;
+  key?: ApiKeyInfo;
+}
+
+export interface TestApiKeyResponse {
+  success: boolean;
+  message: string;
+  balance?: number;
+}
+

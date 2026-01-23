@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 
 from config import Config
-from routes import chat_router, snaptrade_router, resources_router, chat_files_router
+from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, strategies_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
@@ -60,12 +60,15 @@ app.include_router(snaptrade_router)
 app.include_router(resources_router)
 app.include_router(analytics_router)
 app.include_router(chat_files_router)
+app.include_router(api_keys_router)
+app.include_router(strategies_router)
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
     from services.storage import storage_service
+    from modules.strategies.scheduler import start_scheduler
     
     # Initialize Supabase Storage bucket (if configured)
     if storage_service.is_available():
@@ -76,6 +79,21 @@ async def startup_event():
             logger.warning("⚠️  Failed to initialize Supabase Storage bucket")
     else:
         logger.info("ℹ️  Supabase Storage not configured - images will be stored in database")
+    
+    # Start strategy scheduler
+    logger.info("Starting strategy scheduler...")
+    await start_scheduler()
+    logger.info("✅ Strategy scheduler started")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    from modules.strategies.scheduler import stop_scheduler
+    
+    logger.info("Stopping strategy scheduler...")
+    await stop_scheduler()
+    logger.info("✅ Strategy scheduler stopped")
 
 
 @app.get("/")

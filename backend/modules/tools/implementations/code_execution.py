@@ -512,12 +512,12 @@ async def execute_code_impl(
                 params.filename
             )
             if not code:
-                yield {"success": False, "error": f"File '{params.filename}' not found"}
+                yield {"success": False, "error": f"File '{params.filename}' not found", "message": f"File '{params.filename}' not found in chat files"}
                 return
             source = f"file '{params.filename}'"
             execution_mode = "file"
         else:
-            yield {"success": False, "error": "Provide either 'code' or 'filename'"}
+            yield {"success": False, "error": "Provide either 'code' or 'filename'", "message": "Must provide either 'code' or 'filename' parameter"}
             return
         
         # Setup virtual filesystem (mount existing files)
@@ -589,6 +589,30 @@ async def execute_code_impl(
             }
             for key, value in sandbox_api_keys.items():
                 env[key] = value or ''
+            
+            # Pass user context for per-user credentials (e.g., Kalshi)
+            env['FINCH_USER_ID'] = context.user_id or ''
+            env['FINCH_CHAT_ID'] = context.chat_id or ''
+            
+            # Fetch and pass per-user credentials (Kalshi, etc.)
+            # This must be done in the parent process since the subprocess
+            # cannot access the database directly
+            try:
+                from crud.user_api_keys import get_decrypted_credentials
+                from database import AsyncSessionLocal
+                
+                async def _get_user_credentials():
+                    async with AsyncSessionLocal() as db:
+                        kalshi_creds = await get_decrypted_credentials(db, context.user_id, "kalshi")
+                        return kalshi_creds
+                
+                kalshi_creds = await _get_user_credentials()
+                if kalshi_creds:
+                    env['KALSHI_API_KEY_ID'] = kalshi_creds.get('api_key_id', '')
+                    env['KALSHI_PRIVATE_KEY'] = kalshi_creds.get('private_key', '')
+                    logger.debug(f"Passed Kalshi credentials to sandbox for user {context.user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user credentials for sandbox: {e}")
             
             # Add both temp_dir and backend directory to PYTHONPATH
             # temp_dir: allows "from finch_runtime import X" (direct import)
@@ -865,7 +889,8 @@ async def execute_code_impl(
                     os.remove(script_path)
                 except:
                     pass
-            yield {"success": False, "error": "Code execution timed out after 60 seconds"}
+            yield {"success": False, "error": "Code execution timed out after 60 seconds", "message": "Execution timed out after 60 seconds"}
+            return
         
         except Exception as e:
             vfs.cleanup()
@@ -886,5 +911,5 @@ async def execute_code_impl(
                 os.remove(script_path)
             except:
                 pass
-        yield {"success": False, "error": str(e)}
+        yield {"success": False, "error": str(e), "message": f"Code execution failed: {str(e)}"}
 

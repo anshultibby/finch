@@ -32,6 +32,9 @@ import type {
   SSEDoneEvent,
   SSEErrorEvent,
   ToolCallStatus,
+  ApiKeysResponse,
+  ApiKeyResponse,
+  TestApiKeyResponse,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -97,11 +100,101 @@ export const chatApi = {
       ...(images && images.length > 0 && { images }),
     };
 
+    // Track if we're closed to prevent processing after abort
+    let isClosed = false;
+
+    // Process a single SSE event - extracted for reuse
+    const processEvent = (eventType: string, eventData: unknown) => {
+      if (isClosed) return;
+      
+      switch (eventType) {
+        case 'assistant_message_delta':
+        case 'message_delta':
+          handlers.onMessageDelta?.(eventData as SSEAssistantMessageDeltaEvent);
+          break;
+        case 'message_end':
+          handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
+          break;
+        case 'tool_call_start':
+          handlers.onToolCallStart?.(eventData as SSEToolCallStartEvent);
+          break;
+        case 'tool_call_complete':
+          handlers.onToolCallComplete?.(eventData as SSEToolCallCompleteEvent);
+          break;
+        case 'tools_end':
+          handlers.onToolsEnd?.();
+          break;
+        case 'tool_status':
+          handlers.onToolStatus?.(eventData as SSEToolStatusEvent);
+          break;
+        case 'tool_progress':
+          handlers.onToolProgress?.(eventData as SSEToolProgressEvent);
+          break;
+        case 'delegation_start':
+          handlers.onDelegationStart?.(eventData as { direction: string; agent_id: string; parent_agent_id: string });
+          break;
+        case 'delegation_end':
+          handlers.onDelegationEnd?.(eventData as { success: boolean; summary: string; files_created: string[]; error?: string });
+          break;
+        case 'tool_log':
+          handlers.onToolLog?.(eventData as SSEToolLogEvent);
+          break;
+        case 'code_output':
+          handlers.onCodeOutput?.(eventData as SSECodeOutputEvent);
+          break;
+        case 'file_content':
+          handlers.onFileContent?.(eventData as SSEFileContentEvent);
+          break;
+        case 'tool_call_streaming':
+          handlers.onToolCallStreaming?.(eventData as SSEToolCallStreamingEvent);
+          break;
+        case 'tool_options':
+          handlers.onOptions?.(eventData as SSEOptionsEvent);
+          break;
+        case 'done':
+          handlers.onDone?.(eventData as SSEDoneEvent);
+          break;
+        case 'error':
+          handlers.onError?.(eventData as SSEErrorEvent);
+          break;
+        case 'thinking':
+          // Informational - ignore
+          break;
+      }
+    };
+
+    // Parse and process SSE lines from buffer
+    const parseAndProcessEvents = (data: string): string => {
+      const lines = data.split('\n\n');
+      const remainingBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim() || isClosed) continue;
+
+        const eventMatch = line.match(/event:\s*(\w+)/);
+        const dataMatch = line.match(/data:\s*([\s\S]+)/);
+
+        if (eventMatch && dataMatch) {
+          try {
+            const eventType = eventMatch[1];
+            const eventData = JSON.parse(dataMatch[1]);
+            processEvent(eventType, eventData);
+          } catch (e) {
+            console.error('Error parsing SSE event:', e);
+          }
+        }
+      }
+
+      return remainingBuffer;
+    };
+
     fetch(url.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
       signal: abortController.signal,
+      // keepalive helps maintain connection during tab switches
+      keepalive: true,
     })
       .then(async (response) => {
         if (!response.ok) {
@@ -117,84 +210,36 @@ export const chatApi = {
 
         let buffer = '';
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        // Use requestAnimationFrame-based processing when tab is visible
+        // This ensures smoother UI updates and better handling of visibility changes
+        const processStream = async () => {
+          try {
+            while (!isClosed) {
+              const { done, value } = await reader.read();
+              if (done || isClosed) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-
-            const eventMatch = line.match(/event:\s*(\w+)/);
-            const dataMatch = line.match(/data:\s*([\s\S]+)/);
-
-            if (eventMatch && dataMatch) {
-              const eventType = eventMatch[1];
-              const eventData = JSON.parse(dataMatch[1]);
-
-              switch (eventType) {
-                case 'assistant_message_delta':
-                case 'message_delta':
-                  handlers.onMessageDelta?.(eventData);
-                  break;
-                case 'message_end':
-                  handlers.onMessageEnd?.(eventData);
-                  break;
-                case 'tool_call_start':
-                  handlers.onToolCallStart?.(eventData);
-                  break;
-                case 'tool_call_complete':
-                  handlers.onToolCallComplete?.(eventData);
-                  break;
-                case 'tools_end':
-                  handlers.onToolsEnd?.();
-                  break;
-                case 'tool_status':
-                  handlers.onToolStatus?.(eventData);
-                  break;
-                case 'tool_progress':
-                  handlers.onToolProgress?.(eventData);
-                  break;
-                case 'delegation_start':
-                  handlers.onDelegationStart?.(eventData);
-                  break;
-                case 'delegation_end':
-                  handlers.onDelegationEnd?.(eventData);
-                  break;
-                case 'tool_log':
-                  handlers.onToolLog?.(eventData);
-                  break;
-                case 'code_output':
-                  handlers.onCodeOutput?.(eventData);
-                  break;
-                case 'file_content':
-                  handlers.onFileContent?.(eventData);
-                  break;
-                case 'tool_call_streaming':
-                  handlers.onToolCallStreaming?.(eventData);
-                  break;
-                case 'tool_options':
-                  handlers.onOptions?.(eventData);
-                  break;
-                case 'done':
-                  handlers.onDone?.(eventData);
-                  break;
-                case 'error':
-                  handlers.onError?.(eventData);
-                  break;
-                case 'thinking':
-                  // Informational - ignore
-                  break;
-              }
+              buffer += decoder.decode(value, { stream: true });
+              
+              // Process all complete events in the buffer
+              // This handles cases where multiple events arrive at once
+              // (common when returning from a background tab)
+              buffer = parseAndProcessEvents(buffer);
+              
+              // Yield to the event loop to allow UI updates
+              // This prevents blocking when processing many buffered events
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+          } catch (error) {
+            if (!isClosed && (error as Error).name !== 'AbortError') {
+              throw error;
             }
           }
-        }
+        };
+
+        await processStream();
       })
       .catch((error) => {
-        if (error.name !== 'AbortError') {
+        if (!isClosed && error.name !== 'AbortError') {
           console.error('SSE stream error:', error);
           handlers.onError?.({
             error: error.message,
@@ -203,7 +248,12 @@ export const chatApi = {
         }
       });
 
-    return { close: () => abortController.abort() };
+    return {
+      close: () => {
+        isClosed = true;
+        abortController.abort();
+      },
+    };
   },
 
   getChatHistory: async (chatId: string): Promise<ChatHistory> => {
@@ -334,6 +384,53 @@ export const resourcesApi = {
 
   deleteResource: async (resourceId: string): Promise<void> => {
     await api.delete(`/resources/${resourceId}`);
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API Keys API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const apiKeysApi = {
+  getApiKeys: async (userId: string): Promise<ApiKeysResponse> => {
+    const response = await api.get<ApiKeysResponse>(`/api-keys/${userId}`);
+    return response.data;
+  },
+
+  saveApiKey: async (
+    userId: string,
+    service: string,
+    credentials: Record<string, string>
+  ): Promise<ApiKeyResponse> => {
+    const response = await api.post<ApiKeyResponse>(`/api-keys/${userId}`, {
+      service,
+      credentials,
+    });
+    return response.data;
+  },
+
+  deleteApiKey: async (userId: string, service: string): Promise<ApiKeyResponse> => {
+    const response = await api.delete<ApiKeyResponse>(`/api-keys/${userId}/${service}`);
+    return response.data;
+  },
+
+  testApiKey: async (userId: string, service: string): Promise<TestApiKeyResponse> => {
+    const response = await api.post<TestApiKeyResponse>(`/api-keys/${userId}/test`, {
+      service,
+    });
+    return response.data;
+  },
+
+  testCredentialsBeforeSave: async (
+    userId: string,
+    service: string,
+    credentials: Record<string, string>
+  ): Promise<TestApiKeyResponse> => {
+    const response = await api.post<TestApiKeyResponse>(`/api-keys/${userId}/test-credentials`, {
+      service,
+      credentials,
+    });
+    return response.data;
   },
 };
 

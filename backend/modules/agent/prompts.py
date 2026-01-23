@@ -70,6 +70,8 @@ Better to have a criteria to come up with that list of ticker names.
 then write some code to confirm the patterns and then backtest it.
 6. If you cannot fit a good strategy in the initial time period you selected feel free to 
 downselect the time period to a shorter time period with a more consistent pattern and try a strategy on that.
+7. NEVER use simulated data for backtesting, always use real data.
+8. Remember your goal is to try come up with a strategy that is profitable, only that is impressive.
 </backtesting_guidelines>
 
 <style_guidelines>

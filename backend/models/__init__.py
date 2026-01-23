@@ -55,6 +55,30 @@ from .chat_history import (
     ChatMessage as HistoryChatMessage,
     ToolCall,
 )
+from .api_keys import (
+    SaveApiKeyRequest,
+    ApiKeyInfo,
+    ApiKeysResponse,
+    ApiKeyResponse,
+    TestApiKeyRequest,
+    TestApiKeyResponse,
+)
+from .strategies import (
+    StrategyConfig,
+    StrategyStats,
+    RiskLimits,
+    ExecutionData,
+    ExecutionAction,
+    CreateStrategyRequest,
+    UpdateStrategyRequest,
+    StrategyResponse,
+    StrategyDetailResponse,
+    ExecutionResponse,
+    ExecutionDetailResponse,
+    RunStrategyRequest,
+    RunStrategyResponse,
+    StrategyInfoForLLM,
+)
 
 __all__ = [
     "ChatMessage", 
@@ -99,5 +123,26 @@ __all__ = [
     "ChatHistory",
     "HistoryChatMessage",
     "ToolCall",
+    "SaveApiKeyRequest",
+    "ApiKeyInfo",
+    "ApiKeysResponse",
+    "ApiKeyResponse",
+    "TestApiKeyRequest",
+    "TestApiKeyResponse",
+    # Strategies
+    "StrategyConfig",
+    "StrategyStats",
+    "RiskLimits",
+    "ExecutionData",
+    "ExecutionAction",
+    "CreateStrategyRequest",
+    "UpdateStrategyRequest",
+    "StrategyResponse",
+    "StrategyDetailResponse",
+    "ExecutionResponse",
+    "ExecutionDetailResponse",
+    "RunStrategyRequest",
+    "RunStrategyResponse",
+    "StrategyInfoForLLM",
 ]
 

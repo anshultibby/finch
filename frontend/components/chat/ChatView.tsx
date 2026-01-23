@@ -99,6 +99,7 @@ export default function ChatView() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isResourcesOpen, setIsResourcesOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
@@ -196,6 +197,28 @@ export default function ChatView() {
     setResources(state.resources);
     setChatFiles(state.chatFiles);
   }, [getChatState]);
+
+  // Handle visibility changes - ensure UI stays in sync when returning from background tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && currentChatId) {
+        // Tab became visible - sync display state from the ref
+        // This ensures any events processed while hidden are reflected in the UI
+        const state = getChatState(currentChatId);
+        setMessages([...state.messages]);
+        setStreamingText(state.streamingText);
+        setStreamingTools([...state.streamingTools]);
+        setIsLoading(state.isLoading);
+        setError(state.error);
+        setPendingOptions(state.pendingOptions);
+        setResources([...state.resources]);
+        setChatFiles([...state.chatFiles]);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentChatId, getChatState]);
 
 
   // Update selected tool when streaming tools change
@@ -792,6 +815,179 @@ export default function ChatView() {
     }
   };
 
+  const handleExportPdf = async () => {
+    if (!currentChatId || isExporting || messages.length === 0) return;
+    
+    setIsExporting(true);
+    try {
+      // Create a new window with formatted content for printing
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        throw new Error('Could not open print window. Please allow popups.');
+      }
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Chat Export</title>
+          <style>
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              line-height: 1.6;
+              color: #1f2937;
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 40px;
+              background: white;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+              padding-bottom: 20px;
+              border-bottom: 2px solid #e5e7eb;
+            }
+            .header h1 {
+              font-size: 24px;
+              color: #111827;
+              margin: 0 0 8px 0;
+            }
+            .header .date {
+              font-size: 14px;
+              color: #6b7280;
+            }
+            .message {
+              margin-bottom: 24px;
+            }
+            .message-label {
+              font-size: 12px;
+              font-weight: 600;
+              margin-bottom: 6px;
+            }
+            .message-label.user { color: #7c3aed; }
+            .message-label.assistant { color: #059669; }
+            .message-content {
+              font-size: 14px;
+              line-height: 1.7;
+            }
+            .message-content.user {
+              background: #f3f4f6;
+              padding: 12px 16px;
+              border-radius: 8px;
+            }
+            .message-content p { margin: 0 0 12px 0; }
+            .message-content p:last-child { margin-bottom: 0; }
+            .file-ref {
+              color: #2563eb;
+              background: #eff6ff;
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-size: 13px;
+            }
+            .tool-call {
+              display: inline-block;
+              background: #ecfdf5;
+              color: #166534;
+              padding: 4px 10px;
+              border-radius: 6px;
+              font-size: 12px;
+              margin: 2px 4px 2px 0;
+            }
+            .footer {
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 1px solid #e5e7eb;
+              text-align: center;
+              font-size: 12px;
+              color: #9ca3af;
+            }
+            code {
+              background: #f3f4f6;
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-family: 'SF Mono', Monaco, monospace;
+              font-size: 13px;
+            }
+            pre {
+              background: #1f2937;
+              color: #e5e7eb;
+              padding: 16px;
+              border-radius: 8px;
+              overflow-x: auto;
+              font-size: 13px;
+            }
+            pre code {
+              background: none;
+              padding: 0;
+              color: inherit;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Chat Export</h1>
+            <div class="date">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+          </div>
+          
+          ${messages.map(msg => {
+            // Process content - handle markdown-like formatting
+            let content = msg.content
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/\[file:([^\]]+)\]/g, '<span class="file-ref">📎 $1</span>')
+              .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+              .replace(/`([^`]+)`/g, '<code>$1</code>')
+              .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+              .replace(/\n\n/g, '</p><p>')
+              .replace(/\n/g, '<br/>');
+            
+            if (!content.startsWith('<p>') && !content.startsWith('<pre>')) {
+              content = '<p>' + content + '</p>';
+            }
+            
+            // Tool calls
+            const toolCallsHtml = msg.toolCalls?.map(tc => 
+              `<span class="tool-call">🔧 ${tc.statusMessage || tc.tool_name}</span>`
+            ).join('') || '';
+            
+            return `
+              <div class="message">
+                <div class="message-label ${msg.role}">${msg.role === 'user' ? 'You' : 'Assistant'}</div>
+                ${toolCallsHtml ? `<div style="margin-bottom: 8px;">${toolCallsHtml}</div>` : ''}
+                <div class="message-content ${msg.role}">${content}</div>
+              </div>
+            `;
+          }).join('')}
+          
+          <div class="footer">
+            Exported from Finch • ${new Date().toLocaleDateString()}
+          </div>
+          
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+        </html>
+      `;
+      
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      
+    } catch (err) {
+      console.error('Error exporting chat:', err);
+      setError('Failed to export chat as PDF');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleOptionSelect = async (option: OptionButton) => {
     if (currentChatId) {
       updateChatState(currentChatId, { pendingOptions: null });
@@ -1061,18 +1257,52 @@ export default function ChatView() {
               />
             ) : (
               <>
-                {messages.map((msg, i) => (
-                  <ChatMessage
-                    key={i}
-                    role={msg.role}
-                    content={msg.content}
-                    toolCalls={msg.toolCalls}
-                    chatId={currentChatId || undefined}
-                    onSelectTool={handleSelectTool}
-                    resources={resources}
-                    onFileClick={(resource) => setSelectedResource(resource)}
-                  />
-                ))}
+                {messages.map((msg, i) => {
+                  // Find the last assistant message index
+                  const lastAssistantIdx = messages.reduce((lastIdx, m, idx) => 
+                    m.role === 'assistant' ? idx : lastIdx, -1
+                  );
+                  const isLastAssistant = msg.role === 'assistant' && i === lastAssistantIdx && !isLoading && !streamingText && streamingTools.length === 0;
+                  
+                  // Actions for the last assistant message
+                  const messageActions = isLastAssistant && currentChatId ? [
+                    {
+                      icon: (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      ),
+                      label: 'Copy',
+                      onClick: () => navigator.clipboard.writeText(msg.content),
+                    },
+                    {
+                      icon: (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      ),
+                      label: 'Download PDF',
+                      onClick: handleExportPdf,
+                      disabled: isExporting,
+                      loading: isExporting,
+                    },
+                  ] : undefined;
+                  
+                  return (
+                    <ChatMessage
+                      key={i}
+                      role={msg.role}
+                      content={msg.content}
+                      toolCalls={msg.toolCalls}
+                      chatId={currentChatId || undefined}
+                      onSelectTool={handleSelectTool}
+                      resources={resources}
+                      onFileClick={(resource) => setSelectedResource(resource)}
+                      actions={messageActions}
+                      isLastAssistantMessage={isLastAssistant}
+                    />
+                  );
+                })}
 
                 {streamingTools.length > 0 && (
                   <ChatMessage 
@@ -1126,6 +1356,9 @@ export default function ChatView() {
                 )}
 
               <div ref={messagesEndRef} />
+              
+              {/* Extra space at end of chat for better readability */}
+              <div className="h-32" />
             </>
           )}
           </div>

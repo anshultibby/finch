@@ -2,10 +2,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import ApiKeysModal from './ApiKeysModal';
 
 export default function ProfileDropdown() {
   const { user, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [showApiKeysModal, setShowApiKeysModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -65,6 +67,12 @@ export default function ProfileDropdown() {
         </svg>
       </button>
 
+      {/* API Keys Modal */}
+      <ApiKeysModal
+        isOpen={showApiKeysModal}
+        onClose={() => setShowApiKeysModal(false)}
+      />
+
       {/* Dropdown Menu */}
       {isOpen && (
         <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
@@ -74,12 +82,23 @@ export default function ProfileDropdown() {
             <p className="text-xs text-gray-500 mt-1">Signed in</p>
           </div>
 
-          {/* Profile Customization - Placeholder */}
+          {/* API Keys */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              Profile Settings
+              Settings
             </p>
-            <p className="text-sm text-gray-500 italic">Coming soon...</p>
+            <button
+              onClick={() => {
+                setShowApiKeysModal(true);
+                setIsOpen(false);
+              }}
+              className="w-full text-left py-2 text-sm text-gray-700 hover:text-gray-900 flex items-center gap-2 rounded transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              API Keys
+            </button>
           </div>
 
           {/* Logout Button */}

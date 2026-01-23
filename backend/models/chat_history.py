@@ -242,14 +242,20 @@ class ChatHistory(BaseModel):
         """
         Create from database messages with sanitization.
         
+        Handles corruption from interrupted streams:
         - Removes malformed tool calls (truncated JSON from interrupted streams)
-        - Removes orphaned tool results (whose tool_call was removed)
+        - Removes orphaned tool results (whose tool_call was removed OR never saved)
+        
+        The key invariant for Anthropic API: every tool_result must have a matching
+        tool_use in the immediately preceding assistant message.
         """
         history = cls(chat_id=chat_id, user_id=user_id)
         removed_tool_call_ids: Set[str] = set()
         
-        # First pass: collect and sanitize
+        # First pass: collect all valid tool_call IDs from assistant messages
+        valid_tool_call_ids: Set[str] = set()
         temp_messages = []
+        
         for db_msg in db_messages:
             msg_data = {
                 "role": db_msg.role,
@@ -262,20 +268,40 @@ class ChatHistory(BaseModel):
                 "tool_calls": db_msg.tool_calls,
             }
             
-            # Sanitize tool_calls
+            # Sanitize tool_calls and collect valid IDs
             if db_msg.role == "assistant" and db_msg.tool_calls:
                 valid_tcs, removed = _sanitize_tool_calls(db_msg.tool_calls)
                 removed_tool_call_ids.update(removed)
                 msg_data["tool_calls"] = valid_tcs if valid_tcs else None
+                
+                # Track valid tool call IDs
+                for tc in (valid_tcs or []):
+                    tc_id = tc.get("id")
+                    if tc_id:
+                        valid_tool_call_ids.add(tc_id)
             
             temp_messages.append(msg_data)
         
         # Second pass: filter orphaned tool results
+        # A tool result is orphaned if:
+        # 1. Its tool_call_id was explicitly removed (malformed JSON)
+        # 2. Its tool_call_id doesn't exist in ANY assistant message (chat was interrupted)
+        orphaned_count = 0
         for msg_data in temp_messages:
             if msg_data["role"] == "tool":
-                if msg_data.get("tool_call_id") in removed_tool_call_ids:
-                    continue  # Skip orphaned tool result
+                tool_call_id = msg_data.get("tool_call_id")
+                if tool_call_id in removed_tool_call_ids:
+                    logger.warning(f"Removing orphaned tool result (malformed tool_call): {tool_call_id}")
+                    orphaned_count += 1
+                    continue
+                if tool_call_id and tool_call_id not in valid_tool_call_ids:
+                    logger.warning(f"Removing orphaned tool result (missing tool_call): {tool_call_id}")
+                    orphaned_count += 1
+                    continue
             history.add_message(ChatMessage.from_dict(msg_data))
+        
+        if orphaned_count > 0:
+            logger.info(f"Sanitized chat history: removed {orphaned_count} orphaned tool result(s)")
         
         return history
     

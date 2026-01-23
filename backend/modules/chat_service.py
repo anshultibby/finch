@@ -151,6 +151,10 @@ class ChatService:
                         
                         logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages, {len(execution_results)} execution results")
                         
+                        # Safety check: if no pending_assistant_msg, we have a bug - log it
+                        if not pending_assistant_msg and tool_messages:
+                            logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg! This will create orphaned tool results.")
+                        
                         # Build tool_results dict keyed by tool_call_id for persistence
                         # This stores code_output, result_summary, errors etc. for viewing in previous sessions
                         tool_results = {}
@@ -190,28 +194,28 @@ class ChatService:
                                 logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
                                 seq += 1
                                 current_sequence += 1
-                            
-                            # Save tool result messages
-                            for tool_msg in tool_messages:
-                                # Handle multimodal content (list) by serializing to JSON
-                                content = tool_msg.get("content", "")
-                                if isinstance(content, list):
-                                    content = json.dumps(content)
                                 
-                                await chat_async.create_message(
-                                    db=db,
-                                    chat_id=chat_id,
-                                    role="tool",
-                                    content=content,
-                                    sequence=seq,
-                                    tool_call_id=tool_msg.get("tool_call_id"),
-                                    name=tool_msg.get("name")
-                                )
-                                seq += 1
-                                current_sequence += 1
-                            
-                            if tool_messages:
-                                logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                                # Save tool result messages (must be inside the if block to avoid orphans)
+                                for tool_msg in tool_messages:
+                                    # Handle multimodal content (list) by serializing to JSON
+                                    content = tool_msg.get("content", "")
+                                    if isinstance(content, list):
+                                        content = json.dumps(content)
+                                    
+                                    await chat_async.create_message(
+                                        db=db,
+                                        chat_id=chat_id,
+                                        role="tool",
+                                        content=content,
+                                        sequence=seq,
+                                        tool_call_id=tool_msg.get("tool_call_id"),
+                                        name=tool_msg.get("name")
+                                    )
+                                    seq += 1
+                                    current_sequence += 1
+                                
+                                if tool_messages:
+                                    logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
                         
                         pending_assistant_msg = None
                     

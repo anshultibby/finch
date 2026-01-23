@@ -68,7 +68,7 @@ class BaseAgent:
         # Create tool executor with 4K char truncation (~1K tokens)
         # This keeps tool responses concise and reduces cache growth
         self._tool_executor = ToolExecutor(
-            truncation_policy=TruncationPolicy(max_chars=4000)
+            truncation_policy=TruncationPolicy(max_chars=8000)
         )
     
     def get_new_messages(self) -> List[HistoryChatMessage]:

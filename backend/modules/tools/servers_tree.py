@@ -105,13 +105,13 @@ def generate_servers_description() -> str:
     """
     tree = generate_servers_tree()
     
-    return f"""
+    description = """
 **🔌 API SERVERS - Available APIs**
 
 The following APIs are available as importable Python modules:
 
 ```
-{tree}
+""" + tree + """
 ```
 
 **Usage Examples:**
@@ -127,7 +127,7 @@ response = get_intraday_bars(
 )
 # ALWAYS check for errors before accessing data!
 if 'error' in response:
-    print(f"Error: {{response['error']}}")
+    print(f"Error: {response['error']}")
 else:
     df = pd.DataFrame(response['bars'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -141,7 +141,7 @@ response = get_historical_prices(
     timespan='day'              # 'day', 'week', 'month' (default='day')
 )
 if 'error' in response:
-    print(f"Error: {{response['error']}}")
+    print(f"Error: {response['error']}")
 else:
     df = pd.DataFrame(response['bars'])
 
@@ -149,7 +149,7 @@ else:
 from servers.financial_modeling_prep.market.quote import get_quote_snapshot
 quotes = get_quote_snapshot('AAPL')  # Returns LIST even for single stock!
 quote = quotes[0]  # Access first result
-print(f"{{quote['symbol']}}: ${{quote['price']}} | PE: {{quote['pe']}}")
+print(f"{quote['symbol']}: ${quote['price']} | PE: {quote['pe']}")
 
 # Market gainers (FMP) - filter for liquid stocks!
 from servers.financial_modeling_prep.market.gainers import get_gainers
@@ -170,7 +170,7 @@ profile = get_profile('AAPL')
   ```python
   response = get_historical_prices(symbol='AAPL', ...)
   if 'error' in response:
-      print(f"Error: {{response['error']}}")  # Handle error!
+      print(f"Error: {response['error']}")  # Handle error!
   else:
       df = pd.DataFrame(response['bars'])  # Safe to access
   ```
@@ -183,7 +183,40 @@ profile = get_profile('AAPL')
 - `polygon_io.market.historical_prices` → Daily/weekly/monthly bars
 - `financial_modeling_prep.market.quote` → Quote with PE, market cap, EPS
 - `financial_modeling_prep.market.gainers` → Market movers (filter for liquidity!)
+- `kalshi.portfolio` → Kalshi prediction market balance & positions
+- `kalshi.markets` → Kalshi events and market data
+
+**🎰 KALSHI (Prediction Markets):**
+```python
+# Requires user to have saved Kalshi API credentials in Settings > API Keys
+
+# Get account balance
+from servers.kalshi.portfolio import get_kalshi_balance
+balance = get_kalshi_balance()
+if 'error' not in balance:
+    print(f"Kalshi balance: ${balance['balance']:.2f}")
+
+# Get portfolio (balance + positions)
+from servers.kalshi.portfolio import get_kalshi_portfolio
+portfolio = get_kalshi_portfolio()
+if 'error' not in portfolio:
+    print(f"Balance: ${portfolio['balance']:.2f}")
+    for pos in portfolio['positions']:
+        print(f"  {pos['ticker']}: {pos['count']} contracts")
+
+# Get open prediction market events
+from servers.kalshi.markets import get_kalshi_events
+events = get_kalshi_events(limit=10, status="open")
+if 'error' not in events:
+    for event in events['events']:
+        print(f"{event['ticker']}: {event['title']}")
+
+# Get specific market details
+from servers.kalshi.markets import get_kalshi_market
+market = get_kalshi_market("KXBTC-24DEC31-T100000")
+```
 """
+    return description
 
 
 if __name__ == "__main__":

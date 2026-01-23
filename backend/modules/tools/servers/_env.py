@@ -20,6 +20,19 @@ _API_KEYS = {
 }
 
 
+def get_user_id() -> Optional[str]:
+    """
+    Get the current user ID from environment.
+    
+    This is set by the code execution sandbox to identify the user
+    for per-user API credentials (like Kalshi).
+    
+    Returns:
+        User ID string or None if not set
+    """
+    return os.getenv('FINCH_USER_ID') or None
+
+
 def get_api_key(name: str) -> Optional[str]:
     """
     Get an API key by short name.
