@@ -171,7 +171,8 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
   return (
     <div 
       onClick={onShowOutput}
-      className={`inline-flex items-center gap-2 py-1.5 px-3 rounded-lg cursor-pointer transition-all duration-150 whitespace-nowrap overflow-hidden ${styles.container}`}
+      className={`inline-flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer transition-all duration-150 whitespace-nowrap overflow-hidden touch-manipulation ${styles.container}`}
+      style={{ minHeight: '44px' }}
     >
       {/* Icon - never shrink */}
       <span className={`flex-shrink-0 ${styles.icon}`}>
@@ -179,27 +180,27 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
       </span>
       
       {/* Tool name - never shrink */}
-      <span className={`text-sm font-medium flex-shrink-0 ${styles.text}`}>
+      <span className={`text-sm sm:text-sm font-medium flex-shrink-0 ${styles.text}`}>
         {toolName}
       </span>
 
-      {/* Filename pill for file operations - can shrink */}
+      {/* Filename pill for file operations - can shrink, hide on very small screens */}
       {filename && (
-        <span className={`text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+        <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
           {filename}
         </span>
       )}
 
-      {/* Search query pill for search operations */}
+      {/* Search query pill for search operations - hide on very small screens */}
       {displayQuery && (
-        <span className={`text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+        <span className={`hidden xs:inline-block text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
           {displayQuery}
         </span>
       )}
 
       {/* Description - show for all tools when available and not just the tool name */}
       {description && description !== toolCall.tool_name && !filename && !displayQuery && (
-        <span className={`text-sm ${styles.muted} truncate min-w-0`}>
+        <span className={`hidden sm:inline text-sm ${styles.muted} truncate min-w-0`}>
           {description}
         </span>
       )}

@@ -432,14 +432,15 @@ function ToolCallList({ toolCalls, onSelectTool }: { toolCalls: ToolCallStatus[]
 
 function MessageActions({ actions }: { actions: MessageAction[] }) {
   return (
-    <div className="flex items-center gap-1 mt-2 -ml-1">
+    <div className="flex items-center gap-1.5 mt-2 -ml-1">
       {actions.map((action, idx) => (
         <button
           key={idx}
           onClick={action.onClick}
           disabled={action.disabled || action.loading}
-          className="flex items-center gap-1.5 px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2.5 py-2 text-gray-400 hover:text-gray-600 active:text-gray-800 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
           title={action.label}
+          style={{ minHeight: '40px', minWidth: '40px' }}
         >
           {action.loading ? (
             <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />

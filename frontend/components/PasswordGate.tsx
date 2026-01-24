@@ -8,7 +8,7 @@ interface AuthGateProps {
 }
 
 export default function AuthGate({ children }: AuthGateProps) {
-  const { user, loading, signInWithGoogle, signOut, enableGuestMode } = useAuth();
+  const { user, loading, signInWithGoogle } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState('');
 
@@ -21,10 +21,6 @@ export default function AuthGate({ children }: AuthGateProps) {
       setError(err.message || 'Failed to sign in');
       setSigningIn(false);
     }
-  };
-
-  const handleGuestMode = () => {
-    enableGuestMode();
   };
 
   if (loading) {
@@ -71,25 +67,8 @@ export default function AuthGate({ children }: AuthGateProps) {
               {signingIn ? 'Signing in...' : 'Continue with Google'}
             </button>
 
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">or</span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleGuestMode}
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg border-2 border-gray-300 transition-colors flex items-center justify-center gap-2"
-            >
-              <span className="text-lg">👤</span>
-              Try as Guest
-            </button>
-
             {error && (
-              <p className="text-red-500 text-sm text-center">{error}</p>
+              <p className="text-red-500 text-sm text-center mt-4">{error}</p>
             )}
           </div>
 

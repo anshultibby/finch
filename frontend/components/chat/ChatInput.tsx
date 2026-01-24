@@ -99,7 +99,7 @@ export default function ChatInput({
 
   return (
     <div 
-      className={`border-t border-gray-200 bg-white p-4 transition-colors ${isDragging ? 'bg-blue-50 border-blue-300' : ''}`}
+      className={`border-t border-gray-200 bg-white p-3 sm:p-4 safe-area-bottom transition-colors ${isDragging ? 'bg-blue-50 border-blue-300' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -116,7 +116,8 @@ export default function ChatInput({
               />
               <button
                 onClick={() => removeImage(idx)}
-                className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-6 h-6 sm:w-5 sm:h-5 flex items-center justify-center text-xs touch-manipulation"
+                style={{ minHeight: '24px', minWidth: '24px' }}
               >
                 ×
               </button>
@@ -125,7 +126,7 @@ export default function ChatInput({
         </div>
       )}
       
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-1.5 sm:gap-2">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -136,12 +137,13 @@ export default function ChatInput({
           className="hidden"
         />
         
-        {/* Image upload button */}
+        {/* Image upload button - optimized touch target for mobile */}
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          className="p-3 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="p-2.5 sm:p-3 text-gray-500 hover:text-gray-700 active:text-gray-900 hover:bg-gray-100 active:bg-gray-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation flex-shrink-0"
           title="Attach image"
+          style={{ minHeight: '44px', minWidth: '44px' }}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -156,20 +158,21 @@ export default function ChatInput({
           placeholder={isDragging ? "Drop image here..." : placeholder}
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-3 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-          style={{ minHeight: '48px', maxHeight: '120px' }}
+          className="flex-1 resize-none rounded-lg border border-gray-300 px-3 sm:px-4 py-2.5 sm:py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed touch-manipulation"
+          style={{ minHeight: '44px', maxHeight: '120px', fontSize: '16px' }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
             target.style.height = 'auto';
             target.style.height = Math.min(target.scrollHeight, 120) + 'px';
           }}
         />
-        {/* Stop button - subtle circular design */}
+        {/* Stop button - subtle circular design with better touch target */}
         {isStreaming && (
           <button
             onClick={handleStop}
-            className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 hover:text-gray-800 transition-colors"
+            className="w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors touch-manipulation flex-shrink-0"
             title="Stop generating"
+            style={{ minHeight: '44px', minWidth: '44px' }}
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
               <rect x="3" y="3" width="10" height="10" rx="1" />
@@ -177,16 +180,22 @@ export default function ChatInput({
           </button>
         )}
         
-        {/* Send button */}
+        {/* Send button - optimized for mobile */}
         <button
           onClick={handleSubmit}
           disabled={!canSend}
-          className="rounded-lg bg-primary-600 px-6 py-3 text-white font-medium hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          className="rounded-lg bg-primary-600 px-4 sm:px-6 py-2.5 sm:py-3 text-white font-medium hover:bg-primary-700 active:bg-primary-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors touch-manipulation flex-shrink-0"
+          style={{ minHeight: '44px' }}
         >
-          Send
+          <span className="hidden xs:inline">Send</span>
+          <span className="xs:hidden">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
+          </span>
         </button>
       </div>
-      <p className="text-xs text-gray-500 mt-2">
+      <p className="text-[11px] sm:text-xs text-gray-500 mt-2 hidden sm:block">
         Press Enter to send, Shift+Enter for new line • Paste or drop images to attach
       </p>
     </div>

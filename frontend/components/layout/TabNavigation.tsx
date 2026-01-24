@@ -8,8 +8,6 @@ export default function TabNavigation() {
 
   const tabs: { id: View; label: string; icon: string; color: string; disabled?: boolean }[] = [
     { id: 'chat', label: 'Chat', icon: '💬', color: 'blue' },
-    { id: 'files', label: 'Files', icon: '📁', color: 'orange' },
-    { id: 'analytics', label: 'Analytics', icon: '📈', color: 'green', disabled: true },
   ];
 
   const getTabStyles = (tab: typeof tabs[0]) => {

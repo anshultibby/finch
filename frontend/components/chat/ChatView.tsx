@@ -5,7 +5,6 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import ChatHistorySidebar, { ChatHistorySidebarRef } from './ChatHistorySidebar';
-import ChatFilesModal from './ChatFilesModal';
 import NewChatWelcome from './NewChatWelcome';
 import ResourceViewer from '../ResourceViewer';
 import ComputerPanel from '../ComputerPanel';
@@ -97,7 +96,6 @@ export default function ChatView() {
   
   // UI state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isResourcesOpen, setIsResourcesOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
@@ -1223,25 +1221,14 @@ export default function ChatView() {
       <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${
         showComputerPanel 
           ? selectedTool?.file_content 
-            ? 'mr-[650px]'  // File view with tree
-            : 'mr-[520px]'  // Terminal/search
+            ? 'mr-0 md:mr-[650px]'  // File view with tree - hide on mobile
+            : 'mr-0 md:mr-[520px]'  // Terminal/search - hide on mobile
           : ''
       }`}>
-        <button
-          onClick={() => setIsResourcesOpen(true)}
-          className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 hover:bg-white border border-gray-200 rounded-md shadow-sm backdrop-blur-sm transition-all text-xs font-medium text-gray-700 hover:border-blue-400"
-          title={resources.length > 0 ? `View ${resources.length} files & charts` : 'Files & Charts'}
-        >
-          <span>📦</span>
-          {resources.length > 0 && (
-            <span className="font-semibold text-blue-600">{resources.length}</span>
-          )}
-        </button>
-
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className={`py-4 ${showComputerPanel ? 'px-6' : 'max-w-5xl mx-auto w-full px-6'}`}>
+          <div className={`py-3 sm:py-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
@@ -1365,8 +1352,8 @@ export default function ChatView() {
         </div>
 
         {error && (
-          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-6' : 'max-w-5xl mx-auto w-full px-6'}`}>
-            <p className="text-sm text-red-600">{formatErrorForUser(error)}</p>
+          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+            <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
           </div>
         )}
 
@@ -1388,8 +1375,8 @@ export default function ChatView() {
       {showComputerPanel && selectedTool && (
         <div className={`fixed right-0 top-0 h-full z-40 ${
           selectedTool.file_content 
-            ? 'w-[650px]'  // File view with tree
-            : 'w-[520px]'  // Terminal/search
+            ? 'w-full md:w-[650px]'  // File view with tree - full width on mobile
+            : 'w-full md:w-[520px]'  // Terminal/search - full width on mobile
         }`}>
           <ComputerPanel
             mode={
@@ -1462,18 +1449,6 @@ export default function ChatView() {
             onClose={() => setSelectedTool(null)}
           />
         </div>
-      )}
-      
-      {currentChatId && (
-        <ChatFilesModal
-          isOpen={isResourcesOpen}
-          onClose={() => setIsResourcesOpen(false)}
-          chatId={currentChatId}
-          onSelectResource={(resource) => {
-            setSelectedResource(resource);
-            setIsResourcesOpen(false);
-          }}
-        />
       )}
       
       <ResourceViewer
