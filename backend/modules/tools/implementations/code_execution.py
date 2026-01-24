@@ -599,10 +599,10 @@ async def execute_code_impl(
             # cannot access the database directly
             try:
                 from crud.user_api_keys import get_decrypted_credentials
-                from database import AsyncSessionLocal
+                from database import get_db_session
                 
                 async def _get_user_credentials():
-                    async with AsyncSessionLocal() as db:
+                    async with get_db_session() as db:
                         kalshi_creds = await get_decrypted_credentials(db, context.user_id, "kalshi")
                         return kalshi_creds
                 

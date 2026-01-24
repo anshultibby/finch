@@ -16,7 +16,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import AsyncSessionLocal
+from database import get_db_session
 from modules.agent.context import AgentContext
 from crud import strategies as crud
 from crud.chat_files import list_chat_files
@@ -76,7 +76,7 @@ async def deploy_strategy_impl(params: DeployStrategyParams, context: AgentConte
     Creates a strategy record that references the specified ChatFiles.
     The strategy starts disabled and unapproved - user must approve before live trading.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         # Build risk limits if provided
         risk_limits = None
         if params.max_order_usd or params.max_daily_usd:
@@ -112,7 +112,7 @@ async def list_strategies_impl(context: AgentContext) -> dict:
     """
     List all strategies for the current user.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         strategies = await crud.list_strategies(db, context.user_id)
         
         if not strategies:
@@ -134,7 +134,7 @@ async def get_strategy_impl(strategy_id: str, context: AgentContext) -> dict:
     """
     Get detailed info about a specific strategy.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         strategy = await crud.get_strategy(db, strategy_id, context.user_id)
         
         if not strategy:
@@ -177,7 +177,7 @@ async def update_strategy_impl(params: UpdateStrategyParams, context: AgentConte
     """
     Update a strategy's settings.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         # Build risk limits if provided
         risk_limits = None
         if params.max_order_usd is not None or params.max_daily_usd is not None:
@@ -222,7 +222,7 @@ async def approve_strategy_impl(strategy_id: str, context: AgentContext) -> dict
     """
     Approve a strategy for live execution.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         strategy = await crud.approve_strategy(db, strategy_id, context.user_id)
         
         if not strategy:
@@ -241,7 +241,7 @@ async def run_strategy_impl(params: RunStrategyParams, context: AgentContext) ->
     """
     Manually run a strategy.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         strategy = await crud.get_strategy(db, params.strategy_id, context.user_id)
         
         if not strategy:
@@ -279,7 +279,7 @@ async def delete_strategy_impl(strategy_id: str, context: AgentContext) -> dict:
     """
     Delete a strategy.
     """
-    async with AsyncSessionLocal() as db:
+    async with get_db_session() as db:
         # Get name first for message
         strategy = await crud.get_strategy(db, strategy_id, context.user_id)
         if not strategy:

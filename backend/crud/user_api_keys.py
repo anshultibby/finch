@@ -116,6 +116,16 @@ async def save_api_key(
     
     # Re-encrypt and save
     settings.encrypted_api_keys = _encrypt_api_keys(api_keys)
+    
+    # Cache masked metadata in non-encrypted settings for fast retrieval
+    api_keys_metadata = settings.settings.get("api_keys_metadata", {})
+    api_keys_metadata[service] = {
+        "api_key_id_masked": _mask_key_id(credentials.get("api_key_id", "")),
+        "has_private_key": bool(credentials.get("private_key")),
+        "created_at": credentials["created_at"]
+    }
+    settings.settings = {**settings.settings, "api_keys_metadata": api_keys_metadata}
+    
     await db.commit()
     
     # Log without any credential details
@@ -135,6 +145,9 @@ async def get_api_keys_info(db: AsyncSession, user_id: str) -> list[ApiKeyInfo]:
     """
     Get list of API keys info (masked, safe for frontend)
     
+    Optimized to use cached metadata instead of decrypting credentials.
+    Falls back to decryption if cache is missing (for backward compatibility).
+    
     Args:
         db: Async database session
         user_id: User ID
@@ -147,21 +160,55 @@ async def get_api_keys_info(db: AsyncSession, user_id: str) -> list[ApiKeyInfo]:
     if not settings.encrypted_api_keys:
         return []
     
+    # Try to use cached metadata first (fast path - no decryption needed)
+    api_keys_metadata = settings.settings.get("api_keys_metadata")
+    if api_keys_metadata:
+        result = []
+        for service, metadata in api_keys_metadata.items():
+            result.append(ApiKeyInfo(
+                service=service,
+                api_key_id="",  # Don't need the actual key ID, just masked version
+                api_key_id_masked=metadata.get("api_key_id_masked", "****"),
+                has_private_key=metadata.get("has_private_key", False),
+                created_at=metadata.get("created_at")
+            ))
+        return result
+    
+    # Fallback: decrypt to get metadata (slow path - for backward compatibility)
+    # This will only happen once per user (after migration), then cache will be populated
+    logger.info(f"Cache miss for user {user_id} API keys metadata, decrypting to rebuild cache")
     try:
         api_keys = _decrypt_api_keys(settings.encrypted_api_keys)
     except Exception as e:
         logger.error(f"Failed to decrypt keys for user {user_id}: {e}")
         return []
     
+    # Build result and populate cache for next time
     result = []
+    api_keys_metadata = {}
     for service, creds in api_keys.items():
+        masked_id = _mask_key_id(creds.get("api_key_id", ""))
+        has_pk = bool(creds.get("private_key"))
+        created = creds.get("created_at")
+        
         result.append(ApiKeyInfo(
             service=service,
             api_key_id=creds.get("api_key_id", ""),
-            api_key_id_masked=_mask_key_id(creds.get("api_key_id", "")),
-            has_private_key=bool(creds.get("private_key")),
-            created_at=creds.get("created_at")
+            api_key_id_masked=masked_id,
+            has_private_key=has_pk,
+            created_at=created
         ))
+        
+        api_keys_metadata[service] = {
+            "api_key_id_masked": masked_id,
+            "has_private_key": has_pk,
+            "created_at": created
+        }
+    
+    # Save metadata cache for future requests
+    settings.settings = {**settings.settings, "api_keys_metadata": api_keys_metadata}
+    await db.commit()
+    logger.info(f"Populated metadata cache for user {user_id}")
     
     return result
 
@@ -242,6 +289,12 @@ async def delete_api_key(db: AsyncSession, user_id: str, service: str) -> bool:
         settings.encrypted_api_keys = _encrypt_api_keys(api_keys)
     else:
         settings.encrypted_api_keys = None
+    
+    # Also remove from metadata cache
+    api_keys_metadata = settings.settings.get("api_keys_metadata", {})
+    if service in api_keys_metadata:
+        del api_keys_metadata[service]
+        settings.settings = {**settings.settings, "api_keys_metadata": api_keys_metadata}
     
     await db.commit()
     logger.info(f"Deleted API key for user {user_id}, service {service}")

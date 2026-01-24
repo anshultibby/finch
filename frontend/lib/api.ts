@@ -434,4 +434,70 @@ export const apiKeysApi = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Credits API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CreditBalance {
+  user_id: string;
+  credits: number;
+  total_credits_used: number;
+}
+
+export interface CreditTransaction {
+  id: string;
+  amount: number;
+  balance_after: number;
+  transaction_type: string;
+  description: string;
+  chat_id?: string;
+  tool_name?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface CreditHistoryResponse {
+  user_id: string;
+  transactions: CreditTransaction[];
+  count: number;
+}
+
+export interface CreditRequestData {
+  user_id: string;
+  user_email: string;
+  requested_credits: number;
+  reason: string;
+  current_balance: number;
+  total_used: number;
+}
+
+export const creditsApi = {
+  getBalance: async (userId: string): Promise<CreditBalance> => {
+    const response = await api.get<CreditBalance>(`/credits/balance/${userId}`);
+    return response.data;
+  },
+
+  getHistory: async (userId: string, limit: number = 50): Promise<CreditHistoryResponse> => {
+    const response = await api.get<CreditHistoryResponse>(`/credits/history/${userId}`, {
+      params: { limit },
+    });
+    return response.data;
+  },
+
+  requestCredits: async (requestData: CreditRequestData): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post<{ success: boolean; message: string }>('/credits/request', requestData);
+    return response.data;
+  },
+
+  getPricing: async (): Promise<{
+    credits_per_dollar: number;
+    premium_multiplier: number;
+    info: string;
+    model_pricing: Record<string, unknown>;
+  }> => {
+    const response = await api.get('/credits/pricing');
+    return response.data;
+  },
+};
+
 export default api;

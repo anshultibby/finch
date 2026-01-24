@@ -215,6 +215,63 @@ if 'error' not in events:
 from servers.kalshi.markets import get_kalshi_market
 market = get_kalshi_market("KXBTC-24DEC31-T100000")
 ```
+
+**🎲 DOME API (Prediction Markets via Dome):**
+```python
+# Alternative API for accessing prediction markets with better rate limits
+# Dome API Key: Free tier = 1 request per second (automatically rate limited)
+
+# Search Polymarket markets
+from servers.dome.polymarket.markets import get_markets
+markets = get_markets(tags=['crypto'], limit=10)
+if 'error' not in markets:
+    for m in markets['markets']:
+        print(f"{m['title']}: ${m['volume']:,.0f} volume")
+
+# Get Polymarket market prices
+from servers.dome.polymarket.prices import get_market_price, get_candlesticks
+price = get_market_price(token_id="98250445447699368679516...")
+if 'error' not in price:
+    print(f"Probability: {price['price']*100:.1f}%")
+
+# Get historical candlestick data (for charting)
+import time
+end = int(time.time())
+start = end - (7 * 24 * 60 * 60)  # 1 week ago
+candles = get_candlesticks(
+    condition_id="0x4567b275...",
+    start_time=start,
+    end_time=end,
+    interval=1440  # Daily candles
+)
+
+# Track trade history
+from servers.dome.polymarket.trading import get_trade_history
+trades = get_trade_history(condition_id="0x4567...", limit=50)
+# Or track specific wallet: trades = get_trade_history(maker_address="0xabc...")
+
+# Monitor wallet positions & P&L
+from servers.dome.polymarket.wallet import get_wallet, get_wallet_pnl
+wallet = get_wallet("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+pnl = get_wallet_pnl("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+if 'error' not in pnl:
+    print(f"Total P&L: ${pnl['total_pnl']:,.2f}, Win rate: {pnl['win_rate']*100:.1f}%")
+
+# Search Kalshi markets via Dome
+from servers.dome.kalshi.markets import get_markets as get_kalshi_markets
+markets = get_kalshi_markets(series_ticker='FED', status='active')
+
+# Find matching markets across platforms (arbitrage opportunities)
+from servers.dome.matching.sports import get_sports_matching_markets, get_sport_by_date
+matches = get_sports_matching_markets(sport='NBA', limit=20)
+# Or get markets for specific date:
+matches = get_sport_by_date(sport='NBA', date='2024-12-25')
+```
+
+**⚠️ RATE LIMITING:**
+- Dome API free tier: 1 request per second (handled automatically)
+- The client will automatically wait between requests
+- For multiple requests, they'll be queued and executed sequentially
 """
     return description
 

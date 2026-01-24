@@ -14,7 +14,7 @@ from typing import Optional
 from croniter import croniter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import AsyncSessionLocal
+from database import get_db_session
 from models.db import Strategy
 from crud.strategies import get_due_strategies, get_strategy
 from .executor import execute_strategy
@@ -71,7 +71,7 @@ class StrategyScheduler:
     
     async def run_once(self) -> None:
         """Run one iteration of the scheduler"""
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             strategies = await get_due_strategies(db)
             
             for strategy in strategies:

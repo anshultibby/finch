@@ -39,12 +39,16 @@ class SnapTradeUser(Base):
     is_connected = Column(Boolean, default=False, nullable=False)
     brokerage_name = Column(String, nullable=True)  # e.g., "Robinhood", "TD Ameritrade"
     
+    # Credits system
+    credits = Column(Integer, nullable=False, default=500)  # User credits balance
+    total_credits_used = Column(Integer, nullable=False, default=0)  # Lifetime usage tracking
+    
     # Session tracking
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<SnapTradeUser(user_id='{self.user_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected})>"
+        return f"<SnapTradeUser(user_id='{self.user_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected}, credits={self.credits})>"
 
 
 class Chat(Base):
@@ -508,4 +512,39 @@ class StrategyExecution(Base):
     
     def __repr__(self):
         return f"<StrategyExecution(id='{self.id}', strategy='{self.strategy_id}', status='{self.status}')>"
+
+
+class CreditTransaction(Base):
+    """
+    Audit log of credit usage
+    
+    Tracks all credit additions and deductions for transparency and debugging.
+    Each operation that consumes credits creates a transaction record.
+    """
+    __tablename__ = "credit_transactions"
+    
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    # User (indexed)
+    user_id = Column(String, nullable=False, index=True)
+    
+    # Transaction details
+    amount = Column(Integer, nullable=False)  # Positive for additions, negative for deductions
+    balance_after = Column(Integer, nullable=False)  # Balance after this transaction
+    
+    # Transaction metadata
+    transaction_type = Column(String, nullable=False)  # 'chat_message', 'tool_call', 'initial_credit', 'admin_adjustment'
+    description = Column(String, nullable=False)  # Human-readable description
+    
+    # Optional links to related entities
+    chat_id = Column(String, nullable=True, index=True)  # Link to chat if applicable
+    tool_name = Column(String, nullable=True)  # Tool name if tool_call
+    transaction_metadata = Column(JSONB, nullable=True)  # Additional context (model used, tokens, etc.)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<CreditTransaction(id='{self.id}', user='{self.user_id}', amount={self.amount}, type='{self.transaction_type}')>"
 

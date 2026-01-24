@@ -8,7 +8,7 @@ from .agent.agent_config import create_master_agent
 from .agent.llm_handler import LLMHandler
 from config import Config
 from .context_manager import context_manager
-from database import AsyncSessionLocal
+from database import get_db_session
 from modules.agent.context import AgentContext, generate_agent_id
 from models.chat_history import ChatHistory
 from crud import chat_async
@@ -56,6 +56,22 @@ class ChatService:
         with tracer.start_as_current_span("chat_turn"):
             logger.info(f"Starting chat turn for user {user_id}")
             
+            # Check if user has credits before processing
+            async with get_db_session() as db:
+                from services.credits import CreditsService
+                user_credits = await CreditsService.get_user_credits(db, user_id)
+                
+                if user_credits is not None and user_credits <= 0:
+                    # User has no credits - send error and stop
+                    from models.sse import SSEEvent
+                    logger.warning(f"User {user_id} has insufficient credits: {user_credits}")
+                    yield SSEEvent(
+                        event="error",
+                        data={"error": "Insufficient credits. Please contact support to add more credits."}
+                    ).to_sse_format()
+                    yield SSEEvent(event="done", data={}).to_sse_format()
+                    return
+            
             # Send immediate acknowledgment so frontend knows connection is alive
             from models.sse import SSEEvent, ThinkingEvent
             yield SSEEvent(
@@ -64,7 +80,7 @@ class ChatService:
             ).to_sse_format()
             
             # STEP 1: Load history and save user message
-            async with AsyncSessionLocal() as db:
+            async with get_db_session() as db:
                 db_chat = await chat_async.get_chat(db, chat_id)
                 if not db_chat:
                     await chat_async.create_chat(db, chat_id, user_id)
@@ -133,7 +149,7 @@ class ChatService:
                             seq = current_sequence
                             current_sequence += 1
                             
-                            async with AsyncSessionLocal() as db:
+                            async with get_db_session() as db:
                                 await chat_async.create_message(
                                     db=db,
                                     chat_id=chat_id,
@@ -178,7 +194,7 @@ class ChatService:
                                         }
                         
                         # Save synchronously to ensure proper message ordering
-                        async with AsyncSessionLocal() as db:
+                        async with get_db_session() as db:
                             seq = current_sequence
                             # Save assistant message with tool calls AND tool_results
                             if pending_assistant_msg:
@@ -223,31 +239,77 @@ class ChatService:
                     yield event.to_sse_format()
             
             # Log session usage summary (token counts and costs)
+            # Also deduct credits based on actual token usage
+            usage_tracker = LLMHandler.get_session_usage(chat_id)
+            if usage_tracker and usage_tracker.llm_call_count > 0:
+                # Calculate and deduct credits
+                from services.credits import calculate_credits_for_llm_call
+                
+                credits_to_deduct = calculate_credits_for_llm_call(
+                    model=usage_tracker.model,
+                    prompt_tokens=usage_tracker.total_prompt_tokens,
+                    completion_tokens=usage_tracker.total_completion_tokens,
+                    cache_read_tokens=usage_tracker.total_cache_read_tokens,
+                    cache_creation_tokens=usage_tracker.total_cache_creation_tokens
+                )
+                
+                # Deduct credits
+                async with get_db_session() as db:
+                    from services.credits import CreditsService
+                    
+                    # Build metadata for transaction
+                    costs = usage_tracker.calculate_cost()
+                    metadata = {
+                        "model": usage_tracker.model,
+                        "prompt_tokens": usage_tracker.total_prompt_tokens,
+                        "completion_tokens": usage_tracker.total_completion_tokens,
+                        "cache_read_tokens": usage_tracker.total_cache_read_tokens,
+                        "cache_creation_tokens": usage_tracker.total_cache_creation_tokens,
+                        "llm_calls": usage_tracker.llm_call_count,
+                        "usd_cost": costs["total_cost"],
+                        "premium_rate": 1.2
+                    }
+                    
+                    success = await CreditsService.deduct_credits(
+                        db=db,
+                        user_id=user_id,
+                        credits=credits_to_deduct,
+                        transaction_type="chat_turn",
+                        description=f"Chat turn ({usage_tracker.llm_call_count} LLM calls, {usage_tracker.total_prompt_tokens + usage_tracker.total_completion_tokens:,} tokens)",
+                        chat_id=chat_id,
+                        metadata=metadata
+                    )
+                    
+                    if success:
+                        logger.info(f"💳 Deducted {credits_to_deduct} credits (${costs['total_cost']:.4f} + 20% premium)")
+                    else:
+                        logger.warning(f"⚠️  Failed to deduct {credits_to_deduct} credits - insufficient balance or user not found")
+            
             LLMHandler.finalize_session(chat_id)
             
             logger.info("Chat turn complete - all messages saved incrementally")
     
     async def get_chat_history(self, chat_id: str) -> List[dict]:
         """Get chat history for a chat, including tool calls (OpenAI format)"""
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             messages = await chat_async.get_chat_messages(db, chat_id)
             history = ChatHistory.from_db_messages(messages, chat_id, user_id=None)
             return history.to_openai_format()
     
     async def clear_chat(self, chat_id: str) -> bool:
         """Clear chat history for a chat"""
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             count = await chat_async.clear_chat_messages(db, chat_id)
             return count > 0
     
     async def chat_exists(self, chat_id: str) -> bool:
         """Check if chat exists"""
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             return await chat_async.get_chat(db, chat_id) is not None
     
     async def get_user_chats(self, user_id: str, limit: int = 50) -> List[dict]:
         """Get all chats for a user with last message preview (single optimized query)"""
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             # Use optimized function that gets chats and previews in a single query
             return await chat_async.get_user_chats_with_preview(db, user_id, limit)
     
@@ -258,7 +320,7 @@ class ChatService:
         SIMPLE: Each message has content and optional tool_calls attached directly.
         Frontend just renders messages in order.
         """
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             messages = await chat_async.get_chat_messages(db, chat_id)
             
             if not messages:

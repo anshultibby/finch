@@ -12,7 +12,7 @@ import json
 from models import ChatMessage, ChatResponse
 from modules import ChatService
 from services.chat_title import generate_chat_title
-from database import AsyncSessionLocal
+from database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
 
@@ -175,7 +175,7 @@ async def create_new_chat(data: dict):
     try:
         chat_id = str(uuid.uuid4())
         # Actually create the chat in DB
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             await chat_async.create_chat(db, chat_id, user_id)
         return {"chat_id": chat_id}
     except Exception as e:
@@ -196,7 +196,7 @@ async def generate_title(request: GenerateTitleRequest):
         title, icon = await generate_chat_title(request.first_message)
         
         # Update the chat in database
-        async with AsyncSessionLocal() as db:
+        async with get_db_session() as db:
             await chat_async.update_chat_title(db, request.chat_id, title, icon)
         
         return GenerateTitleResponse(title=title, icon=icon)
