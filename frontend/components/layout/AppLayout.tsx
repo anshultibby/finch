@@ -50,6 +50,20 @@ export default function AppLayout({
               <span className="hidden xs:inline">Portfolio</span>
             </button>
 
+            {/* Strategies Link */}
+            <button
+              onClick={() => router.push('/strategies')}
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg font-medium transition-all text-xs touch-manipulation ${
+                pathname === '/strategies'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+              style={{ minHeight: '44px', minWidth: '44px' }}
+            >
+              <span className="text-sm">🤖</span>
+              <span className="hidden xs:inline">Bots</span>
+            </button>
+
             {/* Profile */}
             <div className="border-l pl-1.5 sm:pl-2 ml-1.5 sm:ml-2">
               <ProfileDropdown />

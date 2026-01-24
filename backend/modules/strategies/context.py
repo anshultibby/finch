@@ -65,6 +65,7 @@ class StrategyContext:
     # Lazy-loaded clients
     _kalshi_client: Any | None = None
     _alpaca_client: Any | None = None
+    _polymarket_client: Any | None = None
     
     # ─────────────────────────────────────────────────────────────────────────
     # Logging
@@ -237,6 +238,36 @@ class StrategyContext:
         
         return AlpacaContextWrapper(self._alpaca_client, self)
     
+    @property
+    async def polymarket(self):
+        """
+        Get Polymarket client (lazy-loaded)
+        
+        Usage:
+            poly = await ctx.polymarket
+            markets = await poly.get_markets(tags=['crypto'])
+        """
+        if not self.check_service_allowed("polymarket"):
+            raise PermissionError("Polymarket is not allowed for this strategy")
+        
+        if self._polymarket_client is None:
+            if self._db is None:
+                raise RuntimeError("Database session not available")
+            
+            creds = await get_decrypted_credentials(self._db, self.user_id, "polymarket")
+            if not creds:
+                raise ValueError("Polymarket credentials not configured. Please add your Polymarket private key in settings.")
+            
+            from modules.tools.clients.polymarket import PolymarketClient
+            self._polymarket_client = PolymarketClient(
+                private_key=creds["private_key"],
+                funder_address=creds.get("funder_address")
+            )
+            self.log("Initialized Polymarket client")
+        
+        # Return wrapper that enforces dry_run and risk limits
+        return PolymarketContextWrapper(self._polymarket_client, self)
+    
     async def cleanup(self) -> None:
         """Cleanup resources (close clients)"""
         if self._kalshi_client:
@@ -247,6 +278,11 @@ class StrategyContext:
         if self._alpaca_client:
             try:
                 await self._alpaca_client.close()
+            except Exception:
+                pass
+        if self._polymarket_client:
+            try:
+                await self._polymarket_client.close()
             except Exception:
                 pass
 
@@ -372,6 +408,107 @@ class KalshiContextWrapper:
         
         result = await self._client.cancel_order(order_id)
         self._ctx.record_action("kalshi_cancel", {"order_id": order_id, "result": result})
+        return result
+
+
+class PolymarketContextWrapper:
+    """
+    Wrapper around PolymarketClient that:
+    - Enforces dry_run mode
+    - Checks risk limits before orders
+    - Records all actions
+    """
+    
+    def __init__(self, client, ctx: StrategyContext):
+        self._client = client
+        self._ctx = ctx
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Read-only operations (always allowed)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    async def get_markets(self, tags: list[str] | None = None, limit: int = 10):
+        """Get markets"""
+        from modules.tools.servers.dome.polymarket.markets import get_markets
+        return get_markets(tags=tags, limit=limit)
+    
+    async def get_market_price(self, token_id: str):
+        """Get current market price"""
+        from modules.tools.servers.dome.polymarket.prices import get_market_price
+        return get_market_price(token_id)
+    
+    async def get_wallet(self, wallet_address: str):
+        """Get wallet positions"""
+        from modules.tools.servers.dome.polymarket.wallet import get_wallet
+        return get_wallet(wallet_address)
+    
+    async def get_trade_history(
+        self,
+        condition_id: str | None = None,
+        maker_address: str | None = None,
+        limit: int = 100
+    ):
+        """Get trade history"""
+        from modules.tools.servers.dome.polymarket.trading import get_trade_history
+        return get_trade_history(
+            condition_id=condition_id,
+            maker_address=maker_address,
+            limit=limit
+        )
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Write operations (respect dry_run and risk limits)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    async def create_order(
+        self,
+        token_id: str,
+        side: str,  # 'BUY' or 'SELL'
+        amount: float,  # in USDC
+        price: float | None = None  # 0-1, None for market order
+    ):
+        """
+        Create a Polymarket order (respects dry_run and risk limits)
+        
+        Args:
+            token_id: Token ID for the outcome
+            side: 'BUY' or 'SELL'
+            amount: Amount in USDC
+            price: Price 0-1 (None for market order)
+        """
+        # Check risk limits
+        if not self._ctx.check_order_limit(amount):
+            return {
+                "error": "Order exceeds risk limits",
+                "blocked": True,
+                "amount_usd": amount
+            }
+        
+        order_details = {
+            "token_id": token_id,
+            "side": side,
+            "amount_usd": amount,
+            "price": price,
+            "order_type": "market" if price is None else "limit"
+        }
+        
+        if self._ctx.dry_run:
+            self._ctx.record_action("polymarket_order", order_details, amount)
+            return {
+                "dry_run": True,
+                "would_execute": order_details,
+                "message": f"DRY RUN: Would {side} ${amount:.2f} on token {token_id[:10]}..."
+            }
+        
+        # Execute real order via Polymarket CLOB API
+        result = await self._client.create_order(
+            token_id=token_id,
+            side=side,
+            amount=amount,
+            price=price
+        )
+        
+        self._ctx.record_action("polymarket_order", {**order_details, "result": result}, amount)
         return result
 
 

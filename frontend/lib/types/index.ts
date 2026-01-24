@@ -400,3 +400,69 @@ export interface TestApiKeyResponse {
   balance?: number;
 }
 
+// ============================================================================
+// Strategies
+// ============================================================================
+
+export interface RiskLimits {
+  max_order_usd?: number;
+  max_daily_usd?: number;
+  max_position_usd?: number;
+  allowed_services?: string[];
+}
+
+export interface StrategyStats {
+  total_runs?: number;
+  successful_runs?: number;
+  failed_runs?: number;
+  last_run_at?: string;
+  last_run_status?: string;
+  last_run_summary?: string;
+  total_spent_usd?: number;
+  total_profit_usd?: number;
+}
+
+export interface Strategy {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  approved: boolean;
+  schedule_description?: string;
+  schedule?: string;
+  risk_limits?: RiskLimits;
+  stats?: StrategyStats;
+  created_at: string;
+  updated_at: string;
+  file_ids?: string[];
+  entrypoint?: string;
+  source_chat_id?: string;
+}
+
+export interface StrategyExecution {
+  id: string;
+  strategy_id: string;
+  status: 'running' | 'success' | 'failed';
+  started_at: string;
+  completed_at?: string;
+  trigger: string;
+  summary?: string;
+  error?: string;
+  actions_count?: number;
+  data?: {
+    trigger: string;
+    completed_at?: string;
+    duration_ms?: number;
+    result?: any;
+    error?: string;
+    logs?: string[];
+    summary?: string;
+    actions?: Array<{
+      type: string;
+      timestamp: string;
+      dry_run: boolean;
+      details: any;
+    }>;
+  };
+}
+

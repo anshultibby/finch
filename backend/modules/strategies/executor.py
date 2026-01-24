@@ -81,9 +81,10 @@ async def execute_strategy(
     ctx.log(f"Starting execution (trigger={trigger}, dry_run={dry_run})")
     
     try:
-        # Execute with timeout
+        # Execute via BaseStrategy pattern
+        from modules.tools.servers.strategies._executor import execute_strategy_cycle
         result = await asyncio.wait_for(
-            _run_strategy_code(files, config.get("entrypoint", "strategy.py"), ctx),
+            execute_strategy_cycle(db, strategy, ctx),
             timeout=EXECUTION_TIMEOUT_SECONDS
         )
         

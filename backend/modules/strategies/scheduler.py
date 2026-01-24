@@ -80,47 +80,30 @@ class StrategyScheduler:
     
     def _should_run_now(self, strategy: Strategy) -> bool:
         """
-        Check if a strategy should run now based on its schedule
+        Check if a strategy should run now based on polling_interval
         
-        Uses croniter to check if the current minute matches the schedule.
+        All strategies use polling_interval (seconds) from config.json
         """
         config = strategy.config or {}
-        schedule = config.get("schedule")
+        polling_interval = config.get("polling_interval")
         
-        if not schedule:
-            # No schedule = manual only
+        if not polling_interval:
+            # No polling_interval = manual only
             return False
         
-        try:
-            # Check if current minute matches cron schedule
-            now = datetime.now(timezone.utc)
-            cron = croniter(schedule, now)
-            
-            # Get previous scheduled time
-            prev_time = cron.get_prev(datetime)
-            
-            # If previous scheduled time is within the last minute, we should run
-            # (This handles the case where we check at :00 and schedule is "0 * * * *")
-            diff_seconds = (now - prev_time).total_seconds()
-            
-            if diff_seconds < self.check_interval:
-                # Check if we already ran this schedule
-                stats = strategy.stats or {}
-                last_run = stats.get("last_run_at")
-                
-                if last_run:
-                    last_run_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-                    # Don't run if we ran in the last minute
-                    if (now - last_run_dt).total_seconds() < self.check_interval:
-                        return False
-                
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"Invalid cron schedule '{schedule}' for strategy {strategy.id}: {e}")
-            return False
+        stats = strategy.stats or {}
+        last_run = stats.get("last_run_at")
+        
+        if not last_run:
+            # Never run before, run now
+            return True
+        
+        # Check if enough time has passed since last run
+        now = datetime.now(timezone.utc)
+        last_run_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+        seconds_since_last = (now - last_run_dt).total_seconds()
+        
+        return seconds_since_last >= polling_interval
     
     async def _execute_strategy(self, db: AsyncSession, strategy: Strategy) -> None:
         """Execute a single strategy"""

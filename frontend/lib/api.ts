@@ -520,4 +520,81 @@ export const creditsApi = {
   },
 };
 
+// ============================================================================
+// Strategies API
+// ============================================================================
+
+export const strategiesApi = {
+  async listStrategies(userId: string) {
+    const response = await fetch(`${API_BASE_URL}/strategies`, {
+      method: 'GET',
+      headers: {
+        'X-User-ID': userId,
+      },
+    });
+    return response.json();
+  },
+
+  async getStrategy(userId: string, strategyId: string) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
+      method: 'GET',
+      headers: {
+        'X-User-ID': userId,
+      },
+    });
+    return response.json();
+  },
+
+  async updateStrategy(userId: string, strategyId: string, data: {
+    name?: string;
+    enabled?: boolean;
+    schedule?: string;
+    schedule_description?: string;
+    risk_limits?: any;
+    description?: string;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId,
+      },
+      body: JSON.stringify(data),
+    });
+    return response.json();
+  },
+
+  async runStrategy(userId: string, strategyId: string, dryRun: boolean = true) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/run`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId,
+      },
+      body: JSON.stringify({ dry_run: dryRun }),
+    });
+    return response.json();
+  },
+
+  async getExecutions(userId: string, strategyId: string, limit: number = 20) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/executions?limit=${limit}`, {
+      method: 'GET',
+      headers: {
+        'X-User-ID': userId,
+      },
+    });
+    return response.json();
+  },
+
+  async deleteStrategy(userId: string, strategyId: string) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
+      method: 'DELETE',
+      headers: {
+        'X-User-ID': userId,
+      },
+    });
+    return response.json();
+  },
+};
+
 export default api;
