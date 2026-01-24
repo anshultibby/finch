@@ -609,6 +609,7 @@ export default function ChatView() {
                     error: event.error,
                     code_output: event.code_output || t.code_output,
                     search_results: event.search_results || t.search_results,
+                    scraped_content: (event as any).scraped_content || t.scraped_content,
                     agent_id: event.agent_id,
                     parent_agent_id: event.parent_agent_id,
                   };
@@ -632,6 +633,7 @@ export default function ChatView() {
             error: event.error,
             code_output: hasStreamedOutput ? existingTool!.code_output : event.code_output,
             search_results: event.search_results,
+            scraped_content: (event as any).scraped_content,
             agent_id: event.agent_id,
             parent_agent_id: event.parent_agent_id,
           };
@@ -1022,16 +1024,41 @@ export default function ChatView() {
       resources_count: resources.length,
       has_file_content: !!tool.file_content,
       has_code_output: !!tool.code_output,
-      has_search_results: !!tool.search_results
+      has_search_results: !!tool.search_results,
+      has_scraped_content: !!tool.scraped_content
     });
     
     const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'run_python';
     const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
     const isSearchTool = tool.tool_name === 'web_search' || tool.tool_name === 'news_search';
+    const isScrapeTool = tool.tool_name === 'scrape_url';
     
     // If clicking on the same tool, don't toggle - just keep it open
     // User can close via the X button on the panel
     if (selectedTool?.tool_call_id === tool.tool_call_id) {
+      return;
+    }
+    
+    // Handle scrape tool
+    if (isScrapeTool) {
+      // If already has scraped content, just show it
+      if (tool.scraped_content) {
+        setSelectedTool(tool);
+        return;
+      }
+      
+      // Create placeholder while scraping or if no content
+      const url = tool.arguments?.url || 'Unknown URL';
+      const toolWithPlaceholder: ToolCallStatus = {
+        ...tool,
+        scraped_content: {
+          url,
+          title: '',
+          content: '',
+          is_complete: tool.status === 'completed'
+        }
+      };
+      setSelectedTool(toolWithPlaceholder);
       return;
     }
     
@@ -1376,11 +1403,12 @@ export default function ChatView() {
         <div className={`fixed right-0 top-0 h-full z-40 ${
           selectedTool.file_content 
             ? 'w-full md:w-[650px]'  // File view with tree - full width on mobile
-            : 'w-full md:w-[520px]'  // Terminal/search - full width on mobile
+            : 'w-full md:w-[520px]'  // Terminal/search/scrape - full width on mobile
         }`}>
           <ComputerPanel
             mode={
-              selectedTool.search_results ? 'search' : 
+              selectedTool.search_results ? 'search' :
+              selectedTool.scraped_content ? 'scrape' :
               selectedTool.file_content ? 'file' : 
               'terminal'
             }
@@ -1445,6 +1473,7 @@ export default function ChatView() {
               }
             }}
             searchResults={selectedTool.search_results}
+            scrapedContent={selectedTool.scraped_content}
             isStreaming={selectedTool.status === 'calling'}
             onClose={() => setSelectedTool(null)}
           />

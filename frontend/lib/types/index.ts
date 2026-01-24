@@ -61,6 +61,13 @@ export interface SearchResults {
   is_complete: boolean;
 }
 
+export interface ScrapedContent {
+  url: string;
+  title: string;
+  content: string;
+  is_complete: boolean;
+}
+
 export interface ToolCallStatus {
   tool_call_id: string;
   tool_name: string;
@@ -73,6 +80,7 @@ export interface ToolCallStatus {
   code_output?: CodeOutput;
   file_content?: FileContent;
   search_results?: SearchResults;
+  scraped_content?: ScrapedContent;
   agent_id?: string;
   parent_agent_id?: string;
   _insertionOrder?: number;
@@ -316,6 +324,50 @@ export interface BrokeragesResponse {
   success: boolean;
   brokerages: Brokerage[];
   message: string;
+}
+
+export interface Position {
+  symbol: string;
+  quantity: number;
+  price: number;
+  value: number;
+  average_purchase_price?: number;
+  total_cost?: number;
+  gain_loss?: number;
+  gain_loss_percent?: number;
+}
+
+export interface AccountDetail {
+  id: string;
+  name: string;
+  number: string;
+  type: string;
+  institution: string;
+  balance: number;
+  positions: Position[];
+  total_value: number;
+  position_count: number;
+  status?: string;
+}
+
+export interface PortfolioResponse {
+  success: boolean;
+  accounts: AccountDetail[];
+  holdings_csv?: string;
+  total_value: number;
+  total_positions: number;
+  account_count: number;
+  message: string;
+  syncing?: boolean;
+  needs_auth?: boolean;
+}
+
+export interface PortfolioPerformance {
+  success: boolean;
+  total_value: number;
+  total_cost: number;
+  total_gain_loss: number;
+  total_gain_loss_percent: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

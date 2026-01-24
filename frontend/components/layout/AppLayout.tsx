@@ -1,10 +1,9 @@
 'use client';
 
 import React, { ReactNode } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import ProfileDropdown from '../ProfileDropdown';
-import AccountManagementModal from '../AccountManagementModal';
 import { useAuth } from '@/contexts/AuthContext';
-import { snaptradeApi } from '@/lib/api';
 
 interface AppLayoutProps {
   chatView: ReactNode;
@@ -14,24 +13,9 @@ export default function AppLayout({
   chatView,
 }: AppLayoutProps) {
   const { user } = useAuth();
-  const [showAccountModal, setShowAccountModal] = React.useState(false);
-  const [isPortfolioConnected, setIsPortfolioConnected] = React.useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
-  // Check portfolio connection on mount
-  React.useEffect(() => {
-    const checkConnection = async () => {
-      if (!user?.id) return;
-      
-      try {
-        const status = await snaptradeApi.checkStatus(user.id);
-        setIsPortfolioConnected(status.is_connected);
-      } catch (err) {
-        console.error('Error checking connection:', err);
-      }
-    };
-    
-    checkConnection();
-  }, [user?.id]);
 
   return (
     <div className="flex flex-col h-screen">
@@ -39,24 +23,31 @@ export default function AppLayout({
       <div className="bg-white border-b border-gray-200 px-3 sm:px-6 py-2 safe-area-top">
         <div className="flex items-center justify-between">
           {/* Logo */}
-          <div className="flex-shrink-0">
+          <button 
+            onClick={() => router.push('/')}
+            className="flex-shrink-0 text-left hover:opacity-80 transition-opacity"
+          >
             <h1 className="text-base sm:text-lg font-bold text-gray-900">Finch</h1>
             <p className="text-[10px] sm:text-xs text-gray-500 hidden xs:block">Your AI Trading Assistant</p>
-          </div>
+          </button>
 
           {/* Spacer */}
           <div className="flex-1 min-w-2" />
 
           {/* Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Manage Accounts Button */}
+            {/* Portfolio Link */}
             <button
-              onClick={() => setShowAccountModal(true)}
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white transition-all text-xs touch-manipulation"
+              onClick={() => router.push('/portfolio')}
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg font-medium transition-all text-xs touch-manipulation ${
+                pathname === '/portfolio'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
               style={{ minHeight: '44px', minWidth: '44px' }}
             >
-              <span className="text-sm">🏦</span>
-              <span className="hidden xs:inline">Accounts</span>
+              <span className="text-sm">📊</span>
+              <span className="hidden xs:inline">Portfolio</span>
             </button>
 
             {/* Profile */}
@@ -71,22 +62,6 @@ export default function AppLayout({
       <div className="flex-1 overflow-hidden">
         {chatView}
       </div>
-
-      {/* Account Management Modal */}
-      <AccountManagementModal
-        isOpen={showAccountModal}
-        onClose={() => setShowAccountModal(false)}
-        onConnectionChange={async () => {
-          if (user?.id) {
-            try {
-              const status = await snaptradeApi.checkStatus(user.id);
-              setIsPortfolioConnected(status.is_connected);
-            } catch (err) {
-              console.error('Error checking connection status:', err);
-            }
-          }
-        }}
-      />
     </div>
   );
 }

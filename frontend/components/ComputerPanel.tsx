@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import FileTree, { FileItem } from './FileTree';
-import type { SearchResults, SearchResult } from '@/lib/types';
+import type { SearchResults, SearchResult, ScrapedContent } from '@/lib/types';
 
-type PanelMode = 'terminal' | 'file' | 'search';
+type PanelMode = 'terminal' | 'file' | 'search' | 'scrape';
 
 interface ComputerPanelProps {
   mode: PanelMode;
@@ -20,6 +20,8 @@ interface ComputerPanelProps {
   onFilesLoaded?: (files: FileItem[]) => void; // Callback when files are loaded
   // Search mode props
   searchResults?: SearchResults;
+  // Scrape mode props
+  scrapedContent?: ScrapedContent;
   // Edit/diff props
   isEditOperation?: boolean; // True for replace_in_chat_file
   oldStr?: string; // Original text for diff
@@ -362,6 +364,7 @@ export default function ComputerPanel({
   cachedFiles,
   onFilesLoaded,
   searchResults,
+  scrapedContent,
   isEditOperation = false,
   oldStr,
   newStr,
@@ -372,10 +375,12 @@ export default function ComputerPanel({
   const searchContentRef = useRef<HTMLDivElement>(null);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
 
-  const content = mode === 'terminal' ? output : fileContent;
+  const content = mode === 'terminal' ? output : mode === 'scrape' ? (scrapedContent?.content || '') : fileContent;
   const lines = content ? content.split('\n') : [];
   const hasContent = mode === 'search' 
     ? (searchResults?.results && searchResults.results.length > 0)
+    : mode === 'scrape'
+    ? (scrapedContent?.content && scrapedContent.content.trim().length > 0)
     : (content && content.trim().length > 0);
   const detectError = mode === 'terminal' && (isError || output?.toLowerCase().includes('error') || output?.toLowerCase().includes('traceback'));
 
@@ -403,6 +408,14 @@ export default function ComputerPanel({
         </svg>
       );
     }
+    if (mode === 'scrape') {
+      return (
+        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+        </svg>
+      );
+    }
     if (mode === 'file') {
       return (
         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -422,6 +435,9 @@ export default function ComputerPanel({
     if (mode === 'search' && searchResults?.query) {
       return searchResults.query;
     }
+    if (mode === 'scrape' && scrapedContent?.url) {
+      return scrapedContent.url;
+    }
     if (mode === 'file' && filename) {
       return filename;
     }
@@ -431,6 +447,9 @@ export default function ComputerPanel({
   const getSubtitle = () => {
     if (mode === 'search') {
       return isStreaming ? 'Searching...' : 'Search';
+    }
+    if (mode === 'scrape') {
+      return isStreaming ? 'Scraping...' : 'Scraped';
     }
     if (mode === 'file') {
       return isStreaming ? 'Writing file...' : 'File';
@@ -443,7 +462,7 @@ export default function ComputerPanel({
       return (
         <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-          {mode === 'search' ? 'Searching' : mode === 'file' ? 'Writing' : 'Running'}
+          {mode === 'search' ? 'Searching' : mode === 'scrape' ? 'Scraping' : mode === 'file' ? 'Writing' : 'Running'}
         </span>
       );
     }
@@ -462,7 +481,7 @@ export default function ComputerPanel({
         <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M5 13l4 4L19 7" />
         </svg>
-        {mode === 'search' ? 'Done' : mode === 'file' ? 'Saved' : 'Done'}
+        {mode === 'search' ? 'Done' : mode === 'scrape' ? 'Scraped' : mode === 'file' ? 'Saved' : 'Done'}
       </span>
     );
   };
@@ -470,6 +489,9 @@ export default function ComputerPanel({
   const getIconBgColor = () => {
     if (mode === 'search') {
       return 'bg-gradient-to-br from-violet-500 to-purple-600';
+    }
+    if (mode === 'scrape') {
+      return 'bg-gradient-to-br from-blue-500 to-cyan-600';
     }
     if (mode === 'file') {
       return 'bg-gradient-to-br from-blue-500 to-indigo-600';
@@ -572,6 +594,60 @@ export default function ComputerPanel({
             {searchResults.results.map((result, index) => (
               <SearchResultItem key={index} result={result} index={index} />
             ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Scrape mode
+    if (mode === 'scrape') {
+      if (!scrapedContent?.content || scrapedContent.content.trim().length === 0) {
+        return (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
+            {isStreaming ? (
+              <>
+                <div className="relative">
+                  <div className="w-10 h-10 rounded-full border-2 border-gray-200 border-t-blue-500 animate-spin" />
+                </div>
+                <span className="text-sm">Scraping webpage...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                </svg>
+                <span className="text-sm">No content available</span>
+              </>
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <div ref={searchContentRef} className="h-full overflow-y-auto">
+          {/* Page header with title and URL */}
+          {scrapedContent.title && (
+            <div className="mx-4 mt-4 mb-3 pb-3 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                {scrapedContent.title}
+              </h2>
+              <a 
+                href={scrapedContent.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-700 hover:underline break-all"
+              >
+                {scrapedContent.url}
+              </a>
+            </div>
+          )}
+          
+          {/* Markdown content */}
+          <div className="px-4 pb-4 prose prose-sm max-w-none">
+            <pre className="whitespace-pre-wrap break-words font-sans text-sm text-gray-700 leading-relaxed">
+              {scrapedContent.content}
+            </pre>
           </div>
         </div>
       );
@@ -692,13 +768,18 @@ export default function ComputerPanel({
         </div>
       </div>
 
-      {/* Info bar - only show for terminal and search modes (file mode has its own tab) */}
+      {/* Info bar - only show for terminal, search, and scrape modes (file mode has its own tab) */}
       {mode !== 'file' && (
         <div className="px-3 sm:px-4 py-2 bg-gray-50/50 border-b border-gray-100 flex items-center gap-2 min-w-0">
           {mode === 'search' ? (
             <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="8"/>
               <path d="m21 21-4.35-4.35"/>
+            </svg>
+          ) : mode === 'scrape' ? (
+            <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
             </svg>
           ) : (
             <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -746,7 +827,7 @@ export default function ComputerPanel({
           
         {/* Content */}
         <div className="flex-1 overflow-hidden relative">
-          {mode === 'search' ? (
+          {mode === 'search' || mode === 'scrape' ? (
             renderContent()
           ) : mode === 'file' && isImageFile(filename) && fileType !== 'text' ? (
             // Images need direct rendering without <pre> wrapper for proper sizing
@@ -767,7 +848,7 @@ export default function ComputerPanel({
           )}
 
             {/* Gradient fade at bottom when scrollable */}
-            {hasContent && mode !== 'search' && (
+            {hasContent && mode !== 'search' && mode !== 'scrape' && (
               <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
             )}
           </div>

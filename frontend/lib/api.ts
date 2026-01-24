@@ -17,6 +17,8 @@ import type {
   SnapTradeStatusResponse,
   BrokerageAccountsResponse,
   BrokeragesResponse,
+  PortfolioResponse,
+  PortfolioPerformance,
   ImageAttachment,
   SSEAssistantMessageDeltaEvent,
   SSEMessageEndEvent,
@@ -355,6 +357,24 @@ export const snaptradeApi = {
 
   disconnect: async (userId: string): Promise<void> => {
     await api.delete(`/snaptrade/disconnect/${userId}`);
+  },
+
+  getPortfolio: async (userId: string): Promise<PortfolioResponse> => {
+    const response = await api.get<PortfolioResponse>(`/snaptrade/portfolio/${userId}`);
+    return response.data;
+  },
+
+  getPortfolioPerformance: async (userId: string): Promise<PortfolioPerformance> => {
+    const response = await api.get<PortfolioPerformance>(`/snaptrade/portfolio/${userId}/performance`);
+    return response.data;
+  },
+
+  toggleAccountVisibility: async (userId: string, accountId: string, isVisible: boolean): Promise<{ success: boolean; message: string }> => {
+    const response = await api.patch<{ success: boolean; message: string }>(
+      `/snaptrade/accounts/${userId}/${accountId}/visibility`,
+      { is_visible: isVisible }
+    );
+    return response.data;
   },
 };
 

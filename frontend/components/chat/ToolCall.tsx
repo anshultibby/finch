@@ -22,6 +22,13 @@ const getToolIcon = (toolName: string) => {
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
       );
+    case 'scrape_url':
+      return (
+        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+        </svg>
+      );
     case 'write_chat_file':
     case 'create_file':
     case 'write_file':
@@ -58,10 +65,22 @@ const isSearchOperation = (toolName: string) => {
   return ['web_search', 'news_search'].includes(toolName);
 };
 
+const isScrapeOperation = (toolName: string) => {
+  return toolName === 'scrape_url';
+};
+
 // Extract search query from arguments
 const extractSearchQuery = (toolCall: ToolCallStatus): string | null => {
   if (toolCall.arguments?.query) {
     return toolCall.arguments.query;
+  }
+  return null;
+};
+
+// Extract URL from scrape_url arguments
+const extractUrl = (toolCall: ToolCallStatus): string | null => {
+  if (toolCall.arguments?.url) {
+    return toolCall.arguments.url;
   }
   return null;
 };
@@ -143,6 +162,7 @@ const getToolDisplayName = (toolName: string): string => {
     'run_python': 'Run Python',
     'web_search': 'Search',
     'news_search': 'News Search',
+    'scrape_url': 'Scrape URL',
     'get_fmp_data': 'Get FMP Data',
     'get_reddit_trending_stocks': 'Get Reddit Trending',
     'get_reddit_ticker_sentiment': 'Get Reddit Sentiment',
@@ -161,13 +181,20 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
   const toolName = getToolDisplayName(toolCall.tool_name);
   const isFile = isFileOperation(toolCall.tool_name);
   const isSearch = isSearchOperation(toolCall.tool_name);
+  const isScrape = isScrapeOperation(toolCall.tool_name);
   const filename = isFile ? extractFilename(toolCall) : null;
   const searchQuery = isSearch ? extractSearchQuery(toolCall) : null;
+  const url = isScrape ? extractUrl(toolCall) : null;
   
   // Truncate search query for display
   const displayQuery = searchQuery && searchQuery.length > 80 
     ? searchQuery.substring(0, 80) + '...' 
     : searchQuery;
+  
+  // Truncate URL for display
+  const displayUrl = url && url.length > 50 
+    ? url.substring(0, 50) + '...' 
+    : url;
   return (
     <div 
       onClick={onShowOutput}
@@ -198,8 +225,15 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
         </span>
       )}
 
+      {/* URL pill for scrape operations - hide on very small screens */}
+      {displayUrl && (
+        <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+          {displayUrl}
+        </span>
+      )}
+
       {/* Description - show for all tools when available and not just the tool name */}
-      {description && description !== toolCall.tool_name && !filename && !displayQuery && (
+      {description && description !== toolCall.tool_name && !filename && !displayQuery && !displayUrl && (
         <span className={`hidden sm:inline text-sm ${styles.muted} truncate min-w-0`}>
           {description}
         </span>

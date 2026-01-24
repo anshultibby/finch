@@ -171,3 +171,113 @@ async def disconnect_account(user_id: str, account_id: str):
     result = await snaptrade_tools.disconnect_account(user_id, account_id)
     return result
 
+
+@router.patch("/accounts/{user_id}/{account_id}/visibility")
+async def toggle_account_visibility(user_id: str, account_id: str, request: dict):
+    """
+    Toggle account visibility (include/exclude from portfolio view)
+    
+    Request body:
+    {
+        "is_visible": bool
+    }
+    """
+    from database import SessionLocal
+    from crud import brokerage_account as brokerage_crud
+    
+    is_visible = request.get("is_visible", True)
+    
+    db = SessionLocal()
+    try:
+        account = brokerage_crud.get_account_by_account_id(db, user_id, account_id)
+        if not account:
+            return {
+                "success": False,
+                "message": "Account not found"
+            }
+        
+        account.is_active = is_visible
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Account visibility {'enabled' if is_visible else 'disabled'}"
+        }
+    finally:
+        db.close()
+
+
+@router.get("/portfolio/{user_id}")
+async def get_portfolio(user_id: str):
+    """
+    Get user's complete portfolio with holdings, accounts, and performance metrics
+    
+    Returns:
+    - accounts: List of all connected accounts with balances
+    - holdings: Aggregated positions across all accounts
+    - total_value: Total portfolio value
+    - performance: Gain/loss metrics
+    """
+    result = await snaptrade_tools.get_portfolio(user_id)
+    return result
+
+
+@router.get("/portfolio/{user_id}/holdings")
+async def get_portfolio_holdings(user_id: str):
+    """
+    Get detailed holdings with position-level data
+    """
+    result = await snaptrade_tools.get_portfolio(user_id)
+    return result
+
+
+@router.get("/portfolio/{user_id}/performance")
+async def get_portfolio_performance(user_id: str):
+    """
+    Get portfolio performance metrics including gains, losses, and returns
+    """
+    portfolio = await snaptrade_tools.get_portfolio(user_id)
+    
+    if not portfolio.get("success"):
+        return portfolio
+    
+    # Calculate performance metrics from holdings
+    holdings_csv = portfolio.get("holdings_csv", "")
+    if not holdings_csv:
+        return {
+            "success": True,
+            "total_gain_loss": 0,
+            "total_gain_loss_percent": 0,
+            "total_value": portfolio.get("total_value", 0),
+            "total_cost": 0
+        }
+    
+    # Parse CSV to calculate totals
+    import csv
+    import io
+    
+    reader = csv.DictReader(io.StringIO(holdings_csv))
+    total_value = 0
+    total_cost = 0
+    
+    for row in reader:
+        try:
+            value = float(row.get("value", 0))
+            cost = float(row.get("total_cost", 0) or 0)
+            total_value += value
+            if cost > 0:
+                total_cost += cost
+        except (ValueError, TypeError):
+            continue
+    
+    gain_loss = total_value - total_cost if total_cost > 0 else 0
+    gain_loss_percent = (gain_loss / total_cost * 100) if total_cost > 0 else 0
+    
+    return {
+        "success": True,
+        "total_value": round(total_value, 2),
+        "total_cost": round(total_cost, 2),
+        "total_gain_loss": round(gain_loss, 2),
+        "total_gain_loss_percent": round(gain_loss_percent, 2)
+    }
+

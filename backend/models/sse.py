@@ -68,6 +68,14 @@ class SearchResults(BaseModel):
     is_complete: bool = False
 
 
+class ScrapedContent(BaseModel):
+    """Scraped webpage content"""
+    url: str
+    title: str
+    content: str  # Clean markdown content
+    is_complete: bool = False
+
+
 class ToolCallCompleteEvent(BaseModel):
     """Event sent when a tool call completes"""
     tool_call_id: str
@@ -78,6 +86,7 @@ class ToolCallCompleteEvent(BaseModel):
     result_summary: Optional[str] = None  # Brief summary of result for display to user
     code_output: Optional[CodeOutput] = None  # Code execution output (stdout/stderr)
     search_results: Optional[SearchResults] = None  # Web/news search results
+    scraped_content: Optional[ScrapedContent] = None  # Scraped webpage content
     timestamp: str = datetime.now().isoformat()
 
 

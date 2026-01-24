@@ -697,6 +697,19 @@ class ToolExecutor:
                         is_complete=True
                     ).model_dump()
             
+            # Extract scraped content for scrape_url tool
+            scraped_content = None
+            if result.tool_name == "scrape_url" and isinstance(result.raw_result, dict):
+                if result.raw_result.get("success"):
+                    from models.sse import ScrapedContent
+                    
+                    scraped_content = ScrapedContent(
+                        url=result.raw_result.get("url", ""),
+                        title=result.raw_result.get("title", ""),
+                        content=result.raw_result.get("content", ""),
+                        is_complete=True
+                    ).model_dump()
+            
             logger.info(f"📤 Emitting tool_call_complete for {result.tool_name} (id: {result.tool_call_id})")
             complete_event_data = {
                 "tool_call_id": result.tool_call_id,
@@ -706,6 +719,7 @@ class ToolExecutor:
                 "result_summary": result_summary,
                 "code_output": code_output,
                 "search_results": search_results,
+                "scraped_content": scraped_content,
                 "agent_id": context.agent_id  # Which agent ran this tool
             }
             # Include parent_agent_id if this is a sub-agent (e.g., executor)
