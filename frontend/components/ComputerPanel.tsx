@@ -625,18 +625,19 @@ export default function ComputerPanel({
       }
 
       return (
-        <div ref={searchContentRef} className="h-full overflow-y-auto">
+        <div ref={searchContentRef} className="h-full overflow-y-auto" style={{ backgroundColor: '#f9fafb' }}>
           {/* Page header with title and URL */}
           {scrapedContent.title && (
-            <div className="mx-4 mt-4 mb-3 pb-3 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
+            <div className="mx-4 mt-4 mb-3 pb-3 border-b border-gray-200" style={{ backgroundColor: '#f9fafb' }}>
+              <h2 className="text-lg font-semibold mb-1" style={{ color: '#111827' }}>
                 {scrapedContent.title}
               </h2>
               <a 
                 href={scrapedContent.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-blue-600 hover:text-blue-700 hover:underline break-all"
+                className="text-xs hover:underline break-all"
+                style={{ color: '#2563eb' }}
               >
                 {scrapedContent.url}
               </a>
@@ -644,10 +645,12 @@ export default function ComputerPanel({
           )}
           
           {/* Markdown content */}
-          <div className="px-4 pb-4 prose prose-sm max-w-none">
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm text-gray-700 leading-relaxed">
-              {scrapedContent.content}
-            </pre>
+          <div className="px-4 pb-4">
+            <div className="rounded-lg shadow-sm p-6 border" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
+              <div className="whitespace-pre-wrap break-words font-sans leading-relaxed" style={{ fontSize: '15px', color: '#111827', lineHeight: '1.75' }}>
+                {scrapedContent.content}
+              </div>
+            </div>
           </div>
         </div>
       );

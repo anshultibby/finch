@@ -68,18 +68,25 @@ class StrategyLoader:
         # Validate required files
         if 'config.json' not in files:
             raise ValueError("Strategy must have config.json")
-        if 'strategy.py' not in files:
-            raise ValueError("Strategy must have strategy.py")
         
-        # Parse config
+        # Parse config first to know which scripts are needed
         config_data = json.loads(files['config.json'])
         config = StrategyConfig(**config_data)
         
-        # Load strategy module dynamically
-        strategy_class = self._load_strategy_module(files, strategy_id)
+        # Validate entry/exit scripts exist
+        if config.entry_script not in files:
+            raise ValueError(f"Entry script {config.entry_script} not found")
+        if config.exit_script not in files:
+            raise ValueError(f"Exit script {config.exit_script} not found")
         
-        # Instantiate strategy
-        strategy_instance = strategy_class(config)
+        # Use BaseStrategy directly (no custom class needed)
+        strategy_instance = BaseStrategy(config)
+        
+        # Inject scripts into the strategy for execution
+        strategy_instance._script_cache = {
+            config.entry_script: files[config.entry_script],
+            config.exit_script: files[config.exit_script],
+        }
         
         # Cache it
         self._cache[cache_key] = strategy_instance

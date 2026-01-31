@@ -207,3 +207,32 @@ async def generate_title(request: GenerateTitleRequest):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/status/{chat_id}")
+async def get_chat_status(chat_id: str):
+    """
+    Check if a chat is currently being processed by the backend.
+    Used for reconnection logic to determine if streaming should resume.
+    
+    Returns:
+        - is_processing: Whether the chat is currently being processed
+        - last_activity: Timestamp of last activity
+    """
+    try:
+        async with get_db_session() as db:
+            # Check processing status and get last activity in parallel
+            is_processing = await chat_async.is_chat_processing(db, chat_id)
+            last_activity = await chat_async.get_last_activity_timestamp(db, chat_id)
+        
+        return {
+            "is_processing": is_processing,
+            "last_activity": last_activity or ""
+        }
+    except Exception as e:
+        logger.error(f"Error checking chat status: {e}")
+        # Return safe defaults on error
+        return {
+            "is_processing": False,
+            "last_activity": ""
+        }
+

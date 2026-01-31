@@ -18,7 +18,7 @@ database_url = Config.get_database_url()
 # Create async SQLAlchemy engine (for async operations)
 async_database_url = database_url.replace('postgresql://', 'postgresql+asyncpg://')
 
-# Determine pool settings based on whether we're using a pooler
+# Determine pool settings and connection args based on whether we're using a pooler
 # Session poolers have strict limits, so we use smaller pool sizes
 # Direct connections can have larger pools
 if Config.USE_POOLER:
@@ -29,7 +29,21 @@ if Config.USE_POOLER:
     max_overflow = 7
     pool_recycle = 180  # Recycle connections every 3 minutes
     pool_timeout = 30  # Wait longer for connections (30s instead of 5s)
-    logger.info(f"🔗 Using POOLER mode: pool_size={pool_size}, max_overflow={max_overflow}, max_connections={pool_size + max_overflow}, timeout={pool_timeout}s")
+    
+    # CRITICAL: Disable prepared statements for pgbouncer compatibility
+    connect_args = {
+        'timeout': 10,
+        'command_timeout': 30,
+        'statement_cache_size': 0,  # Disable prepared statements
+        'prepared_statement_cache_size': 0,
+        'server_settings': {
+            'jit': 'off'  # Disable JIT compilation for better compatibility
+        }
+    }
+    execution_options = {
+        "compiled_cache": None  # Disable SQLAlchemy's query compilation cache
+    }
+    logger.info(f"🔗 Using POOLER mode: pool_size={pool_size}, max_overflow={max_overflow}, max_connections={pool_size + max_overflow}, timeout={pool_timeout}s, prepared_statements=DISABLED")
 else:
     # Direct connection: can use larger pool (Supabase allows ~60 concurrent connections)
     # Using conservative settings to leave headroom for other services
@@ -37,7 +51,18 @@ else:
     max_overflow = 20  # Additional connections created on demand (total max: 30)
     pool_recycle = 3600  # Recycle connections every hour
     pool_timeout = 10  # Fail faster if pool is exhausted (indicates a leak)
-    logger.info(f"🔗 Using DIRECT connection mode: pool_size={pool_size}, max_overflow={max_overflow}, max_connections={pool_size + max_overflow}")
+    
+    # Enable prepared statements for better performance on direct connections
+    connect_args = {
+        'timeout': 10,
+        'command_timeout': 30,
+        'statement_cache_size': 100,  # Cache up to 100 prepared statements per connection
+        'server_settings': {
+            'jit': 'on'  # Enable JIT compilation for better performance
+        }
+    }
+    execution_options = {}  # Enable SQLAlchemy's query compilation cache
+    logger.info(f"🔗 Using DIRECT connection mode: pool_size={pool_size}, max_overflow={max_overflow}, max_connections={pool_size + max_overflow}, prepared_statements=ENABLED")
 
 async_engine = create_async_engine(
     async_database_url,
@@ -45,15 +70,11 @@ async_engine = create_async_engine(
     pool_size=pool_size,
     max_overflow=max_overflow,
     pool_recycle=pool_recycle,
-    pool_timeout=pool_timeout,  # Wait for a connection (fail fast)
+    pool_timeout=pool_timeout,
     echo=False,
-    # Additional settings to prevent connection leaks
     pool_reset_on_return='rollback',  # Reset connection state on return
-    connect_args={
-        'timeout': 10,  # Connection timeout
-        'command_timeout': 30,  # Command execution timeout
-        'statement_cache_size': 0,  # Disable prepared statements for pgbouncer compatibility
-    }
+    connect_args=connect_args,
+    execution_options=execution_options
 )
 
 # Create async session factory

@@ -2,18 +2,35 @@
 
 ## Overview
 
-Users can create automated trading bots (strategies) through AI conversation. Strategies are **server-like modules** with standardized interfaces stored as database files.
+Users create automated trading bots (strategies) through AI conversation. Each strategy is defined by:
+
+## **What is a Strategy?**
+
+A strategy consists of:
+
+1. **📝 Thesis** - Why this will make money (plain English)
+2. **📜 Entry Script** (`entry.py`) - Executable code that returns entry signals
+3. **📜 Exit Script** (`exit.py`) - Executable code that returns exit signals  
+4. **💰 Capital Allocation** - Total capital, per-trade size, position limits
+5. **⏱️ Execution Frequency** - How often to run (in seconds)
+6. **🎯 Platform** - Where to execute (`polymarket`, `kalshi`, `alpaca`)
+7. **📊 Track Record** - Backtest → Paper → Live progression
 
 ## Key Concepts
 
 ### 1. **Hard Priors** (Required for Every Strategy)
 
 Every strategy MUST define:
-- ✅ **Entry Signal**: `async def should_enter(ctx) -> list[EntrySignal]`
-- ✅ **Exit Signal**: `async def should_exit(ctx, position) -> ExitSignal?`
+- ✅ **Thesis**: Why this strategy will make money
+- ✅ **Entry Script**: Returns `list[EntrySignal]`
+- ✅ **Exit Script**: Returns `ExitSignal | None` for each position
 - ✅ **Execution Platform**: `polymarket`, `kalshi`, or `alpaca`
-- ✅ **Polling Duration**: How often to check (in seconds)
-- ✅ **Risk Limits**: Max order size, daily limits, etc.
+- ✅ **Execution Frequency**: Check for signals every N seconds
+- ✅ **Capital Allocation**:
+  - Total capital allocated to strategy
+  - Capital per single trade
+  - Max concurrent positions
+  - Position sizing method (fixed, Kelly, % of capital)
 
 ### 2. **Server-Like Architecture**
 
@@ -29,14 +46,68 @@ servers/strategies/
 
 ### 3. **User Strategies as Database Files**
 
-When AI creates a strategy, it generates **2 files** saved as ChatFiles:
+When AI creates a strategy, it generates **3 files** saved as ChatFiles:
 
 ```
-1. strategy.py     - Python class inheriting from BaseStrategy
-2. config.json     - Configuration with hard priors
+1. entry.py        - Entry signal logic (executable script)
+2. exit.py         - Exit signal logic (executable script)
+3. config.json     - Configuration with hard priors
 ```
 
 These are stored in the `chat_files` table, linked to the strategy via `file_ids`.
+
+### 4. **Capital Management**
+
+Each strategy has its own capital allocation:
+
+```json
+{
+  "capital": {
+    "total_capital": 5000,           // Total USD for this strategy
+    "capital_per_trade": 100,        // USD per single trade
+    "max_positions": 5,              // Max concurrent positions
+    "max_position_size": 500,        // Max USD in any single position
+    "max_daily_loss": 200,           // Stop if daily loss > this
+    "sizing_method": "kelly"         // fixed | kelly | percent_capital
+  }
+}
+```
+
+**Capital Tracking:**
+- System tracks deployed capital vs available
+- Won't enter new trades if capital exhausted
+- Won't enter if max positions reached
+- Position sizing can scale with confidence (Kelly)
+
+### 5. **Execution Modes & Track Record**
+
+Strategies progress through modes:
+
+```
+BACKTEST → PAPER (shadow) → LIVE
+```
+
+**Backtest**: Historical data simulation
+- Tests strategy logic on past data
+- Fast way to validate approach
+- Results shown in UI
+
+**Paper Trading** (Shadow Mode):
+- Real-time data, fake trades
+- Runs alongside market
+- Builds track record before risking money
+- Must meet criteria to graduate to live
+
+**Live Trading**:
+- Real money execution
+- Only after proving success in paper
+- Full audit trail
+
+**Graduation Criteria** (Paper → Live):
+- Minimum 20 paper trades
+- Win rate > 55%
+- Positive P&L
+- Max drawdown < 20%
 
 ---
 

@@ -411,6 +411,37 @@ export interface RiskLimits {
   allowed_services?: string[];
 }
 
+export interface CapitalAllocation {
+  total_capital?: number;
+  capital_per_trade?: number;
+  max_positions?: number;
+  max_position_size?: number;
+  max_daily_loss?: number;
+  max_total_drawdown?: number;
+  sizing_method?: 'fixed' | 'kelly' | 'percent_capital';
+  deployed?: number;
+}
+
+export interface StrategyConfig {
+  description?: string;
+  source_chat_id?: string;
+  file_ids?: string[];
+  entrypoint?: string;
+  schedule?: string;
+  schedule_description?: string;
+  risk_limits?: RiskLimits;
+  approved_at?: string;
+  thesis?: string;
+  platform?: 'polymarket' | 'kalshi' | 'alpaca';
+  execution_frequency?: number;
+  capital?: CapitalAllocation;
+  entry_script?: string;
+  exit_script?: string;
+  entry_description?: string;
+  exit_description?: string;
+  parameters?: Record<string, any>;
+}
+
 export interface StrategyStats {
   total_runs?: number;
   successful_runs?: number;
@@ -420,6 +451,45 @@ export interface StrategyStats {
   last_run_summary?: string;
   total_spent_usd?: number;
   total_profit_usd?: number;
+  
+  // Mode tracking
+  mode?: 'backtest' | 'paper' | 'live';
+  
+  // Track record
+  total_trades?: number;
+  winning_trades?: number;
+  losing_trades?: number;
+  win_rate?: number;
+  total_pnl?: number;
+  total_volume?: number;
+  avg_trade_pnl?: number;
+  sharpe_ratio?: number;
+  max_drawdown?: number;
+  
+  // Per-mode stats
+  backtest_trades?: number;
+  backtest_win_rate?: number;
+  backtest_pnl?: number;
+  backtest_start?: string;
+  backtest_end?: string;
+  
+  paper_trades?: number;
+  paper_win_rate?: number;
+  paper_pnl?: number;
+  paper_start?: string;
+  paper_end?: string;
+  
+  live_trades?: number;
+  live_win_rate?: number;
+  live_pnl?: number;
+  live_start?: string;
+  
+  // Additional stats
+  avg_win?: number;
+  avg_loss?: number;
+  largest_win?: number;
+  largest_loss?: number;
+  current_positions?: number;
 }
 
 export interface Strategy {
@@ -432,6 +502,7 @@ export interface Strategy {
   schedule?: string;
   risk_limits?: RiskLimits;
   stats?: StrategyStats;
+  config?: StrategyConfig;
   created_at: string;
   updated_at: string;
   file_ids?: string[];
@@ -450,6 +521,7 @@ export interface StrategyExecution {
   error?: string;
   actions_count?: number;
   data?: {
+    mode?: 'backtest' | 'paper' | 'live';
     trigger: string;
     completed_at?: string;
     duration_ms?: number;
@@ -457,6 +529,14 @@ export interface StrategyExecution {
     error?: string;
     logs?: string[];
     summary?: string;
+    signals?: Array<{
+      market_id: string;
+      market_name: string;
+      side: string;
+      reason: string;
+      confidence: number;
+      metadata?: any;
+    }>;
     actions?: Array<{
       type: string;
       timestamp: string;

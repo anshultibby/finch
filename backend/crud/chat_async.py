@@ -283,3 +283,62 @@ async def clear_chat_messages(db: AsyncSession, chat_id: str) -> int:
     await db.commit()
     return count
 
+
+async def get_last_activity_timestamp(db: AsyncSession, chat_id: str) -> Optional[str]:
+    """Get the timestamp of the last message in a chat (for activity tracking)"""
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.chat_id == chat_id)
+        .order_by(ChatMessage.timestamp.desc())
+        .limit(1)
+    )
+    last_message = result.scalar_one_or_none()
+    
+    if last_message and last_message.timestamp:
+        return last_message.timestamp.isoformat()
+    
+    # Fall back to chat creation time if no messages
+    chat = await get_chat(db, chat_id)
+    if chat and chat.created_at:
+        return chat.created_at.isoformat()
+    
+    return None
+
+
+async def set_chat_processing(db: AsyncSession, chat_id: str, is_processing: bool) -> None:
+    """
+    Mark a chat as processing or not processing.
+    Used for stream reconnection to track active streams.
+    """
+    from datetime import datetime
+    
+    chat = await get_chat(db, chat_id)
+    if chat:
+        chat.is_processing = is_processing
+        chat.processing_started_at = datetime.now() if is_processing else None
+        await db.commit()
+
+
+async def is_chat_processing(db: AsyncSession, chat_id: str) -> bool:
+    """
+    Check if a chat is currently being processed.
+    Also cleans up stale processing state (>5 minutes old).
+    """
+    from datetime import datetime, timedelta
+    
+    chat = await get_chat(db, chat_id)
+    if not chat or not chat.is_processing:
+        return False
+    
+    # Check if processing started recently (within last 5 minutes)
+    if chat.processing_started_at:
+        age = datetime.now() - chat.processing_started_at.replace(tzinfo=None)
+        if age > timedelta(minutes=5):
+            # Stale entry - clean it up
+            chat.is_processing = False
+            chat.processing_started_at = None
+            await db.commit()
+            return False
+    
+    return True
+

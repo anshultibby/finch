@@ -63,9 +63,10 @@ interface ChatStreamState {
   error: string | null;
   pendingOptions: SSEOptionsEvent | null;
   resources: Resource[];
-  stream: { close: () => void } | null;
+  stream: { close: () => void; reconnect: () => void } | null;
   chatFiles: FileItem[]; // Cached file list for file explorer
   toolInsertionCounter: number; // Counter for assigning stable insertion order to tools
+  wasStreamingBeforeHidden: boolean; // Track if stream was active when tab was hidden
 }
 
 export default function ChatView() {
@@ -125,6 +126,7 @@ export default function ChatView() {
         stream: null,
         chatFiles: [],
         toolInsertionCounter: 0,
+        wasStreamingBeforeHidden: false,
       });
     }
     return chatStatesRef.current.get(chatId)!;
@@ -196,27 +198,160 @@ export default function ChatView() {
     setChatFiles(state.chatFiles);
   }, [getChatState]);
 
-  // Handle visibility changes - ensure UI stays in sync when returning from background tab
+  // Handle visibility changes - smart reconnection when returning
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && currentChatId) {
-        // Tab became visible - sync display state from the ref
-        // This ensures any events processed while hidden are reflected in the UI
+    const handleVisibilityChange = async () => {
+      if (document.hidden) {
+        // Tab is being hidden - mark active streams but DON'T close them yet
+        // This allows the stream to continue in the background
+        chatStatesRef.current.forEach((state, chatId) => {
+          if (state.stream && state.isLoading) {
+            console.log(`Marking stream for chat ${chatId} as hidden`);
+            state.wasStreamingBeforeHidden = true;
+          }
+        });
+      } else if (currentChatId) {
+        // Tab became visible - implement smart reconnection
         const state = getChatState(currentChatId);
-        setMessages([...state.messages]);
-        setStreamingText(state.streamingText);
-        setStreamingTools([...state.streamingTools]);
-        setIsLoading(state.isLoading);
-        setError(state.error);
-        setPendingOptions(state.pendingOptions);
-        setResources([...state.resources]);
-        setChatFiles([...state.chatFiles]);
+        
+        // If stream was active before hiding, attempt reconnection
+        if (state.wasStreamingBeforeHidden) {
+          console.log(`Tab visible - checking if chat ${currentChatId} is still processing`);
+          
+          try {
+            // Check if backend is still processing this chat
+            const status = await chatApi.checkChatStatus(currentChatId);
+            
+            if (status.is_processing) {
+              console.log('Backend still processing - attempting to reconnect stream...');
+              
+              // Try to reconnect the existing stream
+              if (state.stream) {
+                state.stream.reconnect();
+              } else {
+                // Stream was lost - reload chat history to get updates
+                console.log('Stream lost - reloading chat history');
+                const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
+                const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
+                  role: msg.role,
+                  content: msg.content,
+                  timestamp: msg.timestamp || new Date().toISOString(),
+                  toolCalls: msg.tool_calls
+                }));
+                
+                const [chatResources, chatFilesResponse] = await Promise.all([
+                  resourcesApi.getChatResources(currentChatId),
+                  fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}`)
+                    .then(r => r.ok ? r.json() : [])
+                    .catch(() => [])
+                ]);
+                
+                updateChatState(currentChatId, {
+                  messages: loadedMessages,
+                  streamingText: '',
+                  streamingTools: [],
+                  isLoading: true, // Still processing
+                  resources: chatResources,
+                  chatFiles: chatFilesResponse,
+                  wasStreamingBeforeHidden: false,
+                });
+                
+                // Poll for completion
+                const pollInterval = setInterval(async () => {
+                  const currentStatus = await chatApi.checkChatStatus(currentChatId);
+                  if (!currentStatus.is_processing) {
+                    clearInterval(pollInterval);
+                    // Reload final state
+                    const finalData = await chatApi.getChatHistoryForDisplay(currentChatId);
+                    const finalMessages: Message[] = finalData.messages.map((msg: any) => ({
+                      role: msg.role,
+                      content: msg.content,
+                      timestamp: msg.timestamp || new Date().toISOString(),
+                      toolCalls: msg.tool_calls
+                    }));
+                    
+                    updateChatState(currentChatId, {
+                      messages: finalMessages,
+                      streamingText: '',
+                      streamingTools: [],
+                      isLoading: false,
+                    });
+                  }
+                }, 2000); // Poll every 2 seconds
+                
+                // Stop polling after 30 seconds
+                setTimeout(() => clearInterval(pollInterval), 30000);
+              }
+            } else {
+              // Processing completed - reload final state
+              console.log('Backend finished processing - reloading final state');
+              const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
+              const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
+                role: msg.role,
+                content: msg.content,
+                timestamp: msg.timestamp || new Date().toISOString(),
+                toolCalls: msg.tool_calls
+              }));
+              
+              const [chatResources, chatFilesResponse] = await Promise.all([
+                resourcesApi.getChatResources(currentChatId),
+                fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}`)
+                  .then(r => r.ok ? r.json() : [])
+                  .catch(() => [])
+              ]);
+              
+              updateChatState(currentChatId, {
+                messages: loadedMessages,
+                streamingText: '',
+                streamingTools: [],
+                isLoading: false,
+                stream: null,
+                resources: chatResources,
+                chatFiles: chatFilesResponse,
+                wasStreamingBeforeHidden: false,
+              });
+            }
+          } catch (err) {
+            console.error('Error during reconnection:', err);
+            // Fall back to just syncing display state
+            setMessages([...state.messages]);
+            setStreamingText(state.streamingText);
+            setStreamingTools([...state.streamingTools]);
+            setIsLoading(false);
+            setError('Connection lost. Please send another message to continue.');
+            state.wasStreamingBeforeHidden = false;
+          }
+        } else {
+          // No active stream before hiding - just sync display state
+          setMessages([...state.messages]);
+          setStreamingText(state.streamingText);
+          setStreamingTools([...state.streamingTools]);
+          setIsLoading(state.isLoading);
+          setError(state.error);
+          setPendingOptions(state.pendingOptions);
+          setResources([...state.resources]);
+          setChatFiles([...state.chatFiles]);
+        }
       }
     };
 
+    const handleBeforeUnload = () => {
+      // Page is being unloaded - close all active streams
+      chatStatesRef.current.forEach((state) => {
+        if (state.stream) {
+          state.stream.close();
+        }
+      });
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [currentChatId, getChatState]);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [currentChatId, getChatState, updateChatState]);
 
 
   // Update selected tool when streaming tools change

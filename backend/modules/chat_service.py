@@ -56,6 +56,10 @@ class ChatService:
         with tracer.start_as_current_span("chat_turn"):
             logger.info(f"Starting chat turn for user {user_id}")
             
+            # Mark chat as processing in database
+            async with get_db_session() as db:
+                await chat_async.set_chat_processing(db, chat_id, is_processing=True)
+            
             # Check if user has credits before processing
             async with get_db_session() as db:
                 from services.credits import CreditsService
@@ -287,6 +291,10 @@ class ChatService:
             
             LLMHandler.finalize_session(chat_id)
             
+            # Mark chat as no longer processing in database
+            async with get_db_session() as db:
+                await chat_async.set_chat_processing(db, chat_id, is_processing=False)
+            
             logger.info("Chat turn complete - all messages saved incrementally")
     
     async def get_chat_history(self, chat_id: str) -> List[dict]:
@@ -312,6 +320,17 @@ class ChatService:
         async with get_db_session() as db:
             # Use optimized function that gets chats and previews in a single query
             return await chat_async.get_user_chats_with_preview(db, user_id, limit)
+    
+    async def is_chat_processing(self, chat_id: str) -> bool:
+        """
+        Check if a chat is currently being processed.
+        Used for reconnection logic to determine if streaming should resume.
+        
+        Returns:
+            True if the chat is currently being processed, False otherwise
+        """
+        async with get_db_session() as db:
+            return await chat_async.is_chat_processing(db, chat_id)
     
     async def get_chat_history_for_display(self, chat_id: str) -> Dict[str, Any]:
         """

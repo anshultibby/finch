@@ -9,6 +9,9 @@ Progressive disclosure for external APIs. Each tool is a Python file with clean 
 - **reddit/** - Reddit sentiment (trending stocks)
 - **snaptrade/** - SnapTrade (secure portfolio access via OAuth)
 - **tradingview/** - TradingView (technical analysis, interactive charts)
+- **dome/** - Dome API (Polymarket & Kalshi prediction markets) - [See README](dome/README.md)
+- **kalshi/** - Kalshi direct API (prediction markets)
+- **strategies/** - Trading strategy implementations - [See README](strategies/README.md)
 
 **Note:** Web search and scraping are now first-order tools (`web_search`, `news_search`, `scrape_url`).
 
@@ -105,6 +108,30 @@ from servers.tradingview.charts.generate import create_chart_for_chat
 chart = create_chart_for_chat('AAPL', interval='1d', indicators=['RSI', 'MACD'])
 # Save chart['html'] to file, reference with [file:AAPL_chart.html]
 ```
+
+### Prediction Markets (Dome API)
+
+```python
+from servers.dome.polymarket.wallet import get_positions, get_wallet_activity, get_wallet_pnl
+from servers.dome.polymarket.markets import get_markets
+
+# Get wallet positions
+positions = get_positions("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+if 'error' not in positions:
+    for pos in positions['positions']:
+        print(f"{pos['title']}: {pos['shares_normalized']} {pos['label']}")
+
+# Get wallet trading activity
+activity = get_wallet_activity("0x742d35...", limit=50)
+
+# Get realized P&L over time
+pnl = get_wallet_pnl("0x742d35...", granularity="day")
+
+# Search for markets
+markets = get_markets(search="bitcoin", status="open", limit=20)
+```
+
+**See [dome/README.md](dome/README.md) for full documentation, common issues, and fixes.**
 
 ## ⚠️ Common Mistakes to Avoid
 

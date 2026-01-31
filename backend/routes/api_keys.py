@@ -21,6 +21,7 @@ from models.api_keys import (
 )
 from crud import user_api_keys
 from modules.tools.clients.kalshi import test_kalshi_credentials
+from modules.tools.clients.polymarket import test_polymarket_credentials
 import logging
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,12 @@ async def save_api_key(
                 raise HTTPException(
                     status_code=400,
                     detail="Kalshi requires 'private_key' in credentials"
+                )
+        elif request.service == "polymarket":
+            if "private_key" not in request.credentials:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Polymarket requires 'private_key' in credentials"
                 )
         
         key_info = await user_api_keys.save_api_key(
@@ -160,6 +167,17 @@ async def test_api_key(
                 private_key_pem=private_key
             )
             return TestApiKeyResponse(**result)
+        elif request.service == "polymarket":
+            private_key = creds.get("private_key", "")
+            funder_address = creds.get("funder_address")
+            
+            logger.info(f"Testing Polymarket credentials - private_key length: {len(private_key)}")
+            
+            result = await test_polymarket_credentials(
+                private_key=private_key,
+                funder_address=funder_address
+            )
+            return TestApiKeyResponse(**result)
         else:
             raise HTTPException(
                 status_code=400,
@@ -196,6 +214,18 @@ async def test_credentials_before_save(
                 )
             
             result = await test_kalshi_credentials(api_key_id, private_key)
+            return TestApiKeyResponse(**result)
+        elif request.service == "polymarket":
+            private_key = request.credentials.get("private_key")
+            funder_address = request.credentials.get("funder_address")
+            
+            if not private_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Polymarket requires 'private_key'"
+                )
+            
+            result = await test_polymarket_credentials(private_key, funder_address)
             return TestApiKeyResponse(**result)
         else:
             raise HTTPException(

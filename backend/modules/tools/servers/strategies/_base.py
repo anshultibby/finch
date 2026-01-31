@@ -14,13 +14,64 @@ import json
 from pathlib import Path
 
 
+class CapitalAllocation(BaseModel):
+    """How capital is allocated across the strategy"""
+    # Total capital available to the strategy
+    total_capital: float = Field(description="Total USD allocated to this strategy")
+    
+    # Per-trade sizing
+    capital_per_trade: float = Field(description="USD to risk per single trade")
+    
+    # Position limits
+    max_positions: int = Field(default=5, description="Maximum concurrent positions")
+    max_position_size: float = Field(description="Max USD in any single position")
+    
+    # Risk limits
+    max_daily_loss: float = Field(description="Stop trading if daily loss exceeds this (USD)")
+    max_total_drawdown: float = Field(default=0.20, description="Stop if total drawdown exceeds % (0-1)")
+    
+    # Position sizing method
+    sizing_method: Literal["fixed", "kelly", "percent_capital"] = Field(
+        default="fixed",
+        description="How to size positions: fixed USD, Kelly criterion, or % of capital"
+    )
+    
+    @property
+    def available_capital_per_position(self) -> float:
+        """How much capital can be used per position"""
+        return min(self.capital_per_trade, self.max_position_size)
+    
+    @property
+    def max_capital_deployed(self) -> float:
+        """Maximum capital that can be in positions at once"""
+        return min(
+            self.max_positions * self.max_position_size,
+            self.total_capital * 0.8  # Never use more than 80% of total capital
+        )
+
+
 class StrategyConfig(BaseModel):
     """Configuration for a strategy (loaded from config.json)"""
+    # Identity & Thesis
     name: str
-    description: str
+    thesis: str = Field(description="Why this strategy will make money (human-readable)")
+    
+    # Platform & Execution
     platform: Literal["polymarket", "kalshi", "alpaca"]
-    polling_interval: int = Field(ge=1, description="Polling interval in seconds")
-    risk_limits: Dict[str, Any] = Field(default_factory=dict)
+    execution_frequency: int = Field(ge=1, description="Check for signals every N seconds")
+    
+    # Capital Management
+    capital: CapitalAllocation
+    
+    # Script filenames (stored as separate ChatFiles)
+    entry_script: str = Field(default="entry.py", description="Script that returns entry signals")
+    exit_script: str = Field(default="exit.py", description="Script that returns exit signals")
+    
+    # Entry/Exit descriptions (for UI display)
+    entry_description: str = Field(description="When to enter (human-readable)")
+    exit_description: str = Field(description="When to exit (human-readable)")
+    
+    # Optional parameters
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -92,92 +143,83 @@ class BaseStrategy(ABC):
     # Required Methods (Must implement)
     # =========================================================================
     
-    @abstractmethod
     async def should_enter(self, ctx) -> list[EntrySignal]:
         """
-        Check if strategy should enter new positions
+        Execute entry script to check for entry signals
         
-        Args:
-            ctx: StrategyContext with access to APIs and state
-            
-        Returns:
-            List of EntrySignal objects (empty if no signals)
-            
-        Example:
-            async def should_enter(self, ctx):
-                # Check markets
-                markets = await ctx.polymarket.get_markets(tags=['crypto'])
-                
-                signals = []
-                for market in markets['markets']:
-                    if self._should_buy(market):
-                        signals.append(EntrySignal(
-                            market_id=market['condition_id'],
-                            market_name=market['title'],
-                            side='yes',
-                            reason='Price below threshold',
-                            confidence=0.75
-                        ))
-                
-                return signals
+        The entry script (entry.py) should return a list of EntrySignal dicts.
+        This base implementation loads and executes the script.
         """
-        pass
+        entry_script_code = self._load_script(self.config.entry_script)
+        
+        # Execute entry script with ctx available
+        namespace = {'ctx': ctx, 'EntrySignal': EntrySignal}
+        exec(entry_script_code, namespace)
+        
+        # Entry script should define a function: async def check_entry(ctx)
+        if 'check_entry' in namespace:
+            result = await namespace['check_entry'](ctx)
+            if isinstance(result, list):
+                return [EntrySignal(**s) if isinstance(s, dict) else s for s in result]
+        
+        return []
     
-    @abstractmethod
     async def should_exit(self, ctx, position: Position) -> Optional[ExitSignal]:
         """
-        Check if strategy should exit an open position
+        Execute exit script to check if position should be exited
         
-        Args:
-            ctx: StrategyContext
-            position: Current position to evaluate
-            
-        Returns:
-            ExitSignal if should exit, None otherwise
-            
-        Example:
-            async def should_exit(self, ctx, position):
-                # Exit if profit > 20%
-                if position.unrealized_pnl > position.size * 0.20:
-                    return ExitSignal(
-                        position_id=position.position_id,
-                        reason='Take profit at +20%'
-                    )
-                
-                # Exit if loss > 10%
-                if position.unrealized_pnl < -position.size * 0.10:
-                    return ExitSignal(
-                        position_id=position.position_id,
-                        reason='Stop loss at -10%'
-                    )
-                
-                return None
+        The exit script (exit.py) should return an ExitSignal dict or None.
+        This base implementation loads and executes the script.
         """
-        pass
+        exit_script_code = self._load_script(self.config.exit_script)
+        
+        # Execute exit script with ctx and position available
+        namespace = {'ctx': ctx, 'position': position, 'ExitSignal': ExitSignal}
+        exec(exit_script_code, namespace)
+        
+        # Exit script should define: async def check_exit(ctx, position)
+        if 'check_exit' in namespace:
+            result = await namespace['check_exit'](ctx, position)
+            if isinstance(result, dict):
+                return ExitSignal(**result)
+            return result
+        
+        return None
+    
+    def _load_script(self, filename: str) -> str:
+        """Load script code from strategy files"""
+        # In real implementation, this would load from ChatFiles
+        # For now, scripts are expected to be in self._script_cache
+        if not hasattr(self, '_script_cache'):
+            self._script_cache = {}
+        
+        if filename not in self._script_cache:
+            raise ValueError(f"Script {filename} not found in strategy files")
+        
+        return self._script_cache[filename]
     
     @abstractmethod
-    async def execute_entry(self, ctx, signal: EntrySignal) -> Dict[str, Any]:
+    async def execute_entry(self, ctx, signal: EntrySignal, position_size: float) -> Dict[str, Any]:
         """
         Execute entry trade based on signal
         
         Args:
             ctx: StrategyContext
             signal: Entry signal from should_enter()
+            position_size: Calculated position size in USD
             
         Returns:
             Dict with execution results
             
         Example:
-            async def execute_entry(self, ctx, signal):
-                size_usd = self.config.risk_limits.get('max_order_usd', 100)
-                
+            async def execute_entry(self, ctx, signal, position_size):
                 result = await ctx.polymarket.create_order(
                     token_id=signal.market_id,
                     side='BUY',
-                    amount=size_usd
+                    amount=position_size
                 )
                 
-                ctx.log(f"Entered {signal.market_name}: {result}")
+                ctx.log(f"Entered {signal.market_name}: ${position_size}")
                 return result
         """
         pass

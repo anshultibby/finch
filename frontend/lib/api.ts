@@ -85,13 +85,23 @@ export const chatApi = {
     return response.data;
   },
 
+  // Check if a chat is currently being processed on the backend
+  checkChatStatus: async (chatId: string): Promise<{ is_processing: boolean; last_activity: string }> => {
+    try {
+      const response = await api.get(`/chat/status/${chatId}`);
+      return response.data;
+    } catch {
+      return { is_processing: false, last_activity: new Date().toISOString() };
+    }
+  },
+
   sendMessageStream: (
     message: string,
     userId: string,
     chatId: string,
     handlers: SSEEventHandlers,
     images?: ImageAttachment[]
-  ): { close: () => void } => {
+  ): { close: () => void; reconnect: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
     const abortController = new AbortController();
 
@@ -104,10 +114,17 @@ export const chatApi = {
 
     // Track if we're closed to prevent processing after abort
     let isClosed = false;
+    let isReconnecting = false;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 3;
+    const RECONNECT_DELAY = 2000; // 2 seconds
 
     // Process a single SSE event - extracted for reuse
     const processEvent = (eventType: string, eventData: unknown) => {
       if (isClosed) return;
+      
+      // Reset reconnect attempts on successful event
+      reconnectAttempts = 0;
       
       switch (eventType) {
         case 'assistant_message_delta':
@@ -190,70 +207,102 @@ export const chatApi = {
       return remainingBuffer;
     };
 
-    fetch(url.toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: abortController.signal,
-      // keepalive helps maintain connection during tab switches
-      keepalive: true,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+    // Main fetch stream handler
+    const startStream = () => {
+      fetch(url.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: abortController.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
 
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
 
-        if (!reader) {
-          throw new Error('Response body is null');
-        }
+          if (!reader) {
+            throw new Error('Response body is null');
+          }
 
-        let buffer = '';
+          let buffer = '';
+          isReconnecting = false;
 
-        // Use requestAnimationFrame-based processing when tab is visible
-        // This ensures smoother UI updates and better handling of visibility changes
-        const processStream = async () => {
-          try {
-            while (!isClosed) {
-              const { done, value } = await reader.read();
-              if (done || isClosed) break;
+          // Stream processing loop
+          const processStream = async () => {
+            try {
+              while (!isClosed) {
+                const { done, value } = await reader.read();
+                if (done || isClosed) break;
 
-              buffer += decoder.decode(value, { stream: true });
-              
-              // Process all complete events in the buffer
-              // This handles cases where multiple events arrive at once
-              // (common when returning from a background tab)
-              buffer = parseAndProcessEvents(buffer);
-              
-              // Yield to the event loop to allow UI updates
-              // This prevents blocking when processing many buffered events
-              await new Promise(resolve => setTimeout(resolve, 0));
+                buffer += decoder.decode(value, { stream: true });
+                
+                // Process all complete events in the buffer
+                // This handles cases where multiple events arrive at once
+                buffer = parseAndProcessEvents(buffer);
+                
+                // Yield to the event loop to allow UI updates
+                // This prevents blocking when processing many buffered events
+                await new Promise(resolve => setTimeout(resolve, 0));
+              }
+            } catch (error) {
+              if (!isClosed && (error as Error).name !== 'AbortError') {
+                throw error;
+              }
+            } finally {
+              // Always cancel the reader when done to free resources
+              reader.cancel().catch(() => {});
             }
-          } catch (error) {
-            if (!isClosed && (error as Error).name !== 'AbortError') {
-              throw error;
+          };
+
+          await processStream();
+        })
+        .catch((error) => {
+          if (!isClosed && error.name !== 'AbortError') {
+            console.error('SSE stream error:', error);
+            
+            // Attempt to reconnect if not at max attempts
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && !isReconnecting) {
+              isReconnecting = true;
+              reconnectAttempts++;
+              console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+              
+              setTimeout(() => {
+                if (!isClosed) {
+                  startStream();
+                }
+              }, RECONNECT_DELAY * reconnectAttempts); // Exponential backoff
+            } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+              handlers.onError?.({
+                error: 'Connection lost. Please refresh to continue.',
+                timestamp: new Date().toISOString(),
+              });
+            } else {
+              handlers.onError?.({
+                error: error.message,
+                timestamp: new Date().toISOString(),
+              });
             }
           }
-        };
+        });
+    };
 
-        await processStream();
-      })
-      .catch((error) => {
-        if (!isClosed && error.name !== 'AbortError') {
-          console.error('SSE stream error:', error);
-          handlers.onError?.({
-            error: error.message,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      });
+    // Start the initial stream
+    startStream();
 
     return {
       close: () => {
         isClosed = true;
         abortController.abort();
+      },
+      reconnect: () => {
+        if (!isClosed && !isReconnecting) {
+          console.log('Manual reconnect requested');
+          reconnectAttempts = 0;
+          startStream();
+        }
       },
     };
   },
@@ -552,6 +601,8 @@ export const strategiesApi = {
     schedule_description?: string;
     risk_limits?: any;
     description?: string;
+    stats?: any;
+    config?: any;
   }) {
     const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
       method: 'PATCH',

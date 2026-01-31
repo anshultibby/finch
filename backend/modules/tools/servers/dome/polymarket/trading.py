@@ -1,7 +1,8 @@
 """
-Polymarket Trading - Trade History and Activity
+Polymarket Trading - Market-Wide Trade History
 
-Track historical trades and market activity.
+Track historical trades across markets (not wallet-specific).
+For wallet-specific activity, use get_wallet_activity from wallet.py instead.
 """
 from typing import Optional, Dict, Any
 from .._client import call_dome_api
@@ -18,7 +19,10 @@ def get_trade_history(
     offset: int = 0
 ) -> Dict[str, Any]:
     """
-    Get historical trade data for Polymarket markets.
+    Get market-wide trade history (all trades across the platform).
+    
+    NOTE: For wallet-specific trades, use get_wallet_activity() from wallet.py instead.
+    This endpoint returns all trades on the platform matching your filters.
     
     Args:
         condition_id: Filter by condition ID
@@ -56,11 +60,9 @@ def get_trade_history(
                 print(f"{trade['timestamp']}: {trade['side']} "
                       f"{trade['size']} @ ${trade['price']}")
         
-        # Track a specific wallet's trades
-        trades = get_trade_history(
-            maker_address="0xabc123...",
-            limit=100
-        )
+        # For wallet-specific trades, use wallet.get_wallet_activity() instead:
+        # from servers.dome.polymarket.wallet import get_wallet_activity
+        # activity = get_wallet_activity("0xabc123...", limit=100)
     """
     params = {
         "limit": min(max(1, limit), 1000),

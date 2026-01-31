@@ -20,6 +20,7 @@ greenlet==3.0.3  # Required for SQLAlchemy async
 httpx>=0.27.0
 kalshi_python_async
 litellm==1.80.9
+py-clob-client>=0.34.5  # Official Polymarket CLOB client
 matplotlib==3.9.0
 numpy==2.0.0
 opentelemetry-api==1.21.0

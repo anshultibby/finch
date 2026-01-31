@@ -70,12 +70,16 @@ class Chat(Base):
     title = Column(String, nullable=True)  # Auto-generated or user-set title
     icon = Column(String(10), nullable=True)  # Emoji icon for the chat (LLM-generated)
     
+    # Processing state for stream reconnection
+    is_processing = Column(Boolean, default=False, nullable=False, index=True)
+    processing_started_at = Column(DateTime(timezone=True), nullable=True)
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<Chat(chat_id='{self.chat_id}', user_id='{self.user_id}', title='{self.title}', icon='{self.icon}')>"
+        return f"<Chat(chat_id='{self.chat_id}', user_id='{self.user_id}', title='{self.title}', icon='{self.icon}', is_processing={self.is_processing})>"
 
 
 class ChatMessage(Base):
@@ -434,15 +438,35 @@ class Strategy(Base):
     
     stats JSONB structure:
     {
+        "mode": "paper" | "live",  # Current execution mode
         "total_runs": 42,
         "successful_runs": 40,
         "failed_runs": 2,
         "last_run_at": "2025-01-08T...",
         "last_run_status": "success",
         "last_run_summary": "Bought 2 contracts for $35",
-        "total_spent_usd": 1250.00,
-        "total_profit_usd": 320.00,
-        ... any other stats we want to track
+        
+        # Track record
+        "total_trades": 25,
+        "winning_trades": 18,
+        "losing_trades": 7,
+        "win_rate": 0.72,
+        "total_pnl": 320.00,
+        "total_volume": 1250.00,
+        "avg_trade_pnl": 12.80,
+        "sharpe_ratio": 1.5,
+        "max_drawdown": -45.00,
+        
+        # Paper trading period
+        "paper_start_date": "2025-01-01T...",
+        "paper_end_date": "2025-01-15T...",
+        "paper_trades": 15,
+        "paper_pnl": 125.00,
+        
+        # Live trading
+        "live_start_date": "2025-01-15T...",
+        "live_trades": 10,
+        "live_pnl": 195.00
     }
     """
     __tablename__ = "strategies"

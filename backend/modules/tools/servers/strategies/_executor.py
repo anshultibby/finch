@@ -95,20 +95,60 @@ async def execute_strategy_cycle(
         # =====================================================================
         
         entries_executed = []
+        
+        # Check capital limits before entering new trades
+        capital_config = strategy.config.capital
+        current_deployed = sum(
+            pos.size * pos.entry_price for pos in open_positions
+        )
+        available_capital = capital_config.total_capital - current_deployed
+        
+        ctx.log(f"💰 Capital: ${current_deployed:.2f} deployed / ${capital_config.total_capital:.2f} total")
+        ctx.log(f"💰 Available: ${available_capital:.2f}, Max positions: {len(open_positions)}/{capital_config.max_positions}")
+        
+        # Check if we can enter new positions
+        can_enter = (
+            len(open_positions) < capital_config.max_positions and
+            available_capital >= capital_config.capital_per_trade
+        )
+        
+        if not can_enter:
+            ctx.log("⏸️ Cannot enter new positions (capital or position limit)")
+        
         try:
             entry_signals: List[EntrySignal] = await strategy.should_enter(ctx)
             ctx.log(f"🔍 Found {len(entry_signals)} entry signals")
             
             for signal in entry_signals:
+                # Check if we still have capacity for this trade
+                if not can_enter:
+                    ctx.log(f"⏭️ Skipping {signal.market_name} - no capacity")
+                    continue
+                
                 try:
                     ctx.log(f"🚪 Entry signal: {signal.market_name} - {signal.reason} (confidence: {signal.confidence:.0%})")
                     
-                    # Execute entry
-                    result = await strategy.execute_entry(ctx, signal)
+                    # Calculate position size
+                    position_size = _calculate_position_size(
+                        capital_config,
+                        signal.confidence,
+                        available_capital
+                    )
+                    
+                    ctx.log(f"💵 Position size: ${position_size:.2f}")
+                    
+                    # Execute entry with calculated size
+                    result = await strategy.execute_entry(ctx, signal, position_size)
                     entries_executed.append({
                         'signal': signal.model_dump(),
+                        'position_size': position_size,
                         'result': result
                     })
+                    
+                    # Update available capital
+                    available_capital -= position_size
+                    if available_capital < capital_config.capital_per_trade:
+                        can_enter = False
                     
                 except Exception as e:
                     ctx.log(f"❌ Error executing entry for {signal.market_name}: {e}")
@@ -219,3 +259,47 @@ async def _load_open_positions(
         ctx.log(f"⚠️ Error loading positions: {e}")
     
     return positions
+
+
+def _calculate_position_size(
+    capital: 'CapitalAllocation',
+    confidence: float,
+    available_capital: float
+) -> float:
+    """
+    Calculate position size based on capital allocation method
+    
+    Args:
+        capital: Capital allocation config
+        confidence: Signal confidence (0-1)
+        available_capital: How much capital is still available
+        
+    Returns:
+        Position size in USD
+    """
+    if capital.sizing_method == "fixed":
+        # Fixed size per trade
+        size = capital.capital_per_trade
+        
+    elif capital.sizing_method == "percent_capital":
+        # Percentage of total capital
+        pct = capital.capital_per_trade / 100  # Treat as percentage
+        size = capital.total_capital * pct
+        
+    elif capital.sizing_method == "kelly":
+        # Kelly criterion: scale by confidence
+        # Size = capital_per_trade * (2 * confidence - 1)
+        # At 50% confidence: no position
+        # At 75% confidence: 50% of max size
+        # At 100% confidence: 100% of max size
+        kelly_fraction = max(0, 2 * confidence - 1)
+        size = capital.capital_per_trade * kelly_fraction
+    
+    else:
+        size = capital.capital_per_trade
+    
+    # Apply limits
+    size = min(size, capital.max_position_size)
+    size = min(size, available_capital)
+    
+    return size

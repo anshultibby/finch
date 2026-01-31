@@ -186,6 +186,32 @@ profile = get_profile('AAPL')
 - `kalshi.portfolio` → Kalshi prediction market balance & positions
 - `kalshi.markets` → Kalshi events and market data
 
+**🤖 STRATEGIES (Create & Manage Trading Bots):**
+```python
+# Create a new trading strategy
+from servers.strategies.create_strategy import create_strategy
+
+result = create_strategy(
+    name="Copy Top Traders",
+    thesis="Successful traders have edge",
+    platform="polymarket",  # or "kalshi", "alpaca"
+    execution_frequency=60,  # seconds
+    total_capital=5000,
+    capital_per_trade=100,
+    max_positions=5,
+    entry_code='async def check_entry(ctx): ...',
+    exit_code='async def check_exit(ctx, position): ...',
+    entry_description="When traders make new trades",
+    exit_description="Stop loss -10%, take profit +20%"
+)
+
+# Query existing strategies
+from servers.strategies.query_strategies import list_strategies, get_top_strategies
+
+strategies = await list_strategies(user_id)
+top = await get_top_strategies(user_id, metric="win_rate", limit=3)
+```
+
 **🎰 KALSHI (Prediction Markets):**
 ```python
 # Requires user to have saved Kalshi API credentials in Settings > API Keys
