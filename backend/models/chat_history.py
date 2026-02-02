@@ -310,3 +310,90 @@ class ChatHistory(BaseModel):
     
     def __getitem__(self, index) -> ChatMessage:
         return self.messages[index]
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Get statistics about the chat history.
+        
+        Returns:
+            Dictionary with statistics including message counts, character counts,
+            token estimates, and tool call information.
+        """
+        stats = {
+            "total_messages": len(self.messages),
+            "by_role": {"user": 0, "assistant": 0, "tool": 0, "system": 0},
+            "total_chars": 0,
+            "estimated_tokens": 0,
+            "tool_calls_count": 0,
+            "tool_results_count": 0,
+            "content_breakdown": {},
+        }
+        
+        for msg in self.messages:
+            # Count by role
+            stats["by_role"][msg.role] = stats["by_role"].get(msg.role, 0) + 1
+            
+            # Count characters
+            if msg.content:
+                if isinstance(msg.content, str):
+                    char_count = len(msg.content)
+                elif isinstance(msg.content, list):
+                    # Multimodal content - count text blocks only
+                    char_count = sum(
+                        len(block.get("text", "")) 
+                        for block in msg.content 
+                        if isinstance(block, dict) and block.get("type") == "text"
+                    )
+                else:
+                    char_count = len(str(msg.content))
+                
+                stats["total_chars"] += char_count
+                
+                # Track content breakdown by role
+                if msg.role not in stats["content_breakdown"]:
+                    stats["content_breakdown"][msg.role] = {"chars": 0, "messages": 0}
+                stats["content_breakdown"][msg.role]["chars"] += char_count
+                stats["content_breakdown"][msg.role]["messages"] += 1
+            
+            # Count tool calls
+            if msg.tool_calls:
+                stats["tool_calls_count"] += len(msg.tool_calls)
+                
+                # Add character count for tool call arguments
+                for tc in msg.tool_calls:
+                    args = tc.function.get("arguments", "")
+                    if isinstance(args, str):
+                        stats["total_chars"] += len(args)
+            
+            # Count tool results
+            if msg.role == "tool":
+                stats["tool_results_count"] += 1
+        
+        # Estimate tokens (rough approximation: 4 chars per token)
+        stats["estimated_tokens"] = stats["total_chars"] // 4
+        
+        return stats
+    
+    def print_statistics(self) -> None:
+        """Print formatted statistics about the chat history."""
+        stats = self.get_statistics()
+        
+        print("\n" + "="*60)
+        print("CHAT HISTORY STATISTICS")
+        print("="*60)
+        print(f"Total Messages: {stats['total_messages']}")
+        print(f"  - User:      {stats['by_role']['user']:>4}")
+        print(f"  - Assistant: {stats['by_role']['assistant']:>4}")
+        print(f"  - Tool:      {stats['by_role']['tool']:>4}")
+        print(f"  - System:    {stats['by_role']['system']:>4}")
+        print(f"\nTool Activity:")
+        print(f"  - Tool Calls:   {stats['tool_calls_count']:>4}")
+        print(f"  - Tool Results: {stats['tool_results_count']:>4}")
+        print(f"\nContent Size:")
+        print(f"  - Total Characters: {stats['total_chars']:>8,}")
+        print(f"  - Estimated Tokens: {stats['estimated_tokens']:>8,}")
+        print(f"\nContent Breakdown by Role:")
+        for role, breakdown in stats['content_breakdown'].items():
+            avg_chars = breakdown['chars'] // breakdown['messages'] if breakdown['messages'] > 0 else 0
+            print(f"  - {role.capitalize():>9}: {breakdown['chars']:>8,} chars across {breakdown['messages']:>3} msgs (avg: {avg_chars:>6,} chars/msg)")
+        print("="*60 + "\n")

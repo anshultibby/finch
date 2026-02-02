@@ -6,6 +6,7 @@ import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import ChatHistorySidebar, { ChatHistorySidebarRef } from './ChatHistorySidebar';
 import NewChatWelcome from './NewChatWelcome';
+import ChatDebugPanel from './ChatDebugPanel';
 import ResourceViewer from '../ResourceViewer';
 import ComputerPanel from '../ComputerPanel';
 import { FileItem } from '../FileTree';
@@ -1619,6 +1620,15 @@ export default function ChatView() {
         resource={selectedResource}
         isOpen={!!selectedResource}
         onClose={() => setSelectedResource(null)}
+      />
+
+      {/* Debug panel - only visible when NEXT_PUBLIC_DEBUG_MODE=true */}
+      <ChatDebugPanel
+        messages={messages}
+        streamingText={streamingText}
+        streamingTools={streamingTools}
+        isLoading={isLoading}
+        chatId={currentChatId}
       />
     </div>
   );

@@ -65,7 +65,7 @@ class BaseAgent:
             chat_id=context.chat_id,
             model=model
         )
-        # Create tool executor with 4K char truncation (~1K tokens)
+        # Create tool executor with 8K char truncation (~2K tokens)
         # This keeps tool responses concise and reduces cache growth
         self._tool_executor = ToolExecutor(
             truncation_policy=TruncationPolicy(max_chars=8000)

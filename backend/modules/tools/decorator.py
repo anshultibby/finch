@@ -102,11 +102,21 @@ def tool(
                     "description": _extract_param_description(func, param_name)
                 }
                 
-                # Handle List types
+                # Handle List types (including List[PydanticModel])
                 if _is_list_type(param.annotation):
                     param_schema["type"] = "array"
-                    item_type = _get_list_item_type(param.annotation)
-                    param_schema["items"] = {"type": item_type}
+                    param_schema["items"] = _get_list_item_schema(param.annotation)
+                
+                # Handle Optional[List[...]] types
+                origin = get_origin(param.annotation)
+                if origin is Union:
+                    args = get_args(param.annotation)
+                    # Check for Optional pattern (Union[X, None])
+                    non_none_args = [a for a in args if a is not type(None)]
+                    if len(non_none_args) == 1 and _is_list_type(non_none_args[0]):
+                        # This is Optional[List[...]]
+                        param_schema["type"] = "array"
+                        param_schema["items"] = _get_list_item_schema(non_none_args[0])
             else:
                 # Use Pydantic-generated schema
                 # Add description from docstring if not in schema
@@ -246,6 +256,20 @@ def _get_list_item_type(annotation) -> str:
     if args:
         return _python_type_to_json_type(args[0])
     return "string"
+
+
+def _get_list_item_schema(annotation) -> Dict[str, Any]:
+    """Get the full schema for items in a List type, handling Pydantic models"""
+    args = get_args(annotation)
+    if args:
+        item_type = args[0]
+        # Check if item type is a Pydantic model
+        pydantic_schema = _get_pydantic_schema(item_type)
+        if pydantic_schema:
+            return pydantic_schema
+        # Fall back to simple type
+        return {"type": _python_type_to_json_type(item_type)}
+    return {"type": "string"}
 
 
 def _clean_schema_for_claude(schema: Dict[str, Any]) -> Dict[str, Any]:

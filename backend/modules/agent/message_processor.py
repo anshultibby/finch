@@ -32,7 +32,6 @@ def validate_and_fix_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[s
         if "function" in tc_copy:
             func = tc_copy["function"].copy()
             args_str = func.get("arguments", "")
-            json_args = json.loads(args_str)
             
             # Try to parse the JSON arguments
             if args_str:
@@ -40,10 +39,13 @@ def validate_and_fix_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[s
                     json.loads(args_str)
                     # Valid JSON, keep as-is
                 except json.JSONDecodeError as e:
-                    # Malformed JSON - log and replace with empty object
-                    logger.warning(
-                        f"Malformed tool call arguments for {func.get('name', 'unknown')}: "
-                        f"{args_str} (error: {e})"
+                    # Malformed JSON indicates context overflow - this should NOT happen
+                    logger.error(
+                        f"🚨 MALFORMED TOOL CALL - Context limit likely exceeded!\n"
+                        f"   Tool: {func.get('name', 'unknown')}\n"
+                        f"   Truncated args: {args_str[:100]}...\n"
+                        f"   Error: {e}\n"
+                        f"   → Replacing with empty {{}} but this indicates history management issue"
                     )
                     func["arguments"] = "{}"
             

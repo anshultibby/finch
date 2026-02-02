@@ -21,6 +21,10 @@ class DelegateExecutionParams(BaseModel):
         ...,
         description="What you want the Executor to focus on. E.g. 'Complete the data fetching tasks' or 'Fix the chart generation error'"
     )
+    result_file: str = Field(
+        default="_executor_result.md",
+        description="Filename to save executor results to. E.g. 'data_fetch_results.md'"
+    )
 
 
 class FinishExecutionParams(BaseModel):
@@ -50,17 +54,56 @@ def finish_execution_impl(
     """
     Signal that Executor is done and pass results back to Master.
     
-    Returns a result that delegate_execution_impl detects in the event stream.
+    Saves detailed results to the file specified by Master when delegating.
+    Returns a brief summary - Master can use read_chat_file for full details.
     """
+    from modules.resource_manager import resource_manager
+    
     logger.info(f"🏁 Executor finished: {params.summary[:100]}")
     
-    # Return the finish signal - delegate_execution_impl will detect this
+    # Get result_file from context data (set by delegate_execution_impl)
+    result_file = (context.data or {}).get("result_file", "_executor_result.md")
+    
+    # Build detailed result file content
+    files_section = ""
+    if params.files_created:
+        files_section = "\n## Files Created/Modified\n" + "\n".join(f"- `{f}`" for f in params.files_created)
+    
+    error_section = ""
+    if params.error:
+        error_section = f"\n## Error\n```\n{params.error}\n```"
+    
+    result_content = f"""# Executor Results
+
+## Summary
+{params.summary}
+
+## Status
+{"✅ Success" if params.success else "❌ Failed"}
+{files_section}
+{error_section}
+"""
+    
+    # Save to file so Master can read full details if needed
+    try:
+        resource_manager.write_chat_file(
+            context.user_id,
+            context.chat_id,
+            result_file,
+            result_content
+        )
+        logger.info(f"📄 Saved executor results to {result_file}")
+    except Exception as e:
+        logger.warning(f"Failed to save executor results: {e}")
+    
+    # Return the finish signal - delegate_execution_impl detects this
     return {
         "status": "finished",
         "summary": params.summary,
         "files_created": params.files_created,
         "success": params.success,
         "error": params.error,
+        "result_file": result_file,  # Tell Master where to find full details
     }
 
 
@@ -131,12 +174,16 @@ async def delegate_execution_impl(
     
     # Create a new context for the executor with its own agent_id
     # parent_agent_id links back to the master agent
+    # Pass result_file so finish_execution knows where to save
+    executor_data = dict(context.data) if context.data else {}
+    executor_data["result_file"] = params.result_file
+    
     executor_context = AgentContext(
         agent_id=executor_agent_id,
         user_id=context.user_id,
         chat_id=context.chat_id,
         parent_agent_id=context.agent_id,  # Link to parent (master) agent
-        data=context.data
+        data=executor_data
     )
     
     executor = agent_config.create_executor_agent(executor_context)

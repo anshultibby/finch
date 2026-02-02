@@ -108,9 +108,15 @@ async def write_chat_file(*, context: AgentContext, filename: str, file_content:
     description=READ_CHAT_FILE_DESC,
     category="files"
 )
-def read_chat_file(*, context: AgentContext, filename: str):
-    """Read file from chat directory"""
-    return file_management.read_chat_file_impl(context, filename)
+def read_chat_file(
+    *,
+    context: AgentContext,
+    filename: str,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None
+):
+    """Read file from chat directory, optionally by line range"""
+    return file_management.read_chat_file_impl(context, filename, start_line, end_line)
 
 
 @tool(
@@ -118,9 +124,17 @@ def read_chat_file(*, context: AgentContext, filename: str):
     description=REPLACE_IN_CHAT_FILE_DESC,
     category="files"
 )
-async def replace_in_chat_file(*, old_str: str, new_str: str, filename: str, replace_all: bool = False, context: AgentContext):
-    """Replace text in file (targeted editing, requires unique match unless replace_all=True)"""
-    async for item in file_management.replace_in_chat_file_impl(old_str, new_str, filename, context, replace_all):
+async def replace_in_chat_file(
+    *,
+    filename: str,
+    old_str: Optional[str] = None,
+    new_str: Optional[str] = None,
+    replace_all: bool = False,
+    edits: Optional[List[file_management.EditItem]] = None,
+    context: AgentContext
+):
+    """Replace text in file. Supports single edit (old_str/new_str) or multiple edits."""
+    async for item in file_management.replace_in_chat_file_impl(old_str, new_str, filename, context, replace_all, edits):
         yield item
 
 
@@ -201,10 +215,11 @@ def scrape_url(
 async def delegate_execution(
     *,
     direction: str,
+    result_file: str = "_executor_result.md",
     context: AgentContext
 ):
     """Delegate execution to Executor Agent. Provide direction, tool loads tasks.md for context."""
-    params = delegation.DelegateExecutionParams(direction=direction)
+    params = delegation.DelegateExecutionParams(direction=direction, result_file=result_file)
     async for item in delegation.delegate_execution_impl(params, context):
         yield item
 

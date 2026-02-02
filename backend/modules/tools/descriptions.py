@@ -97,19 +97,28 @@ WRITE_CHAT_FILE_DESC = """Write a file to the persistent chat filesystem (syncs 
 - Creating data files that persist across sessions
 """
 
-READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports images for visual review!**
+READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads and images!**
 
 **When to use:**
 - Reading text files (code, data, configs)
-- **VIEWING IMAGES** - Use this to see charts/visualizations you've created and verify they look correct
+- **VIEWING IMAGES** - Use this to see charts/visualizations you've created
+- **Reading large files partially** - Use start_line/end_line for big files
 
-**For images:** Returns the image data so you can visually inspect it. Use this to:
-- Double-check your charts look correct before presenting to user
-- Verify axis labels, legends, and titles are readable
-- Check that data visualization makes sense
+**Partial reads (like Cursor):**
+- `read_chat_file(filename="data.json")` - full file
+- `read_chat_file(filename="data.json", start_line=1, end_line=50)` - first 50 lines
+- `read_chat_file(filename="data.json", start_line=100, end_line=150)` - lines 100-150
+
+**Returns for text files:**
+- content: The file content (or selected lines)
+- total_lines: Total lines in file
+- start_line/end_line: Actual range returned (if partial)
+- navigation: Hints about remaining content
+
+**For images:** Returns the image data so you can visually inspect it.
 """
 
-REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file (targeted editing).
+REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file (targeted editing). Supports multiple edits in one call.
 
 **CRITICAL: old_str must UNIQUELY identify the text to replace.**
 
@@ -117,10 +126,29 @@ If multiple matches exist, the operation will FAIL. Either:
 1. Include more surrounding context (3-5 lines before/after) to make it unique
 2. Set replace_all=True to replace ALL occurrences
 
+**Single edit mode:**
+- Use old_str + new_str for a single replacement
+
+**Multiple edits mode (recommended for efficiency):**
+- Use `edits` parameter with a list of edit objects
+- Each edit object has: old_str, new_str, replace_all (optional)
+- Edits are applied in sequence, so later edits see results of earlier ones
+- If any edit fails, operation stops and returns partial results
+
+Example with multiple edits:
+```
+edits=[
+    {"old_str": "old_value1", "new_str": "new_value1"},
+    {"old_str": "old_value2", "new_str": "new_value2"},
+    {"old_str": "pattern", "new_str": "replacement", "replace_all": true}
+]
+```
+
 **Use for:**
 - Fixing code errors after execution
 - Updating thresholds/parameters
 - Modifying existing logic
+- Making multiple related changes atomically
 """
 
 
@@ -225,8 +253,14 @@ DELEGATE_EXECUTION_DESC = """Delegate execution to the Executor Agent.
 1. You write `tasks.md` with `- [ ]` checklist items
 2. Call this tool with a direction (what to focus on)
 3. Executor works through tasks, creates files, executes code
-4. Executor calls `finish_execution` with summary of what it did
+4. Executor saves detailed results to `result_file`
 5. You review results and update `tasks.md`
+
+**result_file parameter:**
+- Executor saves its detailed results to this file
+- Use unique names for each delegation to avoid overwrites!
+- Examples: `fetch_results.md`, `analysis_1.md`, `chart_fix.md`
+- You can read it later with `read_chat_file(filename="...")`
 
 **Direction examples:**
 - "Complete all the data fetching tasks"
@@ -234,12 +268,9 @@ DELEGATE_EXECUTION_DESC = """Delegate execution to the Executor Agent.
 - "Finish the remaining analysis tasks"
 
 **After delegation:**
-- Review the summary and files_created in the result
-- Read output files to verify quality
+- Review the summary in the result
+- Use `read_chat_file(filename=result_file)` for full details if needed
 - Update `tasks.md` to mark completed tasks `[x]`
-
-Guidelines:
-1. Make sure the direction is formatted well as we will display it to the user as well.
 """
 
 

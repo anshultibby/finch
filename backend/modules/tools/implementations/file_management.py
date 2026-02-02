@@ -6,20 +6,35 @@ File manipulation tools for chat sessions.
 from modules.agent.context import AgentContext
 from models.sse import SSEEvent
 from pydantic import BaseModel, Field
+from typing import Optional, List
 from utils.logger import get_logger
 import re
 
 logger = get_logger(__name__)
 
 
-class ReplaceInFileParams(BaseModel):
-    """Replace text in a file"""
-    filename: str = Field(..., description="Filename in current chat directory")
+class EditItem(BaseModel):
+    """A single edit operation"""
     old_str: str = Field(..., description="Text to find (must be unique unless replace_all=True)")
     new_str: str = Field(..., description="Text to replace with")
     replace_all: bool = Field(
         default=False,
         description="Replace all occurrences. Default False requires unique match for safety."
+    )
+
+
+class ReplaceInFileParams(BaseModel):
+    """Replace text in a file - supports multiple edits in one call"""
+    filename: str = Field(..., description="Filename in current chat directory")
+    old_str: Optional[str] = Field(None, description="Text to find (must be unique unless replace_all=True). Use 'edits' for multiple changes.")
+    new_str: Optional[str] = Field(None, description="Text to replace with. Use 'edits' for multiple changes.")
+    replace_all: bool = Field(
+        default=False,
+        description="Replace all occurrences. Default False requires unique match for safety."
+    )
+    edits: Optional[List[EditItem]] = Field(
+        None,
+        description="List of edits to apply in sequence. Use this for multiple changes in one call."
     )
 
 
@@ -32,16 +47,48 @@ class FindInFileParams(BaseModel):
 # Basic file tools (read, write, list) plus advanced tools (replace, find)
 
 async def replace_in_chat_file_impl(
-    old_str: str,
-    new_str: str,
+    old_str: Optional[str],
+    new_str: Optional[str],
     filename: str,
     context: AgentContext,
-    replace_all: bool = False
+    replace_all: bool = False,
+    edits: Optional[List[EditItem]] = None
 ):
-    """Replace text in file with streaming content to frontend"""
+    """Replace text in file with streaming content to frontend.
+    
+    Supports two modes:
+    1. Single edit: old_str + new_str (legacy mode)
+    2. Multiple edits: edits list with multiple EditItem objects
+    """
     from modules.resource_manager import resource_manager
     
     try:
+        # Build list of edits to apply
+        edit_list: List[EditItem] = []
+        
+        if edits:
+            # Multiple edits mode - convert dicts to EditItem if needed
+            for edit in edits:
+                if isinstance(edit, dict):
+                    edit_list.append(EditItem(**edit))
+                elif isinstance(edit, EditItem):
+                    edit_list.append(edit)
+                else:
+                    yield {
+                        "success": False,
+                        "error": f"Invalid edit item type: {type(edit).__name__}"
+                    }
+                    return
+        elif old_str is not None and new_str is not None:
+            # Single edit mode (backward compatible)
+            edit_list = [EditItem(old_str=old_str, new_str=new_str, replace_all=replace_all)]
+        else:
+            yield {
+                "success": False,
+                "error": "Must provide either (old_str + new_str) or edits list"
+            }
+            return
+        
         # Read file
         content = resource_manager.read_chat_file(
             context.user_id,
@@ -56,33 +103,48 @@ async def replace_in_chat_file_impl(
             }
             return
         
-        # Count occurrences
-        count = content.count(old_str)
+        # Apply each edit in sequence
+        total_replacements = 0
+        edit_results = []
         
-        if count == 0:
-            # Truncate long strings in error message
-            display_str = f"'{old_str[:100]}...'" if len(old_str) > 100 else f"'{old_str}'"
-            yield {
-                "success": False,
-                "error": f"Text not found: {display_str}"
-            }
-            return
-        
-        # If not replace_all and multiple matches, fail for safety
-        if count > 1 and not replace_all:
-            yield {
-                "success": False,
-                "error": f"Found {count} occurrences of the text. Either:\n"
-                         f"1. Include more surrounding context to make it unique, OR\n"
-                         f"2. Set replace_all=True to replace all {count} occurrences"
-            }
-            return
-        
-        # Replace (single or all based on flag)
-        if replace_all:
-            new_content = content.replace(old_str, new_str)
-        else:
-            new_content = content.replace(old_str, new_str, 1)  # Only replace first (unique) match
+        for i, edit in enumerate(edit_list):
+            # Count occurrences
+            count = content.count(edit.old_str)
+            
+            if count == 0:
+                # Truncate long strings in error message
+                display_str = f"'{edit.old_str[:100]}...'" if len(edit.old_str) > 100 else f"'{edit.old_str}'"
+                yield {
+                    "success": False,
+                    "error": f"Edit {i + 1}: Text not found: {display_str}",
+                    "partial_results": edit_results if edit_results else None
+                }
+                return
+            
+            # If not replace_all and multiple matches, fail for safety
+            if count > 1 and not edit.replace_all:
+                yield {
+                    "success": False,
+                    "error": f"Edit {i + 1}: Found {count} occurrences of the text. Either:\n"
+                             f"1. Include more surrounding context to make it unique, OR\n"
+                             f"2. Set replace_all=True to replace all {count} occurrences",
+                    "partial_results": edit_results if edit_results else None
+                }
+                return
+            
+            # Replace (single or all based on flag)
+            if edit.replace_all:
+                content = content.replace(edit.old_str, edit.new_str)
+                actual_count = count
+            else:
+                content = content.replace(edit.old_str, edit.new_str, 1)
+                actual_count = 1
+            
+            total_replacements += actual_count
+            edit_results.append({
+                "edit_index": i + 1,
+                "replacements": actual_count
+            })
         
         # Determine file type
         file_type = "text"
@@ -103,7 +165,7 @@ async def replace_in_chat_file_impl(
             data={
                 "tool_call_id": context.current_tool_call_id or "",
                 "filename": filename,
-                "content": new_content,
+                "content": content,
                 "file_type": file_type,
                 "is_complete": False
             }
@@ -114,7 +176,7 @@ async def replace_in_chat_file_impl(
             context.user_id,
             context.chat_id,
             filename,
-            new_content
+            content
         )
         
         # Send completion signal
@@ -139,18 +201,18 @@ async def replace_in_chat_file_impl(
                 "data": {
                     "filename": filename,
                     "file_type": file_type,
-                    "size_bytes": len(new_content.encode('utf-8')),
+                    "size_bytes": len(content.encode('utf-8')),
                     "file_id": file_id
                 }
             }
         )
         
-        actual_replacements = count if replace_all else 1
         yield {
             "success": True,
             "filename": filename,
-            "replacements": actual_replacements,
-            "message": f"Replaced {actual_replacements} occurrence(s)"
+            "edits_applied": len(edit_list),
+            "total_replacements": total_replacements,
+            "message": f"Applied {len(edit_list)} edit(s) with {total_replacements} total replacement(s)"
         }
     
     except Exception as e:
@@ -482,13 +544,21 @@ async def write_chat_file_impl(
 
 def read_chat_file_impl(
     context: AgentContext,
-    filename: str
+    filename: str,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None
 ):
     """
-    Read file from chat directory.
+    Read file from chat directory with optional line range (like Cursor).
     
-    For text files: returns content as string
+    For text files: returns content as string, optionally sliced by line range
     For images: returns image data that can be viewed by the LLM (multimodal)
+    
+    Args:
+        context: Agent context
+        filename: File to read
+        start_line: 1-indexed start line (default: 1)
+        end_line: 1-indexed end line, inclusive (default: last line)
     """
     from modules.resource_manager import resource_manager
     
@@ -533,12 +603,50 @@ def read_chat_file_impl(
                     "error": f"Image '{filename}' exists but has no accessible content"
                 }
         
-        # For text files, return content
+        # For text files, return content (with optional line slicing)
+        content = file_data.get("content", "")
+        lines = content.split('\n')
+        total_lines = len(lines)
+        
+        # Apply line range if specified
+        if start_line is not None or end_line is not None:
+            # Convert to 0-indexed, handle defaults
+            start_idx = (start_line or 1) - 1
+            end_idx = end_line or total_lines
+            
+            # Clamp to valid range
+            start_idx = max(0, min(start_idx, total_lines - 1)) if total_lines > 0 else 0
+            end_idx = max(start_idx + 1, min(end_idx, total_lines))
+            
+            # Slice and rejoin
+            selected_lines = lines[start_idx:end_idx]
+            content = '\n'.join(selected_lines)
+            
+            # Build navigation hints
+            nav_hints = []
+            if start_idx > 0:
+                nav_hints.append(f"lines 1-{start_idx} above")
+            if end_idx < total_lines:
+                nav_hints.append(f"lines {end_idx + 1}-{total_lines} below")
+            
+            return {
+                "success": True,
+                "content": content,
+                "filename": filename,
+                "file_type": file_data.get("file_type", "text"),
+                "start_line": start_idx + 1,
+                "end_line": end_idx,
+                "total_lines": total_lines,
+                "navigation": f"({', '.join(nav_hints)})" if nav_hints else None
+            }
+        
+        # No line range - return full content
         return {
             "success": True,
-            "content": file_data.get("content", ""),
+            "content": content,
             "filename": filename,
-            "file_type": file_data.get("file_type", "text")
+            "file_type": file_data.get("file_type", "text"),
+            "total_lines": total_lines
         }
     except Exception as e:
         logger.error(f"Error reading chat file: {str(e)}", exc_info=True)

@@ -22,19 +22,19 @@ Dome API provides unified access to Polymarket and Kalshi prediction market data
 
 ### Issue 1: "HTTP 404: route not found" when getting wallet data
 
-**Problem**: Using wrong endpoint for positions.
+**Problem**: Using wrong function/endpoint for positions.
 
 ```python
-# ❌ WRONG - This only returns EOA/proxy mapping
-from servers.dome.polymarket.wallet import get_wallet
-result = get_wallet(address)  # 404 error!
+# ❌ WRONG - get_wallet_info only returns EOA/proxy mapping, not positions
+from servers.dome.polymarket.wallet import get_wallet_info
+result = get_wallet_info(eoa=address)  # Only returns address mapping!
 
 # ✅ CORRECT - Use get_positions for actual positions
 from servers.dome.polymarket.wallet import get_positions
 result = get_positions(address)
 ```
 
-**Explanation**: The `/polymarket/wallet` endpoint only returns EOA ↔ Proxy address mapping. Use `/polymarket/positions/wallet/{address}` to get actual positions.
+**Explanation**: The `get_wallet_info()` function calls `/polymarket/wallet` which only returns EOA ↔ Proxy address mapping. Use `get_positions()` which calls `/polymarket/positions/wallet/{address}` to get actual positions.
 
 ### Issue 2: Missing 'granularity' parameter for P&L
 
@@ -362,18 +362,18 @@ assert 'positions' in positions
 
 ## Migration from Old Implementation
 
-If you have code using the old incorrect endpoints:
+If you have code using incorrect function names or missing parameters:
 
 ```python
 # OLD CODE (with errors)
-from servers.dome.polymarket.wallet import get_wallet, get_wallet_pnl
-wallet_data = get_wallet(address)  # ❌ 404 error
-pnl_data = get_wallet_pnl(address)  # ❌ Missing granularity
+from servers.dome.polymarket.wallet import get_wallet_info, get_wallet_pnl
+wallet_data = get_wallet_info(eoa=address)  # Only returns EOA/proxy mapping, not positions!
+pnl_data = get_wallet_pnl(address)  # ❌ Missing required granularity parameter
 
 # NEW CODE (correct)
 from servers.dome.polymarket.wallet import get_positions, get_wallet_pnl
-positions = get_positions(address)  # ✅ Works
-pnl_data = get_wallet_pnl(address, granularity="day")  # ✅ Works
+positions = get_positions(address)  # ✅ Gets actual wallet positions
+pnl_data = get_wallet_pnl(address, granularity="day")  # ✅ Includes required granularity
 ```
 
 For tracking trades:
