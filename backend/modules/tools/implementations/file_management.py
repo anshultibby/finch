@@ -562,6 +562,12 @@ def read_chat_file_impl(
     """
     from modules.resource_manager import resource_manager
     
+    # Convert string arguments to int (LLM may pass strings)
+    if start_line is not None:
+        start_line = int(start_line)
+    if end_line is not None:
+        end_line = int(end_line)
+    
     try:
         # Use the new method that supports images
         file_data = resource_manager.read_chat_file_with_metadata(

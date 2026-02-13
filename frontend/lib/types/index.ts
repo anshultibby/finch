@@ -109,6 +109,7 @@ export interface SSEToolCallCompleteEvent {
   result_summary?: string;
   code_output?: CodeOutput;
   search_results?: SearchResults;
+  scraped_content?: ScrapedContent;
   agent_id: string;
   parent_agent_id?: string;
   timestamp: string;
@@ -544,5 +545,14 @@ export interface StrategyExecution {
       details: any;
     }>;
   };
+}
+
+export interface StrategyCodeResponse {
+  strategy_id: string;
+  name: string;
+  entrypoint: string;
+  files: Record<string, string>;
+  config: StrategyConfig;
+  stats?: StrategyStats;
 }
 

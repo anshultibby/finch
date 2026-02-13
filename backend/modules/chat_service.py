@@ -4,12 +4,12 @@ Chat service for managing chat sessions and interactions
 from typing import List, AsyncGenerator, Dict, Any
 import json
 import asyncio
-from .agent.agent_config import create_master_agent
+from .agent.agent_config import create_planner_agent
 from .agent.llm_handler import LLMHandler
 from config import Config
 from .context_manager import context_manager
 from database import get_db_session
-from modules.agent.context import AgentContext, generate_agent_id
+from modules.agent.context import AgentContext, generate_agent_id, register_context, unregister_context
 from models.chat_history import ChatHistory
 from crud import chat_async
 from utils.logger import get_logger
@@ -91,6 +91,13 @@ class ChatService:
                 
                 # Load chat history using ChatHistory model
                 db_messages = await chat_async.get_chat_messages(db, chat_id)
+                
+                # Clean up incomplete tool call sequences (Anthropic requirement)
+                removed_count = await chat_async.cleanup_incomplete_tool_sequences(db, chat_id)
+                if removed_count > 0:
+                    logger.warning(f"Removed {removed_count} incomplete tool message(s) from history")
+                    db_messages = await chat_async.get_chat_messages(db, chat_id)
+                
                 history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
                 
                 # Save user message FIRST before streaming
@@ -107,20 +114,32 @@ class ChatService:
             # STEP 2: Process message and save incrementally
             context = context_manager.get_all_context(user_id)
             
+            # Create cancel event for this execution
+            cancel_event = asyncio.Event()
+            
             agent_context = AgentContext(
                 agent_id=generate_agent_id(),  # Unique ID for this master agent instance
                 user_id=user_id,
                 chat_id=chat_id,
-                data=context
+                data=context,
+                cancel_event=cancel_event
             )
             
-            agent = create_master_agent(agent_context)
+            # Register this context and cancel any previous active one
+            previous_context = register_context(chat_id, agent_context)
+            if previous_context is not None:
+                logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
+                previous_context.cancel()
+            
+            agent = create_planner_agent(agent_context)
             
             # Add user message to history (with optional images for multimodal)
             history.add_user_message(message, images=images)
             
             # Track pending assistant message (with tool calls) for saving after tools complete
             pending_assistant_msg = None
+            # Background tasks for non-blocking DB saves
+            background_tasks = []
             
             # Stream events from agent and save completed messages incrementally
             with tracer.start_as_current_span("agent_processing"):
@@ -129,12 +148,16 @@ class ChatService:
                     chat_history=history,
                     history_limit=Config.CHAT_HISTORY_LIMIT
                 ):
+                    # YIELD EVENT FIRST for real-time streaming
+                    # Database saves happen after to not block the stream
+                    yield event.to_sse_format()
+                    
                     # Log event type for debugging
                     if event.event == "tool_call_start":
                         logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
                     
-                    # INCREMENTAL SAVE: Save completed messages as they happen
-                    # This ensures interrupted streams don't lose completed work
+                    # INCREMENTAL SAVE: Queue saves to run in background without blocking stream
+                    # This ensures real-time streaming while still saving completed work
                     
                     if event.event == "message_end":
                         # message_end signals a complete assistant message
@@ -149,19 +172,25 @@ class ChatService:
                                 "tool_calls": tool_calls
                             }
                         else:
-                            # Final assistant message (no tool calls) - save synchronously
+                            # Final assistant message (no tool calls) - save in background
                             seq = current_sequence
                             current_sequence += 1
                             
-                            async with get_db_session() as db:
-                                await chat_async.create_message(
-                                    db=db,
-                                    chat_id=chat_id,
-                                    role="assistant",
-                                    content=content,
-                                    sequence=seq
-                                )
-                                logger.info(f"💾 Saved final assistant message (seq={seq})")
+                            async def save_final_message(chat_id, content, seq):
+                                try:
+                                    async with get_db_session() as db:
+                                        await chat_async.create_message(
+                                            db=db,
+                                            chat_id=chat_id,
+                                            role="assistant",
+                                            content=content,
+                                            sequence=seq
+                                        )
+                                        logger.info(f"💾 Saved final assistant message (seq={seq})")
+                                except Exception as e:
+                                    logger.error(f"Failed to save final message: {e}")
+                            
+                            background_tasks.append(asyncio.create_task(save_final_message(chat_id, content, seq)))
                     
                     elif event.event == "tools_end":
                         # tools_end signals tool execution is complete
@@ -176,7 +205,6 @@ class ChatService:
                             logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg! This will create orphaned tool results.")
                         
                         # Build tool_results dict keyed by tool_call_id for persistence
-                        # This stores code_output, result_summary, errors etc. for viewing in previous sessions
                         tool_results = {}
                         for exec_result in execution_results:
                             tool_call_id = exec_result.get("tool_call_id")
@@ -187,7 +215,6 @@ class ChatService:
                                     "error": exec_result.get("error"),
                                     "result_summary": result_data.get("message") if isinstance(result_data, dict) else None,
                                 }
-                                # Extract code_output for execute_code tool
                                 if isinstance(result_data, dict):
                                     stdout = result_data.get("stdout")
                                     stderr = result_data.get("stderr")
@@ -197,50 +224,57 @@ class ChatService:
                                             "stderr": stderr or ""
                                         }
                         
-                        # Save synchronously to ensure proper message ordering
-                        async with get_db_session() as db:
+                        # Save in background to not block streaming
+                        if pending_assistant_msg:
                             seq = current_sequence
-                            # Save assistant message with tool calls AND tool_results
-                            if pending_assistant_msg:
-                                await chat_async.create_message(
-                                    db=db,
-                                    chat_id=chat_id,
-                                    role="assistant",
-                                    content=pending_assistant_msg["content"],
-                                    sequence=seq,
-                                    tool_calls=pending_assistant_msg["tool_calls"],
-                                    tool_results=tool_results if tool_results else None
-                                )
-                                logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
-                                seq += 1
-                                current_sequence += 1
-                                
-                                # Save tool result messages (must be inside the if block to avoid orphans)
-                                for tool_msg in tool_messages:
-                                    # Handle multimodal content (list) by serializing to JSON
-                                    content = tool_msg.get("content", "")
-                                    if isinstance(content, list):
-                                        content = json.dumps(content)
-                                    
-                                    await chat_async.create_message(
-                                        db=db,
-                                        chat_id=chat_id,
-                                        role="tool",
-                                        content=content,
-                                        sequence=seq,
-                                        tool_call_id=tool_msg.get("tool_call_id"),
-                                        name=tool_msg.get("name")
-                                    )
-                                    seq += 1
-                                    current_sequence += 1
-                                
-                                if tool_messages:
-                                    logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                            current_sequence += 1 + len(tool_messages)  # Reserve sequences
+                            
+                            async def save_tools_end(chat_id, pending_msg, tool_results, tool_messages, start_seq):
+                                try:
+                                    async with get_db_session() as db:
+                                        seq = start_seq
+                                        await chat_async.create_message(
+                                            db=db,
+                                            chat_id=chat_id,
+                                            role="assistant",
+                                            content=pending_msg["content"],
+                                            sequence=seq,
+                                            tool_calls=pending_msg["tool_calls"],
+                                            tool_results=tool_results if tool_results else None
+                                        )
+                                        logger.info(f"💾 Saved assistant message with {len(pending_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
+                                        seq += 1
+                                        
+                                        for tool_msg in tool_messages:
+                                            content = tool_msg.get("content", "")
+                                            if isinstance(content, list):
+                                                content = json.dumps(content)
+                                            
+                                            await chat_async.create_message(
+                                                db=db,
+                                                chat_id=chat_id,
+                                                role="tool",
+                                                content=content,
+                                                sequence=seq,
+                                                tool_call_id=tool_msg.get("tool_call_id"),
+                                                name=tool_msg.get("name")
+                                            )
+                                            seq += 1
+                                        
+                                        if tool_messages:
+                                            logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                                except Exception as e:
+                                    logger.error(f"Failed to save tools_end: {e}")
+                            
+                            background_tasks.append(asyncio.create_task(
+                                save_tools_end(chat_id, pending_assistant_msg, tool_results, tool_messages, seq)
+                            ))
                         
                         pending_assistant_msg = None
-                    
-                    # Yield the SSE formatted event to client
-                    yield event.to_sse_format()
+            
+            # Wait for all background DB saves to complete before finishing
+            if background_tasks:
+                await asyncio.gather(*background_tasks, return_exceptions=True)
             
             # Log session usage summary (token counts and costs)
             # Also deduct credits based on actual token usage
@@ -290,6 +324,9 @@ class ChatService:
                         logger.warning(f"⚠️  Failed to deduct {credits_to_deduct} credits - insufficient balance or user not found")
             
             LLMHandler.finalize_session(chat_id)
+            
+            # Unregister this context (only if we're still the active one)
+            unregister_context(chat_id, agent_context)
             
             # Mark chat as no longer processing in database
             async with get_db_session() as db:

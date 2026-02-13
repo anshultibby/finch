@@ -144,6 +144,16 @@ class StrategyDetailResponse(StrategyResponse):
     stats: StrategyStats = Field(default_factory=StrategyStats)
 
 
+class StrategyCodeResponse(BaseModel):
+    """Strategy code bundle response"""
+    strategy_id: str
+    name: str
+    entrypoint: str
+    files: dict[str, str]
+    config: dict = Field(default_factory=dict)
+    stats: StrategyStats = Field(default_factory=StrategyStats)
+
+
 class ExecutionResponse(BaseModel):
     """Strategy execution response"""
     id: str

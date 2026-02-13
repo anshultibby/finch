@@ -52,49 +52,11 @@ def finish_execution_impl(
     context: AgentContext
 ) -> Dict[str, Any]:
     """
-    Signal that Executor is done and pass results back to Master.
+    Signal that Executor is done and pass results back to Planner.
     
-    Saves detailed results to the file specified by Master when delegating.
-    Returns a brief summary - Master can use read_chat_file for full details.
+    Returns a summary - Planner reads the actual output files to verify.
     """
-    from modules.resource_manager import resource_manager
-    
     logger.info(f"🏁 Executor finished: {params.summary[:100]}")
-    
-    # Get result_file from context data (set by delegate_execution_impl)
-    result_file = (context.data or {}).get("result_file", "_executor_result.md")
-    
-    # Build detailed result file content
-    files_section = ""
-    if params.files_created:
-        files_section = "\n## Files Created/Modified\n" + "\n".join(f"- `{f}`" for f in params.files_created)
-    
-    error_section = ""
-    if params.error:
-        error_section = f"\n## Error\n```\n{params.error}\n```"
-    
-    result_content = f"""# Executor Results
-
-## Summary
-{params.summary}
-
-## Status
-{"✅ Success" if params.success else "❌ Failed"}
-{files_section}
-{error_section}
-"""
-    
-    # Save to file so Master can read full details if needed
-    try:
-        resource_manager.write_chat_file(
-            context.user_id,
-            context.chat_id,
-            result_file,
-            result_content
-        )
-        logger.info(f"📄 Saved executor results to {result_file}")
-    except Exception as e:
-        logger.warning(f"Failed to save executor results: {e}")
     
     # Return the finish signal - delegate_execution_impl detects this
     return {
@@ -103,7 +65,6 @@ def finish_execution_impl(
         "files_created": params.files_created,
         "success": params.success,
         "error": params.error,
-        "result_file": result_file,  # Tell Master where to find full details
     }
 
 
@@ -174,16 +135,18 @@ async def delegate_execution_impl(
     
     # Create a new context for the executor with its own agent_id
     # parent_agent_id links back to the master agent
-    # Pass result_file so finish_execution knows where to save
+    # Pass result_file and direction so finish_execution can update progress file
     executor_data = dict(context.data) if context.data else {}
     executor_data["result_file"] = params.result_file
+    executor_data["direction"] = params.direction
     
     executor_context = AgentContext(
         agent_id=executor_agent_id,
         user_id=context.user_id,
         chat_id=context.chat_id,
         parent_agent_id=context.agent_id,  # Link to parent (master) agent
-        data=executor_data
+        data=executor_data,
+        cancel_event=context.cancel_event  # Share cancellation signal with executor
     )
     
     executor = agent_config.create_executor_agent(executor_context)
@@ -201,11 +164,20 @@ Here is the current task file (`{TASK_FILE}`):
     history.add_user_message(user_message)
     
     finish_result = None
+    cancelled = False
+    
     async for event in executor.process_message_stream(
         message=user_message,
         chat_history=history,
         history_limit=10
     ):
+        # Check for cancellation event from executor
+        if event.event == "cancelled":
+            logger.info("🛑 Executor was cancelled - stopping delegation")
+            cancelled = True
+            yield event  # Forward the cancelled event
+            break
+        
         yield event
         
         # Capture finish_execution result when it appears
@@ -213,20 +185,52 @@ Here is the current task file (`{TASK_FILE}`):
         if result:
             finish_result = result
     
+    # If cancelled, just return early - no need for complex cleanup
+    if cancelled:
+        return
+    
+    # Save executor transcript to file so Planner can read it if needed
+    # Uses ChatHistory.to_markdown() for clean, reusable formatting
+    transcript_file = f"_executor_transcript_{executor_agent_id[:8]}.md"
+    try:
+        transcript_content = history.to_markdown(
+            title=f"Executor Transcript: {params.direction[:50]}",
+            include_system=False,
+            include_tool_results=True,
+            max_tool_result_length=500
+        )
+        resource_manager.write_chat_file(
+            context.user_id,
+            context.chat_id,
+            transcript_file,
+            transcript_content
+        )
+        logger.info(f"📝 Saved executor transcript to {transcript_file}")
+    except Exception as e:
+        logger.warning(f"Failed to save executor transcript: {e}")
+        transcript_file = None
+    
     # Build the final result
     if finish_result:
+        files_created = finish_result.get("files_created", [])
+        # Add transcript file to the list so Planner knows about it
+        if transcript_file:
+            files_created = files_created + [transcript_file]
+        
         final_result = {
             "success": finish_result.get("success", True),
             "error": finish_result.get("error"),
             "summary": finish_result.get("summary", "Execution completed"),
-            "files_created": finish_result.get("files_created", []),
+            "files_created": files_created,
+            "transcript_file": transcript_file,  # Explicit reference for Planner
             "message": finish_result.get("summary", "Execution completed")
         }
     else:
         final_result = {
             "success": True,
             "summary": "Executor completed without explicit finish signal",
-            "files_created": [],
+            "files_created": [transcript_file] if transcript_file else [],
+            "transcript_file": transcript_file,
             "message": "Execution completed"
         }
     

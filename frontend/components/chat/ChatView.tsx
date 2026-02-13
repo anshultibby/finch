@@ -598,22 +598,21 @@ export default function ChatView() {
         // MESSAGE STREAMING DESIGN (Foolproof Architecture)
         // ═══════════════════════════════════════════════════════════════════════════
         // 
-        // PRINCIPLE: message_end is the ONLY place that saves text to messages.
-        // streamingText is purely for live display during streaming.
+        // PRINCIPLE: Once text is shown to the user, it must NEVER disappear.
+        // Text can be saved by message_end OR by tool handlers (whichever comes first).
         //
         // Event Flow:
         // 1. message_delta → accumulate to streamingText (display only)
-        // 2. tool_call_start → add tool to streamingTools, flush any pending text
+        // 2. tool_call_start/streaming → if streamingText exists, SAVE it first, then add tool
         // 3. tool_call_complete → update tool status
-        // 4. message_end → SAVE text to messages (authoritative), clear streamingText
+        // 4. message_end → SAVE text if not already saved, clear streamingText
         // 5. tools_end → (no-op, tools saved on done)
         // 6. done → save any remaining tools, cleanup
         //
         // Key Invariants:
-        // - Text is NEVER saved to messages except in message_end
-        // - message_end with tool_calls means "text precedes tools" - save text first
-        // - message_end without tool_calls means "final text response" - save text
-        // - streamingText is always cleared after message_end
+        // - Text shown to user is IMMEDIATELY saved when a tool starts (prevents visual loss)
+        // - message_end checks if text was already saved to avoid duplicates
+        // - streamingText is always cleared after text is saved
         // ═══════════════════════════════════════════════════════════════════════════
         
         onMessageDelta: (event) => {
@@ -647,9 +646,22 @@ export default function ChatView() {
         onMessageEnd: (event) => {
           // ═══════════════════════════════════════════════════════════════════════
           // message_end is the AUTHORITATIVE signal for saving text to messages
+          // However, tool handlers may have already saved the text (to prevent visual loss)
+          // So we check if the text was already saved to avoid duplicates
           // ═══════════════════════════════════════════════════════════════════════
           const s = getChatState(targetChatId);
           const hasToolCalls = event.tool_calls && event.tool_calls.length > 0;
+          
+          // Check if this text was already saved by a tool handler
+          const textAlreadySaved = event.content?.trim() && s.messages.some(msg => 
+            msg.role === 'assistant' && msg.content.trim() === event.content?.trim()
+          );
+          
+          if (textAlreadySaved) {
+            // Text was already saved by tool handler, just clear the display buffer
+            updateChatState(targetChatId, { streamingText: '' });
+            return;
+          }
           
           if (hasToolCalls) {
             // Text followed by tools: save text now, tools will be added via tool_call_start
@@ -688,19 +700,6 @@ export default function ChatView() {
           const s = getChatState(targetChatId);
           const isNewTool = !s.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
           
-          // NOTE: We do NOT save streamingText here anymore!
-          // message_end already saved it (or will save it if events arrive out of order)
-          // This prevents double-saving text
-          
-          // Just clear streamingText if there's any left (defensive)
-          // This handles edge cases where message_end hasn't fired yet
-          const updates: Partial<ChatStreamState> = {};
-          if (isNewTool && s.streamingText.trim()) {
-            // Don't save - message_end is responsible for that
-            // Just clear for display purposes
-            updates.streamingText = '';
-          }
-          
           // Create or update tool
           const newTool: ToolCallStatus = {
             tool_call_id: event.tool_call_id,
@@ -712,8 +711,38 @@ export default function ChatView() {
             parent_agent_id: event.parent_agent_id,
           };
           
+          // If there's pending streaming text and this is a new tool, save text to messages first
+          // This ensures text that was shown to the user is never lost/hidden
+          // (message_end may have already saved it, but we need to handle race conditions)
+          if (isNewTool && s.streamingText.trim()) {
+            // Check if message_end already saved this text (look for a message with matching content)
+            const textAlreadySaved = s.messages.some(msg => 
+              msg.role === 'assistant' && msg.content === s.streamingText.trim()
+            );
+            
+            if (!textAlreadySaved) {
+              // Save the text now to prevent it from disappearing
+              updateChatState(targetChatId, {
+                messages: [...s.messages, {
+                  role: 'assistant',
+                  content: s.streamingText,
+                  timestamp: new Date().toISOString(),
+                }],
+                streamingText: '',
+                streamingTools: addOrUpdateTool(targetChatId, newTool),
+              });
+              return;
+            } else {
+              // Text was already saved by message_end, just clear the display buffer
+              updateChatState(targetChatId, {
+                streamingText: '',
+                streamingTools: addOrUpdateTool(targetChatId, newTool),
+              });
+              return;
+            }
+          }
+          
           updateChatState(targetChatId, {
-            ...updates,
             streamingTools: addOrUpdateTool(targetChatId, newTool),
           });
         },
@@ -743,9 +772,10 @@ export default function ChatView() {
                     ...t,
                     status: event.status,
                     error: event.error,
+                    result_summary: event.result_summary || t.result_summary,
                     code_output: event.code_output || t.code_output,
                     search_results: event.search_results || t.search_results,
-                    scraped_content: (event as any).scraped_content || t.scraped_content,
+                    scraped_content: event.scraped_content || t.scraped_content,
                     agent_id: event.agent_id,
                     parent_agent_id: event.parent_agent_id,
                   };
@@ -767,9 +797,10 @@ export default function ChatView() {
             tool_name: event.tool_name,
             status: event.status,
             error: event.error,
+            result_summary: event.result_summary,
             code_output: hasStreamedOutput ? existingTool!.code_output : event.code_output,
             search_results: event.search_results,
-            scraped_content: (event as any).scraped_content,
+            scraped_content: event.scraped_content,
             agent_id: event.agent_id,
             parent_agent_id: event.parent_agent_id,
           };
@@ -862,15 +893,37 @@ export default function ChatView() {
             }),
           };
           
-          // NOTE: We do NOT save streamingText here - message_end handles that
-          // Just clear it for display if this is a new tool
-          const updates: Partial<ChatStreamState> = {};
+          // If there's pending streaming text and this is a new tool, save text to messages first
+          // This ensures text that was shown to the user is never lost/hidden
           if (!existingTool && s.streamingText.trim()) {
-            updates.streamingText = '';
+            // Check if message_end already saved this text
+            const textAlreadySaved = s.messages.some(msg => 
+              msg.role === 'assistant' && msg.content === s.streamingText.trim()
+            );
+            
+            if (!textAlreadySaved) {
+              // Save the text now to prevent it from disappearing
+              updateChatState(targetChatId, {
+                messages: [...s.messages, {
+                  role: 'assistant',
+                  content: s.streamingText,
+                  timestamp: new Date().toISOString(),
+                }],
+                streamingText: '',
+                streamingTools: addOrUpdateTool(targetChatId, toolWithContent),
+              });
+              return;
+            } else {
+              // Text was already saved, just clear the display buffer
+              updateChatState(targetChatId, {
+                streamingText: '',
+                streamingTools: addOrUpdateTool(targetChatId, toolWithContent),
+              });
+              return;
+            }
           }
           
           updateChatState(targetChatId, {
-            ...updates,
             streamingTools: addOrUpdateTool(targetChatId, toolWithContent),
           });
         },

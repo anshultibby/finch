@@ -106,6 +106,7 @@ class LLMConfig(BaseModel):
         elif model_lower.startswith("claude") or model_lower.startswith("anthropic/"):
             return {
                 "caching": True,
+                "max_tokens": 16000,  # Higher limit for file writes - Claude default is only 4096
             }
         
         # Google Gemini
@@ -185,8 +186,8 @@ class LLMConfig(BaseModel):
         """
         from config import Config
         
-        # Determine model (default to MASTER_LLM_MODEL if not specified)
-        selected_model = model or Config.MASTER_LLM_MODEL
+        # Determine model (default to PLANNER_LLM_MODEL if not specified)
+        selected_model = model or Config.PLANNER_LLM_MODEL
         
         # Get model-specific defaults
         model_defaults = LLMConfig._get_model_defaults(selected_model)

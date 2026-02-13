@@ -1,13 +1,20 @@
 """
-SnapTrade API - Secure brokerage account access
+SnapTrade - Brokerage Account Access
 
-Connect to user's real brokerage accounts (Robinhood, TD Ameritrade, etc.)
-via OAuth. No credentials stored.
+CAPABILITIES:
+- Connect to user's real brokerage accounts (Robinhood, TD Ameritrade, Schwab, etc)
+- View holdings, positions, and account balances across all connected brokers
+- OAuth-based - no credentials stored, user authorizes directly
 
-Quick start:
-    from servers.snaptrade.portfolio.get_holdings import get_holdings
-    
-    holdings = await get_holdings(user_id)
+KEY MODULES:
+- portfolio.get_accounts: List connected brokerage accounts
+- portfolio.get_holdings: Get holdings/positions for an account
+- portfolio.request_connection: Generate link for user to connect a new broker
+
+USAGE PATTERN:
+User must first connect their brokerage via OAuth flow.
+Functions are async and require user_id parameter.
+Returns real portfolio data from user's actual brokerage accounts.
 """
 
 from ._client import get_snaptrade_client

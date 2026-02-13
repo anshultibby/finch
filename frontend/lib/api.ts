@@ -594,6 +594,16 @@ export const strategiesApi = {
     return response.json();
   },
 
+  async getStrategyCode(userId: string, strategyId: string) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/code`, {
+      method: 'GET',
+      headers: {
+        'X-User-ID': userId,
+      },
+    });
+    return response.json();
+  },
+
   async updateStrategy(userId: string, strategyId: string, data: {
     name?: string;
     enabled?: boolean;

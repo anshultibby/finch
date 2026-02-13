@@ -25,14 +25,6 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class TruncationPolicy(BaseModel):
-    """Policy for truncating tool results before sending to LLM"""
-    max_chars: int = Field(default=100000, description="Maximum characters to keep")
-    
-    class Config:
-        arbitrary_types_allowed = True
-
-
 class ExecutionMode(str, Enum):
     """Tool execution mode"""
     PARALLEL = "parallel"  # Execute all tools concurrently
@@ -51,12 +43,11 @@ class ToolExecutionResult(BaseModel):
     tool_call_id: str
     tool_name: str
     arguments: Dict[str, Any]
-    raw_result: Dict[str, Any] = Field(description="Untruncated result")
-    truncated_result: str = Field(description="Result truncated for LLM")
+    raw_result: Dict[str, Any] = Field(description="Full result from tool")
+    llm_content: str = Field(description="Formatted content for LLM from to_llm_content()")
     success: bool
     error: Optional[str] = None
     duration_ms: float
-    was_truncated: bool
     
     class Config:
         arbitrary_types_allowed = True
@@ -86,19 +77,19 @@ class ToolExecutionBatch(BaseModel):
 
 class ToolExecutor:
     """
-    Standalone tool executor with configurable policies.
+    Standalone tool executor.
     
     Responsibilities:
     - Execute tools with specified mode (parallel/sequential)
-    - Apply truncation policies to results
     - Handle streaming events
     - Return structured results
     
+    Note: No truncation - tools manage their own output via to_llm_content().
+    Large outputs should be saved to files by subagents, with the parent
+    agent reading selectively as needed (Anthropic long-running agent pattern).
+    
     Usage:
-        executor = ToolExecutor(
-            truncation_policy=TruncationPolicy(strategy=TruncationStrategy.SMART),
-            execution_mode=ExecutionMode.PARALLEL
-        )
+        executor = ToolExecutor(execution_mode=ExecutionMode.PARALLEL)
         
         results = await executor.execute_batch(
             tool_calls=[...],
@@ -110,7 +101,6 @@ class ToolExecutor:
     
     def __init__(
         self,
-        truncation_policy: Optional[TruncationPolicy] = None,
         execution_mode: ExecutionMode = ExecutionMode.PARALLEL,
         runner=None
     ):
@@ -118,11 +108,9 @@ class ToolExecutor:
         Initialize tool executor
         
         Args:
-            truncation_policy: Policy for truncating results (defaults to SMART)
             execution_mode: How to execute tools (parallel or sequential)
             runner: ToolRunner instance (defaults to global runner)
         """
-        self.truncation_policy = truncation_policy or TruncationPolicy()
         self.execution_mode = execution_mode
         self.runner = runner or tool_runner
     
@@ -181,7 +169,7 @@ class ToolExecutor:
                 "role": "tool",
                 "tool_call_id": result.tool_call_id,
                 "name": result.tool_name,
-                "content": result.truncated_result
+                "content": result.llm_content
             })
         
         end_time = asyncio.get_event_loop().time()
@@ -270,9 +258,6 @@ class ToolExecutor:
             # Fallback for dict results (legacy)
             llm_content = json.dumps(raw_result) if isinstance(raw_result, dict) else str(raw_result)
         
-        # Apply safety truncation only if needed
-        truncated, was_truncated = self._apply_truncation(llm_content)
-        
         # Extract success/error from ToolResponse
         if hasattr(raw_result, 'success'):
             success = raw_result.success
@@ -290,11 +275,10 @@ class ToolExecutor:
             tool_name=call.name,
             arguments=call.arguments,
             raw_result=raw_result,
-            truncated_result=truncated,  # Safety truncation only
+            llm_content=llm_content,
             success=success,
             error=error,
-            duration_ms=duration,
-            was_truncated=was_truncated
+            duration_ms=duration
         )
     
     def _build_execution_result(
@@ -319,9 +303,6 @@ class ToolExecutor:
             # Fallback for dict results (legacy)
             llm_content = json.dumps(raw_result) if isinstance(raw_result, dict) else str(raw_result)
         
-        # Apply safety truncation
-        truncated, was_truncated = self._apply_truncation(llm_content)
-        
         # Extract success/error
         if hasattr(raw_result, 'success'):
             success = raw_result.success
@@ -336,39 +317,11 @@ class ToolExecutor:
             tool_name=call.name,
             arguments=call.arguments,
             raw_result=raw_result,
-            truncated_result=truncated,
+            llm_content=llm_content,
             success=success,
             error=error,
-            duration_ms=duration_ms,
-            was_truncated=was_truncated
+            duration_ms=duration_ms
         )
-    
-    def _apply_truncation(self, content: str) -> tuple[str, bool]:
-        """
-        Apply safety truncation to content string.
-        
-        This is a SAFETY mechanism - tools should manage their own output size.
-        
-        Args:
-            content: String content (already formatted by tool)
-        
-        Returns:
-            Tuple of (truncated_string, was_truncated)
-        """
-        policy = self.truncation_policy
-        
-        # Check if truncation needed
-        if len(content) <= policy.max_chars:
-            return content, False
-        
-        logger.warning(
-            f"Content exceeded {policy.max_chars} chars ({len(content)} chars). "
-            "Tool should handle its own output size. Applying safety truncation."
-        )
-        
-        # Safety truncation
-        truncated = content[:policy.max_chars] + "... [TRUNCATED BY EXECUTOR]"
-        return truncated, True
     
     def _enrich_event_with_metadata(
         self, 
@@ -630,8 +583,8 @@ class ToolExecutor:
             # Get a brief summary of the result to show the user
             result_summary = None
             if result.success:
-                # Show first 500 chars of the truncated result as a preview
-                result_summary = result.truncated_result[:500] if len(result.truncated_result) > 500 else result.truncated_result
+                # Show first 500 chars of the llm_content as a preview
+                result_summary = result.llm_content[:500] if len(result.llm_content) > 500 else result.llm_content
             
             # Extract code output if this is execute_code tool
             code_output = None
@@ -761,13 +714,13 @@ class ToolExecutor:
                     # Text-only result - still use list format
                     content_blocks.append({
                         "type": "text",
-                        "text": result.truncated_result
+                        "text": result.llm_content
                     })
             else:
                 # Text-only result - still use list format
                 content_blocks.append({
                     "type": "text",
-                    "text": result.truncated_result
+                    "text": result.llm_content
                 })
             
             tool_messages.append({
@@ -784,8 +737,7 @@ class ToolExecutor:
                 "arguments": result.arguments,
                 "result_data": result.raw_result,
                 "error": result.error,
-                "duration_ms": result.duration_ms,
-                "was_truncated": result.was_truncated
+                "duration_ms": result.duration_ms
             })
         
         # Yield final tools_end event with BOTH tool messages AND detailed results
@@ -801,17 +753,11 @@ class ToolExecutor:
 # Factory functions for common configurations
 
 def create_default_executor() -> ToolExecutor:
-    """Create executor with default 10K char truncation"""
-    return ToolExecutor(
-        truncation_policy=TruncationPolicy(max_chars=10000),
-        execution_mode=ExecutionMode.PARALLEL
-    )
+    """Create executor with parallel execution"""
+    return ToolExecutor(execution_mode=ExecutionMode.PARALLEL)
 
 
-def create_sequential_executor(max_chars: int = 10000) -> ToolExecutor:
+def create_sequential_executor() -> ToolExecutor:
     """Create executor that runs tools sequentially"""
-    return ToolExecutor(
-        truncation_policy=TruncationPolicy(max_chars=max_chars),
-        execution_mode=ExecutionMode.SEQUENTIAL
-    )
+    return ToolExecutor(execution_mode=ExecutionMode.SEQUENTIAL)
 

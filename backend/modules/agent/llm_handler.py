@@ -325,6 +325,9 @@ class LLMHandler:
             
             # Yield immediately for real-time streaming
             yield chunk
+            # Force flush to ensure real-time delivery
+            import sys
+            sys.stdout.flush()
             
             # Accumulate for logging (extract data, don't store raw chunks)
             if self.chat_logger:

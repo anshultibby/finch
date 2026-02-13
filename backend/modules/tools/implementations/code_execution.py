@@ -675,13 +675,11 @@ async def execute_code_impl(
                     line = process.stdout.readline()
                     if line:
                         stdout_lines.append(line)
-                        last_output_time = time.time()
                         # Stream to frontend - use code_output event for real-time streaming
                         yield SSEEvent(event="code_output", data={
                             "stream": "stdout",
                             "content": line.rstrip()
                         })
-                        logger.info(f"STDOUT: {line.rstrip()}")
                 except:
                     pass
                 
@@ -712,7 +710,6 @@ async def execute_code_impl(
                                     "stream": "stdout",
                                     "content": line.rstrip()
                                 })
-                                logger.info(f"STDOUT: {line.rstrip()}")
                     except:
                         pass
                     

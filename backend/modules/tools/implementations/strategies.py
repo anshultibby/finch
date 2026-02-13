@@ -11,15 +11,18 @@ IMPORTANT: The tool descriptions guide the LLM on how to communicate
 with users about strategies in plain language.
 """
 from typing import Optional, List
+import json
 from pydantic import BaseModel, Field
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from database import get_db_session
 from modules.agent.context import AgentContext
 from crud import strategies as crud
 from crud.chat_files import list_chat_files
+from models.db import ChatFile
 from models.strategies import (
     CreateStrategyRequest,
     UpdateStrategyRequest,
@@ -77,6 +80,32 @@ async def deploy_strategy_impl(params: DeployStrategyParams, context: AgentConte
     The strategy starts disabled and unapproved - user must approve before live trading.
     """
     async with get_db_session() as db:
+        files: dict[str, str] = {}
+        if params.file_ids:
+            result = await db.execute(
+                select(ChatFile).where(ChatFile.id.in_(params.file_ids))
+            )
+            for file_obj in result.scalars().all():
+                if file_obj.content:
+                    files[file_obj.filename] = file_obj.content
+
+        resolved_entrypoint = params.entrypoint
+        if resolved_entrypoint == "strategy.py":
+            if "strategy.py" not in files:
+                config_content = files.get("config.json")
+                if config_content:
+                    try:
+                        config_data = json.loads(config_content)
+                        resolved_entrypoint = (
+                            config_data.get("entrypoint")
+                            or config_data.get("entry_script")
+                            or resolved_entrypoint
+                        )
+                    except json.JSONDecodeError:
+                        resolved_entrypoint = resolved_entrypoint
+                elif "entry.py" in files:
+                    resolved_entrypoint = "entry.py"
+
         # Build risk limits if provided
         risk_limits = None
         if params.max_order_usd or params.max_daily_usd:
@@ -89,7 +118,7 @@ async def deploy_strategy_impl(params: DeployStrategyParams, context: AgentConte
             name=params.name,
             description=params.description,
             file_ids=params.file_ids,
-            entrypoint=params.entrypoint,
+            entrypoint=resolved_entrypoint,
             schedule=params.schedule,
             schedule_description=params.schedule_description,
             risk_limits=risk_limits,

@@ -28,6 +28,7 @@ interface TimelineItem {
   timestamp?: string;
   arguments?: Record<string, unknown>;
   error?: string;
+  result?: string;  // Tool result content
 }
 
 // Check if debug mode is enabled via env variable
@@ -103,6 +104,23 @@ export default function ChatDebugPanel({
       } else if (msg.role === 'assistant') {
         if (msg.toolCalls && msg.toolCalls.length > 0) {
           msg.toolCalls.forEach((tc, tcIdx) => {
+            // Build the result string from various possible outputs
+            let result: string | undefined;
+            if (tc.result_summary) {
+              result = tc.result_summary;
+            } else if (tc.code_output) {
+              const parts: string[] = [];
+              if (tc.code_output.stdout) parts.push(tc.code_output.stdout);
+              if (tc.code_output.stderr) parts.push(`[stderr] ${tc.code_output.stderr}`);
+              if (parts.length > 0) result = parts.join('\n');
+            } else if (tc.file_content) {
+              result = `File: ${tc.file_content.filename} (${tc.file_content.content.length} chars)`;
+            } else if (tc.search_results) {
+              result = `Search: "${tc.search_results.query}" - ${tc.search_results.results.length} results`;
+            } else if (tc.scraped_content) {
+              result = `Scraped: ${tc.scraped_content.url} (${tc.scraped_content.content.length} chars)`;
+            }
+
             items.push({
               id: `tool-${msgIdx}-${tcIdx}`,
               type: 'tool',
@@ -111,6 +129,7 @@ export default function ChatDebugPanel({
               status: tc.status,
               arguments: tc.arguments,
               error: tc.error,
+              result,
             });
           });
         }
@@ -128,6 +147,19 @@ export default function ChatDebugPanel({
 
     // Add streaming state
     streamingTools.forEach((tc, i) => {
+      // Build the result string for streaming tools too
+      let result: string | undefined;
+      if (tc.result_summary) {
+        result = tc.result_summary;
+      } else if (tc.code_output) {
+        const parts: string[] = [];
+        if (tc.code_output.stdout) parts.push(tc.code_output.stdout);
+        if (tc.code_output.stderr) parts.push(`[stderr] ${tc.code_output.stderr}`);
+        if (parts.length > 0) result = parts.join('\n');
+      } else if (tc.file_content) {
+        result = `File: ${tc.file_content.filename} (${tc.file_content.content.length} chars)`;
+      }
+
       items.push({
         id: `streaming-tool-${i}`,
         type: 'tool',
@@ -136,6 +168,7 @@ export default function ChatDebugPanel({
         status: tc.status + ' (streaming)',
         arguments: tc.arguments,
         error: tc.error,
+        result,
       });
     });
 
@@ -198,7 +231,7 @@ export default function ChatDebugPanel({
                 ) : (
                   timeline.map((item) => {
                     const isItemExpanded = expandedItems.has(item.id);
-                    const preview = item.content.slice(0, 80) + (item.content.length > 80 ? '...' : '');
+                    const preview = item.content.slice(0, 200) + (item.content.length > 200 ? '...' : '');
                     
                     return (
                       <div
@@ -242,6 +275,11 @@ export default function ChatDebugPanel({
                                   {item.status}
                                 </span>
                               )}
+                              {item.result && (
+                                <span className="text-green-400 text-[10px]">
+                                  ✓ has result
+                                </span>
+                              )}
                               <span className="text-gray-600 text-[10px]">
                                 {item.content.length} chars
                               </span>
@@ -268,6 +306,14 @@ export default function ChatDebugPanel({
                                 <div className="text-red-400 text-[10px] mb-1">ERROR</div>
                                 <pre className="bg-red-900/30 p-1.5 rounded text-[10px] overflow-x-auto text-red-300 whitespace-pre-wrap">
                                   {item.error}
+                                </pre>
+                              </div>
+                            )}
+                            {item.result && (
+                              <div className="mb-2">
+                                <div className="text-green-400 text-[10px] mb-1">RESULT</div>
+                                <pre className="bg-green-900/30 p-1.5 rounded text-[10px] overflow-x-auto text-green-300 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                  {item.result}
                                 </pre>
                               </div>
                             )}
@@ -350,7 +396,7 @@ export default function ChatDebugPanel({
 
             {activeTab === 'raw' && (
               <div className="space-y-1">
-                <pre className="text-[10px] bg-gray-800 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all">
+                <pre className="text-[10px] bg-gray-800 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all max-h-[500px] overflow-y-auto">
                   {JSON.stringify(
                     {
                       chatId,
@@ -358,13 +404,30 @@ export default function ChatDebugPanel({
                       messagesCount: messages.length,
                       streamingTextLength: streamingText.length,
                       streamingToolsCount: streamingTools.length,
-                      lastMessage: messages[messages.length - 1]
-                        ? {
-                            role: messages[messages.length - 1].role,
-                            contentLength: messages[messages.length - 1].content?.length,
-                            toolCallsCount: messages[messages.length - 1].toolCalls?.length,
-                          }
-                        : null,
+                      // Show full tool call data to debug
+                      toolCalls: messages.flatMap((msg, i) => 
+                        (msg.toolCalls || []).map((tc, j) => ({
+                          msgIndex: i,
+                          tool_name: tc.tool_name,
+                          status: tc.status,
+                          has_result_summary: !!tc.result_summary,
+                          has_code_output: !!tc.code_output,
+                          has_file_content: !!tc.file_content,
+                          has_search_results: !!tc.search_results,
+                          has_error: !!tc.error,
+                          result_summary: tc.result_summary,
+                          code_output: tc.code_output,
+                          error: tc.error,
+                        }))
+                      ),
+                      streamingTools: streamingTools.map(tc => ({
+                        tool_name: tc.tool_name,
+                        status: tc.status,
+                        has_result_summary: !!tc.result_summary,
+                        has_code_output: !!tc.code_output,
+                        result_summary: tc.result_summary,
+                        code_output: tc.code_output,
+                      })),
                     },
                     null,
                     2

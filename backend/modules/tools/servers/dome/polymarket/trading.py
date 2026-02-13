@@ -1,85 +1,115 @@
 """
-Polymarket Trading - Market-Wide Trade History
+Polymarket Trading - Trade Execution History via Dome API
 
-Track historical trades across markets (not wallet-specific).
-For wallet-specific activity, use get_wallet_activity from wallet.py instead.
+Get actual BUY/SELL trade executions from Polymarket via Dome's /polymarket/orders endpoint.
+This provides real execution data including prices, shares, and wallet addresses.
 """
 from typing import Optional, Dict, Any
 from .._client import call_dome_api
 
 
-def get_trade_history(
+def get_orders(
+    user: Optional[str] = None,
     condition_id: Optional[str] = None,
     market_slug: Optional[str] = None,
     token_id: Optional[str] = None,
-    maker_address: Optional[str] = None,
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
     limit: int = 100,
-    offset: int = 0
+    pagination_key: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Get market-wide trade history (all trades across the platform).
+    Get executed orders (actual BUY/SELL trades) from Polymarket.
     
-    NOTE: For wallet-specific trades, use get_wallet_activity() from wallet.py instead.
-    This endpoint returns all trades on the platform matching your filters.
+    This is the primary endpoint for fetching real trade execution data.
+    Returns filled orders with price, shares, and transaction details.
     
     Args:
-        condition_id: Filter by condition ID
+        user: Filter by wallet address (to get a specific trader's executions)
+        condition_id: Filter by condition ID (specific market)
         market_slug: Filter by market slug
-        token_id: Filter by token ID (specific outcome)
-        maker_address: Filter by maker wallet address
-        start_time: Unix timestamp (seconds) for start of range
-        end_time: Unix timestamp (seconds) for end of range
-        limit: Number of trades to return (1-1000, default 100)
-        offset: Number to skip for pagination (default 0)
+        token_id: Filter by token ID (specific outcome - Yes/No)
+        start_time: Unix timestamp (seconds) filter from (inclusive)
+        end_time: Unix timestamp (seconds) filter until (inclusive)
+        limit: Number of orders to return (1-1000, default 100)
+        pagination_key: Cursor for pagination (from previous response)
         
     Returns:
         dict with:
-        - trades: List of trades with:
-            - id: Trade ID
+        - orders: List of executed orders with:
+            - token_id: Token ID
+            - token_label: 'Yes' or 'No'
+            - side: 'BUY' or 'SELL'
             - market_slug: Market identifier
             - condition_id: Condition ID
-            - token_id: Token ID
-            - side: 'BUY' or 'SELL'
-            - price: Trade price (0-1)
-            - size: Trade size (shares)
-            - timestamp: Trade timestamp
-            - maker_address: Maker wallet address
-            - taker_address: Taker wallet address
-        - pagination: Pagination info
+            - shares: Raw shares (use shares_normalized instead)
+            - shares_normalized: Normalized share amount
+            - price: Execution price (0-1, e.g., 0.65 = 65 cents)
+            - block_number: Blockchain block number
+            - tx_hash: Transaction hash
+            - title: Market title
+            - timestamp: Unix timestamp of execution
+            - order_hash: Order identifier
+            - user: Maker wallet address
+            - taker: Taker wallet address
+        - pagination: Pagination info with limit, offset, total, has_more, pagination_key
         
     Example:
-        # Get recent trades for a specific market
-        trades = get_trade_history(
-            condition_id="0x4567b275...",
-            limit=50
-        )
-        if 'error' not in trades:
-            for trade in trades['trades']:
-                print(f"{trade['timestamp']}: {trade['side']} "
-                      f"{trade['size']} @ ${trade['price']}")
+        # Get a wallet's recent trade executions
+        orders = get_orders(user="0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee", limit=100)
+        if 'error' not in orders:
+            for order in orders['orders']:
+                print(f"{order['side']} {order['shares_normalized']:.2f} shares "
+                      f"@ ${order['price']:.2f} - {order['title']}")
         
-        # For wallet-specific trades, use wallet.get_wallet_activity() instead:
-        # from servers.dome.polymarket.wallet import get_wallet_activity
-        # activity = get_wallet_activity("0xabc123...", limit=100)
+        # Get trades for a specific market
+        orders = get_orders(market_slug="bitcoin-above-100000", limit=50)
     """
-    params = {
-        "limit": min(max(1, limit), 1000),
-        "offset": max(0, offset)
-    }
+    params = {"limit": min(max(1, limit), 1000)}
     
+    if user:
+        params["user"] = user
     if condition_id:
         params["condition_id"] = condition_id
     if market_slug:
         params["market_slug"] = market_slug
     if token_id:
         params["token_id"] = token_id
-    if maker_address:
-        params["maker_address"] = maker_address
     if start_time:
         params["start_time"] = start_time
     if end_time:
         params["end_time"] = end_time
+    if pagination_key:
+        params["pagination_key"] = pagination_key
     
-    return call_dome_api("/polymarket/trades", params)
+    return call_dome_api("/polymarket/orders", params)
+
+
+def get_trade_history(
+    condition_id: Optional[str] = None,
+    market_slug: Optional[str] = None,
+    token_id: Optional[str] = None,
+    user: Optional[str] = None,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
+    limit: int = 100,
+    pagination_key: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Alias for get_orders() - Get executed trades from Polymarket.
+    
+    DEPRECATED: Use get_orders() instead for clarity.
+    This function is kept for backward compatibility.
+    
+    See get_orders() for full documentation.
+    """
+    return get_orders(
+        user=user,
+        condition_id=condition_id,
+        market_slug=market_slug,
+        token_id=token_id,
+        start_time=start_time,
+        end_time=end_time,
+        limit=limit,
+        pagination_key=pagination_key
+    )

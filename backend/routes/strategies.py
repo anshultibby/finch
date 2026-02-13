@@ -17,6 +17,7 @@ from models.strategies import (
     UpdateStrategyRequest,
     StrategyResponse,
     StrategyDetailResponse,
+    StrategyCodeResponse,
     ExecutionResponse,
     ExecutionDetailResponse,
     RunStrategyRequest,
@@ -165,6 +166,35 @@ async def get_strategy(
     if not strategy:
         raise HTTPException(status_code=404, detail="Strategy not found")
     return _strategy_to_detail_response(strategy)
+
+
+@router.get("/{strategy_id}/code", response_model=StrategyCodeResponse)
+async def get_strategy_code(
+    strategy_id: str,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get strategy code files (entrypoint and supporting files)"""
+    strategy = await crud.get_strategy(db, strategy_id, user_id)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    try:
+        files = await crud.load_strategy_files(db, strategy)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    config = strategy.config or {}
+    stats_dict = strategy.stats or {}
+
+    return StrategyCodeResponse(
+        strategy_id=strategy.id,
+        name=strategy.name,
+        entrypoint=config.get("entrypoint", "strategy.py"),
+        files=files,
+        config=config,
+        stats=StrategyStats(**stats_dict),
+    )
 
 
 @router.patch("/{strategy_id}", response_model=StrategyDetailResponse)

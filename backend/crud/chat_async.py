@@ -1,7 +1,7 @@
 """
 Async CRUD operations for chats and chat messages
 """
-from typing import List, Optional
+from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -249,6 +249,98 @@ async def get_chat_messages(db: AsyncSession, chat_id: str) -> List[ChatMessage]
         .order_by(ChatMessage.sequence.asc())
     )
     return list(result.scalars().all())
+
+
+async def delete_messages_by_ids(db: AsyncSession, message_ids: List[int]) -> int:
+    """Delete messages by IDs and return count deleted."""
+    if not message_ids:
+        return 0
+    result = await db.execute(
+        select(ChatMessage).where(ChatMessage.id.in_(message_ids))
+    )
+    messages = list(result.scalars().all())
+    for msg in messages:
+        await db.delete(msg)
+    await db.commit()
+    return len(messages)
+
+
+async def cleanup_incomplete_tool_sequences(db: AsyncSession, chat_id: str) -> int:
+    """
+    Remove incomplete tool call sequences that violate Anthropic requirements.
+    
+    Deletes assistant tool_calls that are not immediately followed by their tool
+    results, along with any orphaned tool messages.
+    """
+    import json
+    
+    messages = await get_chat_messages(db, chat_id)
+    if not messages:
+        return 0
+    
+    delete_ids: Set[int] = set()
+    valid_tool_call_ids: Set[str] = set()
+    
+    idx = 0
+    while idx < len(messages):
+        msg = messages[idx]
+        
+        if msg.role == "assistant":
+            expected_ids = {tc.get("id") for tc in (msg.tool_calls or []) if tc.get("id")}
+            # Also handle Claude-style tool_use blocks embedded in content
+            content_ids: Set[str] = set()
+            content = msg.content
+            if isinstance(content, str) and content.strip().startswith("["):
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, list):
+                        for block in parsed:
+                            if isinstance(block, dict) and block.get("type") == "tool_use":
+                                tool_use_id = block.get("id") or block.get("tool_use_id")
+                                if tool_use_id:
+                                    content_ids.add(tool_use_id)
+                except json.JSONDecodeError:
+                    content_ids = set()
+            expected_ids |= content_ids
+            
+            if not expected_ids:
+                idx += 1
+                continue
+            
+            j = idx + 1
+            seen_ids: Set[str] = set()
+            contiguous_tool_ids: Set[str] = set()
+            
+            while j < len(messages) and messages[j].role == "tool":
+                tool_call_id = messages[j].tool_call_id
+                if tool_call_id:
+                    seen_ids.add(tool_call_id)
+                    contiguous_tool_ids.add(tool_call_id)
+                j += 1
+            
+            if seen_ids == expected_ids:
+                valid_tool_call_ids.update(expected_ids)
+            else:
+                delete_ids.add(msg.id)
+                # Delete contiguous tool messages following this assistant
+                for k in range(idx + 1, j):
+                    delete_ids.add(messages[k].id)
+                # Delete any tool messages matching expected ids anywhere
+                for tool_msg in messages:
+                    if tool_msg.role == "tool" and tool_msg.tool_call_id in expected_ids:
+                        delete_ids.add(tool_msg.id)
+            
+            idx = j
+            continue
+        
+        idx += 1
+    
+    # Delete orphan tool messages not tied to any valid tool call
+    for msg in messages:
+        if msg.role == "tool" and msg.tool_call_id and msg.tool_call_id not in valid_tool_call_ids:
+            delete_ids.add(msg.id)
+    
+    return await delete_messages_by_ids(db, list(delete_ids))
 
 
 async def get_message_count(db: AsyncSession, chat_id: str) -> int:

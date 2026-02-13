@@ -172,10 +172,10 @@ class TestETFBuilderIntegration:
         assert tool.category == "analysis"
     
     def test_tool_in_agent_config(self):
-        """Test that tool is in agent config"""
-        from modules.agent.agent_config import MAIN_AGENT_TOOLS
+        """Test that tool is in executor agent config"""
+        from config import Config
         
-        assert "build_custom_etf" in MAIN_AGENT_TOOLS
+        assert "build_custom_etf" in Config.EXECUTOR_AGENT_TOOLS
     
     def test_params_validation(self):
         """Test Pydantic validation"""

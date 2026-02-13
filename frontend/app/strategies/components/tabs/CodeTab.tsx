@@ -1,71 +1,77 @@
 'use client';
 
-import React, { useState } from 'react';
-import type { Strategy } from '@/lib/types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { strategiesApi } from '@/lib/api';
+import type { Strategy, StrategyCodeResponse } from '@/lib/types';
 
 interface CodeTabProps {
   strategy: Strategy;
 }
 
 export function CodeTab({ strategy }: CodeTabProps) {
-  const [expandedSection, setExpandedSection] = useState<string | null>('entry');
+  const { user } = useAuth();
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [codeData, setCodeData] = useState<StrategyCodeResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock code content - in real implementation, fetch from ChatFiles
-  const entryCode = `# Entry Logic
-async def check_entry(ctx):
-    """Check for entry signals"""
-    signals = []
-    
-    # Example: Check market conditions
-    markets = await ctx.get_markets()
-    
-    for market in markets:
-        if should_enter(market):
-            signals.append({
-                'market_id': market.id,
-                'market_name': market.name,
-                'side': 'yes',
-                'reason': 'Market conditions favorable',
-                'confidence': 0.8
-            })
-    
-    return signals
-`;
-
-  const exitCode = `# Exit Logic
-async def check_exit(ctx, position):
-    """Check if position should be exited"""
-    
-    # Example: Exit on profit target or stop loss
-    pnl_pct = (position.current_price - position.entry_price) / position.entry_price
-    
-    if pnl_pct > 0.10:  # 10% profit
-        return {
-            'position_id': position.position_id,
-            'reason': 'Profit target reached (+10%)',
+  useEffect(() => {
+    const loadCode = async () => {
+      if (!user?.id) return;
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await strategiesApi.getStrategyCode(user.id, strategy.id);
+        if (!response?.strategy_id) {
+          throw new Error(response?.detail || 'Unable to load strategy code');
         }
-    
-    if pnl_pct < -0.05:  # 5% loss
-        return {
-            'position_id': position.position_id,
-            'reason': 'Stop loss triggered (-5%)',
-        }
-    
-    return None
-`;
+        setCodeData(response);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to load strategy code');
+        setCodeData(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  const configJson = JSON.stringify({
-    name: strategy.name,
-    thesis: strategy.config?.thesis || strategy.description,
-    platform: strategy.config?.platform || 'polymarket',
-    execution_frequency: strategy.config?.execution_frequency || 60,
-    entry_script: 'entry.py',
-    exit_script: 'exit.py',
-    entry_description: strategy.config?.entry_description || '',
-    exit_description: strategy.config?.exit_description || '',
-    capital: strategy.config?.capital || {},
-    parameters: strategy.config?.parameters || {}
-  }, null, 2);
+    loadCode();
+  }, [user?.id, strategy.id]);
+
+  const codeFiles = useMemo(() => {
+    const files = codeData?.files || {};
+    const entries = Object.entries(files).map(([filename, content]) => ({
+      filename,
+      content,
+      language: getLanguageForFilename(filename),
+      isGenerated: false,
+    }));
+
+    const hasConfigFile = entries.some(entry => entry.filename === 'config.json');
+    const config = codeData?.config || strategy.config || {};
+    if (!hasConfigFile) {
+      entries.push({
+        filename: 'config.json',
+        content: JSON.stringify(config, null, 2),
+        language: 'json',
+        isGenerated: true,
+      });
+    }
+
+    const entrypoint = codeData?.entrypoint;
+    entries.sort((a, b) => {
+      if (entrypoint && a.filename === entrypoint) return -1;
+      if (entrypoint && b.filename === entrypoint) return 1;
+      return a.filename.localeCompare(b.filename);
+    });
+
+    return entries;
+  }, [codeData, strategy.config]);
+
+  useEffect(() => {
+    if (expandedSection || codeFiles.length === 0) return;
+    setExpandedSection(codeFiles[0].filename);
+  }, [codeFiles, expandedSection]);
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
@@ -81,46 +87,46 @@ async def check_exit(ctx, position):
     window.location.href = `/?message=Edit ${filename} in strategy ${strategy.name}`;
   };
 
+  if (isLoading) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        Loading strategy code...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12 text-red-600">
+        {error}
+      </div>
+    );
+  }
+
+  if (codeFiles.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        No code files found for this strategy.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {/* Entry.py */}
-      <CodeSection
-        title="entry.py"
-        subtitle="Entry signal logic"
-        code={entryCode}
-        language="python"
-        isExpanded={expandedSection === 'entry'}
-        onToggle={() => toggleSection('entry')}
-        onCopy={() => copyToClipboard(entryCode)}
-        onEdit={() => openInChat('entry.py')}
-        lastModified="2 hours ago"
-      />
-
-      {/* Exit.py */}
-      <CodeSection
-        title="exit.py"
-        subtitle="Exit signal logic"
-        code={exitCode}
-        language="python"
-        isExpanded={expandedSection === 'exit'}
-        onToggle={() => toggleSection('exit')}
-        onCopy={() => copyToClipboard(exitCode)}
-        onEdit={() => openInChat('exit.py')}
-        lastModified="2 hours ago"
-      />
-
-      {/* Config.json */}
-      <CodeSection
-        title="config.json"
-        subtitle="Strategy configuration"
-        code={configJson}
-        language="json"
-        isExpanded={expandedSection === 'config'}
-        onToggle={() => toggleSection('config')}
-        onCopy={() => copyToClipboard(configJson)}
-        onEdit={() => openInChat('config.json')}
-        lastModified="2 hours ago"
-      />
+      {codeFiles.map((file) => (
+        <CodeSection
+          key={file.filename}
+          title={file.filename}
+          subtitle={file.isGenerated ? 'Generated from strategy config' : 'Strategy file'}
+          code={file.content}
+          language={file.language}
+          isExpanded={expandedSection === file.filename}
+          onToggle={() => toggleSection(file.filename)}
+          onCopy={() => copyToClipboard(file.content)}
+          onEdit={() => openInChat(file.filename)}
+          lastModified={file.isGenerated ? 'Generated' : 'From chat files'}
+        />
+      ))}
     </div>
   );
 }
@@ -189,4 +195,22 @@ function CodeSection({
       )}
     </div>
   );
+}
+
+function getLanguageForFilename(filename: string) {
+  const extension = filename.split('.').pop()?.toLowerCase();
+  switch (extension) {
+    case 'py':
+      return 'python';
+    case 'json':
+      return 'json';
+    case 'js':
+      return 'javascript';
+    case 'ts':
+      return 'typescript';
+    case 'md':
+      return 'markdown';
+    default:
+      return 'text';
+  }
 }

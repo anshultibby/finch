@@ -8,13 +8,13 @@ import asyncio
 from modules.tools import (
     tool_registry, 
     ToolExecutor, 
-    ToolCallRequest, 
-    TruncationPolicy
+    ToolCallRequest
 )
-from models.sse import SSEEvent, ToolsEndEvent, ThinkingEvent, DoneEvent, ErrorEvent
+from models.sse import SSEEvent, ToolsEndEvent, ThinkingEvent, DoneEvent, ErrorEvent, CancelledEvent
 from models.chat_history import ChatHistory, ChatMessage as HistoryChatMessage
 from .llm_config import LLMConfig
 from .llm_stream import stream_llm_response
+from .message_processor import enforce_tool_call_sequence
 from .context import AgentContext
 from utils.logger import get_logger
 from .tracing_utils import AgentTracer
@@ -65,11 +65,8 @@ class BaseAgent:
             chat_id=context.chat_id,
             model=model
         )
-        # Create tool executor with 8K char truncation (~2K tokens)
-        # This keeps tool responses concise and reduces cache growth
-        self._tool_executor = ToolExecutor(
-            truncation_policy=TruncationPolicy(max_chars=8000)
-        )
+        # Create tool executor (no truncation - agents save large outputs to files)
+        self._tool_executor = ToolExecutor()
     
     def get_new_messages(self) -> List[HistoryChatMessage]:
         """
@@ -175,6 +172,15 @@ class BaseAgent:
             while iteration < max_iterations:
                 iteration += 1
                 
+                # Check for cancellation before starting new iteration
+                if self.context.is_cancelled():
+                    logger.info("🛑 Agent cancelled before iteration - stopping")
+                    yield SSEEvent(
+                        event="cancelled",
+                        data=CancelledEvent(reason="User sent a new message").model_dump()
+                    )
+                    return
+                
                 # Start span for this turn (clean abstraction)
                 async with self._agent_tracer.turn(iteration, len(messages)):
                     # Get tools for this agent from global registry
@@ -273,6 +279,15 @@ class BaseAgent:
                         # Just end here and wait for next user message
                         break
                     
+                    # Check for cancellation before next LLM call
+                    if self.context.is_cancelled():
+                        logger.info("🛑 Agent cancelled - not starting new LLM call")
+                        yield SSEEvent(
+                            event="cancelled",
+                            data=CancelledEvent(reason="User sent a new message").model_dump()
+                        )
+                        return
+                    
                     # Show thinking indicator before next LLM call (synthesizing results)
                     yield SSEEvent(
                         event="thinking",
@@ -350,6 +365,9 @@ class BaseAgent:
         # Prepend system message and convert to OpenAI format
         messages = [{"role": "system", "content": self.system_prompt}]
         messages.extend(chat_history.to_openai_format(limit=history_limit))
+        
+        # Ensure tool call sequences are valid for Anthropic
+        messages = enforce_tool_call_sequence(messages)
         
         return messages
 

@@ -397,3 +397,107 @@ class ChatHistory(BaseModel):
             avg_chars = breakdown['chars'] // breakdown['messages'] if breakdown['messages'] > 0 else 0
             print(f"  - {role.capitalize():>9}: {breakdown['chars']:>8,} chars across {breakdown['messages']:>3} msgs (avg: {avg_chars:>6,} chars/msg)")
         print("="*60 + "\n")
+    
+    def to_markdown(
+        self, 
+        title: str = "Chat Transcript",
+        include_system: bool = False,
+        include_tool_results: bool = True,
+        max_tool_result_length: int = 500
+    ) -> str:
+        """
+        Convert chat history to a readable markdown transcript.
+        
+        Useful for:
+        - Saving executor conversations for planner to review
+        - Debugging/logging
+        - Exporting conversations
+        
+        Args:
+            title: Title for the transcript
+            include_system: Whether to include system messages
+            include_tool_results: Whether to include tool result content
+            max_tool_result_length: Truncate tool results longer than this
+        
+        Returns:
+            Markdown formatted string
+        """
+        lines = [f"# {title}", ""]
+        
+        for msg in self.messages:
+            # Skip system messages unless requested
+            if msg.role == "system" and not include_system:
+                continue
+            
+            # Format based on role
+            if msg.role == "user":
+                lines.append("## User")
+                content = self._extract_text_content(msg.content)
+                lines.append(content)
+                lines.append("")
+            
+            elif msg.role == "assistant":
+                lines.append("## Assistant")
+                
+                # Add text content if present
+                content = self._extract_text_content(msg.content)
+                if content:
+                    lines.append(content)
+                
+                # Add tool calls if present
+                if msg.tool_calls:
+                    lines.append("")
+                    lines.append("**Tool Calls:**")
+                    for tc in msg.tool_calls:
+                        func_name = tc.function.get("name", "unknown")
+                        args = tc.function.get("arguments", "{}")
+                        # Parse and format args nicely
+                        try:
+                            if isinstance(args, str):
+                                args_dict = json.loads(args)
+                            else:
+                                args_dict = args
+                            # Show abbreviated args
+                            args_preview = json.dumps(args_dict, indent=2)
+                            if len(args_preview) > 200:
+                                args_preview = args_preview[:200] + "..."
+                        except:
+                            args_preview = str(args)[:200]
+                        
+                        lines.append(f"- `{func_name}`: {args_preview}")
+                
+                lines.append("")
+            
+            elif msg.role == "tool" and include_tool_results:
+                tool_name = msg.name or "unknown"
+                content = self._extract_text_content(msg.content)
+                
+                # Truncate long tool results
+                if len(content) > max_tool_result_length:
+                    content = content[:max_tool_result_length] + f"... (truncated, {len(content)} chars total)"
+                
+                lines.append(f"**Tool Result ({tool_name}):**")
+                lines.append(f"```")
+                lines.append(content)
+                lines.append(f"```")
+                lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _extract_text_content(self, content: Optional[Union[str, List[Dict[str, Any]]]]) -> str:
+        """Extract text from content (handles both string and multimodal formats)."""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            # Multimodal content - extract text blocks
+            texts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        texts.append(block.get("text", ""))
+                    elif block.get("type") == "image":
+                        texts.append("[Image]")
+            return "\n".join(texts)
+        return str(content)

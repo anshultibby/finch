@@ -208,3 +208,9 @@ class ToolsEndEvent(BaseModel):
     tool_messages: List[Dict[str, Any]]
     execution_results: Optional[List[Dict[str, Any]]] = None  # Optional: detailed results for tracking
     timestamp: str = datetime.now().isoformat()
+
+
+class CancelledEvent(BaseModel):
+    """Event sent when execution is cancelled due to user interruption"""
+    reason: str = "User sent a new message"
+    timestamp: str = datetime.now().isoformat()

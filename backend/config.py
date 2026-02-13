@@ -38,13 +38,13 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Configuration
     # =========================================================================
-    MASTER_LLM_MODEL: str = Field(
+    PLANNER_LLM_MODEL: str = Field(
         default=Models.CLAUDE_OPUS_4_5,
-        description="LLM model to use for the Master Agent"
+        description="LLM model for Planner Agent (lightweight, planning)"
     )
     EXECUTOR_LLM_MODEL: str = Field(
         default=Models.CLAUDE_SONNET_4_5,
-        description="LLM model to use for the Executor Agent"
+        description="LLM model for Executor Agent (does the work)"
     )
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
@@ -134,30 +134,46 @@ class Settings(BaseSettings):
     # =========================================================================
     # Agent Tool Configuration
     # =========================================================================
-    # Shared tools available to all agents
-    AGENT_TOOLS: List[str] = Field(
+    # Planner Agent: Lightweight - plan, delegate, review
+    # NOTE: execute_code is included for capability awareness (sees API docs) but planner should NOT call it
+    PLANNER_AGENT_TOOLS: List[str] = Field(
         default=[
-            'execute_code',
-            'write_chat_file',
             'read_chat_file',
+            'write_chat_file',
             'replace_in_chat_file',
+            'delegate_execution',
+            'execute_code',  # For capability awareness only - DO NOT CALL
+        ],
+        description="Planner agent tools - planning and delegation only"
+    )
+    
+    # Task Executor Agent: All execution tools - research, code, save
+    EXECUTOR_AGENT_TOOLS: List[str] = Field(
+        default=[
+            # Research
             'web_search',
             'news_search',
             'scrape_url',
+            # Code execution
+            'execute_code',
+            # File management
+            'write_chat_file',
+            'read_chat_file',
+            'replace_in_chat_file',
+            # Domain tools
+            'build_custom_etf',
+            'deploy_strategy',
+            'update_strategy',
+            'approve_strategy',
+            'run_strategy',
+            'delete_strategy',
+            'list_strategies',
+            'get_strategy',
+            'get_chat_files_for_strategy',
+            # Completion signal
+            'finish_execution',
         ],
-        description="Base tools available to all agents"
-    )
-    
-    # Master agent gets delegation + ETF builder
-    MASTER_AGENT_EXTRA_TOOLS: List[str] = Field(
-        default=['delegate_execution', 'build_custom_etf'],
-        description="Additional tools for Master Agent"
-    )
-    
-    # Executor agent gets finish_execution
-    EXECUTOR_AGENT_EXTRA_TOOLS: List[str] = Field(
-        default=['finish_execution'],
-        description="Additional tools for Executor Agent"
+        description="Executor agent tools - all execution capabilities"
     )
     
     # =========================================================================
@@ -235,7 +251,7 @@ class Config:
     USE_POOLER = settings.USE_POOLER
     
     # LLM
-    MASTER_LLM_MODEL = settings.MASTER_LLM_MODEL
+    PLANNER_LLM_MODEL = settings.PLANNER_LLM_MODEL
     EXECUTOR_LLM_MODEL = settings.EXECUTOR_LLM_MODEL
     OPENAI_API_KEY = settings.OPENAI_API_KEY
     ANTHROPIC_API_KEY = settings.ANTHROPIC_API_KEY
@@ -274,9 +290,8 @@ class Config:
     ENABLE_TIMING_LOGS = settings.ENABLE_TIMING_LOGS
     
     # Agent Tools
-    AGENT_TOOLS = settings.AGENT_TOOLS
-    MASTER_AGENT_TOOLS = settings.AGENT_TOOLS + settings.MASTER_AGENT_EXTRA_TOOLS
-    EXECUTOR_AGENT_TOOLS = settings.AGENT_TOOLS + settings.EXECUTOR_AGENT_EXTRA_TOOLS
+    PLANNER_AGENT_TOOLS = settings.PLANNER_AGENT_TOOLS
+    EXECUTOR_AGENT_TOOLS = settings.EXECUTOR_AGENT_TOOLS
     
     @classmethod
     def get_database_url(cls) -> str:

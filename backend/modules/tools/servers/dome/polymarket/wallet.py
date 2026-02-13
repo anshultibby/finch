@@ -155,12 +155,17 @@ def get_wallet_activity(
     market_slug: Optional[str] = None,
     condition_id: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    pagination_key: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Get trading activity (buys, sells, redeems) for a wallet.
+    Get on-chain activity (SPLITS, MERGES, REDEEMS) for a wallet.
     
-    This is the primary way to track wallet trades and build position history.
+    NOTE: This endpoint returns SPLITS, MERGES, and REDEEMS only - NOT actual
+    BUY/SELL trade executions. This is by design from Dome API.
+    
+    For actual BUY/SELL trade execution data, use:
+        from servers.dome.polymarket.trading import get_orders
+        orders = get_orders(user="0x...", limit=100)
     
     Args:
         wallet_address: Proxy wallet address (0x...)
@@ -169,48 +174,42 @@ def get_wallet_activity(
         market_slug: Filter by specific market
         condition_id: Filter by specific condition ID
         limit: Number of activities to return (1-1000, default 100)
-        offset: Number to skip for pagination (default 0)
+        pagination_key: Cursor for pagination (from previous response)
         
     Returns:
         dict with:
         - activities: List of activity records with:
             - token_id: Token ID
-            - side: 'BUY', 'SELL', or 'REDEEM'
+            - side: 'SPLIT', 'MERGE', or 'REDEEM' (NOT BUY/SELL)
             - market_slug: Market identifier
             - condition_id: Condition ID
-            - shares: Raw shares traded
+            - shares: Raw shares
             - shares_normalized: Normalized shares
-            - price: Trade price (0-1)
+            - price: Price at time of activity (1 for redeems)
             - tx_hash: Transaction hash
             - title: Market title
             - timestamp: Unix timestamp
             - user: User wallet address
-        - pagination: Pagination info with limit, offset, count, has_more
+        - pagination: Pagination info with limit, count, has_more, pagination_key
         
     Example:
-        # Get recent activity for a wallet
+        # Get redemption and merge activity for a wallet
         activity = get_wallet_activity(
             "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
             limit=50
         )
         if 'error' not in activity:
             for act in activity['activities']:
-                print(f"{act['side']}: {act['shares_normalized']} shares @ ${act['price']} - {act['title']}")
+                if act['side'] == 'REDEEM':
+                    print(f"Redeemed {act['shares_normalized']} shares - {act['title']}")
         
-        # Get activity for a specific time range
-        import time
-        end = int(time.time())
-        start = end - (7 * 24 * 60 * 60)  # Last 7 days
-        activity = get_wallet_activity(
-            "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-            start_time=start,
-            end_time=end
-        )
+        # For actual BUY/SELL trades, use get_orders instead:
+        from servers.dome.polymarket.trading import get_orders
+        orders = get_orders(user="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", limit=100)
     """
     params = {
         "user": wallet_address,
-        "limit": min(max(1, limit), 1000),
-        "offset": max(0, offset)
+        "limit": min(max(1, limit), 1000)
     }
     
     if start_time:
@@ -221,5 +220,80 @@ def get_wallet_activity(
         params["market_slug"] = market_slug
     if condition_id:
         params["condition_id"] = condition_id
+    if pagination_key:
+        params["pagination_key"] = pagination_key
     
     return call_dome_api("/polymarket/activity", params)
+
+
+def get_wallet_trades(
+    wallet_address: str,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
+    market_slug: Optional[str] = None,
+    condition_id: Optional[str] = None,
+    token_id: Optional[str] = None,
+    limit: int = 100,
+    pagination_key: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get actual BUY/SELL trade executions for a wallet.
+    
+    This returns real trade execution data with prices, shares, and timestamps.
+    Use this for copy trading, trade analysis, and performance tracking.
+    
+    Args:
+        wallet_address: Wallet address (0x...)
+        start_time: Unix timestamp (seconds) filter from (inclusive)
+        end_time: Unix timestamp (seconds) filter until (inclusive)
+        market_slug: Filter by specific market
+        condition_id: Filter by specific condition ID
+        token_id: Filter by specific token ID (Yes/No outcome)
+        limit: Number of trades to return (1-1000, default 100)
+        pagination_key: Cursor for pagination (from previous response)
+        
+    Returns:
+        dict with:
+        - orders: List of executed orders with:
+            - token_id: Token ID
+            - token_label: 'Yes' or 'No'
+            - side: 'BUY' or 'SELL'
+            - market_slug: Market identifier
+            - condition_id: Condition ID
+            - shares_normalized: Normalized share amount
+            - price: Execution price (0-1)
+            - tx_hash: Transaction hash
+            - title: Market title
+            - timestamp: Unix timestamp of execution
+            - user: Maker wallet address
+            - taker: Taker wallet address
+        - pagination: Pagination info
+        
+    Example:
+        # Get a trader's recent executions
+        trades = get_wallet_trades("0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee", limit=100)
+        if 'error' not in trades:
+            for order in trades['orders']:
+                print(f"{order['side']} {order['shares_normalized']:.2f} @ ${order['price']:.2f}")
+                print(f"  Market: {order['title']}")
+                print(f"  Time: {order['timestamp']}")
+    """
+    params = {
+        "user": wallet_address,
+        "limit": min(max(1, limit), 1000)
+    }
+    
+    if start_time:
+        params["start_time"] = start_time
+    if end_time:
+        params["end_time"] = end_time
+    if market_slug:
+        params["market_slug"] = market_slug
+    if condition_id:
+        params["condition_id"] = condition_id
+    if token_id:
+        params["token_id"] = token_id
+    if pagination_key:
+        params["pagination_key"] = pagination_key
+    
+    return call_dome_api("/polymarket/orders", params)

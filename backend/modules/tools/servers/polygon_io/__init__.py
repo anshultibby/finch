@@ -1,17 +1,20 @@
 """
-Polygon.io API
+Polygon.io - Stock Market Data
 
-High-quality market data with generous rate limits.
+CAPABILITIES:
+- Historical daily/weekly/monthly price bars for any US stock
+- Intraday bars (1min to 1hour) for backtesting and analysis
+- Real-time quotes with bid/ask spreads
 
-Quick start:
-    from servers.polygon_io.market.historical_prices import get_historical_prices
-    
-    # IMPORTANT: Use symbol= (not ticker=), and check for errors!
-    response = get_historical_prices(symbol='AAPL', from_date='2024-01-01', to_date='2024-01-31')
-    if 'error' in response:
-        print(f"Error: {response['error']}")
-    else:
-        bars = response['bars']  # Data is in 'bars' key, not the response directly
+KEY MODULES:
+- market.historical_prices: Daily/weekly/monthly OHLCV bars
+- market.intraday: Minute-level bars for intraday analysis
+- market.quote: Real-time stock quotes
+
+USAGE PATTERN:
+All price functions use symbol= parameter. Returns dict with 'bars' key.
+Always check for 'error' key before accessing data.
+Timestamps are Unix milliseconds - convert with pd.to_datetime(ts, unit='ms').
 """
 
 from .api import polygon
