@@ -99,22 +99,34 @@ WRITE_CHAT_FILE_DESC = """Write a file to the persistent chat filesystem (syncs 
 
 READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads, images, and API docs!**
 
+**CRITICAL - NEVER READ ENTIRE LARGE FILES UNLESS NECESSARY:**
+- `peek=True` reads first ~100 lines (like Cursor's default preview)
+- For large data files, use code to parse them instead of reading them fully
+- Reading thousands of lines wastes tokens and slows you down
+
 **When to use:**
 - Reading text files (code, data, configs)
 - **VIEWING IMAGES** - Use this to see charts/visualizations you've created
-- **Reading large files partially** - Use start_line/end_line for big files
+- **Peeking at large files** - Use peek=True to read first ~100 lines
 - **READING API DOCUMENTATION** - Use from_api_docs=True to read server docs
 
 **Reading API documentation (CRITICAL - do this BEFORE using any API):**
 - `read_chat_file(filename="AGENTS.md", from_api_docs=True)` - Overview of all APIs
 - `read_chat_file(filename="dome/AGENTS.md", from_api_docs=True)` - Dome API (Polymarket/Kalshi)
+- `read_chat_file(filename="dome/models.py", from_api_docs=True)` - Dome Pydantic models
 - `read_chat_file(filename="polygon_io/AGENTS.md", from_api_docs=True)` - Polygon.io stock data
+- `read_chat_file(filename="polygon_io/models.py", from_api_docs=True)` - Polygon models
 - `read_chat_file(filename="financial_modeling_prep/AGENTS.md", from_api_docs=True)` - FMP fundamentals
+- `read_chat_file(filename="financial_modeling_prep/models.py", from_api_docs=True)` - FMP models
 
-**Partial reads (like Cursor):**
-- `read_chat_file(filename="data.json")` - full file
-- `read_chat_file(filename="data.json", start_line=1, end_line=50)` - first 50 lines
-- `read_chat_file(filename="data.json", start_line=100, end_line=150)` - lines 100-150
+**Peek at files (PREFERRED for large files):**
+- `read_chat_file(filename="data.json", peek=True)` - first ~100 lines only
+- `read_chat_file(filename="large_log.txt", peek=True)` - first ~100 lines
+- **After peeking, write code to parse the file instead of reading it all**
+
+**Partial reads (for specific sections):**
+- `read_chat_file(filename="data.json", start_line=100, end_line=200)` - lines 100-200
+- `read_chat_file(filename="code.py", start_line=50, end_line=150)` - specific section
 
 **Returns for text files:**
 - content: The file content (or selected lines)

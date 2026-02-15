@@ -66,7 +66,7 @@ for pos in result.positions:
     print(f"{pos.title}: {pos.shares_normalized} {pos.label}")
 ```
 
-**Models:** `servers/dome/models.py`
+**Models:** `dome/models.py` (read with `read_chat_file(filename="dome/models.py", from_api_docs=True)`)
 
 ---
 
@@ -85,7 +85,7 @@ for pos in result.positions:
 - `get_last_quote(symbol: str)` - Last bid/ask
 - `get_snapshot(symbol: str)` - Complete snapshot
 
-**Models:** `servers/polygon_io/models.py`
+**Models:** `polygon_io/models.py` (read with `read_chat_file(filename="polygon_io/models.py", from_api_docs=True)`)
 
 ---
 
@@ -153,7 +153,7 @@ for pos in result.positions:
 ### search/search.py
 - `search(query: str, limit: int, exchange: str)` - Search stocks
 
-**Models:** `servers/financial_modeling_prep/models.py`
+**Models:** `financial_modeling_prep/models.py` (read with `read_chat_file(filename="financial_modeling_prep/models.py", from_api_docs=True)`)
 
 ---
 
@@ -174,7 +174,7 @@ for pos in result.positions:
 - `get_kalshi_orders()` - View open orders
 - `cancel_kalshi_order(order_id: str)` - Cancel order
 
-**Models:** `servers/kalshi/models.py`
+**Models:** `kalshi/models.py` (read with `read_chat_file(filename="kalshi/models.py", from_api_docs=True)`)
 
 ---
 
@@ -266,4 +266,4 @@ except DomeAPIError as e:
     print(f"Error: {e}")
 ```
 
-See `servers/<server>/models.py` for complete response schemas and `servers/<server>/AGENTS.md` for details.
+See `<server>/models.py` (via `read_chat_file(filename="<server>/models.py", from_api_docs=True)`) for complete response schemas and `<server>/AGENTS.md` (via `read_chat_file(filename="<server>/AGENTS.md", from_api_docs=True)`) for details.

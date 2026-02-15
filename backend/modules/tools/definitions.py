@@ -114,10 +114,11 @@ def read_chat_file(
     filename: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
+    peek: bool = False,
     from_api_docs: bool = False
 ):
-    """Read file from chat directory, optionally by line range. Set from_api_docs=True to read API documentation."""
-    return file_management.read_chat_file_impl(context, filename, start_line, end_line, from_api_docs)
+    """Read file from chat directory, optionally by line range. Set peek=True to read first ~100 lines (like Cursor). Set from_api_docs=True to read API documentation."""
+    return file_management.read_chat_file_impl(context, filename, start_line, end_line, peek, from_api_docs)
 
 
 @tool(

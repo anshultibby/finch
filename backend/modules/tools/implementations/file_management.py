@@ -508,6 +508,7 @@ def read_chat_file_impl(
     filename: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
+    peek: bool = False,
     from_api_docs: bool = False
 ):
     """
@@ -522,10 +523,16 @@ def read_chat_file_impl(
         filename: File to read (e.g., "chart.png" or "dome/AGENTS.md" if from_api_docs=True)
         start_line: 1-indexed start line (default: 1)
         end_line: 1-indexed end line, inclusive (default: last line)
+        peek: If True, read first 100 lines (like Cursor's default preview)
         from_api_docs: If True, reads from servers/ directory instead of chat files
     """
     from modules.resource_manager import resource_manager
     from pathlib import Path
+    
+    # If peek is True, read first 100 lines (Cursor's default)
+    if peek:
+        start_line = 1
+        end_line = 100
     
     # Convert string arguments to int (LLM may pass strings)
     if start_line is not None:
