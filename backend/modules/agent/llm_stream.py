@@ -1,10 +1,29 @@
 """
 Standalone LLM streaming functions - clean separation from agent logic
+
+**Streaming Architecture:**
+
+Event Flow: LLM Stream → Agent → Chat Service → Client
+            
+Phase 1: LLM Response
+  - assistant_message_delta (text content streams as LLM generates)
+  
+Phase 2: File Content (AFTER LLM completes)
+  - tool_call_streaming (file content streams for write_chat_file/replace_in_chat_file)
+  
+Phase 3: Tool Execution (handled by agent/executor)
+  - tool_call_start
+  - tool_call_complete
+  - tools_end
+
+This ordering is critical to prevent message reordering bugs where file content
+interleaves with assistant messages during multi-turn conversations.
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
 import json
 import re
 import asyncio
+import traceback as traceback_module
 from models.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
@@ -13,84 +32,9 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Tools that should have their arguments streamed during LLM generation
+# Tools that should have their file content streamed to the UI
+# These are streamed AFTER LLM completes to prevent interleaving with message deltas
 FILE_STREAMING_TOOLS = {'write_chat_file', 'replace_in_chat_file'}
-
-
-class SimpleFileExtractor:
-    """
-    Simple incremental file content extractor.
-    
-    Accumulates JSON and extracts content as it grows.
-    Much simpler than trying to do stateful parsing.
-    """
-    
-    def __init__(self, content_field: str = "file_content"):
-        self.buffer = ""
-        self.content_field = content_field
-        self.last_content_len = 0
-        self.filename: Optional[str] = None
-    
-    def add_chunk(self, chunk: str) -> Optional[str]:
-        """Add chunk and return new content delta if any."""
-        self.buffer += chunk
-        
-        # Try to extract filename once
-        if self.filename is None:
-            match = re.search(r'"filename"\s*:\s*"([^"]+)"', self.buffer)
-            if match:
-                self.filename = match.group(1)
-        
-        # Try to extract content - look for the field and get everything after it
-        pattern = f'"{self.content_field}"\\s*:\\s*"'
-        match = re.search(pattern, self.buffer)
-        if not match:
-            return None
-        
-        # Find content start position
-        content_start = match.end()
-        
-        # Extract content, handling JSON escapes
-        content = []
-        i = content_start
-        escape_next = False
-        
-        while i < len(self.buffer):
-            char = self.buffer[i]
-            
-            if escape_next:
-                if char == 'n':
-                    content.append('\n')
-                elif char == 't':
-                    content.append('\t')
-                elif char == 'r':
-                    content.append('\r')
-                elif char == '\\':
-                    content.append('\\')
-                elif char == '"':
-                    content.append('"')
-                else:
-                    content.append(char)
-                escape_next = False
-            elif char == '\\':
-                escape_next = True
-            elif char == '"':
-                # End of string
-                break
-            else:
-                content.append(char)
-            
-            i += 1
-        
-        full_content = ''.join(content)
-        
-        # Return only new content since last call
-        if len(full_content) > self.last_content_len:
-            delta = full_content[self.last_content_len:]
-            self.last_content_len = len(full_content)
-            return delta
-        
-        return None
 
 
 def _estimate_tokens(text: str) -> int:
@@ -240,7 +184,16 @@ async def stream_llm_response(
     on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]] = None
 ) -> AsyncGenerator[SSEEvent, None]:
     """
-    Stream LLM response and yield SSE events.
+    Stream LLM response and yield SSE events with robust ordering guarantees.
+    
+    **Event Ordering (Critical for UI):**
+    1. `llm_start` - LLM call begins
+    2. `assistant_message_delta` events - Assistant text content streams
+    3. `tool_call_streaming` events - File content streams (AFTER assistant message completes)
+    4. `llm_end` - LLM call completes with full tool calls
+    
+    This ordering prevents file content from interleaving with assistant messages,
+    which was causing message reordering bugs in multi-turn conversations.
     
     Supports Claude prompt caching for cost optimization:
     - System prompt is always cached
@@ -256,7 +209,7 @@ async def stream_llm_response(
         on_content_delta: Optional callback for content deltas
         
     Yields:
-        SSEEvent objects (llm_start, content deltas, llm_end)
+        SSEEvent objects (llm_start, assistant_message_delta, tool_call_streaming, llm_end)
     """
     # Ensure tool call sequences are valid for Anthropic before streaming
     messages = enforce_tool_call_sequence(messages)
@@ -353,95 +306,119 @@ async def stream_llm_response(
     tool_calls = []
     reasoning_content = ""
     
-    # Track file content extractors for streaming file tools
-    # Key: tool call index, Value: SimpleFileExtractor
-    file_extractors: Dict[int, SimpleFileExtractor] = {}
+    # Track file content for deferred streaming AFTER LLM completes
+    # This prevents file content from interleaving with assistant message deltas
+    # Key: tool call index, Value: (tool_call_id, tool_name, filename, full_file_content)
+    deferred_file_streams: Dict[int, tuple] = {}
     
     chunk_count = 0
-    # Process stream
-    async for chunk in stream_response:
-        chunk_count += 1
-        if chunk_count == 1:
-            logger.info("🔄 First chunk received from LLM stream")
-        if not hasattr(chunk, 'choices') or not chunk.choices:
-            continue
+    # Process stream - ONLY accumulate, DO NOT stream file content yet
+    try:
+        async for chunk in stream_response:
+            chunk_count += 1
+            if chunk_count == 1:
+                logger.info("🔄 First chunk received from LLM stream")
+            if not hasattr(chunk, 'choices') or not chunk.choices:
+                continue
+                
+            delta = chunk.choices[0].delta
             
-        delta = chunk.choices[0].delta
-        
-        # Handle reasoning content (o1/o3 models)
-        if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-            reasoning_content += delta.reasoning_content
-            yield SSEEvent(
-                event="assistant_message_delta",
-                data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
-            )
-            if on_content_delta:
-                async for event in on_content_delta(delta.reasoning_content):
-                    yield event
-        
-        # Handle regular content
-        if hasattr(delta, 'content') and delta.content:
-            content += delta.content
-            yield SSEEvent(
-                event="assistant_message_delta",
-                data=AssistantMessageDeltaEvent(delta=delta.content).model_dump()
-            )
-            if on_content_delta:
-                async for event in on_content_delta(delta.content):
-                    yield event
-        
-        # Accumulate tool calls and stream file content for file tools
-        if hasattr(delta, 'tool_calls') and delta.tool_calls:
-            for tc in delta.tool_calls:
-                idx = tc.index
-                while len(tool_calls) <= idx:
-                    tool_calls.append({
-                        "id": "",
-                        "type": "function",
-                        "function": {"name": "", "arguments": ""}
-                    })
-                if tc.id:
-                    tool_calls[idx]["id"] = tc.id
-                if hasattr(tc, 'function') and tc.function:
-                    if tc.function.name:
-                        tool_calls[idx]["function"]["name"] = tc.function.name
-                    
-                    if tc.function.arguments:
-                        tool_calls[idx]["function"]["arguments"] += tc.function.arguments
-                        accumulated_name = tool_calls[idx]["function"]["name"]
+            # Handle reasoning content (o1/o3 models)
+            if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                reasoning_content += delta.reasoning_content
+                yield SSEEvent(
+                    event="assistant_message_delta",
+                    data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
+                )
+                if on_content_delta:
+                    async for event in on_content_delta(delta.reasoning_content):
+                        yield event
+            
+            # Handle regular content
+            if hasattr(delta, 'content') and delta.content:
+                content += delta.content
+                yield SSEEvent(
+                    event="assistant_message_delta",
+                    data=AssistantMessageDeltaEvent(delta=delta.content).model_dump()
+                )
+                if on_content_delta:
+                    async for event in on_content_delta(delta.content):
+                        yield event
+            
+            # Accumulate tool calls (but defer file streaming until after LLM completes)
+            if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    while len(tool_calls) <= idx:
+                        tool_calls.append({
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""}
+                        })
+                    if tc.id:
+                        tool_calls[idx]["id"] = tc.id
+                    if hasattr(tc, 'function') and tc.function:
+                        if tc.function.name:
+                            tool_calls[idx]["function"]["name"] = tc.function.name
                         
-                        # For file tools, extract and stream file content
-                        if accumulated_name in FILE_STREAMING_TOOLS:
-                            tool_call_id = tool_calls[idx]["id"]
-                            
-                            # Initialize extractor if needed
-                            if idx not in file_extractors:
-                                content_field = "file_content" if accumulated_name == "write_chat_file" else "new_str"
-                                file_extractors[idx] = SimpleFileExtractor(content_field)
-                            
-                            extractor = file_extractors[idx]
-                            content_delta = extractor.add_chunk(tc.function.arguments)
-                            
-                            # Only emit if we have actual content to stream
-                            if content_delta:
-                                yield SSEEvent(
-                                    event="tool_call_streaming",
-                                    data=ToolCallStreamingEvent(
-                                        tool_call_id=tool_call_id,
-                                        tool_name=accumulated_name,
-                                        arguments_delta=tc.function.arguments,
-                                        filename=extractor.filename,
-                                        file_content_delta=content_delta
-                                    ).model_dump()
-                                )
-                                # Force event loop to yield so event can be sent
-                                await asyncio.sleep(0)
+                        if tc.function.arguments:
+                            tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+        
+        logger.info(f"🔄 LLM stream completed after {chunk_count} chunks (content: {len(content)} chars, tool_calls: {len(tool_calls)})")
+    except Exception as e:
+        logger.error(f"❌ Error during LLM streaming: {e}")
+        logger.error(f"Traceback: {traceback_module.format_exc()}")
+        raise
     
     # Validate tool calls before emitting - fix any malformed JSON arguments
     # This prevents litellm from failing when sending these back to Anthropic
     validated_tool_calls = validate_and_fix_tool_calls(tool_calls)
     
+    # Extract and stream file content NOW (after LLM completes, before llm_end)
+    # This ensures clean separation: assistant message → file content → tool execution
+    for idx, tc in enumerate(validated_tool_calls):
+        tool_name = tc.get("function", {}).get("name")
+        if tool_name in FILE_STREAMING_TOOLS:
+            tool_call_id = tc.get("id")
+            args_str = tc.get("function", {}).get("arguments", "{}")
+            
+            try:
+                args = json.loads(args_str)
+                filename = args.get("filename", "unknown")
+                
+                # Extract file content based on tool
+                if tool_name == "write_chat_file":
+                    file_content = args.get("file_content", "")
+                elif tool_name == "replace_in_chat_file":
+                    file_content = args.get("new_str", "")
+                else:
+                    file_content = ""
+                
+                # Stream the file content in reasonable chunks (not too small, not too large)
+                if file_content:
+                    chunk_size = 500  # Characters per chunk for smooth streaming
+                    for i in range(0, len(file_content), chunk_size):
+                        chunk = file_content[i:i+chunk_size]
+                        is_final = (i + chunk_size) >= len(file_content)
+                        
+                        yield SSEEvent(
+                            event="tool_call_streaming",
+                            data=ToolCallStreamingEvent(
+                                tool_call_id=tool_call_id,
+                                tool_name=tool_name,
+                                arguments_delta="",  # Empty since we're streaming extracted content
+                                filename=filename,
+                                file_content_delta=chunk
+                            ).model_dump()
+                        )
+                        # Small delay for smooth streaming
+                        if not is_final:
+                            await asyncio.sleep(0.01)
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning(f"Could not extract file content for streaming: {e}")
+    
     # Emit end event
+    logger.info(f"🔄 Emitting llm_end event (content_length={len(content)}, tool_calls_count={len(validated_tool_calls)})")
     yield SSEEvent(
         event="llm_end",
         data=LLMEndEvent(
@@ -449,4 +426,5 @@ async def stream_llm_response(
             tool_calls=validated_tool_calls
         ).model_dump()
     )
+    logger.info("🔄 llm_end event yielded successfully")
 

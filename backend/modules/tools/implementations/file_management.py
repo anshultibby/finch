@@ -159,17 +159,10 @@ async def replace_in_chat_file_impl(
         elif filename.endswith('.html'):
             file_type = "html"
         
-        # Stream the updated file content to frontend
-        yield SSEEvent(
-            event="file_content",
-            data={
-                "tool_call_id": context.current_tool_call_id or "",
-                "filename": filename,
-                "content": content,
-                "file_type": file_type,
-                "is_complete": False
-            }
-        )
+        # NOTE: File content streaming is handled by llm_stream.py (FILE_STREAMING_TOOLS)
+        # The LLM streaming layer extracts file content from tool call arguments and
+        # streams it BEFORE tool execution. We don't need to stream it again here.
+        # This prevents double-display of file content in the UI.
         
         # Write back
         file_id = resource_manager.write_chat_file(
@@ -177,18 +170,6 @@ async def replace_in_chat_file_impl(
             context.chat_id,
             filename,
             content
-        )
-        
-        # Send completion signal
-        yield SSEEvent(
-            event="file_content",
-            data={
-                "tool_call_id": context.current_tool_call_id or "",
-                "filename": filename,
-                "content": "",
-                "file_type": file_type,
-                "is_complete": True
-            }
         )
         
         # Emit SSE resource event so frontend updates the file in resources
@@ -482,37 +463,17 @@ async def write_chat_file_impl(
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
             file_type = "image"
         
-        # Stream the file content to frontend immediately (before writing to DB)
-        # This allows the side panel to show content as it's "being written"
-        yield SSEEvent(
-            event="file_content",
-            data={
-                "tool_call_id": context.current_tool_call_id or "",
-                "filename": filename,
-                "content": content,
-                "file_type": file_type,
-                "is_complete": False
-            }
-        )
+        # NOTE: File content streaming is handled by llm_stream.py (FILE_STREAMING_TOOLS)
+        # The LLM streaming layer extracts file content from tool call arguments and
+        # streams it BEFORE tool execution. We don't need to stream it again here.
+        # This prevents double-display of file content in the UI.
         
-        # Now write to DB
+        # Write to DB
         file_id = resource_manager.write_chat_file(
             context.user_id,
             context.chat_id,
             filename,
             content
-        )
-        
-        # Send completion signal
-        yield SSEEvent(
-            event="file_content",
-            data={
-                "tool_call_id": context.current_tool_call_id or "",
-                "filename": filename,
-                "content": "",  # No additional content
-                "file_type": file_type,
-                "is_complete": True
-            }
         )
         
         # Emit SSE resource event so frontend shows the file in resources

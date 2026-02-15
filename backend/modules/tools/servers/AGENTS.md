@@ -3,40 +3,68 @@
 ## servers/dome/
 **Prediction market data (Polymarket & Kalshi) - READ ONLY**
 
+**All functions use Pydantic models for input/output. Import models from `servers.dome.models`. Errors raised as `DomeAPIError`.**
+
+**IMPORTANT**: For wallet functions, most APIs expect the **proxy** wallet address, not the EOA.
+Use `get_wallet_info()` to convert between EOA and proxy addresses if needed.
+
 ### polymarket/wallet.py
-- `get_wallet_info(address: str)` - Basic wallet info
-- `get_positions(address: str)` - Current positions with P&L
-- `get_wallet_pnl(address: str, start_date: str, end_date: str)` - Historical P&L
-- `get_wallet_activity(address: str, limit: int)` - Recent activity/transactions
-- `get_wallet_trades(address: str, market_id: str)` - Trades for specific market
+- `get_wallet_info(GetWalletInfoInput)` → `GetWalletInfoOutput`
+  - Takes any wallet address and returns both EOA and proxy addresses
+  - Automatically detects if input is EOA or proxy
+- `get_positions(GetPositionsInput)` → `GetPositionsOutput` 
+  - Requires proxy wallet address
+- `get_wallet_pnl(GetWalletPnLInput)` → `GetWalletPnLOutput`
+  - Requires proxy wallet address
+- `get_wallet_activity(GetWalletActivityInput)` → `GetWalletActivityOutput`
+  - Requires proxy wallet address
+  - Returns SPLIT/MERGE/REDEEM only (not BUY/SELL)
+- `get_wallet_trades(GetWalletTradesInput)` → `GetWalletTradesOutput`
+  - Requires proxy wallet address
+  - Returns BUY/SELL orders
 
 ### polymarket/markets.py
-- `get_markets(search: str, status: str, limit: int)` - Search/browse markets
+- `get_markets(GetMarketsInput)` → `GetMarketsOutput`
 
 ### polymarket/prices.py
-- `get_market_price(condition_id: str, token_id: str)` - Current price
-- `get_candlesticks(condition_id: str, token_id: str, interval: str)` - OHLCV data
+- `get_market_price(GetMarketPriceInput)` → `GetMarketPriceOutput`
+- `get_candlesticks(GetCandlesticksInput)` → `GetCandlesticksOutput`
 
 ### polymarket/trading.py
-- `get_orders(condition_id: str)` - Order book for market
-- `get_trade_history(condition_id: str, limit: int)` - Recent trades
+- `get_orders(GetOrdersInput)` → `GetOrdersOutput`
+- `get_trade_history(GetOrdersInput)` → `GetOrdersOutput` (deprecated, use get_orders)
 
 ### polymarket/clob_client.py
-- `get_clob_client()` - Low-level CLOB client
-- `get_markets_clob()` - All markets via CLOB
-- `get_orderbook(condition_id: str, token_id: str)` - Full order book
-- `get_market_price(condition_id: str, token_id: str)` - Price via CLOB
-- `get_user_orders(address: str)` - User's open orders
-- `get_user_trades(address: str, limit: int)` - User's trade history
+- `get_clob_client()` → ClobClient
+- `get_markets_clob()` → dict with `data` key
+- `get_orderbook(token_id: str)` → dict with `bids`/`asks`
+- `get_market_price(token_id: str, side: str)` → dict with `price`
+- `get_user_orders(private_key: str)` → dict with `orders`
+- `get_user_trades(private_key: str)` → dict with `trades`
 
 ### kalshi/markets.py
-- `get_markets(search: str, status: str, limit: int)` - Search Kalshi markets
-- `get_market_price(ticker: str)` - Current Kalshi market price
+- `get_markets(GetKalshiMarketsInput)` → `GetKalshiMarketsOutput`
+- `get_market_price(GetKalshiMarketPriceInput)` → `GetKalshiMarketPriceOutput`
 
 ### matching/sports.py
-- `get_sports_matching_markets(sport: str, date: str)` - Find matching markets across platforms
-- `get_sport_by_date(sport: str, date: str)` - Sports events on date
-- `find_arbitrage_opportunities(sport: str)` - Cross-platform arbitrage
+- `get_sports_matching_markets(polymarket_market_slug, kalshi_event_ticker)` → dict
+- `get_sport_by_date(sport: str, date: str)` → dict
+- `find_arbitrage_opportunities(sport: str, date: str, min_spread: float)` → dict
+
+**Example:**
+```python
+from servers.dome.polymarket.wallet import get_wallet_info, get_positions
+from servers.dome.models import GetWalletInfoInput, GetPositionsInput
+
+# Get wallet info (works with any address - EOA or proxy)
+wallet = get_wallet_info(GetWalletInfoInput(wallet_address="0x123..."))
+print(f"EOA: {wallet.eoa}, Proxy: {wallet.proxy}")
+
+# Fetch positions using proxy address
+result = get_positions(GetPositionsInput(wallet_address=wallet.proxy, limit=50))
+for pos in result.positions:
+    print(f"{pos.title}: {pos.shares_normalized} {pos.label}")
+```
 
 **Models:** `servers/dome/models.py`
 
@@ -224,8 +252,18 @@
 
 Import: `from servers.<server>.<module> import <function>`
 
-Always check for `'error'` key in responses before using data.
+**Most functions return Pydantic models directly.** Access data via attributes (e.g., `result.positions`, `result.markets`, `result.bars`). Errors are raised as exceptions.
 
-Use Pydantic models from `servers/<server>/models.py` for type safety.
+```python
+from servers.dome.polymarket.wallet import get_positions
+from servers.dome._client import DomeAPIError
 
-See `servers/<server>/AGENTS.md` for detailed parameter docs and examples.
+try:
+    result = get_positions(wallet_address="0x...")
+    for pos in result.positions:  # Direct attribute access
+        print(f"{pos.title}: {pos.shares_normalized}")
+except DomeAPIError as e:
+    print(f"Error: {e}")
+```
+
+See `servers/<server>/models.py` for complete response schemas and `servers/<server>/AGENTS.md` for details.

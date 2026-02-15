@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import axios from 'axios';
+import { supabase } from './supabase';
 
 // Re-export all types for backward compatibility
 export * from './types';
@@ -47,6 +48,24 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Add axios interceptor to automatically include Authorization header
+api.interceptors.request.use(
+  async (config) => {
+    // Get the current session from Supabase
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    // If we have a session, add the access token to the Authorization header
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    }
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SSE Event Handlers Interface

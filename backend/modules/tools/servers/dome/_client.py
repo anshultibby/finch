@@ -5,8 +5,13 @@ Handles API key management and rate limiting (1 req/sec for free tier).
 """
 import time
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional
 from .._env import get_api_key
+
+
+class DomeAPIError(Exception):
+    """Exception raised when Dome API returns an error"""
+    pass
 
 
 class RateLimiter:
@@ -32,7 +37,7 @@ class RateLimiter:
 _rate_limiter = RateLimiter(requests_per_second=1.0)
 
 
-def call_dome_api(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def call_dome_api(endpoint: str, params: Optional[dict] = None) -> dict:
     """
     Call Dome API with rate limiting and error handling.
     
@@ -41,11 +46,14 @@ def call_dome_api(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dic
         params: Optional query parameters
         
     Returns:
-        dict with API response or {'error': 'message'} on failure
+        dict with API response
+        
+    Raises:
+        DomeAPIError: When API request fails
     """
     api_key = get_api_key('DOME')
     if not api_key:
-        return {"error": "DOME_API_KEY not set"}
+        raise DomeAPIError("DOME_API_KEY not set")
     
     # Wait for rate limit
     _rate_limiter.wait()
@@ -63,8 +71,8 @@ def call_dome_api(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return response.json()
     
     except httpx.HTTPStatusError as e:
-        return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
+        raise DomeAPIError(f"HTTP {e.response.status_code}: {e.response.text}")
     except httpx.RequestError as e:
-        return {"error": f"Request failed: {str(e)}"}
+        raise DomeAPIError(f"Request failed: {str(e)}")
     except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+        raise DomeAPIError(f"Unexpected error: {str(e)}")

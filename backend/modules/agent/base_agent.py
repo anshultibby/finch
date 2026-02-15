@@ -133,6 +133,7 @@ class BaseAgent:
     async def run_tool_loop_streaming(
         self,
         initial_messages: List[Dict[str, Any]],
+        chat_history: Optional[ChatHistory] = None,
         max_iterations: int = 10,
         llm_config: Optional[LLMConfig] = None
     ) -> AsyncGenerator[SSEEvent, None]:
@@ -147,6 +148,7 @@ class BaseAgent:
         
         Args:
             initial_messages: Starting messages
+            chat_history: Optional ChatHistory to update with new messages (for multiturn)
             max_iterations: Max tool loops
             llm_config: LLM configuration (uses preset if not provided)
             
@@ -217,7 +219,15 @@ class BaseAgent:
                         self._agent_tracer.record_final_turn(iteration, len(content) if content else 0)
                         assistant_msg = {"role": "assistant", "content": content or ""}
                         messages.append(assistant_msg)
-                        self._new_messages.append(HistoryChatMessage.from_dict(assistant_msg))
+                        
+                        # Track for DB save
+                        hist_msg = HistoryChatMessage.from_dict(assistant_msg)
+                        self._new_messages.append(hist_msg)
+                        
+                        # CRITICAL: Add to chat_history so next turn sees this message
+                        if chat_history:
+                            chat_history.add_message(hist_msg)
+                        
                         return  # Exit generator
                     
                     # Record tool calls requested
@@ -230,7 +240,14 @@ class BaseAgent:
                         "tool_calls": tool_calls
                     }
                     messages.append(assistant_msg)
-                    self._new_messages.append(HistoryChatMessage.from_dict(assistant_msg))
+                    
+                    # Track for DB save
+                    hist_msg = HistoryChatMessage.from_dict(assistant_msg)
+                    self._new_messages.append(hist_msg)
+                    
+                    # CRITICAL: Add to chat_history so next turn sees this message
+                    if chat_history:
+                        chat_history.add_message(hist_msg)
                     
                     # Emit message_end with tool_calls to signal we're about to execute tools
                     # This eliminates the visual gap between LLM finishing and tools starting
@@ -255,7 +272,13 @@ class BaseAgent:
                     # Add tool results to messages and track for DB
                     messages.extend(tool_messages)
                     for tool_msg in tool_messages:
-                        self._new_messages.append(HistoryChatMessage.from_dict(tool_msg))
+                        # Track for DB save
+                        hist_msg = HistoryChatMessage.from_dict(tool_msg)
+                        self._new_messages.append(hist_msg)
+                        
+                        # CRITICAL: Add to chat_history so next turn sees these tool results
+                        if chat_history:
+                            chat_history.add_message(hist_msg)
                     
                     # Check if finish_execution was called - cleanly exit the loop
                     # This properly terminates the generator instead of leaving it running
@@ -307,7 +330,7 @@ class BaseAgent:
         
         Args:
             message: User message
-            chat_history: Previous messages
+            chat_history: Previous messages (will be updated with new messages for multiturn)
             history_limit: Maximum number of historical messages to include (default: 50)
         
         Yields:
@@ -323,8 +346,10 @@ class BaseAgent:
             llm_config = LLMConfig.from_config(model=self.model, stream=True)
             
             # Stream all events directly from agent loop
+            # CRITICAL: Pass chat_history so it gets updated with new messages (multiturn fix)
             async for event in self.run_tool_loop_streaming(
                 initial_messages=initial_messages,
+                chat_history=chat_history,
                 max_iterations=30,
                 llm_config=llm_config
             ):

@@ -230,15 +230,8 @@ export default function ChatView() {
               if (state.stream) {
                 state.stream.reconnect();
               } else {
-                // Stream was lost - reload chat history to get updates
-                console.log('Stream lost - reloading chat history');
-                const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
-                const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
-                  role: msg.role,
-                  content: msg.content,
-                  timestamp: msg.timestamp || new Date().toISOString(),
-                  toolCalls: msg.tool_calls
-                }));
+                // Stream was lost - keep existing messages in memory, only update resources
+                console.log('Stream lost - keeping in-memory messages, refreshing resources');
                 
                 const [chatResources, chatFilesResponse] = await Promise.all([
                   resourcesApi.getChatResources(currentChatId),
@@ -247,8 +240,11 @@ export default function ChatView() {
                     .catch(() => [])
                 ]);
                 
+                // CRITICAL FIX: Keep existing messages! Only update resources and state flags
+                // The in-memory messages are the source of truth - they have everything that was streamed
+                // The database might not have finished saving yet, so don't reload from it
                 updateChatState(currentChatId, {
-                  messages: loadedMessages,
+                  // messages: UNCHANGED - keep what we have in memory!
                   streamingText: '',
                   streamingTools: [],
                   isLoading: true, // Still processing
@@ -262,37 +258,26 @@ export default function ChatView() {
                   const currentStatus = await chatApi.checkChatStatus(currentChatId);
                   if (!currentStatus.is_processing) {
                     clearInterval(pollInterval);
-                    // Reload final state
-                    const finalData = await chatApi.getChatHistoryForDisplay(currentChatId);
-                    const finalMessages: Message[] = finalData.messages.map((msg: any) => ({
-                      role: msg.role,
-                      content: msg.content,
-                      timestamp: msg.timestamp || new Date().toISOString(),
-                      toolCalls: msg.tool_calls
-                    }));
-                    
+                    // Processing complete - refresh resources but KEEP existing messages
+                    const [finalResources, finalFiles] = await Promise.all([
+                      resourcesApi.getChatResources(currentChatId),
+                      fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}`)
+                        .then(r => r.ok ? r.json() : [])
+                        .catch(() => [])
+                    ]);
                     updateChatState(currentChatId, {
-                      messages: finalMessages,
-                      streamingText: '',
-                      streamingTools: [],
+                      // messages: UNCHANGED - trust the in-memory state!
                       isLoading: false,
+                      resources: finalResources,
+                      chatFiles: finalFiles,
                     });
+                    clearInterval(pollInterval);
                   }
-                }, 2000); // Poll every 2 seconds
-                
-                // Stop polling after 30 seconds
-                setTimeout(() => clearInterval(pollInterval), 30000);
+                }, 2000);
               }
             } else {
-              // Processing completed - reload final state
-              console.log('Backend finished processing - reloading final state');
-              const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
-              const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
-                role: msg.role,
-                content: msg.content,
-                timestamp: msg.timestamp || new Date().toISOString(),
-                toolCalls: msg.tool_calls
-              }));
+              // Backend no longer processing - refresh resources but KEEP existing messages
+              console.log('Backend not processing - keeping in-memory messages');
               
               const [chatResources, chatFilesResponse] = await Promise.all([
                 resourcesApi.getChatResources(currentChatId),
@@ -301,8 +286,9 @@ export default function ChatView() {
                   .catch(() => [])
               ]);
               
+              // CRITICAL FIX: Keep existing messages! They are the source of truth
               updateChatState(currentChatId, {
-                messages: loadedMessages,
+                // messages: UNCHANGED
                 streamingText: '',
                 streamingTools: [],
                 isLoading: false,
@@ -314,12 +300,12 @@ export default function ChatView() {
             }
           } catch (err) {
             console.error('Error during reconnection:', err);
-            // Fall back to just syncing display state
+            // Fall back to just syncing display state - DON'T reload from database
             setMessages([...state.messages]);
             setStreamingText(state.streamingText);
             setStreamingTools([...state.streamingTools]);
             setIsLoading(false);
-            setError('Connection lost. Please send another message to continue.');
+            setError('Connection lost. Please refresh the page if messages are missing.');
             state.wasStreamingBeforeHidden = false;
           }
         } else {
@@ -411,12 +397,15 @@ export default function ChatView() {
         return;
       }
       
-      // If we already have messages loaded and no active stream, use cached state
+      // CRITICAL FIX: If we already have messages loaded and no active stream, use cached state
+      // NEVER reload from database when we have messages in memory - this prevents message loss
+      // The in-memory state is the source of truth until we explicitly clear it (e.g., switching chats)
       if (state.messages.length > 0) {
         syncDisplayToChat(currentChatId);
         return;
       }
       
+      // Only load from database if we have NO messages at all
       try {
         const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
         const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({

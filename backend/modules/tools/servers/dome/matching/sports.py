@@ -2,17 +2,20 @@
 Sports Market Matching - Cross-platform Arbitrage
 
 Find matching sports markets across Polymarket and Kalshi.
+
+TODO: Add Pydantic models for return types (GetSportsMatchingOutput, GetArbitrageOutput)
 """
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Literal
 from .._client import call_dome_api
 from ..polymarket.prices import get_market_price as get_polymarket_price
 from ..kalshi.markets import get_market_price as get_kalshi_price
+from ..models import GetMarketPriceInput, GetKalshiMarketPriceInput
 
 
 def get_sports_matching_markets(
     polymarket_market_slug: Optional[List[str]] = None,
     kalshi_event_ticker: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+) -> dict:
     """
     Find matching sports markets across Polymarket and Kalshi by specific identifiers.
     
@@ -79,7 +82,7 @@ def get_sports_matching_markets(
 def get_sport_by_date(
     sport: Literal["nfl", "mlb", "cfb", "nba", "nhl", "cbb", "pga", "tennis"],
     date: str
-) -> Dict[str, Any]:
+) -> dict:
     """
     Find all matching sports markets for a specific sport on a specific date.
     
@@ -149,7 +152,7 @@ def find_arbitrage_opportunities(
     sport: Literal["nfl", "mlb", "cfb", "nba", "nhl", "cbb", "pga", "tennis"],
     date: str,
     min_spread: float = 0.05
-) -> Dict[str, Any]:
+) -> dict:
     """
     Find arbitrage opportunities by comparing prices across Polymarket and Kalshi.
     
@@ -220,15 +223,15 @@ def find_arbitrage_opportunities(
             continue
         
         # Fetch prices
-        poly_price_result = get_polymarket_price(token_id=poly_token_id)
-        kalshi_price_result = get_kalshi_price(ticker=kalshi_ticker)
-        
-        if 'error' in poly_price_result or 'error' in kalshi_price_result:
+        try:
+            poly_price_result = get_polymarket_price(GetMarketPriceInput(token_id=poly_token_id))
+            kalshi_price_result = get_kalshi_price(GetKalshiMarketPriceInput(ticker=kalshi_ticker))
+            
+            # Polymarket price is 0-1, Kalshi price is 0-100 cents
+            poly_price = poly_price_result.price
+            kalshi_price = kalshi_price_result.price / 100.0
+        except Exception:
             continue
-        
-        # Polymarket price is 0-1, Kalshi price is 0-100 cents
-        poly_price = poly_price_result.get('price', 0)
-        kalshi_price = kalshi_price_result.get('price', 0) / 100.0
         
         spread = abs(poly_price - kalshi_price)
         

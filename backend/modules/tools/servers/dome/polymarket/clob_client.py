@@ -6,8 +6,10 @@ without requiring Dome API, which has been experiencing 403 errors.
 
 For read-only operations, no authentication is needed.
 For trading operations, you'll need a private key and optional funder address.
+
+TODO: Add Pydantic models for all return types (GetMarketsOutput, GetOrderbookOutput, etc.)
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 import logging
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import BookParams, OpenOrderParams
@@ -22,26 +24,6 @@ def get_clob_client(
 ) -> ClobClient:
     """
     Get a Polymarket CLOB client instance.
-    
-    Args:
-        private_key: Wallet private key (optional, only needed for trading)
-        funder: Funder address for proxy wallets (optional)
-        signature_type: 0 for EOA, 1 for email/Magic wallet, 2 for browser proxy
-        
-    Returns:
-        ClobClient instance
-        
-    Example:
-        # Read-only client (no auth needed)
-        client = get_clob_client()
-        markets = client.get_simplified_markets()
-        
-        # Trading client (requires auth)
-        client = get_clob_client(
-            private_key="0x...",
-            funder="0x...",
-            signature_type=1
-        )
     """
     HOST = "https://clob.polymarket.com"
     CHAIN_ID = 137  # Polygon
@@ -67,25 +49,9 @@ def get_markets_clob(
     limit: int = 10,
     offset: int = 0,
     active: Optional[bool] = None
-) -> Dict[str, Any]:
+) -> dict:
     """
     Get markets using CLOB client (direct API, no Dome required).
-    
-    Args:
-        limit: Number of markets to return (default 10)
-        offset: Pagination offset (default 0)
-        active: Filter by active status (optional)
-        
-    Returns:
-        dict with:
-        - data: List of simplified market data
-        - error: Error message if failed
-        
-    Example:
-        markets = get_markets_clob(limit=20)
-        if 'error' not in markets:
-            for m in markets['data']:
-                print(f"{m['question']}: {m['condition_id']}")
     """
     try:
         client = get_clob_client()
@@ -119,26 +85,9 @@ def get_markets_clob(
 
 def get_orderbook(
     token_id: str
-) -> Dict[str, Any]:
+) -> dict:
     """
     Get orderbook for a specific token using CLOB client.
-    
-    Args:
-        token_id: Token ID (e.g., from market data)
-        
-    Returns:
-        dict with:
-        - market: Market identifier
-        - asset_id: Token ID
-        - bids: List of bid orders [price, size]
-        - asks: List of ask orders [price, size]
-        - error: Error message if failed
-        
-    Example:
-        book = get_orderbook("123456")
-        if 'error' not in book:
-            print(f"Best bid: {book['bids'][0][0]}")
-            print(f"Best ask: {book['asks'][0][0]}")
     """
     try:
         client = get_clob_client()
@@ -160,25 +109,9 @@ def get_orderbook(
 def get_market_price(
     token_id: str,
     side: str = "MID"
-) -> Dict[str, Any]:
+) -> dict:
     """
     Get current price for a token.
-    
-    Args:
-        token_id: Token ID
-        side: Price side - "BUY", "SELL", or "MID" (default)
-        
-    Returns:
-        dict with:
-        - price: Current price (0-1)
-        - token_id: Token ID
-        - side: Price side
-        - error: Error message if failed
-        
-    Example:
-        price = get_market_price("123456", side="BUY")
-        if 'error' not in price:
-            print(f"Buy price: ${price['price']}")
     """
     try:
         client = get_clob_client()
@@ -203,19 +136,9 @@ def get_user_orders(
     private_key: str,
     funder: Optional[str] = None,
     signature_type: int = 1
-) -> Dict[str, Any]:
+) -> dict:
     """
     Get user's open orders (requires authentication).
-    
-    Args:
-        private_key: Wallet private key
-        funder: Funder address for proxy wallets
-        signature_type: 0 for EOA, 1 for email/Magic wallet, 2 for browser proxy
-        
-    Returns:
-        dict with:
-        - orders: List of open orders
-        - error: Error message if failed
     """
     try:
         client = get_clob_client(
@@ -237,19 +160,9 @@ def get_user_trades(
     private_key: str,
     funder: Optional[str] = None,
     signature_type: int = 1
-) -> Dict[str, Any]:
+) -> dict:
     """
     Get user's trade history (requires authentication).
-    
-    Args:
-        private_key: Wallet private key
-        funder: Funder address for proxy wallets
-        signature_type: 0 for EOA, 1 for email/Magic wallet, 2 for browser proxy
-        
-    Returns:
-        dict with:
-        - trades: List of trades
-        - error: Error message if failed
     """
     try:
         client = get_clob_client(

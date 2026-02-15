@@ -8,7 +8,7 @@ from fastapi import Header, HTTPException, status
 from typing import Optional
 import logging
 import jwt
-from jwt.algorithms import RSAAlgorithm
+from jwt.algorithms import RSAAlgorithm, ECAlgorithm
 import requests
 
 from config import Config
@@ -82,10 +82,21 @@ async def get_current_user_id(
         # Fetch JWKS and find matching key
         jwks = _get_jwks()
         signing_key = None
+        key_algorithm = None
         
         for key in jwks.get("keys", []):
             if key.get("kid") == kid:
-                signing_key = RSAAlgorithm.from_jwk(key)
+                # Determine the key type and use the appropriate algorithm
+                kty = key.get("kty")
+                if kty == "RSA":
+                    signing_key = RSAAlgorithm.from_jwk(key)
+                    key_algorithm = "RS256"
+                elif kty == "EC":
+                    signing_key = ECAlgorithm.from_jwk(key)
+                    key_algorithm = "ES256"
+                else:
+                    logger.warning(f"Unsupported key type: {kty}")
+                    continue
                 break
         
         if not signing_key:
@@ -95,10 +106,12 @@ async def get_current_user_id(
             )
         
         # Verify and decode token
+        # Use the algorithm that matches the key type
+        algorithms = [key_algorithm] if key_algorithm else ["RS256", "ES256"]
         payload = jwt.decode(
             token,
             signing_key,
-            algorithms=["RS256", "ES256"],
+            algorithms=algorithms,
             audience="authenticated",
             options={"verify_exp": True}
         )

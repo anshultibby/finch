@@ -293,7 +293,7 @@ async def test_kalshi_credentials(api_key_id: str, private_key_pem: str) -> Dict
     
     Args:
         api_key_id: Kalshi API Key ID
-        private_key_pem: RSA private key in PEM format
+        private_key_pem: RSA private key in PEM format (should already be normalized)
         
     Returns:
         {"success": bool, "message": str, "balance": float (if success)}

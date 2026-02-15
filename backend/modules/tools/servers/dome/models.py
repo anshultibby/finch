@@ -7,7 +7,7 @@ These models provide:
 3. IDE autocomplete support
 4. Self-documenting code for the LLM agent
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Literal, Dict, Any
 
 
@@ -27,7 +27,7 @@ class Position(BaseModel):
     market_slug: str = Field(description="Market identifier (URL-safe)")
     event_slug: Optional[str] = Field(default=None, description="Event identifier")
     label: str = Field(description="Outcome label: 'Yes' or 'No'")
-    winning_outcome: Optional[str] = Field(default=None, description="Winning outcome if resolved")
+    winning_outcome: Optional[Dict[str, Any]] = Field(default=None, description="Winning outcome if resolved (dict with id and label)")
     market_status: str = Field(description="Market status: 'open' or 'closed'")
 
 
@@ -52,13 +52,11 @@ class GetPositionsOutput(BaseModel):
     
     Example usage:
         from servers.dome.polymarket.wallet import get_positions
-        params = GetPositionsInput(wallet_address="0x742d35...", limit=50)
-        result = get_positions(**params.model_dump())
+        from servers.dome.models import GetPositionsInput
         
-        if 'error' not in result:
-            output = GetPositionsOutput(**result)
-            for pos in output.positions:
-                print(f"{pos.title}: {pos.shares_normalized} {pos.label}")
+        result = get_positions(GetPositionsInput(wallet_address="0x742d35...", limit=50))
+        for pos in result.positions:
+            print(f"{pos.title}: {pos.shares_normalized} {pos.label}")
     """
     wallet_address: str = Field(description="Wallet address queried")
     positions: List[Position] = Field(description="List of active positions")
@@ -90,18 +88,16 @@ class GetWalletPnLOutput(BaseModel):
     
     Example usage:
         from servers.dome.polymarket.wallet import get_wallet_pnl
-        params = GetWalletPnLInput(wallet_address="0x742d35...", granularity="day")
-        result = get_wallet_pnl(**params.model_dump())
+        from servers.dome.models import GetWalletPnLInput
         
-        if 'error' not in result:
-            output = GetWalletPnLOutput(**result)
-            latest = output.pnl_over_time[-1]
-            print(f"Total realized P&L: ${latest.pnl_to_date:,.2f}")
+        result = get_wallet_pnl(GetWalletPnLInput(wallet_address="0x742d35...", granularity="day"))
+        latest = result.pnl_over_time[-1]
+        print(f"Total realized P&L: ${latest.pnl_to_date:,.2f}")
     """
     granularity: str = Field(description="Granularity used")
     start_time: int = Field(description="Start timestamp")
     end_time: int = Field(description="End timestamp")
-    wallet_address: str = Field(description="Wallet address")
+    wallet_addr: str = Field(description="Wallet address")
     pnl_over_time: List[PnLDataPoint] = Field(description="P&L history")
 
 
@@ -176,13 +172,11 @@ class GetWalletTradesOutput(BaseModel):
     
     Example usage:
         from servers.dome.polymarket.wallet import get_wallet_trades
-        params = GetWalletTradesInput(wallet_address="0x6a72...", limit=100)
-        result = get_wallet_trades(**params.model_dump())
+        from servers.dome.models import GetWalletTradesInput
         
-        if 'error' not in result:
-            output = GetWalletTradesOutput(**result)
-            for order in output.orders:
-                print(f"{order.side} {order.shares_normalized:.2f} @ ${order.price:.2f}")
+        result = get_wallet_trades(GetWalletTradesInput(wallet_address="0x6a72...", limit=100))
+        for order in result.orders:
+            print(f"{order.side} {order.shares_normalized:.2f} @ ${order.price:.2f}")
     """
     orders: List[Order] = Field(description="List of executed orders")
     pagination: Pagination = Field(description="Pagination info")
@@ -210,14 +204,14 @@ class Market(BaseModel):
     volume_1_month: Optional[float] = Field(default=None, description="30-day trading volume (USD)")
     volume_1_year: Optional[float] = Field(default=None, description="1-year trading volume (USD)")
     volume_total: float = Field(description="Total trading volume (USD)")
-    status: str = Field(description="Market status: 'open' or 'closed'")
+    status: Optional[str] = Field(default=None, description="Market status: 'open' or 'closed'")
     start_time: Optional[int] = Field(default=None, description="Unix timestamp")
     end_time: Optional[int] = Field(default=None, description="Unix timestamp")
     completed_time: Optional[int] = Field(default=None, description="Unix timestamp")
     close_time: Optional[int] = Field(default=None, description="Unix timestamp")
     side_a: MarketSide = Field(description="First outcome (usually Yes)")
     side_b: MarketSide = Field(description="Second outcome (usually No)")
-    winning_side: Optional[str] = Field(default=None, description="'side_a' or 'side_b' if resolved")
+    winning_side: Optional[Dict[str, Any]] = Field(default=None, description="Winning side if resolved (dict with id and label)")
     image: Optional[str] = Field(default=None, description="Market image URL")
     resolution_source: Optional[str] = Field(default=None, description="Resolution source URL")
 
@@ -244,14 +238,12 @@ class GetMarketsOutput(BaseModel):
     
     Example usage:
         from servers.dome.polymarket.markets import get_markets
-        params = GetMarketsInput(tags=['crypto'], status='open', limit=20)
-        result = get_markets(**params.model_dump())
+        from servers.dome.models import GetMarketsInput
         
-        if 'error' not in result:
-            output = GetMarketsOutput(**result)
-            for m in output.markets:
-                print(f"{m.title}: ${m.volume_total:,.0f} volume")
-                print(f"  {m.side_a.label}: token {m.side_a.id}")
+        result = get_markets(GetMarketsInput(tags=['crypto'], status='open', limit=20))
+        for m in result.markets:
+            print(f"{m.title}: ${m.volume_total:,.0f} volume")
+            print(f"  {m.side_a.label}: token {m.side_a.id}")
     """
     markets: List[Market] = Field(description="List of markets")
     pagination: Dict[str, Any] = Field(description="Pagination info")
@@ -302,3 +294,109 @@ class GetCandlesticksOutput(BaseModel):
     """Response from get_candlesticks()"""
     condition_id: str = Field(description="Condition ID")
     candlesticks: List[TokenCandlesticks] = Field(description="Candlesticks for each outcome")
+
+
+# ============================================================================
+# POLYMARKET TRADING MODELS
+# ============================================================================
+
+class GetOrdersInput(BaseModel):
+    """Input parameters for get_orders()"""
+    user: Optional[str] = Field(default=None, description="Filter by wallet address")
+    condition_id: Optional[str] = Field(default=None, description="Filter by condition ID")
+    market_slug: Optional[str] = Field(default=None, description="Filter by market slug")
+    token_id: Optional[str] = Field(default=None, description="Filter by token ID")
+    start_time: Optional[int] = Field(default=None, description="Unix timestamp start")
+    end_time: Optional[int] = Field(default=None, description="Unix timestamp end")
+    limit: int = Field(default=100, ge=1, le=1000, description="Max orders to return")
+    pagination_key: Optional[str] = Field(default=None, description="Pagination cursor")
+
+
+class GetOrdersOutput(BaseModel):
+    """Response from get_orders()"""
+    orders: List[Order] = Field(description="List of executed orders")
+    pagination: Dict[str, Any] = Field(description="Pagination info")
+
+
+# ============================================================================
+# KALSHI MARKETS MODELS
+# ============================================================================
+
+class KalshiMarket(BaseModel):
+    """Single Kalshi market"""
+    ticker: str = Field(description="Market ticker")
+    title: str = Field(description="Market question")
+    series_ticker: Optional[str] = Field(default=None, description="Parent series")
+    status: str = Field(description="Market status")
+    strike_price: Optional[float] = Field(default=None, description="Strike price if applicable")
+    expiration_time: Optional[int] = Field(default=None, description="Expiration timestamp")
+    volume: Optional[float] = Field(default=None, description="Trading volume")
+    open_interest: Optional[float] = Field(default=None, description="Open interest")
+    yes_bid: Optional[float] = Field(default=None, description="Current yes bid price (cents)")
+    yes_ask: Optional[float] = Field(default=None, description="Current yes ask price (cents)")
+
+
+class GetKalshiMarketsInput(BaseModel):
+    """Input parameters for kalshi get_markets()"""
+    series_ticker: Optional[str] = Field(default=None, description="Filter by series ticker")
+    search: Optional[str] = Field(default=None, description="Search keywords")
+    status: Optional[Literal["open", "closed"]] = Field(default=None, description="Filter by status: 'open' or 'closed'")
+    limit: int = Field(default=10, ge=1, le=100, description="Max markets to return")
+    offset: int = Field(default=0, ge=0, description="Number to skip for pagination")
+
+
+class GetKalshiMarketsOutput(BaseModel):
+    """Response from kalshi get_markets()"""
+    markets: List[KalshiMarket] = Field(description="List of markets")
+    pagination: Dict[str, Any] = Field(description="Pagination info")
+
+
+class GetKalshiMarketPriceInput(BaseModel):
+    """Input parameters for kalshi get_market_price()"""
+    ticker: str = Field(description="Market ticker")
+    at_time: Optional[int] = Field(default=None, description="Unix timestamp for historical price")
+
+
+class GetKalshiMarketPriceOutput(BaseModel):
+    """Response from kalshi get_market_price()"""
+    price: float = Field(description="Market price in cents (0-100)")
+    at_time: int = Field(description="Unix timestamp for the price")
+
+
+# ============================================================================
+# WALLET INFO MODELS
+# ============================================================================
+
+class GetWalletInfoInput(BaseModel):
+    """
+    Input parameters for get_wallet_info()
+    
+    Provide any wallet address (EOA or proxy) to get the mapping between them.
+    The function will automatically try both parameters with the API.
+    """
+    wallet_address: str = Field(description="Wallet address (0x...) - can be either EOA or proxy")
+    eoa: Optional[str] = Field(default=None, description="EOA wallet address (0x...) - internal use")
+    proxy: Optional[str] = Field(default=None, description="Proxy wallet address (0x...) - internal use")
+
+
+class GetWalletInfoOutput(BaseModel):
+    """
+    Response from get_wallet_info()
+    
+    Returns the EOA <-> Proxy wallet mapping. Most Polymarket APIs expect the proxy address.
+    
+    Example usage:
+        from servers.dome.polymarket.wallet import get_wallet_info
+        from servers.dome.models import GetWalletInfoInput
+        
+        # Look up proxy from EOA
+        result = get_wallet_info(GetWalletInfoInput(eoa="0x123..."))
+        proxy_address = result.proxy
+        
+        # Or look up EOA from proxy
+        result = get_wallet_info(GetWalletInfoInput(proxy="0xabc..."))
+        eoa_address = result.eoa
+    """
+    eoa: str = Field(description="EOA wallet address")
+    proxy: str = Field(description="Proxy wallet address")
+    wallet_type: str = Field(description="Type of wallet (e.g., 'metamask', 'wallet_connect')")

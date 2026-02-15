@@ -278,6 +278,10 @@ DELEGATE_EXECUTION_DESC = """Delegate execution to the Executor Agent.
 - Review the summary in the result
 - Use `read_chat_file(filename=result_file)` for full details if needed
 - Update `tasks.md` to mark completed tasks `[x]`
+
+**Guidelines:**
+- Make sure you plan the exact APIs, functions and tools the subagent should use
+- Focus on task completion. A simple explore + execute pattern works pretty well.
 """
 
 

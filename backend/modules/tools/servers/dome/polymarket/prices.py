@@ -3,108 +3,63 @@ Polymarket Prices - Real-time and Historical Data
 
 Get current prices and historical candlestick data.
 """
-from typing import Optional, Literal, Dict, Any
-from .._client import call_dome_api
+from typing import Literal
+from .._client import call_dome_api, DomeAPIError
+from ..models import GetMarketPriceInput, GetMarketPriceOutput, GetCandlesticksInput, GetCandlesticksOutput
 
 
-def get_market_price(
-    token_id: str,
-    at_time: Optional[int] = None
-) -> Dict[str, Any]:
+def get_market_price(input: GetMarketPriceInput) -> GetMarketPriceOutput:
     """
     Get current or historical price for a Polymarket market.
     
     Args:
-        token_id: Token ID for the market outcome (get from get_markets)
-        at_time: Optional Unix timestamp (seconds) for historical price
-                 If not provided, returns most recent price
+        input: GetMarketPriceInput with token_id and optional at_time
         
     Returns:
-        dict with:
-        - price: Market price between 0 and 1 (e.g., 0.65 = 65% probability)
-        - at_time: Unix timestamp for the price
+        GetMarketPriceOutput with price and timestamp
         
     Example:
-        # Get current price
-        price = get_market_price("98250445447699368679516...")
-        if 'error' not in price:
-            print(f"Current probability: {price['price']*100:.1f}%")
-            
-        # Get historical price
-        past_price = get_market_price("98250...", at_time=1640995200)
+        from servers.dome.models import GetMarketPriceInput
+        price = get_market_price(GetMarketPriceInput(token_id="98250445..."))
+        print(f"Current probability: {price.price*100:.1f}%")
     """
-    endpoint = f"/polymarket/market-price/{token_id}"
-    params = {}
-    
-    if at_time:
-        params["at_time"] = at_time
-    
-    return call_dome_api(endpoint, params)
+    endpoint = f"/polymarket/market-price/{input.token_id}"
+    params = input.model_dump(exclude={"token_id"}, exclude_none=True)
+    result = call_dome_api(endpoint, params)
+    return GetMarketPriceOutput(**result)
 
 
-def get_candlesticks(
-    condition_id: str,
-    start_time: int,
-    end_time: int,
-    interval: Literal[1, 60, 1440] = 1
-) -> Dict[str, Any]:
+def get_candlesticks(input: GetCandlesticksInput) -> GetCandlesticksOutput:
     """
     Get historical candlestick/OHLC data for charting.
     
     Args:
-        condition_id: Market condition ID (get from get_markets)
-        start_time: Unix timestamp (seconds) for start of range
-        end_time: Unix timestamp (seconds) for end of range
-        interval: Candle interval:
-            - 1 = 1 minute (max range: 1 week)
-            - 60 = 1 hour (max range: 1 month)
-            - 1440 = 1 day (max range: 1 year)
-            
+        input: GetCandlesticksInput with condition_id, time range, and interval
+        
     Returns:
-        dict with:
-        - candlesticks: List of [candle_data, token_metadata] tuples
-            Each candle has:
-            - end_period_ts: Timestamp
-            - open_interest: Open interest
-            - price: OHLC prices (open, high, low, close)
-            - volume: Trading volume
-            - yes_ask/yes_bid: Ask/bid prices
-            
+        GetCandlesticksOutput with candlestick data
+        
     Example:
         import time
+        from servers.dome.models import GetCandlesticksInput
         
-        # Get 1-day candles for last month
         end = int(time.time())
-        start = end - (30 * 24 * 60 * 60)  # 30 days ago
+        start = end - (30 * 24 * 60 * 60)
         
-        candles = get_candlesticks(
+        candles = get_candlesticks(GetCandlesticksInput(
             condition_id="0x4567b275...",
             start_time=start,
             end_time=end,
-            interval=1440  # Daily
-        )
+            interval=1440
+        ))
         
-        if 'error' not in candles:
-            # Convert to DataFrame for analysis
-            import pandas as pd
-            data = []
-            for candle_array, token_meta in candles['candlesticks']:
-                for candle in candle_array:
-                    data.append({
-                        'timestamp': candle['end_period_ts'],
-                        'close': candle['price']['close'],
-                        'volume': candle['volume']
-                    })
-            df = pd.DataFrame(data)
+        for token_candles in candles.candlesticks:
+            print(f"{token_candles.label}: {len(token_candles.candles)} candles")
     """
-    if interval not in [1, 60, 1440]:
-        return {"error": f"Invalid interval {interval}. Must be 1, 60, or 1440"}
+    if input.interval not in [1, 60, 1440]:
+        raise DomeAPIError(f"Invalid interval {input.interval}. Must be 1, 60, or 1440")
     
-    endpoint = f"/polymarket/candlesticks/{condition_id}"
-    params = {
-        "start_time": start_time,
-        "end_time": end_time,
-        "interval": interval
-    }
-    
-    return call_dome_api(endpoint, params)
+    endpoint = f"/polymarket/candlesticks/{input.condition_id}"
+    params = input.model_dump(exclude={"condition_id"})
+    result = call_dome_api(endpoint, params)
+    return GetCandlesticksOutput(**result)

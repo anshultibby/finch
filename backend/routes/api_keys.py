@@ -78,30 +78,38 @@ async def save_api_key(
     await verify_user_access(user_id, authenticated_user_id)
     
     try:
-        # Validate service-specific requirements
+        # Validate service-specific requirements and normalize credentials
+        credentials = request.credentials.copy()
+        
         if request.service == "kalshi":
-            if "api_key_id" not in request.credentials:
+            if "api_key_id" not in credentials:
                 raise HTTPException(
                     status_code=400,
                     detail="Kalshi requires 'api_key_id' in credentials"
                 )
-            if "private_key" not in request.credentials:
+            if "private_key" not in credentials:
                 raise HTTPException(
                     status_code=400,
                     detail="Kalshi requires 'private_key' in credentials"
                 )
+            # Normalize private key: convert literal \n to actual newlines
+            if '\\n' in credentials["private_key"]:
+                credentials["private_key"] = credentials["private_key"].replace('\\n', '\n')
         elif request.service == "polymarket":
-            if "private_key" not in request.credentials:
+            if "private_key" not in credentials:
                 raise HTTPException(
                     status_code=400,
                     detail="Polymarket requires 'private_key' in credentials"
                 )
+            # Normalize private key for Polymarket too
+            if '\\n' in credentials["private_key"]:
+                credentials["private_key"] = credentials["private_key"].replace('\\n', '\n')
         
         key_info = await user_api_keys.save_api_key(
             db=db,
             user_id=user_id,
             service=request.service,
-            credentials=request.credentials
+            credentials=credentials
         )
         
         return ApiKeyResponse(
@@ -245,6 +253,19 @@ async def test_credentials_before_save(
                     detail="Kalshi requires 'api_key_id' and 'private_key'"
                 )
             
+            # Normalize private key format
+            # If the key contains literal \n (two chars: backslash + n), replace with actual newlines
+            if '\\n' in private_key:
+                logger.info("Normalizing private key: converting literal \\n to actual newlines")
+                private_key = private_key.replace('\\n', '\n')
+            
+            # Additional validation: check if key looks correct
+            if '-----BEGIN' not in private_key or '-----END' not in private_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid private key format: missing BEGIN/END markers"
+                )
+            
             result = await test_kalshi_credentials(api_key_id, private_key)
             return TestApiKeyResponse(**result)
         elif request.service == "polymarket":
@@ -256,6 +277,10 @@ async def test_credentials_before_save(
                     status_code=400,
                     detail="Polymarket requires 'private_key'"
                 )
+            
+            # Normalize private key before testing
+            if '\\n' in private_key:
+                private_key = private_key.replace('\\n', '\n')
             
             result = await test_polymarket_credentials(private_key, funder_address)
             return TestApiKeyResponse(**result)
