@@ -6,6 +6,7 @@ SECURITY:
 - Private keys are NEVER returned in responses
 - Only masked metadata is exposed
 - Test endpoint validates credentials without storing sensitive data in logs
+- Authentication required: Users can only access their own API keys
 """
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from models.api_keys import (
 from crud import user_api_keys
 from modules.tools.clients.kalshi import test_kalshi_credentials
 from modules.tools.clients.polymarket import test_polymarket_credentials
+from auth.dependencies import get_current_user_id, verify_user_access
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,13 +34,19 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 @router.get("/{user_id}", response_model=ApiKeysResponse)
 async def get_user_api_keys(
     user_id: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id)
 ):
     """
     Get list of user's saved API keys (masked, no secrets)
     
     Returns only metadata - never returns actual credentials
+    
+    SECURITY: Users can only access their own API keys
     """
+    # Verify user is accessing their own keys
+    await verify_user_access(user_id, authenticated_user_id)
+    
     try:
         keys = await user_api_keys.get_api_keys_info(db, user_id)
         return ApiKeysResponse(
@@ -55,14 +63,20 @@ async def get_user_api_keys(
 async def save_api_key(
     user_id: str,
     request: SaveApiKeyRequest,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id)
 ):
     """
     Save or update API credentials for a service
     
     Credentials are encrypted before storage. The response only contains
     masked metadata, never the actual credentials.
+    
+    SECURITY: Users can only save their own API keys
     """
+    # Verify user is saving their own keys
+    await verify_user_access(user_id, authenticated_user_id)
+    
     try:
         # Validate service-specific requirements
         if request.service == "kalshi":
@@ -106,11 +120,17 @@ async def save_api_key(
 async def delete_api_key(
     user_id: str,
     service: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id)
 ):
     """
     Delete API credentials for a service
+    
+    SECURITY: Users can only delete their own API keys
     """
+    # Verify user is deleting their own keys
+    await verify_user_access(user_id, authenticated_user_id)
+    
     try:
         deleted = await user_api_keys.delete_api_key(db, user_id, service)
         
@@ -135,13 +155,19 @@ async def delete_api_key(
 async def test_api_key(
     user_id: str,
     request: TestApiKeyRequest,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id)
 ):
     """
     Test saved API credentials by making a simple API call
     
     For Kalshi: Fetches account balance to verify credentials work
+    
+    SECURITY: Users can only test their own API keys
     """
+    # Verify user is testing their own keys
+    await verify_user_access(user_id, authenticated_user_id)
+    
     try:
         # Get decrypted credentials (server-side only)
         creds = await user_api_keys.get_decrypted_credentials(db, user_id, request.service)
@@ -194,14 +220,20 @@ async def test_api_key(
 async def test_credentials_before_save(
     user_id: str,
     request: SaveApiKeyRequest,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id)
 ):
     """
     Test API credentials BEFORE saving them
     
     This allows users to verify credentials work before committing them to storage.
     Credentials are NOT saved - only tested.
+    
+    SECURITY: Users can only test credentials for their own account
     """
+    # Verify user is testing credentials for their own account
+    await verify_user_access(user_id, authenticated_user_id)
+    
     try:
         if request.service == "kalshi":
             api_key_id = request.credentials.get("api_key_id")

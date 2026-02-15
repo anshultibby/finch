@@ -546,21 +546,25 @@ def read_chat_file_impl(
     context: AgentContext,
     filename: str,
     start_line: Optional[int] = None,
-    end_line: Optional[int] = None
+    end_line: Optional[int] = None,
+    from_api_docs: bool = False
 ):
     """
     Read file from chat directory with optional line range (like Cursor).
+    Also supports reading API documentation from servers/ directory.
     
     For text files: returns content as string, optionally sliced by line range
     For images: returns image data that can be viewed by the LLM (multimodal)
     
     Args:
         context: Agent context
-        filename: File to read
+        filename: File to read (e.g., "chart.png" or "dome/AGENTS.md" if from_api_docs=True)
         start_line: 1-indexed start line (default: 1)
         end_line: 1-indexed end line, inclusive (default: last line)
+        from_api_docs: If True, reads from servers/ directory instead of chat files
     """
     from modules.resource_manager import resource_manager
+    from pathlib import Path
     
     # Convert string arguments to int (LLM may pass strings)
     if start_line is not None:
@@ -569,12 +573,40 @@ def read_chat_file_impl(
         end_line = int(end_line)
     
     try:
-        # Use the new method that supports images
-        file_data = resource_manager.read_chat_file_with_metadata(
-            context.user_id,
-            context.chat_id,
-            filename
-        )
+        # If reading from API docs, read from servers/ directory
+        if from_api_docs:
+            backend_dir = Path(__file__).parent.parent.parent.parent  # backend/
+            # Support both "dome/AGENTS.md" and "servers/dome/AGENTS.md"
+            if filename.startswith('servers/'):
+                filename = filename[8:]  # Remove "servers/" prefix
+            
+            file_path = backend_dir / "modules" / "tools" / "servers" / filename
+            
+            if not file_path.exists() or not file_path.is_file():
+                # List available servers for helpful error
+                servers_dir = backend_dir / "modules" / "tools" / "servers"
+                available = [d.name for d in servers_dir.iterdir() 
+                           if d.is_dir() and not d.name.startswith('_')]
+                return {
+                    "success": False, 
+                    "error": f"API doc file '{filename}' not found",
+                    "hint": f"Available servers: {', '.join(available)}. Try reading '<server>/AGENTS.md' or 'AGENTS.md' for overview"
+                }
+            
+            content = file_path.read_text()
+            # Create file_data dict matching the expected format
+            file_data = {
+                "content": content,
+                "file_type": "text",
+                "is_image": False
+            }
+        else:
+            # Read from chat files (user's workspace)
+            file_data = resource_manager.read_chat_file_with_metadata(
+                context.user_id,
+                context.chat_id,
+                filename
+            )
         
         if file_data is None:
             return {"success": False, "error": f"File '{filename}' not found"}

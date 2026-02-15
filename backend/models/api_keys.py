@@ -1,19 +1,31 @@
 """
 Pydantic models for User API Key management
+
+Uses Pydantic's SecretStr to prevent accidental logging of credentials.
 """
 from typing import Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class KalshiCredentials(BaseModel):
-    """Kalshi API credentials"""
-    api_key_id: str = Field(..., description="Kalshi API Key ID")
-    private_key: str = Field(..., description="RSA private key (PEM format)")
+    """Kalshi API credentials (secure)"""
+    api_key_id: SecretStr = Field(..., description="Kalshi API Key ID")
+    private_key: SecretStr = Field(..., description="RSA private key (PEM format)")
+    
+    class Config:
+        json_encoders = {
+            SecretStr: lambda v: v.get_secret_value() if v else None
+        }
 
 
 class SaveApiKeyRequest(BaseModel):
-    """Request to save API credentials for a service"""
+    """
+    Request to save API credentials for a service.
+    
+    Note: credentials dict values should be strings (will be encrypted server-side).
+    Use plain strings, not SecretStr, since encryption happens in the CRUD layer.
+    """
     service: str = Field(..., description="Service name (e.g., 'kalshi')")
     credentials: Dict[str, Any] = Field(..., description="Service-specific credentials")
 

@@ -97,12 +97,19 @@ WRITE_CHAT_FILE_DESC = """Write a file to the persistent chat filesystem (syncs 
 - Creating data files that persist across sessions
 """
 
-READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads and images!**
+READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads, images, and API docs!**
 
 **When to use:**
 - Reading text files (code, data, configs)
 - **VIEWING IMAGES** - Use this to see charts/visualizations you've created
 - **Reading large files partially** - Use start_line/end_line for big files
+- **READING API DOCUMENTATION** - Use from_api_docs=True to read server docs
+
+**Reading API documentation (CRITICAL - do this BEFORE using any API):**
+- `read_chat_file(filename="AGENTS.md", from_api_docs=True)` - Overview of all APIs
+- `read_chat_file(filename="dome/AGENTS.md", from_api_docs=True)` - Dome API (Polymarket/Kalshi)
+- `read_chat_file(filename="polygon_io/AGENTS.md", from_api_docs=True)` - Polygon.io stock data
+- `read_chat_file(filename="financial_modeling_prep/AGENTS.md", from_api_docs=True)` - FMP fundamentals
 
 **Partial reads (like Cursor):**
 - `read_chat_file(filename="data.json")` - full file

@@ -113,10 +113,11 @@ def read_chat_file(
     context: AgentContext,
     filename: str,
     start_line: Optional[int] = None,
-    end_line: Optional[int] = None
+    end_line: Optional[int] = None,
+    from_api_docs: bool = False
 ):
-    """Read file from chat directory, optionally by line range"""
-    return file_management.read_chat_file_impl(context, filename, start_line, end_line)
+    """Read file from chat directory, optionally by line range. Set from_api_docs=True to read API documentation."""
+    return file_management.read_chat_file_impl(context, filename, start_line, end_line, from_api_docs)
 
 
 @tool(

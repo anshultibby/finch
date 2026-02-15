@@ -56,12 +56,13 @@ class ChatService:
         with tracer.start_as_current_span("chat_turn"):
             logger.info(f"Starting chat turn for user {user_id}")
             
-            # Mark chat as processing in database
+            # Create single DB session for entire request lifecycle
+            # This prevents connection pool exhaustion by reusing one connection
             async with get_db_session() as db:
+                # Mark chat as processing in database
                 await chat_async.set_chat_processing(db, chat_id, is_processing=True)
-            
-            # Check if user has credits before processing
-            async with get_db_session() as db:
+                
+                # Check if user has credits before processing
                 from services.credits import CreditsService
                 user_credits = await CreditsService.get_user_credits(db, user_id)
                 
@@ -69,22 +70,22 @@ class ChatService:
                     # User has no credits - send error and stop
                     from models.sse import SSEEvent
                     logger.warning(f"User {user_id} has insufficient credits: {user_credits}")
+                    await chat_async.set_chat_processing(db, chat_id, is_processing=False)
                     yield SSEEvent(
                         event="error",
                         data={"error": "Insufficient credits. Please contact support to add more credits."}
                     ).to_sse_format()
                     yield SSEEvent(event="done", data={}).to_sse_format()
                     return
-            
-            # Send immediate acknowledgment so frontend knows connection is alive
-            from models.sse import SSEEvent, ThinkingEvent
-            yield SSEEvent(
-                event="thinking",
-                data=ThinkingEvent(message="Processing your message...").model_dump()
-            ).to_sse_format()
-            
-            # STEP 1: Load history and save user message
-            async with get_db_session() as db:
+                
+                # Send immediate acknowledgment so frontend knows connection is alive
+                from models.sse import SSEEvent, ThinkingEvent
+                yield SSEEvent(
+                    event="thinking",
+                    data=ThinkingEvent(message="Processing your message...").model_dump()
+                ).to_sse_format()
+                
+                # STEP 1: Load history and save user message
                 db_chat = await chat_async.get_chat(db, chat_id)
                 if not db_chat:
                     await chat_async.create_chat(db, chat_id, user_id)
@@ -111,188 +112,196 @@ class ChatService:
                 )
                 current_sequence += 1
             
-            # STEP 2: Process message and save incrementally
-            context = context_manager.get_all_context(user_id)
-            
-            # Create cancel event for this execution
-            cancel_event = asyncio.Event()
-            
-            agent_context = AgentContext(
-                agent_id=generate_agent_id(),  # Unique ID for this master agent instance
-                user_id=user_id,
-                chat_id=chat_id,
-                data=context,
-                cancel_event=cancel_event
-            )
-            
-            # Register this context and cancel any previous active one
-            previous_context = register_context(chat_id, agent_context)
-            if previous_context is not None:
-                logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
-                previous_context.cancel()
-            
-            agent = create_planner_agent(agent_context)
-            
-            # Add user message to history (with optional images for multimodal)
-            history.add_user_message(message, images=images)
-            
-            # Track pending assistant message (with tool calls) for saving after tools complete
-            pending_assistant_msg = None
-            # Background tasks for non-blocking DB saves
-            background_tasks = []
-            
-            # Stream events from agent and save completed messages incrementally
-            with tracer.start_as_current_span("agent_processing"):
-                async for event in agent.process_message_stream(
-                    message=message,
-                    chat_history=history,
-                    history_limit=Config.CHAT_HISTORY_LIMIT
-                ):
-                    # YIELD EVENT FIRST for real-time streaming
-                    # Database saves happen after to not block the stream
-                    yield event.to_sse_format()
-                    
-                    # Log event type for debugging
-                    if event.event == "tool_call_start":
-                        logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
-                    
-                    # INCREMENTAL SAVE: Queue saves to run in background without blocking stream
-                    # This ensures real-time streaming while still saving completed work
-                    
-                    if event.event == "message_end":
-                        # message_end signals a complete assistant message
-                        tool_calls = event.data.get("tool_calls")
-                        content = event.data.get("content", "")
-                        
-                        if tool_calls:
-                            # Assistant message with tool calls - save after tools complete
-                            logger.info(f"📝 message_end with {len(tool_calls)} tool calls - setting pending_assistant_msg")
-                            pending_assistant_msg = {
-                                "content": content,
-                                "tool_calls": tool_calls
-                            }
-                        else:
-                            # Final assistant message (no tool calls) - save in background
-                            seq = current_sequence
-                            current_sequence += 1
-                            
-                            async def save_final_message(chat_id, content, seq):
-                                try:
-                                    async with get_db_session() as db:
-                                        await chat_async.create_message(
-                                            db=db,
-                                            chat_id=chat_id,
-                                            role="assistant",
-                                            content=content,
-                                            sequence=seq
-                                        )
-                                        logger.info(f"💾 Saved final assistant message (seq={seq})")
-                                except Exception as e:
-                                    logger.error(f"Failed to save final message: {e}")
-                            
-                            background_tasks.append(asyncio.create_task(save_final_message(chat_id, content, seq)))
-                    
-                    elif event.event == "tools_end":
-                        # tools_end signals tool execution is complete
-                        # Now save: 1) assistant message with tool_calls, 2) tool result messages
-                        tool_messages = event.data.get("tool_messages", [])
-                        execution_results = event.data.get("execution_results", [])
-                        
-                        logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages, {len(execution_results)} execution results")
-                        
-                        # Safety check: if no pending_assistant_msg, we have a bug - log it
-                        if not pending_assistant_msg and tool_messages:
-                            logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg! This will create orphaned tool results.")
-                        
-                        # Build tool_results dict keyed by tool_call_id for persistence
-                        tool_results = {}
-                        for exec_result in execution_results:
-                            tool_call_id = exec_result.get("tool_call_id")
-                            if tool_call_id:
-                                result_data = exec_result.get("result_data", {})
-                                tool_results[tool_call_id] = {
-                                    "status": exec_result.get("status", "completed"),
-                                    "error": exec_result.get("error"),
-                                    "result_summary": result_data.get("message") if isinstance(result_data, dict) else None,
-                                }
-                                if isinstance(result_data, dict):
-                                    stdout = result_data.get("stdout")
-                                    stderr = result_data.get("stderr")
-                                    if stdout is not None or stderr is not None:
-                                        tool_results[tool_call_id]["code_output"] = {
-                                            "stdout": stdout or "",
-                                            "stderr": stderr or ""
-                                        }
-                        
-                        # Save in background to not block streaming
-                        if pending_assistant_msg:
-                            seq = current_sequence
-                            current_sequence += 1 + len(tool_messages)  # Reserve sequences
-                            
-                            async def save_tools_end(chat_id, pending_msg, tool_results, tool_messages, start_seq):
-                                try:
-                                    async with get_db_session() as db:
-                                        seq = start_seq
-                                        await chat_async.create_message(
-                                            db=db,
-                                            chat_id=chat_id,
-                                            role="assistant",
-                                            content=pending_msg["content"],
-                                            sequence=seq,
-                                            tool_calls=pending_msg["tool_calls"],
-                                            tool_results=tool_results if tool_results else None
-                                        )
-                                        logger.info(f"💾 Saved assistant message with {len(pending_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
-                                        seq += 1
-                                        
-                                        for tool_msg in tool_messages:
-                                            content = tool_msg.get("content", "")
-                                            if isinstance(content, list):
-                                                content = json.dumps(content)
-                                            
-                                            await chat_async.create_message(
-                                                db=db,
-                                                chat_id=chat_id,
-                                                role="tool",
-                                                content=content,
-                                                sequence=seq,
-                                                tool_call_id=tool_msg.get("tool_call_id"),
-                                                name=tool_msg.get("name")
-                                            )
-                                            seq += 1
-                                        
-                                        if tool_messages:
-                                            logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
-                                except Exception as e:
-                                    logger.error(f"Failed to save tools_end: {e}")
-                            
-                            background_tasks.append(asyncio.create_task(
-                                save_tools_end(chat_id, pending_assistant_msg, tool_results, tool_messages, seq)
-                            ))
-                        
-                        pending_assistant_msg = None
-            
-            # Wait for all background DB saves to complete before finishing
-            if background_tasks:
-                await asyncio.gather(*background_tasks, return_exceptions=True)
-            
-            # Log session usage summary (token counts and costs)
-            # Also deduct credits based on actual token usage
-            usage_tracker = LLMHandler.get_session_usage(chat_id)
-            if usage_tracker and usage_tracker.llm_call_count > 0:
-                # Calculate and deduct credits
-                from services.credits import calculate_credits_for_llm_call
+                # STEP 2: Process message and save incrementally
+                context = context_manager.get_all_context(user_id)
                 
-                credits_to_deduct = calculate_credits_for_llm_call(
-                    model=usage_tracker.model,
-                    prompt_tokens=usage_tracker.total_prompt_tokens,
-                    completion_tokens=usage_tracker.total_completion_tokens,
-                    cache_read_tokens=usage_tracker.total_cache_read_tokens,
-                    cache_creation_tokens=usage_tracker.total_cache_creation_tokens
+                # Create cancel event for this execution
+                cancel_event = asyncio.Event()
+                
+                agent_context = AgentContext(
+                    agent_id=generate_agent_id(),  # Unique ID for this master agent instance
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    data=context,
+                    cancel_event=cancel_event
                 )
                 
-                # Deduct credits
-                async with get_db_session() as db:
+                # Register this context and cancel any previous active one
+                previous_context = register_context(chat_id, agent_context)
+                if previous_context is not None:
+                    logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
+                    previous_context.cancel()
+                
+                agent = create_planner_agent(agent_context)
+                
+                # Add user message to history (with optional images for multimodal)
+                history.add_user_message(message, images=images)
+                
+                # Track pending assistant message (with tool calls) for saving after tools complete
+                pending_assistant_msg = None
+                # List of message save operations to batch
+                messages_to_save = []
+                
+                # Stream events from agent and save completed messages incrementally
+                with tracer.start_as_current_span("agent_processing"):
+                    async for event in agent.process_message_stream(
+                        message=message,
+                        chat_history=history,
+                        history_limit=Config.CHAT_HISTORY_LIMIT
+                    ):
+                        # YIELD EVENT FIRST for real-time streaming
+                        # Database saves happen after to not block the stream
+                        yield event.to_sse_format()
+                        
+                        # Log event type for debugging
+                        if event.event == "tool_call_start":
+                            logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
+                        
+                        # INCREMENTAL SAVE: Collect messages to save with the shared DB session
+                        # This ensures real-time streaming while still saving completed work
+                        
+                        if event.event == "message_end":
+                            # message_end signals a complete assistant message
+                            tool_calls = event.data.get("tool_calls")
+                            content = event.data.get("content", "")
+                            
+                            if tool_calls:
+                                # Assistant message with tool calls - save after tools complete
+                                logger.info(f"📝 message_end with {len(tool_calls)} tool calls - setting pending_assistant_msg")
+                                pending_assistant_msg = {
+                                    "content": content,
+                                    "tool_calls": tool_calls
+                                }
+                            else:
+                                # Final assistant message (no tool calls) - queue for saving
+                                seq = current_sequence
+                                current_sequence += 1
+                                messages_to_save.append({
+                                    "type": "final_message",
+                                    "content": content,
+                                    "sequence": seq
+                                })
+                                logger.info(f"📝 Queued final assistant message (seq={seq})")
+                        
+                        elif event.event == "tools_end":
+                            # tools_end signals tool execution is complete
+                            # Now save: 1) assistant message with tool_calls, 2) tool result messages
+                            tool_messages = event.data.get("tool_messages", [])
+                            execution_results = event.data.get("execution_results", [])
+                            
+                            logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages, {len(execution_results)} execution results")
+                            
+                            # Safety check: if no pending_assistant_msg, we have a bug - log it
+                            if not pending_assistant_msg and tool_messages:
+                                logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg! This will create orphaned tool results.")
+                            
+                            # Build tool_results dict keyed by tool_call_id for persistence
+                            tool_results = {}
+                            for exec_result in execution_results:
+                                tool_call_id = exec_result.get("tool_call_id")
+                                if tool_call_id:
+                                    result_data = exec_result.get("result_data", {})
+                                    tool_results[tool_call_id] = {
+                                        "status": exec_result.get("status", "completed"),
+                                        "error": exec_result.get("error"),
+                                        "result_summary": result_data.get("message") if isinstance(result_data, dict) else None,
+                                    }
+                                    if isinstance(result_data, dict):
+                                        stdout = result_data.get("stdout")
+                                        stderr = result_data.get("stderr")
+                                        if stdout is not None or stderr is not None:
+                                            tool_results[tool_call_id]["code_output"] = {
+                                                "stdout": stdout or "",
+                                                "stderr": stderr or ""
+                                            }
+                            
+                            # Queue for saving with shared DB session
+                            if pending_assistant_msg:
+                                seq = current_sequence
+                                current_sequence += 1 + len(tool_messages)  # Reserve sequences
+                                
+                                messages_to_save.append({
+                                    "type": "tools_end",
+                                    "pending_msg": pending_assistant_msg,
+                                    "tool_results": tool_results,
+                                    "tool_messages": tool_messages,
+                                    "start_sequence": seq
+                                })
+                                logger.info(f"📝 Queued tools_end save (seq={seq})")
+                            
+                            pending_assistant_msg = None
+                
+                # Save all queued messages using the shared DB session
+                # This happens after streaming is complete, using a single connection
+                if messages_to_save:
+                    logger.info(f"💾 Saving {len(messages_to_save)} queued message batches...")
+                    for msg_data in messages_to_save:
+                        try:
+                            if msg_data["type"] == "final_message":
+                                await chat_async.create_message(
+                                    db=db,
+                                    chat_id=chat_id,
+                                    role="assistant",
+                                    content=msg_data["content"],
+                                    sequence=msg_data["sequence"]
+                                )
+                                logger.info(f"💾 Saved final assistant message (seq={msg_data['sequence']})")
+                            
+                            elif msg_data["type"] == "tools_end":
+                                seq = msg_data["start_sequence"]
+                                pending_msg = msg_data["pending_msg"]
+                                tool_results = msg_data["tool_results"]
+                                tool_messages = msg_data["tool_messages"]
+                                
+                                await chat_async.create_message(
+                                    db=db,
+                                    chat_id=chat_id,
+                                    role="assistant",
+                                    content=pending_msg["content"],
+                                    sequence=seq,
+                                    tool_calls=pending_msg["tool_calls"],
+                                    tool_results=tool_results if tool_results else None
+                                )
+                                logger.info(f"💾 Saved assistant message with {len(pending_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
+                                seq += 1
+                                
+                                for tool_msg in tool_messages:
+                                    content = tool_msg.get("content", "")
+                                    if isinstance(content, list):
+                                        content = json.dumps(content)
+                                    
+                                    await chat_async.create_message(
+                                        db=db,
+                                        chat_id=chat_id,
+                                        role="tool",
+                                        content=content,
+                                        sequence=seq,
+                                        tool_call_id=tool_msg.get("tool_call_id"),
+                                        name=tool_msg.get("name")
+                                    )
+                                    seq += 1
+                                
+                                if tool_messages:
+                                    logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                        except Exception as e:
+                            logger.error(f"Failed to save message batch: {e}")
+                
+                # Log session usage summary (token counts and costs)
+                # Also deduct credits based on actual token usage
+                usage_tracker = LLMHandler.get_session_usage(chat_id)
+                if usage_tracker and usage_tracker.llm_call_count > 0:
+                    # Calculate and deduct credits
+                    from services.credits import calculate_credits_for_llm_call
+                    
+                    credits_to_deduct = calculate_credits_for_llm_call(
+                        model=usage_tracker.model,
+                        prompt_tokens=usage_tracker.total_prompt_tokens,
+                        completion_tokens=usage_tracker.total_completion_tokens,
+                        cache_read_tokens=usage_tracker.total_cache_read_tokens,
+                        cache_creation_tokens=usage_tracker.total_cache_creation_tokens
+                    )
+                    
+                    # Deduct credits using the same DB session
                     from services.credits import CreditsService
                     
                     # Build metadata for transaction
@@ -322,43 +331,57 @@ class ChatService:
                         logger.info(f"💳 Deducted {credits_to_deduct} credits (${costs['total_cost']:.4f} + 20% premium)")
                     else:
                         logger.warning(f"⚠️  Failed to deduct {credits_to_deduct} credits - insufficient balance or user not found")
-            
-            LLMHandler.finalize_session(chat_id)
-            
-            # Unregister this context (only if we're still the active one)
-            unregister_context(chat_id, agent_context)
-            
-            # Mark chat as no longer processing in database
-            async with get_db_session() as db:
+                
+                LLMHandler.finalize_session(chat_id)
+                
+                # Unregister this context (only if we're still the active one)
+                unregister_context(chat_id, agent_context)
+                
+                # Mark chat as no longer processing in database
                 await chat_async.set_chat_processing(db, chat_id, is_processing=False)
-            
-            logger.info("Chat turn complete - all messages saved incrementally")
+                
+                logger.info("Chat turn complete - all messages saved incrementally")
     
-    async def get_chat_history(self, chat_id: str) -> List[dict]:
+    async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:
         """Get chat history for a chat, including tool calls (OpenAI format)"""
-        async with get_db_session() as db:
+        if db is None:
+            async with get_db_session() as db:
+                messages = await chat_async.get_chat_messages(db, chat_id)
+                history = ChatHistory.from_db_messages(messages, chat_id, user_id=None)
+                return history.to_openai_format()
+        else:
             messages = await chat_async.get_chat_messages(db, chat_id)
             history = ChatHistory.from_db_messages(messages, chat_id, user_id=None)
             return history.to_openai_format()
     
-    async def clear_chat(self, chat_id: str) -> bool:
+    async def clear_chat(self, chat_id: str, db=None) -> bool:
         """Clear chat history for a chat"""
-        async with get_db_session() as db:
+        if db is None:
+            async with get_db_session() as db:
+                count = await chat_async.clear_chat_messages(db, chat_id)
+                return count > 0
+        else:
             count = await chat_async.clear_chat_messages(db, chat_id)
             return count > 0
     
-    async def chat_exists(self, chat_id: str) -> bool:
+    async def chat_exists(self, chat_id: str, db=None) -> bool:
         """Check if chat exists"""
-        async with get_db_session() as db:
+        if db is None:
+            async with get_db_session() as db:
+                return await chat_async.get_chat(db, chat_id) is not None
+        else:
             return await chat_async.get_chat(db, chat_id) is not None
     
-    async def get_user_chats(self, user_id: str, limit: int = 50) -> List[dict]:
+    async def get_user_chats(self, user_id: str, limit: int = 50, db=None) -> List[dict]:
         """Get all chats for a user with last message preview (single optimized query)"""
-        async with get_db_session() as db:
-            # Use optimized function that gets chats and previews in a single query
+        if db is None:
+            async with get_db_session() as db:
+                # Use optimized function that gets chats and previews in a single query
+                return await chat_async.get_user_chats_with_preview(db, user_id, limit)
+        else:
             return await chat_async.get_user_chats_with_preview(db, user_id, limit)
     
-    async def is_chat_processing(self, chat_id: str) -> bool:
+    async def is_chat_processing(self, chat_id: str, db=None) -> bool:
         """
         Check if a chat is currently being processed.
         Used for reconnection logic to determine if streaming should resume.
@@ -366,99 +389,109 @@ class ChatService:
         Returns:
             True if the chat is currently being processed, False otherwise
         """
-        async with get_db_session() as db:
+        if db is None:
+            async with get_db_session() as db:
+                return await chat_async.is_chat_processing(db, chat_id)
+        else:
             return await chat_async.is_chat_processing(db, chat_id)
     
-    async def get_chat_history_for_display(self, chat_id: str) -> Dict[str, Any]:
+    async def get_chat_history_for_display(self, chat_id: str, db=None) -> Dict[str, Any]:
         """
         Get chat history formatted for UI display.
         
         SIMPLE: Each message has content and optional tool_calls attached directly.
         Frontend just renders messages in order.
         """
-        async with get_db_session() as db:
-            messages = await chat_async.get_chat_messages(db, chat_id)
+        if db is None:
+            async with get_db_session() as db:
+                return await self._get_chat_history_for_display_impl(db, chat_id)
+        else:
+            return await self._get_chat_history_for_display_impl(db, chat_id)
+    
+    async def _get_chat_history_for_display_impl(self, db, chat_id: str) -> Dict[str, Any]:
+        """Internal implementation of get_chat_history_for_display"""
+        messages = await chat_async.get_chat_messages(db, chat_id)
+        
+        if not messages:
+            return {"messages": []}
+        
+        display_messages = []
+        
+        for msg in messages:
+            # User messages
+            if msg.role == "user":
+                display_messages.append({
+                    "role": "user",
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
+                })
             
-            if not messages:
-                return {"messages": []}
-            
-            display_messages = []
-            
-            for msg in messages:
-                # User messages
-                if msg.role == "user":
+            # Assistant messages
+            elif msg.role == "assistant":
+                # Parse tool_calls if present
+                tool_calls = []
+                # Get stored tool_results for this message (keyed by tool_call_id)
+                tool_results = msg.tool_results or {}
+                
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_name = tc.get("function", {}).get("name")
+                        tool_call_id = tc.get("id")
+                        
+                        # Skip hidden tools
+                        tool_obj = tool_registry.get_tool(tool_name)
+                        if tool_obj and tool_obj.hidden_from_ui:
+                            continue
+                        
+                        # Parse arguments
+                        try:
+                            args_str = tc.get("function", {}).get("arguments", "{}")
+                            # Handle both string and dict formats
+                            if isinstance(args_str, str):
+                                args = json.loads(args_str) if args_str else {}
+                            elif isinstance(args_str, dict):
+                                args = args_str
+                            else:
+                                args = {}
+                            
+                            # Use statusMessage to match ToolCallStatus interface
+                            # Fall back to tool_name if no user_description provided
+                            status_message = args.get("user_description") or tool_name
+                            
+                            # Get stored execution result for this tool call
+                            stored_result = tool_results.get(tool_call_id, {})
+                            
+                            tool_call_data = {
+                                "tool_call_id": tool_call_id,
+                                "tool_name": tool_name,
+                                "statusMessage": status_message,
+                                "arguments": args,  # Include arguments for filename extraction
+                                "status": stored_result.get("status", "completed"),
+                                "error": stored_result.get("error"),
+                                "result_summary": stored_result.get("result_summary"),
+                            }
+                            
+                            # Include code_output if present (for execute_code tool)
+                            if "code_output" in stored_result:
+                                tool_call_data["code_output"] = stored_result["code_output"]
+                            
+                            tool_calls.append(tool_call_data)
+                        except Exception as e:
+                            logger.warning(f"Failed to parse tool call {tool_name}: {e}")
+                            logger.exception(e)
+                
+                # Only add message if it has content or tool_calls
+                if msg.content or tool_calls:
                     display_messages.append({
-                        "role": "user",
-                        "content": msg.content,
-                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
+                        "role": "assistant",
+                        "content": msg.content or "",
+                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                        "tool_calls": tool_calls if tool_calls else None
                     })
-                
-                # Assistant messages
-                elif msg.role == "assistant":
-                    # Parse tool_calls if present
-                    tool_calls = []
-                    # Get stored tool_results for this message (keyed by tool_call_id)
-                    tool_results = msg.tool_results or {}
-                    
-                    if msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            tool_name = tc.get("function", {}).get("name")
-                            tool_call_id = tc.get("id")
-                            
-                            # Skip hidden tools
-                            tool_obj = tool_registry.get_tool(tool_name)
-                            if tool_obj and tool_obj.hidden_from_ui:
-                                continue
-                            
-                            # Parse arguments
-                            try:
-                                args_str = tc.get("function", {}).get("arguments", "{}")
-                                # Handle both string and dict formats
-                                if isinstance(args_str, str):
-                                    args = json.loads(args_str) if args_str else {}
-                                elif isinstance(args_str, dict):
-                                    args = args_str
-                                else:
-                                    args = {}
-                                
-                                # Use statusMessage to match ToolCallStatus interface
-                                # Fall back to tool_name if no user_description provided
-                                status_message = args.get("user_description") or tool_name
-                                
-                                # Get stored execution result for this tool call
-                                stored_result = tool_results.get(tool_call_id, {})
-                                
-                                tool_call_data = {
-                                    "tool_call_id": tool_call_id,
-                                    "tool_name": tool_name,
-                                    "statusMessage": status_message,
-                                    "arguments": args,  # Include arguments for filename extraction
-                                    "status": stored_result.get("status", "completed"),
-                                    "error": stored_result.get("error"),
-                                    "result_summary": stored_result.get("result_summary"),
-                                }
-                                
-                                # Include code_output if present (for execute_code tool)
-                                if "code_output" in stored_result:
-                                    tool_call_data["code_output"] = stored_result["code_output"]
-                                
-                                tool_calls.append(tool_call_data)
-                            except Exception as e:
-                                logger.warning(f"Failed to parse tool call {tool_name}: {e}")
-                                logger.exception(e)
-                    
-                    # Only add message if it has content or tool_calls
-                    if msg.content or tool_calls:
-                        display_messages.append({
-                            "role": "assistant",
-                            "content": msg.content or "",
-                            "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
-                            "tool_calls": tool_calls if tool_calls else None
-                        })
-                
-                # Skip tool response messages (internal)
-                elif msg.role == "tool":
-                    continue
             
-            return {"messages": display_messages}
+            # Skip tool response messages (internal)
+            elif msg.role == "tool":
+                continue
+        
+        return {"messages": display_messages}
 

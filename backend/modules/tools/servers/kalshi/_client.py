@@ -6,8 +6,8 @@ variables (set by the parent process which fetches them from the database).
 This avoids the subprocess needing direct database access.
 """
 from typing import Optional, Tuple
-import os
 import logging
+from .._env import get_kalshi_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,16 @@ def get_credentials() -> Tuple[Optional[str], Optional[str]]:
     
     Returns:
         Tuple of (api_key_id, private_key) or (None, None) if not set
+        
+    Note: Returns raw strings for backward compatibility. The credentials
+    are securely wrapped during retrieval from environment.
     """
-    api_key_id = os.getenv('KALSHI_API_KEY_ID')
-    private_key = os.getenv('KALSHI_PRIVATE_KEY')
-    return api_key_id, private_key
+    creds = get_kalshi_credentials()
+    if not creds:
+        return None, None
+    
+    # Extract raw values for the client
+    return creds['api_key_id'].get(), creds['private_key'].get()
 
 
 def create_client():

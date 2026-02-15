@@ -28,7 +28,7 @@ def call_fmp_api(endpoint: str, params: dict = None):
     try:
         response = requests.get(
             url, 
-            params={'apikey': api_key, **(params or {})},
+            params={'apikey': api_key.get(), **(params or {})},
             timeout=10
         )
         response.raise_for_status()
@@ -55,7 +55,7 @@ def call_fmp_stable_api(endpoint: str, params: dict = None):
     try:
         response = requests.get(
             url, 
-            params={'apikey': api_key, **(params or {})},
+            params={'apikey': api_key.get(), **(params or {})},
             timeout=10
         )
         response.raise_for_status()

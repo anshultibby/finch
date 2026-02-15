@@ -15,7 +15,7 @@ def call_polygon_api(endpoint: str, params: dict = None):
     try:
         response = requests.get(
             url,
-            params={'apiKey': api_key, **(params or {})},
+            params={'apiKey': api_key.get(), **(params or {})},
             timeout=15
         )
         response.raise_for_status()

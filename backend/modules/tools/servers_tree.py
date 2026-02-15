@@ -116,65 +116,30 @@ def generate_servers_description() -> str:
     """
     Generate the full servers description for tool context.
     
-    Loads capabilities from each server's __init__.py docstring for
-    a clean, high-level overview without code examples.
+    Reads from servers/AGENTS.md for high-level overview.
+    Agent can explore subdirectory AGENTS.md files for detailed API docs.
     """
     servers_dir = get_servers_dir()
     
-    # Get all server directories
-    server_dirs = sorted([
-        d.name for d in servers_dir.iterdir() 
-        if d.is_dir() and not d.name.startswith('_') and not d.name.startswith('.')
-    ])
-    
-    # Build server descriptions from docstrings
-    server_docs = []
-    for server_name in server_dirs:
-        docstring = _load_server_docstring(server_name)
-        if docstring:
-            server_docs.append(f"### servers.{server_name}\n{docstring}")
-    
-    servers_section = "\n\n".join(server_docs)
+    # Read top-level AGENTS.md
+    agents_md = servers_dir / "AGENTS.md"
+    if agents_md.exists():
+        top_level_docs = agents_md.read_text()
+    else:
+        top_level_docs = "Documentation not found. Explore servers/ directory."
     
     description = f"""
-**API SERVERS - Available Python Modules**
+**API SERVERS**
 
-Import APIs from the `servers/` directory. All functions return dicts - always check for 'error' key.
-
-{servers_section}
+{top_level_docs}
 
 ---
 
-**CRITICAL USAGE RULES:**
+**When you need to use an API:**
 
-1. **Always check for errors:**
-   ```python
-   result = some_api_function(...)
-   if 'error' in result:
-       print(f"Error: {{result['error']}}")
-   else:
-       # Safe to use result
-   ```
-
-2. **Polygon.io uses `symbol=` parameter** (not `ticker=`):
-   ```python
-   get_historical_prices(symbol='AAPL', from_date='2024-01-01', to_date='2024-12-31')
-   ```
-
-3. **FMP quote returns a LIST** - use `[0]` for single stock:
-   ```python
-   quotes = get_quote_snapshot('AAPL')
-   quote = quotes[0]
-   ```
-
-4. **Price data is in 'bars' key** with timestamps in milliseconds:
-   ```python
-   df = pd.DataFrame(response['bars'])
-   df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-   ```
-
-5. **Explore the servers/ filesystem** to discover function signatures and parameters.
-   Each module has docstrings with detailed usage instructions.
+1. Read `servers/<name>/AGENTS.md` to see available functions
+2. Import Pydantic models from `servers/<name>/models.py` for type safety
+3. Always check for `'error'` key in responses
 """
     return description
 

@@ -24,9 +24,10 @@ async_database_url = database_url.replace('postgresql://', 'postgresql+asyncpg:/
 if Config.USE_POOLER:
     # For Supabase session pooler: use moderate pool to handle concurrent requests
     # Session mode poolers typically have a limit of ~15 connections total
-    # Increased pool size to handle multiple concurrent requests without exhausting the pool
-    pool_size = 8
-    max_overflow = 7
+    # With the refactored code using 1 connection per request (instead of 13+), 
+    # we can now safely handle many more concurrent requests
+    pool_size = 10
+    max_overflow = 5
     pool_recycle = 180  # Recycle connections every 3 minutes
     pool_timeout = 30  # Wait longer for connections (30s instead of 5s)
     

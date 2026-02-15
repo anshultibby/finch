@@ -3,10 +3,10 @@ Dome API client with rate limiting
 
 Handles API key management and rate limiting (1 req/sec for free tier).
 """
-import os
 import time
 import httpx
 from typing import Optional, Dict, Any
+from .._env import get_api_key
 
 
 class RateLimiter:
@@ -43,9 +43,9 @@ def call_dome_api(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dic
     Returns:
         dict with API response or {'error': 'message'} on failure
     """
-    api_key = os.getenv('DOME_API_KEY')
+    api_key = get_api_key('DOME')
     if not api_key:
-        return {"error": "DOME_API_KEY not found in environment variables"}
+        return {"error": "DOME_API_KEY not set"}
     
     # Wait for rate limit
     _rate_limiter.wait()
@@ -56,7 +56,7 @@ def call_dome_api(endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dic
         with httpx.Client(timeout=30.0) as client:
             response = client.get(
                 url,
-                headers={'x-api-key': api_key},
+                headers={'x-api-key': api_key.get()},
                 params=params
             )
             response.raise_for_status()

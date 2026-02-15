@@ -580,39 +580,45 @@ async def execute_code_impl(
             backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
             env = os.environ.copy()
             
-            # Pass API keys to sandbox from centralized config
-            from config import settings
-            sandbox_api_keys = {
-                'FMP_API_KEY': settings.FMP_API_KEY,
-                'POLYGON_API_KEY': settings.POLYGON_API_KEY,
-                'SERPER_API_KEY': settings.SERPER_API_KEY,
-            }
-            for key, value in sandbox_api_keys.items():
-                env[key] = value or ''
+            # Pass API keys to sandbox using centralized service
+            # Priority: user-specific keys override global config keys
+            from services.api_keys import ApiKeyService
+            from database import get_db_session
             
-            # Pass user context for per-user credentials (e.g., Kalshi)
+            # Pass user context
             env['FINCH_USER_ID'] = context.user_id or ''
             env['FINCH_CHAT_ID'] = context.chat_id or ''
             
-            # Fetch and pass per-user credentials (Kalshi, etc.)
-            # This must be done in the parent process since the subprocess
-            # cannot access the database directly
+            # Fetch all API keys (user-specific + global) and pass to sandbox
             try:
-                from crud.user_api_keys import get_decrypted_credentials
-                from database import get_db_session
-                
-                async def _get_user_credentials():
-                    async with get_db_session() as db:
-                        kalshi_creds = await get_decrypted_credentials(db, context.user_id, "kalshi")
-                        return kalshi_creds
-                
-                kalshi_creds = await _get_user_credentials()
-                if kalshi_creds:
-                    env['KALSHI_API_KEY_ID'] = kalshi_creds.get('api_key_id', '')
-                    env['KALSHI_PRIVATE_KEY'] = kalshi_creds.get('private_key', '')
-                    logger.debug(f"Passed Kalshi credentials to sandbox for user {context.user_id}")
+                async with get_db_session() as db:
+                    key_service = ApiKeyService(db, context.user_id)
+                    
+                    # Standard API keys
+                    for service in ['FMP', 'POLYGON', 'SERPER', 'DOME']:
+                        key = await key_service.get_key(service)
+                        env[f'{service}_API_KEY'] = key.get() if key else ''
+                    
+                    # Kalshi (requires special handling for dual credentials)
+                    kalshi_creds = await key_service.get_kalshi_credentials()
+                    if kalshi_creds:
+                        env['KALSHI_API_KEY_ID'] = kalshi_creds['api_key_id'].get()
+                        env['KALSHI_PRIVATE_KEY'] = kalshi_creds['private_key'].get()
+                        logger.debug(f"Passed Kalshi credentials to sandbox for user {context.user_id}")
+                    else:
+                        env['KALSHI_API_KEY_ID'] = ''
+                        env['KALSHI_PRIVATE_KEY'] = ''
+                    
             except Exception as e:
-                logger.warning(f"Failed to fetch user credentials for sandbox: {e}")
+                logger.warning(f"Failed to fetch API keys for sandbox: {e}")
+                # Fallback to global config keys only
+                from config import Config
+                env['FMP_API_KEY'] = Config.FMP_API_KEY or ''
+                env['POLYGON_API_KEY'] = Config.POLYGON_API_KEY or ''
+                env['SERPER_API_KEY'] = Config.SERPER_API_KEY or ''
+                env['DOME_API_KEY'] = Config.DOME_API_KEY or ''
+                env['KALSHI_API_KEY_ID'] = ''
+                env['KALSHI_PRIVATE_KEY'] = ''
             
             # Add both temp_dir and backend directory to PYTHONPATH
             # temp_dir: allows "from finch_runtime import X" (direct import)

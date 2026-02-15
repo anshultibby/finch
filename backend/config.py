@@ -82,13 +82,17 @@ class Settings(BaseSettings):
         default=None,
         description="Serper API key for Google search"
     )
+    DOME_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Dome API key for prediction market data"
+    )
     
     # =========================================================================
-    # Supabase Storage
+    # Supabase Storage & Auth
     # =========================================================================
     SUPABASE_URL: str = Field(
         default="",
-        description="Supabase project URL"
+        description="Supabase project URL (required for auth + storage)"
     )
     SUPABASE_SERVICE_KEY: str = Field(
         default="",
@@ -263,6 +267,7 @@ class Config:
     FMP_API_KEY = settings.FMP_API_KEY
     POLYGON_API_KEY = settings.POLYGON_API_KEY
     SERPER_API_KEY = settings.SERPER_API_KEY
+    DOME_API_KEY = settings.DOME_API_KEY
     
     # Supabase
     SUPABASE_URL = settings.SUPABASE_URL
