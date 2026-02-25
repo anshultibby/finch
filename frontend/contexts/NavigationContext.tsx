@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type View = 'chat' | 'files' | 'analytics';
+export type View = 'chat';
 
 interface NavigationContextType {
   currentView: View;
@@ -32,4 +32,3 @@ export function useNavigation() {
   }
   return context;
 }
-

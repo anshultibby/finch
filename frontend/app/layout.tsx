@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     initialScale: 1,
     maximumScale: 1,
     userScalable: false,
-    viewportFit: 'cover' // For iPhone notch/safe area support
+    viewportFit: 'cover'
   },
   themeColor: '#2563eb',
   appleWebApp: {
@@ -39,4 +39,3 @@ export default function RootLayout({
     </html>
   )
 }
-

@@ -24,7 +24,7 @@ def get_markets(input: GetKalshiMarketsInput) -> GetKalshiMarketsOutput:
             status='active'
         ))
         for m in markets.markets:
-            print(f"{m.ticker}: {m.title}")
+            print(f"{m.event_ticker}: {m.title}")
     """
     params = input.model_dump(exclude_none=True)
     result = call_dome_api("/kalshi/markets", params)

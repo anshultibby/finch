@@ -181,7 +181,8 @@ async def stream_llm_response(
     llm_config: LLMConfig,
     user_id: str,
     chat_id: Optional[str] = None,
-    on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]] = None
+    on_content_delta: Optional[Callable[[str], AsyncGenerator[SSEEvent, None]]] = None,
+    chat_logger = None
 ) -> AsyncGenerator[SSEEvent, None]:
     """
     Stream LLM response and yield SSE events with robust ordering guarantees.
@@ -207,6 +208,7 @@ async def stream_llm_response(
         user_id: User ID for logging
         chat_id: Chat ID for organizing chat logs
         on_content_delta: Optional callback for content deltas
+        chat_logger: Optional ChatLogger to use for conversation logging
         
     Yields:
         SSEEvent objects (llm_start, assistant_message_delta, tool_call_streaming, llm_end)
@@ -221,7 +223,17 @@ async def stream_llm_response(
     )
     
     # Create LLM handler with chat_id for proper log organization
-    llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id)
+    # If chat_logger is provided, use it for separate executor logging
+    if chat_logger:
+        llm_handler = LLMHandler(
+            user_id=user_id,
+            chat_id=chat_id,
+            agent_type=chat_logger.agent_type,
+            agent_id=chat_logger.agent_id,
+            chat_logger=chat_logger
+        )
+    else:
+        llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id)
     
     # Build kwargs for LiteLLM
     llm_kwargs = llm_config.to_litellm_kwargs()

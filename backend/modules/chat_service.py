@@ -33,7 +33,8 @@ class ChatService:
         message: str,
         chat_id: str,
         user_id: str,
-        images: List[Dict[str, str]] = None
+        images: List[Dict[str, str]] = None,
+        skill_ids: List[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         Send a message and stream SSE events as they happen.
@@ -101,7 +102,7 @@ class ChatService:
                 
                 history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
                 
-                # Save user message FIRST before streaming
+                # Save user message FIRST before streaming (to both DB and conversation log)
                 current_sequence = await chat_async.get_next_sequence(db, chat_id)
                 await chat_async.create_message(
                     db=db,
@@ -111,6 +112,16 @@ class ChatService:
                     sequence=current_sequence
                 )
                 current_sequence += 1
+                
+                # Also log user message to conversation file for complete history
+                if Config.DEBUG_CHAT_LOGS:
+                    from modules.agent.llm_handler import LLMHandler
+                    llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="master")
+                    if llm_handler.chat_logger:
+                        llm_handler.chat_logger.add_message({
+                            "role": "user",
+                            "content": message
+                        })
             
                 # STEP 2: Process message and save incrementally
                 context = context_manager.get_all_context(user_id)
@@ -122,6 +133,7 @@ class ChatService:
                     agent_id=generate_agent_id(),  # Unique ID for this master agent instance
                     user_id=user_id,
                     chat_id=chat_id,
+                    skill_ids=skill_ids,
                     data=context,
                     cancel_event=cancel_event
                 )
@@ -132,7 +144,7 @@ class ChatService:
                     logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
                     previous_context.cancel()
                 
-                agent = create_planner_agent(agent_context)
+                agent = await create_planner_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
                 
                 # Add user message to history (with optional images for multimodal)
                 history.add_user_message(message, images=images)
@@ -194,6 +206,14 @@ class ChatService:
                             # Safety check: if no pending_assistant_msg, we have a bug - log it
                             if not pending_assistant_msg and tool_messages:
                                 logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg! This will create orphaned tool results.")
+                            
+                            # Log tool results to ChatLogger for complete conversation history
+                            # This ensures the conversation.json includes tool results
+                            from modules.agent.llm_handler import LLMHandler
+                            llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="master")
+                            if llm_handler.chat_logger:
+                                llm_handler.log_tool_results(tool_messages)
+                                logger.info(f"💾 Logged {len(tool_messages)} tool results to conversation file")
                             
                             # Build tool_results dict keyed by tool_call_id for persistence
                             tool_results = {}

@@ -7,19 +7,7 @@ Polymarket & Kalshi prediction market data. Rate: 1 req/sec.
 All functions accept a single Pydantic input model and return a Pydantic output model.
 Errors are raised as `DomeAPIError` exceptions.
 
-```python
-from servers.dome.polymarket.wallet import get_positions
-from servers.dome.models import GetPositionsInput
-from servers.dome._client import DomeAPIError
-
-try:
-    result = get_positions(GetPositionsInput(wallet_address="0x...", limit=50))
-    # result is GetPositionsOutput
-    for pos in result.positions:
-        print(f"{pos.title}: {pos.shares_normalized} {pos.label} shares")
-except DomeAPIError as e:
-    print(f"API Error: {e}")
-```
+Import models from `servers.dome.models`. See models.py for complete schemas and available attributes.
 
 ## Functions
 
@@ -68,16 +56,5 @@ Polymarket uses two types of addresses:
 
 Most wallet APIs (`get_positions`, `get_wallet_pnl`, `get_wallet_trades`, etc.) expect the **proxy** address.
 
-Use `get_wallet_info()` to get both addresses (automatically detects if input is EOA or proxy):
-```python
-from servers.dome.polymarket.wallet import get_wallet_info
-from servers.dome.models import GetWalletInfoInput
-
-# Works with either EOA or proxy address
-result = get_wallet_info(GetWalletInfoInput(wallet_address="0x123..."))
-print(f"EOA: {result.eoa}")
-print(f"Proxy: {result.proxy}")
-
-# Use the proxy for other API calls
-positions = get_positions(GetPositionsInput(wallet_address=result.proxy))
-```
+Use `get_wallet_info()` to get both addresses (automatically detects if input is EOA or proxy).
+The function returns both `result.eoa` and `result.proxy` attributes.

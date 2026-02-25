@@ -572,3 +572,65 @@ class CreditTransaction(Base):
     def __repr__(self):
         return f"<CreditTransaction(id='{self.id}', user='{self.user_id}', amount={self.amount}, type='{self.transaction_type}')>"
 
+
+class GlobalSkill(Base):
+    """
+    Skill store — developer-curated and user-contributed skills.
+    
+    Official skills (is_official=True) are published by the developer.
+    Community skills are submitted by users and go live immediately
+    (moderation can be added later via an is_approved flag).
+    """
+    __tablename__ = "global_skills"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    
+    # Author — null means official/system skill
+    author_user_id = Column(String, nullable=True, index=True)
+    
+    # Identity
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    
+    # Store metadata
+    is_official = Column(Boolean, nullable=False, default=False)  # Developer-curated
+    category = Column(String, nullable=True)  # e.g. "trading", "research", "analysis"
+    install_count = Column(Integer, nullable=False, default=0)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<GlobalSkill(id='{self.id}', name='{self.name}', official={self.is_official})>"
+
+
+class Skill(Base):
+    """
+    A user's installed/created skills — gets injected into system prompt when selected.
+    
+    source_id links back to the GlobalSkill it was installed from (if any).
+    User-created skills have source_id=None.
+    """
+    __tablename__ = "skills"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, nullable=False, index=True)
+    
+    # If installed from the store, track the source
+    source_id = Column(String, nullable=True, index=True)  # FK to global_skills.id
+    
+    # Skill data (copied at install time so edits don't break things)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Skill(id='{self.id}', name='{self.name}', enabled={self.enabled})>"
+

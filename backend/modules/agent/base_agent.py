@@ -38,7 +38,8 @@ class BaseAgent:
         system_prompt: str,
         model: str,
         tool_names: Optional[List[str]] = None,
-        enable_tool_streaming: bool = False
+        enable_tool_streaming: bool = False,
+        chat_logger = None
     ):
         """
         Initialize the agent with configuration.
@@ -49,12 +50,14 @@ class BaseAgent:
             model: Model name (e.g., "gpt-4", "gpt-4o-mini")
             tool_names: List of tool names (None = all tools, [] = no tools)
             enable_tool_streaming: Whether tools emit real-time events
+            chat_logger: Optional ChatLogger for separate conversation tracking (used by executors)
         """
         self.context = context
         self.system_prompt = system_prompt
         self.model = model
         self.tool_names = tool_names
         self.enable_tool_streaming = enable_tool_streaming
+        self._chat_logger = chat_logger  # For separate executor logging
         
         # Agent doesn't own history - it just tracks new messages for this turn
         self._new_messages: List[HistoryChatMessage] = []
@@ -196,7 +199,8 @@ class BaseAgent:
                         tools=tools,
                         llm_config=llm_config,
                         user_id=self.context.user_id,
-                        chat_id=self.context.chat_id
+                        chat_id=self.context.chat_id,
+                        chat_logger=self._chat_logger  # Pass chat_logger for executor logging
                     ):
                         # Extract results from llm_end event
                         if event.event == "llm_end":
@@ -268,6 +272,10 @@ class BaseAgent:
                         if event.event == "tools_end":
                             tool_messages = event.data.get("tool_messages", [])
                         yield event
+                    
+                    # Log tool results to ChatLogger for complete conversation history
+                    if self._chat_logger and tool_messages:
+                        self._chat_logger.add_tool_results(tool_messages)
                     
                     # Add tool results to messages and track for DB
                     messages.extend(tool_messages)
@@ -388,8 +396,13 @@ class BaseAgent:
             List of messages in OpenAI format
         """
         # Prepend system message and convert to OpenAI format
-        messages = [{"role": "system", "content": self.system_prompt}]
+        system_message = {"role": "system", "content": self.system_prompt}
+        messages = [system_message]
         messages.extend(chat_history.to_openai_format(limit=history_limit))
+        
+        # Log system prompt to chat logger if this is the first call (executor logging)
+        if self._chat_logger and not self._chat_logger._messages:
+            self._chat_logger.add_message(system_message, update_snapshot=False)
         
         # Ensure tool call sequences are valid for Anthropic
         messages = enforce_tool_call_sequence(messages)

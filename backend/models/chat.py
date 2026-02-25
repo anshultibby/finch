@@ -17,6 +17,7 @@ class ChatMessage(BaseModel):
     user_id: Optional[str] = None  # Supabase user ID
     chat_id: Optional[str] = None
     images: Optional[List[ImageAttachment]] = None  # Optional image attachments for multimodal
+    skills: Optional[List[str]] = None  # Skill IDs manually selected for this turn
 
 
 class ChatResponse(BaseModel):

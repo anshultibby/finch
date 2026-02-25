@@ -101,8 +101,11 @@ async def delegate_execution_impl(
     Combines the direction param with tasks.md content for full context.
     Executor calls finish_execution when done to pass results back.
     """
+    from pathlib import Path
     from modules.resource_manager import resource_manager
     from models.chat_history import ChatHistory
+    from modules.agent.chat_logger import ChatLogger, get_chat_log_dir
+    from config import Config
     
     # Load tasks.md for context
     tasks_content = resource_manager.read_chat_file(
@@ -133,6 +136,25 @@ async def delegate_execution_impl(
         }
     )
     
+    # Create executor chat logger for separate conversation tracking
+    executor_chat_logger = None
+    if Config.DEBUG_CHAT_LOGS:
+        backend_dir = Path(__file__).parent.parent.parent.parent  # modules/tools/implementations -> backend
+        executor_log_dir = get_chat_log_dir(
+            chat_id=context.chat_id,
+            backend_dir=backend_dir,
+            agent_type="executor",
+            agent_id=executor_agent_id
+        )
+        executor_chat_logger = ChatLogger(
+            user_id=context.user_id,
+            chat_id=context.chat_id,
+            log_dir=executor_log_dir,
+            agent_type="executor",
+            agent_id=executor_agent_id
+        )
+        logger.info(f"💾 Executor chat logging enabled: {executor_log_dir}")
+    
     # Create a new context for the executor with its own agent_id
     # parent_agent_id links back to the master agent
     # Pass result_file and direction so finish_execution can update progress file
@@ -144,12 +166,19 @@ async def delegate_execution_impl(
         agent_id=executor_agent_id,
         user_id=context.user_id,
         chat_id=context.chat_id,
-        parent_agent_id=context.agent_id,  # Link to parent (master) agent
+        parent_agent_id=context.agent_id,
+        skill_ids=context.skill_ids,
         data=executor_data,
-        cancel_event=context.cancel_event  # Share cancellation signal with executor
+        cancel_event=context.cancel_event
     )
     
-    executor = agent_config.create_executor_agent(executor_context)
+    # Pass the chat logger to the executor agent
+    executor = await agent_config.create_executor_agent(
+        executor_context,
+        user_id=context.user_id,
+        skill_ids=context.skill_ids,
+        chat_logger=executor_chat_logger  # Pass the logger for separate tracking
+    )
     
     # Create minimal history
     history = ChatHistory(chat_id=context.chat_id, user_id=context.user_id)
@@ -162,6 +191,13 @@ Here is the current task file (`{TASK_FILE}`):
 ```
 """
     history.add_user_message(user_message)
+    
+    # Log the initial user message to executor's conversation file
+    if executor_chat_logger:
+        executor_chat_logger.add_message({
+            "role": "user",
+            "content": user_message
+        })
     
     finish_result = None
     cancelled = False

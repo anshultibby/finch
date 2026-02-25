@@ -173,46 +173,6 @@ def get_pool_status() -> dict:
     }
 
 
-class DatabaseSession:
-    """
-    Context manager for database sessions that ensures proper cleanup.
-    
-    Usage:
-        async with DatabaseSession() as db:
-            result = await db.execute(query)
-    """
-    def __init__(self):
-        self.session = None
-    
-    async def __aenter__(self):
-        self.session = AsyncSessionLocal()
-        return self.session
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            try:
-                if exc_type is None:
-                    # Success - commit transaction
-                    await self.session.commit()
-                else:
-                    # Error - rollback transaction
-                    await self.session.rollback()
-            except Exception as cleanup_error:
-                logger.error(f"Error during session cleanup: {cleanup_error}")
-                try:
-                    await self.session.rollback()
-                except:
-                    pass
-            finally:
-                # Always close the session to return connection to pool
-                try:
-                    await self.session.close()
-                except Exception as close_error:
-                    logger.error(f"Error closing session: {close_error}")
-        
-        # Don't suppress the original exception
-        return False
-
 
 def get_db() -> Generator[Session, None, None]:
     """
@@ -228,6 +188,22 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def sync_get_skill(skill_id: str, user_id: str) -> str | None:
+    """
+    Synchronously fetch a skill's content from DB by id.
+    Used by read_chat_file_impl (sync context) when from_skills=True.
+    Returns the content string, or None if not found.
+    """
+    from models.db import Skill
+    from sqlalchemy import select
+
+    with SessionLocal() as db:
+        row = db.execute(
+            select(Skill).where(Skill.id == skill_id, Skill.user_id == user_id)
+        ).scalar_one_or_none()
+        return row.content if row else None
 
 
 def init_db():

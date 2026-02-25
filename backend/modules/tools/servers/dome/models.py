@@ -20,7 +20,7 @@ class Position(BaseModel):
     wallet: str = Field(description="Wallet address holding this position")
     token_id: str = Field(description="Token ID for this outcome")
     condition_id: str = Field(description="Condition ID for the market")
-    title: str = Field(description="Market question/title")
+    title: str = Field(description="Market question/title text (access via .title)")
     shares: int = Field(description="Raw shares (divide by 1e6 for normalized)")
     shares_normalized: float = Field(description="Position size in shares")
     redeemable: bool = Field(description="Whether position can be redeemed")
@@ -50,13 +50,10 @@ class GetPositionsOutput(BaseModel):
     """
     Response from get_positions()
     
-    Example usage:
-        from servers.dome.polymarket.wallet import get_positions
-        from servers.dome.models import GetPositionsInput
-        
-        result = get_positions(GetPositionsInput(wallet_address="0x742d35...", limit=50))
-        for pos in result.positions:
-            print(f"{pos.title}: {pos.shares_normalized} {pos.label}")
+    Attributes:
+        wallet_address: Wallet address queried
+        positions: List of Position objects (each has title, shares_normalized, label, etc.)
+        pagination: Pagination info (limit, count, has_more, pagination_key)
     """
     wallet_address: str = Field(description="Wallet address queried")
     positions: List[Position] = Field(description="List of active positions")
@@ -86,19 +83,30 @@ class GetWalletPnLOutput(BaseModel):
     
     NOTE: Returns REALIZED P&L only (from sells/redeems), not unrealized.
     
-    Example usage:
-        from servers.dome.polymarket.wallet import get_wallet_pnl
-        from servers.dome.models import GetWalletPnLInput
-        
-        result = get_wallet_pnl(GetWalletPnLInput(wallet_address="0x742d35...", granularity="day"))
-        latest = result.pnl_over_time[-1]
-        print(f"Total realized P&L: ${latest.pnl_to_date:,.2f}")
+    Attributes:
+        granularity: Granularity used ("day", "week", "month", "year", "all")
+        start_time: Start timestamp (Unix seconds)
+        end_time: End timestamp (Unix seconds)
+        wallet_addr: Wallet address
+        pnl_over_time: List of PnLDataPoint objects (each has timestamp, pnl_to_date)
+        total_pnl: Property that returns latest pnl_to_date value (or 0.0 if empty)
     """
     granularity: str = Field(description="Granularity used")
     start_time: int = Field(description="Start timestamp")
     end_time: int = Field(description="End timestamp")
     wallet_addr: str = Field(description="Wallet address")
     pnl_over_time: List[PnLDataPoint] = Field(description="P&L history")
+    
+    @property
+    def total_pnl(self) -> float:
+        """
+        Convenience property to get total realized P&L.
+        Returns the pnl_to_date from the most recent data point.
+        Returns 0.0 if no data points are available.
+        """
+        if not self.pnl_over_time:
+            return 0.0
+        return self.pnl_over_time[-1].pnl_to_date
 
 
 class Activity(BaseModel):
@@ -111,7 +119,7 @@ class Activity(BaseModel):
     shares_normalized: float = Field(description="Normalized shares")
     price: float = Field(description="Price at time of activity (1 for redeems)")
     tx_hash: str = Field(description="Transaction hash")
-    title: str = Field(description="Market title")
+    title: str = Field(description="Market question/title text (access via .title)")
     timestamp: int = Field(description="Unix timestamp (seconds)")
     user: str = Field(description="User wallet address")
 
@@ -148,7 +156,7 @@ class Order(BaseModel):
     shares_normalized: float = Field(description="Normalized share amount")
     price: float = Field(description="Execution price (0-1)")
     tx_hash: str = Field(description="Transaction hash")
-    title: str = Field(description="Market title")
+    title: str = Field(description="Market question/title text (access via .title)")
     timestamp: int = Field(description="Unix timestamp of execution")
     user: str = Field(description="Maker wallet address")
     taker: str = Field(description="Taker wallet address")
@@ -170,13 +178,9 @@ class GetWalletTradesOutput(BaseModel):
     """
     Response from get_wallet_trades()
     
-    Example usage:
-        from servers.dome.polymarket.wallet import get_wallet_trades
-        from servers.dome.models import GetWalletTradesInput
-        
-        result = get_wallet_trades(GetWalletTradesInput(wallet_address="0x6a72...", limit=100))
-        for order in result.orders:
-            print(f"{order.side} {order.shares_normalized:.2f} @ ${order.price:.2f}")
+    Attributes:
+        orders: List of Order objects (each has title, side, shares_normalized, price, etc.)
+        pagination: Pagination info (limit, count, has_more, pagination_key)
     """
     orders: List[Order] = Field(description="List of executed orders")
     pagination: Pagination = Field(description="Pagination info")
@@ -197,7 +201,7 @@ class Market(BaseModel):
     market_slug: str = Field(description="Market identifier (URL-safe)")
     event_slug: Optional[str] = Field(default=None, description="Event identifier")
     condition_id: str = Field(description="Market condition ID (0x...)")
-    title: str = Field(description="Market question")
+    title: str = Field(description="Market question/title text (access via .title)")
     description: Optional[str] = Field(default=None, description="Full description")
     tags: List[str] = Field(default=[], description="Market tags (e.g., ['crypto', 'politics'])")
     volume_1_week: Optional[float] = Field(default=None, description="7-day trading volume (USD)")
@@ -236,14 +240,9 @@ class GetMarketsOutput(BaseModel):
     """
     Response from get_markets()
     
-    Example usage:
-        from servers.dome.polymarket.markets import get_markets
-        from servers.dome.models import GetMarketsInput
-        
-        result = get_markets(GetMarketsInput(tags=['crypto'], status='open', limit=20))
-        for m in result.markets:
-            print(f"{m.title}: ${m.volume_total:,.0f} volume")
-            print(f"  {m.side_a.label}: token {m.side_a.id}")
+    Attributes:
+        markets: List of Market objects (each has title, market_slug, condition_id, volume_total, side_a, side_b, etc.)
+        pagination: Pagination info dict
     """
     markets: List[Market] = Field(description="List of markets")
     pagination: Dict[str, Any] = Field(description="Pagination info")
@@ -260,9 +259,14 @@ class GetMarketPriceInput(BaseModel):
 
 class GetMarketPriceOutput(BaseModel):
     """Response from get_market_price()"""
-    token_id: str = Field(description="Token ID")
     price: float = Field(description="Current price (0-1 probability)")
-    timestamp: int = Field(description="Unix timestamp")
+    at_time: int = Field(description="Unix timestamp")
+    token_id: Optional[str] = Field(default=None, description="Token ID (optional)")
+    
+    @property
+    def timestamp(self) -> int:
+        """Alias for at_time for convenience"""
+        return self.at_time
 
 
 class Candle(BaseModel):
@@ -324,8 +328,8 @@ class GetOrdersOutput(BaseModel):
 
 class KalshiMarket(BaseModel):
     """Single Kalshi market"""
-    ticker: str = Field(description="Market ticker")
-    title: str = Field(description="Market question")
+    event_ticker: str = Field(description="Market ticker")
+    title: str = Field(description="Market question/title text (access via .title)")
     series_ticker: Optional[str] = Field(default=None, description="Parent series")
     status: str = Field(description="Market status")
     strike_price: Optional[float] = Field(default=None, description="Strike price if applicable")
@@ -334,6 +338,11 @@ class KalshiMarket(BaseModel):
     open_interest: Optional[float] = Field(default=None, description="Open interest")
     yes_bid: Optional[float] = Field(default=None, description="Current yes bid price (cents)")
     yes_ask: Optional[float] = Field(default=None, description="Current yes ask price (cents)")
+    
+    @property
+    def ticker(self) -> str:
+        """Alias for event_ticker for convenience"""
+        return self.event_ticker
 
 
 class GetKalshiMarketsInput(BaseModel):
@@ -385,17 +394,10 @@ class GetWalletInfoOutput(BaseModel):
     
     Returns the EOA <-> Proxy wallet mapping. Most Polymarket APIs expect the proxy address.
     
-    Example usage:
-        from servers.dome.polymarket.wallet import get_wallet_info
-        from servers.dome.models import GetWalletInfoInput
-        
-        # Look up proxy from EOA
-        result = get_wallet_info(GetWalletInfoInput(eoa="0x123..."))
-        proxy_address = result.proxy
-        
-        # Or look up EOA from proxy
-        result = get_wallet_info(GetWalletInfoInput(proxy="0xabc..."))
-        eoa_address = result.eoa
+    Attributes:
+        eoa: EOA wallet address (0x...)
+        proxy: Proxy wallet address (0x...)
+        wallet_type: Type of wallet (e.g., 'metamask', 'wallet_connect')
     """
     eoa: str = Field(description="EOA wallet address")
     proxy: str = Field(description="Proxy wallet address")

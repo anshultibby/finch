@@ -509,22 +509,25 @@ def read_chat_file_impl(
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
     peek: bool = False,
-    from_api_docs: bool = False
+    from_api_docs: bool = False,
+    from_skills: bool = False
 ):
     """
     Read file from chat directory with optional line range (like Cursor).
-    Also supports reading API documentation from servers/ directory.
+    Also supports reading API documentation from servers/ directory,
+    or reading skill content from DB by skill id.
     
     For text files: returns content as string, optionally sliced by line range
     For images: returns image data that can be viewed by the LLM (multimodal)
     
     Args:
         context: Agent context
-        filename: File to read (e.g., "chart.png" or "dome/AGENTS.md" if from_api_docs=True)
+        filename: File to read. When from_skills=True, pass the skill id.
         start_line: 1-indexed start line (default: 1)
         end_line: 1-indexed end line, inclusive (default: last line)
         peek: If True, read first 100 lines (like Cursor's default preview)
         from_api_docs: If True, reads from servers/ directory instead of chat files
+        from_skills: If True, reads skill content from DB by skill id
     """
     from modules.resource_manager import resource_manager
     from pathlib import Path
@@ -541,8 +544,19 @@ def read_chat_file_impl(
         end_line = int(end_line)
     
     try:
+        # If reading a skill, load its content from DB synchronously
+        if from_skills:
+            from crud import skills as skills_crud
+            from database import sync_get_skill
+
+            content = sync_get_skill(filename, context.user_id)
+            if content is None:
+                return {"success": False, "error": f"Skill '{filename}' not found"}
+
+            file_data = {"content": content, "file_type": "markdown", "is_image": False}
+
         # If reading from API docs, read from servers/ directory
-        if from_api_docs:
+        elif from_api_docs:
             backend_dir = Path(__file__).parent.parent.parent.parent  # backend/
             # Support both "dome/AGENTS.md" and "servers/dome/AGENTS.md"
             if filename.startswith('servers/'):

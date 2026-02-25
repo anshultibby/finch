@@ -64,5 +64,5 @@ echo "----------------------------------------"
 echo ""
 
 # Start the server
-python main.py
+python3 main.py
 

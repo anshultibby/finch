@@ -31,6 +31,7 @@ class AgentContext(BaseModel):
     chat_id: str  # Chat session ID - REQUIRED
     current_tool_call_id: Optional[str] = None  # Current tool call ID for streaming events
     parent_agent_id: Optional[str] = None  # Parent agent ID (for sub-agents like executor)
+    skill_ids: Optional[list] = None  # Active skill IDs (auto-on + user-selected) for this turn
     data: Optional[Dict[str, Any]] = None  # Additional context data (e.g., auth status, credentials) - OPTIONAL
     cancel_event: Optional[Any] = None  # asyncio.Event for cancellation (Any to avoid Pydantic issues)
     

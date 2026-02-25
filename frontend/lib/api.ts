@@ -9,7 +9,6 @@ import { supabase } from './supabase';
 export * from './types';
 
 import type {
-  ChatResponse,
   ChatHistory,
   UserChatsResponse,
   GenerateTitleResponse,
@@ -95,15 +94,6 @@ export interface SSEEventHandlers {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const chatApi = {
-  sendMessage: async (message: string, userId: string, chatId: string): Promise<ChatResponse> => {
-    const response = await api.post<ChatResponse>('/chat', {
-      message,
-      user_id: userId,
-      chat_id: chatId,
-    });
-    return response.data;
-  },
-
   // Check if a chat is currently being processed on the backend
   checkChatStatus: async (chatId: string): Promise<{ is_processing: boolean; last_activity: string }> => {
     try {
@@ -119,7 +109,8 @@ export const chatApi = {
     userId: string,
     chatId: string,
     handlers: SSEEventHandlers,
-    images?: ImageAttachment[]
+    images?: ImageAttachment[],
+    skills?: string[]
   ): { close: () => void; reconnect: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
     const abortController = new AbortController();
@@ -129,6 +120,7 @@ export const chatApi = {
       user_id: userId,
       chat_id: chatId,
       ...(images && images.length > 0 && { images }),
+      ...(skills && skills.length > 0 && { skills }),
     };
 
     // Track if we're closed to prevent processing after abort
@@ -672,6 +664,84 @@ export const strategiesApi = {
       headers: {
         'X-User-ID': userId,
       },
+    });
+    return response.json();
+  },
+};
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  enabled: boolean;
+  source_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GlobalSkill {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  category: string | null;
+  is_official: boolean;
+  install_count: number;
+  author_user_id: string | null;
+  created_at: string;
+}
+
+export const skillsApi = {
+  // ── User library ────────────────────────────────────────────────────────────
+  async list(userId: string, enabledOnly = false): Promise<Skill[]> {
+    const url = `${API_BASE_URL}/skills/?user_id=${userId}${enabledOnly ? '&enabled_only=true' : ''}`;
+    const response = await fetch(url);
+    return response.json();
+  },
+
+  async create(userId: string, data: { name: string; description: string; content: string; enabled?: boolean }): Promise<Skill> {
+    const response = await fetch(`${API_BASE_URL}/skills/?user_id=${userId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return response.json();
+  },
+
+  async update(userId: string, skillId: string, data: { name?: string; description?: string; content?: string; enabled?: boolean }): Promise<Skill> {
+    const response = await fetch(`${API_BASE_URL}/skills/${skillId}?user_id=${userId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return response.json();
+  },
+
+  async delete(userId: string, skillId: string): Promise<void> {
+    await fetch(`${API_BASE_URL}/skills/${skillId}?user_id=${userId}`, { method: 'DELETE' });
+  },
+
+  // ── Store ───────────────────────────────────────────────────────────────────
+  async listStore(category?: string): Promise<GlobalSkill[]> {
+    const url = `${API_BASE_URL}/skills/store${category ? `?category=${category}` : ''}`;
+    const response = await fetch(url);
+    return response.json();
+  },
+
+  async install(userId: string, globalSkillId: string): Promise<Skill> {
+    const response = await fetch(`${API_BASE_URL}/skills/store/${globalSkillId}/install?user_id=${userId}`, {
+      method: 'POST',
+    });
+    if (response.status === 409) throw new Error('already_installed');
+    return response.json();
+  },
+
+  async publishToStore(userId: string, data: { name: string; description: string; content: string; category?: string }): Promise<GlobalSkill> {
+    const response = await fetch(`${API_BASE_URL}/skills/store?user_id=${userId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
     });
     return response.json();
   },

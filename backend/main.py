@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 
 from config import Config
-from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, strategies_router, credits_router
+from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, strategies_router, credits_router, skills_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
@@ -79,7 +79,7 @@ logger.info("Finch API initialized")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=Config.CORS_ORIGINS,
+    allow_origins=Config.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,6 +94,7 @@ app.include_router(chat_files_router)
 app.include_router(api_keys_router)
 app.include_router(strategies_router)
 app.include_router(credits_router)
+app.include_router(skills_router)
 
 
 import asyncio

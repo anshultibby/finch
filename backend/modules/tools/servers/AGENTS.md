@@ -28,6 +28,7 @@ Use `get_wallet_info()` to convert between EOA and proxy addresses if needed.
 
 ### polymarket/prices.py
 - `get_market_price(GetMarketPriceInput)` → `GetMarketPriceOutput`
+  - Returns `price`, `at_time` (not `timestamp`)
 - `get_candlesticks(GetCandlesticksInput)` → `GetCandlesticksOutput`
 
 ### polymarket/trading.py
@@ -44,6 +45,7 @@ Use `get_wallet_info()` to convert between EOA and proxy addresses if needed.
 
 ### kalshi/markets.py
 - `get_markets(GetKalshiMarketsInput)` → `GetKalshiMarketsOutput`
+  - Returns markets with `event_ticker` (not `ticker`), `title`, `yes_bid`, `yes_ask`
 - `get_market_price(GetKalshiMarketPriceInput)` → `GetKalshiMarketPriceOutput`
 
 ### matching/sports.py
@@ -51,22 +53,7 @@ Use `get_wallet_info()` to convert between EOA and proxy addresses if needed.
 - `get_sport_by_date(sport: str, date: str)` → dict
 - `find_arbitrage_opportunities(sport: str, date: str, min_spread: float)` → dict
 
-**Example:**
-```python
-from servers.dome.polymarket.wallet import get_wallet_info, get_positions
-from servers.dome.models import GetWalletInfoInput, GetPositionsInput
-
-# Get wallet info (works with any address - EOA or proxy)
-wallet = get_wallet_info(GetWalletInfoInput(wallet_address="0x123..."))
-print(f"EOA: {wallet.eoa}, Proxy: {wallet.proxy}")
-
-# Fetch positions using proxy address
-result = get_positions(GetPositionsInput(wallet_address=wallet.proxy, limit=50))
-for pos in result.positions:
-    print(f"{pos.title}: {pos.shares_normalized} {pos.label}")
-```
-
-**Models:** `dome/models.py` (read with `read_chat_file(filename="dome/models.py", from_api_docs=True)`)
+**Models:** Import from `servers.dome.models`. See models.py for complete response schemas with all available attributes.
 
 ---
 
@@ -160,19 +147,21 @@ for pos in result.positions:
 ## servers/kalshi/
 **Kalshi trading (authenticated) - REQUIRES API KEYS**
 
+**All functions are synchronous (no `await` needed).** They handle async internally.
+
 ### portfolio.py
-- `get_kalshi_balance()` - Account balance
-- `get_kalshi_positions(limit: int)` - Open positions
-- `get_kalshi_portfolio()` - Full portfolio state
+- `get_kalshi_balance()` → `{"balance": float, "portfolio_value": float}` (dollars)
+- `get_kalshi_positions(limit: int = 100)` → `{"positions": [...], "count": int}`
+- `get_kalshi_portfolio()` → combined balance + positions
 
 ### markets.py
-- `get_kalshi_events(limit: int, status: str)` - Browse events
-- `get_kalshi_market(ticker: str)` - Market details with pricing
+- `get_kalshi_events(limit: int = 20, status: str = "open")` → `{"events": [...], "count": int}`
+- `get_kalshi_market(ticker: str)` → market details with yes_bid, yes_ask, volume (prices in cents)
 
 ### trading.py
-- `place_kalshi_order(ticker: str, side: str, action: str, count: int, price: int)` - Place order
-- `get_kalshi_orders()` - View open orders
-- `cancel_kalshi_order(order_id: str)` - Cancel order
+- `place_kalshi_order(ticker, side, action, count, order_type="market", price=None)` - Place order
+- `get_kalshi_orders(ticker=None, status="resting")` → `{"orders": [...], "count": int}`
+- `cancel_kalshi_order(order_id: str)` → `{"order_id": str, "status": "canceled"}`
 
 **Models:** `kalshi/models.py` (read with `read_chat_file(filename="kalshi/models.py", from_api_docs=True)`)
 
@@ -252,18 +241,6 @@ for pos in result.positions:
 
 Import: `from servers.<server>.<module> import <function>`
 
-**Most functions return Pydantic models directly.** Access data via attributes (e.g., `result.positions`, `result.markets`, `result.bars`). Errors are raised as exceptions.
+**Most functions return Pydantic models directly.** Access data via attributes. Errors are raised as exceptions.
 
-```python
-from servers.dome.polymarket.wallet import get_positions
-from servers.dome._client import DomeAPIError
-
-try:
-    result = get_positions(wallet_address="0x...")
-    for pos in result.positions:  # Direct attribute access
-        print(f"{pos.title}: {pos.shares_normalized}")
-except DomeAPIError as e:
-    print(f"Error: {e}")
-```
-
-See `<server>/models.py` (via `read_chat_file(filename="<server>/models.py", from_api_docs=True)`) for complete response schemas and `<server>/AGENTS.md` (via `read_chat_file(filename="<server>/AGENTS.md", from_api_docs=True)`) for details.
+See models.py files for complete response schemas with all available attributes.

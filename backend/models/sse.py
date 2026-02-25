@@ -76,6 +76,14 @@ class ScrapedContent(BaseModel):
     is_complete: bool = False
 
 
+class FileContent(BaseModel):
+    """File content for read_chat_file results"""
+    filename: str
+    content: str
+    file_type: str = "text"
+    is_complete: bool = True
+
+
 class ToolCallCompleteEvent(BaseModel):
     """Event sent when a tool call completes"""
     tool_call_id: str
@@ -87,6 +95,7 @@ class ToolCallCompleteEvent(BaseModel):
     code_output: Optional[CodeOutput] = None  # Code execution output (stdout/stderr)
     search_results: Optional[SearchResults] = None  # Web/news search results
     scraped_content: Optional[ScrapedContent] = None  # Scraped webpage content
+    file_content: Optional[FileContent] = None  # File content from read_chat_file
     timestamp: str = datetime.now().isoformat()
 
 

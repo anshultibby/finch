@@ -8,7 +8,7 @@ Wraps litellm's acompletion to add:
 - Streaming support with response accumulation
 - Session-level usage tracking with cost calculation
 """
-from typing import Dict, Any, Optional, AsyncGenerator
+from typing import Dict, Any, Optional, AsyncGenerator, List
 from pydantic import BaseModel, Field
 from litellm import acompletion
 import time
@@ -188,29 +188,45 @@ class LLMHandler:
     # This allows tracking across multiple LLMHandler instances in the same session
     _usage_trackers: Dict[str, UsageTracker] = {}
     
-    def __init__(self, user_id: Optional[str] = None, chat_id: Optional[str] = None):
+    def __init__(self, user_id: Optional[str] = None, chat_id: Optional[str] = None, agent_type: str = "master", agent_id: str = None, chat_logger: Optional[ChatLogger] = None):
         """
         Initialize LLM handler.
         
         Args:
             user_id: User ID for organizing logs
             chat_id: Chat ID for organizing chat logs
+            agent_type: "master" or "executor" 
+            agent_id: Unique agent ID (required for executor type)
+            chat_logger: Optional existing ChatLogger instance to use
         """
         self.user_id = user_id or "unknown"
         self.chat_id = chat_id or "unknown"
+        self.agent_type = agent_type
+        self.agent_id = agent_id
         
-        # Initialize chat logger based on config
-        backend_dir = Path(__file__).parent.parent.parent
-        
-        # Single logging system: ChatLogger (conversation tracking with full context)
-        # Only create when DEBUG_CHAT_LOGS is enabled
-        if Config.DEBUG_CHAT_LOGS:
-            chat_log_dir = get_chat_log_dir(self.chat_id, backend_dir)
-            # Don't create directory yet - ChatLogger will create it when logging first turn
-            self.chat_logger = ChatLogger(self.user_id, self.chat_id, chat_log_dir)
+        # Use provided chat logger or create one based on config
+        if chat_logger:
+            self.chat_logger = chat_logger
+        elif Config.DEBUG_CHAT_LOGS:
+            backend_dir = Path(__file__).parent.parent.parent
+            chat_log_dir = get_chat_log_dir(self.chat_id, backend_dir, agent_type=agent_type, agent_id=agent_id)
+            self.chat_logger = ChatLogger(self.user_id, self.chat_id, chat_log_dir, agent_type=agent_type, agent_id=agent_id)
             logger.info(f"Chat logging enabled: {chat_log_dir}")
         else:
             self.chat_logger = None
+    
+    def log_tool_results(self, tool_messages: List[Dict[str, Any]]):
+        """
+        Log tool result messages to the conversation.
+        
+        This should be called after tool execution completes to capture
+        the full conversation cycle in the logs.
+        
+        Args:
+            tool_messages: List of tool result messages (role="tool")
+        """
+        if self.chat_logger:
+            self.chat_logger.add_tool_results(tool_messages)
     
     def _get_usage_tracker(self, model: str) -> UsageTracker:
         """Get or create a usage tracker for this chat session."""
@@ -481,19 +497,17 @@ class LLMHandler:
                 for tc in message.tool_calls
             ]
         
-        # Build full conversation including this response
-        messages = kwargs.get("messages", []) + [assistant_response]
-        
         # Build usage data with cache stats
         usage_data = self._build_usage_data(response.usage) if hasattr(response, 'usage') else None
         
-        # Save current conversation state
-        self.chat_logger.log_conversation(
-            messages=messages,
+        # Log the LLM turn
+        self.chat_logger.log_llm_turn(
+            llm_input_messages=kwargs.get("messages", []),
+            assistant_response=assistant_response,
             usage_data=usage_data,
             model=kwargs.get("model", "unknown"),
-            system_prompt=kwargs.get("system"),  # Claude format
-            tools=kwargs.get("tools")  # Tool schemas
+            system_prompt=kwargs.get("system"),
+            tools=kwargs.get("tools")
         )
     
     def _log_chat_turn_streaming(self, kwargs: Dict[str, Any], accumulated: Dict[str, Any], usage_info: Any):
@@ -518,15 +532,14 @@ class LLMHandler:
         if tool_calls_list:
             assistant_response["tool_calls"] = tool_calls_list
         
-        # Build full conversation including this response
-        messages = kwargs.get("messages", []) + [assistant_response]
-        
         # Build usage data with cache stats
         usage_data = self._build_usage_data(usage_info) if usage_info else None
         
-        # Save current conversation state
-        self.chat_logger.log_conversation(
-            messages=messages,
+        # Log the LLM turn (assistant response)
+        # Tool results should be logged separately via log_tool_results()
+        self.chat_logger.log_llm_turn(
+            llm_input_messages=kwargs.get("messages", []),
+            assistant_response=assistant_response,
             usage_data=usage_data,
             model=kwargs.get("model", "unknown"),
             system_prompt=kwargs.get("system"),  # Claude format

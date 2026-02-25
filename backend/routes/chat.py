@@ -65,6 +65,14 @@ async def send_chat_message_stream(chat_message: ChatMessage):
         if chat_message.images:
             images = [{"data": img.data, "media_type": img.media_type} for img in chat_message.images]
         
+        # Resolve active skill IDs: merge always-on skills with manually selected ones
+        from crud import skills as skills_crud
+        async with get_db_session() as db:
+            auto_skills = await skills_crud.get_auto_skills(db, chat_message.user_id)
+        auto_ids = [s.id for s in auto_skills]
+        selected_ids = chat_message.skills or []
+        skill_ids = list(dict.fromkeys(auto_ids + selected_ids))  # de-dup, preserve order
+
         # Create streaming generator with explicit flushing
         async def event_generator():
             try:
@@ -72,7 +80,8 @@ async def send_chat_message_stream(chat_message: ChatMessage):
                     message=chat_message.message,
                     chat_id=chat_message.chat_id,
                     user_id=chat_message.user_id,
-                    images=images
+                    images=images,
+                    skill_ids=skill_ids if skill_ids else None
                 ):
                     # Yield event immediately
                     yield sse_data

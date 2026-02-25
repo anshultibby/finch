@@ -35,9 +35,10 @@ export interface ChatStreamState {
   error: string | null;
   pendingOptions: SSEOptionsEvent | null;
   resources: Resource[];
-  stream: { close: () => void } | null;
+  stream: { close: () => void; reconnect?: () => void } | null;
   chatFiles: FileItem[];
   toolInsertionCounter: number;
+  wasStreamingBeforeHidden: boolean;
 }
 
 interface UseChatStreamOptions {
@@ -65,6 +66,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     stream: null,
     chatFiles: [],
     toolInsertionCounter: 0,
+    wasStreamingBeforeHidden: false,
   });
 
   const getChatState = useCallback((chatId: string): ChatStreamState => {
@@ -450,7 +452,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     isNewChat: boolean,
     images: ImageAttachment[] | undefined,
     onStateChange: (state: ChatStreamState) => void,
-    onChatIdChange: (chatId: string) => void
+    onChatIdChange: (chatId: string) => void,
+    skills?: string[]
   ): Promise<string> => {
     if (!content.trim() && (!images || images.length === 0)) {
       throw new Error('Message content is required');
@@ -502,7 +505,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           })
           .catch(err => {
             console.error('Error generating chat title:', err);
-            options.onHistoryRefresh?.();
+            // Still clear the creating state on error, use a default title
+            options.onTitleGenerated?.(targetChatId, trimmedContent.slice(0, 50) + (trimmedContent.length > 50 ? '...' : ''), '💬');
           });
       }, 100);
     }
@@ -513,7 +517,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         userId,
         targetChatId,
         createEventHandlers(targetChatId, onStateChange),
-        images
+        images,
+        skills
       );
 
       updateChatState(targetChatId, { stream }, onStateChange);

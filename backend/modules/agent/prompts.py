@@ -2,6 +2,7 @@
 System prompts for the AI agent
 """
 from datetime import datetime
+from typing import Optional
 
 
 # Base system prompt (static, no variables)
@@ -114,6 +115,44 @@ Your best trade (NVDA, +$2,100, 9 days) vs worst (TSLA, -$2,100, 52 days) proves
 Both had high volume breakouts above 20-day MA with Reddit mentions spiking 3x. Want the detailed comparison?"
 </style_guidelines>
 """
+
+
+async def build_skills_prompt(user_id: str, skill_ids: list[str]) -> str:
+    """
+    Build the skills section of the system prompt.
+
+    Injects a compact list of available skills (name + description + id).
+    The agent reads the full content on demand via:
+        read_chat_file(filename="<skill_id>", from_skills=True)
+
+    skill_ids is the combined list of auto-on skills + any manually selected
+    for this chat turn (de-duped by the caller).
+    """
+    from database import get_db_session
+    from crud import skills as skills_crud
+
+    if not skill_ids:
+        return ""
+
+    async with get_db_session() as db:
+        all_skills = await skills_crud.get_user_skills(db, user_id)
+
+    # Keep only skills that are in the requested id list
+    active = [s for s in all_skills if s.id in set(skill_ids)]
+    if not active:
+        return ""
+
+    lines = ["", "", "<available_skills>"]
+    lines.append("You have the following skills available. Read a skill's full instructions when you need it:")
+    lines.append("  read_chat_file(filename=\"<skill_id>\", from_skills=True)")
+    lines.append("")
+    for skill in active:
+        lines.append(f"  <skill id=\"{skill.id}\" name=\"{skill.name}\">")
+        lines.append(f"    {skill.description}")
+        lines.append("  </skill>")
+    lines.append("</available_skills>")
+
+    return "\n".join(lines)
 
 
 def get_finch_system_prompt() -> str:
@@ -269,6 +308,16 @@ Get to a WORKING result as fast as possible. Don't gold-plate.
 - Example: `read_chat_file(filename="data.csv", peek=True)` → see format → write code to process it
 - Reading full large files wastes tokens and slows you down dramatically
 
+|**CRITICAL API BOUNDARY VERIFICATION:**
+|Before calling ANY API function (Dome, Polygon, FMP, Kalshi, etc.), you MUST verify the exact function signature and model attributes:
+|1. **Read the models file** for that API: `read_chat_file(filename="dome/models.py", from_api_docs=True)` (or polygon_io/models.py, etc.)
+|2. **Check input constraints** - look for valid parameter values (e.g., `status` must be `'open'` or `'closed'`, NOT `'all'`)
+|3. **Verify response attributes** - check the exact field names on output models (e.g., `position.title` NOT `position.market_title`, `order.user` NOT `order.owner`, `order.token_label` NOT `order.outcome`)
+|4. **Only then write your code** using the verified exact attribute names
+|
+|This prevents runtime errors from using wrong field names or invalid parameter values.
+
+
 **You do exactly ONE task - quickly**
 You will receive a specific task. Do the MINIMUM needed to complete it successfully.
 
@@ -327,20 +376,27 @@ If you cannot complete the task:
 """
 
 
-def get_planner_agent_prompt() -> str:
+async def get_planner_agent_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:
     """
-    Get Planner Agent prompt - base Finch prompt + planner workflow.
-    
-    Planner is lightweight - only plans and delegates.
-    Does NOT have code execution or research tools.
+    Get Planner Agent prompt - base Finch prompt + available skills list + planner workflow.
+
+    Skills are injected as a compact list; the agent reads full content on demand.
     """
-    return get_finch_system_prompt() + PLANNER_AGENT_PROMPT
+    base_prompt = get_finch_system_prompt()
+    skills_section = ""
+    if user_id and skill_ids:
+        skills_section = await build_skills_prompt(user_id, skill_ids)
+    return base_prompt + skills_section + PLANNER_AGENT_PROMPT
 
 
-def get_executor_agent_prompt() -> str:
+async def get_executor_agent_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:
     """
-    Get Executor Agent prompt - base Finch prompt + executor workflow.
-    
-    Executor has all tools and does the actual work.
+    Get Executor Agent prompt - base Finch prompt + available skills list + executor workflow.
+
+    Skills are injected as a compact list; the agent reads full content on demand.
     """
-    return get_finch_system_prompt() + EXECUTOR_AGENT_PROMPT
+    base_prompt = get_finch_system_prompt()
+    skills_section = ""
+    if user_id and skill_ids:
+        skills_section = await build_skills_prompt(user_id, skill_ids)
+    return base_prompt + skills_section + EXECUTOR_AGENT_PROMPT

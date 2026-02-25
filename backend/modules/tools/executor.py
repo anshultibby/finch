@@ -663,6 +663,19 @@ class ToolExecutor:
                         is_complete=True
                     ).model_dump()
             
+            # Extract file content for read_chat_file tool
+            file_content = None
+            if result.tool_name == "read_chat_file" and isinstance(result.raw_result, dict):
+                if result.raw_result.get("success"):
+                    from models.sse import FileContent
+                    
+                    file_content = FileContent(
+                        filename=result.raw_result.get("filename", ""),
+                        content=result.raw_result.get("content", ""),
+                        file_type=result.raw_result.get("file_type", "text"),
+                        is_complete=True
+                    ).model_dump()
+            
             logger.info(f"📤 Emitting tool_call_complete for {result.tool_name} (id: {result.tool_call_id})")
             complete_event_data = {
                 "tool_call_id": result.tool_call_id,
@@ -673,6 +686,7 @@ class ToolExecutor:
                 "code_output": code_output,
                 "search_results": search_results,
                 "scraped_content": scraped_content,
+                "file_content": file_content,
                 "agent_id": context.agent_id  # Which agent ran this tool
             }
             # Include parent_agent_id if this is a sub-agent (e.g., executor)
