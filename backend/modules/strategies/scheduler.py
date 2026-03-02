@@ -80,30 +80,36 @@ class StrategyScheduler:
     
     def _should_run_now(self, strategy: Strategy) -> bool:
         """
-        Check if a strategy should run now based on polling_interval
-        
-        All strategies use polling_interval (seconds) from config.json
+        Check if a strategy should run now based on its cron schedule.
+        Uses croniter to determine if the schedule has fired since the last run.
         """
         config = strategy.config or {}
-        polling_interval = config.get("polling_interval")
-        
-        if not polling_interval:
-            # No polling_interval = manual only
+        schedule = config.get("schedule")
+
+        if not schedule:
             return False
-        
+
         stats = strategy.stats or {}
         last_run = stats.get("last_run_at")
-        
-        if not last_run:
-            # Never run before, run now
-            return True
-        
-        # Check if enough time has passed since last run
         now = datetime.now(timezone.utc)
-        last_run_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-        seconds_since_last = (now - last_run_dt).total_seconds()
-        
-        return seconds_since_last >= polling_interval
+
+        if not last_run:
+            # Never run — check if schedule has fired at all in the last hour
+            try:
+                cron = croniter(schedule, now)
+                prev = cron.get_prev(datetime)
+                return (now - prev).total_seconds() < 3600
+            except Exception:
+                return True
+
+        try:
+            last_run_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+            cron = croniter(schedule, last_run_dt)
+            next_run = cron.get_next(datetime)
+            return now >= next_run
+        except Exception as e:
+            logger.warning(f"Error parsing schedule '{schedule}' for strategy {strategy.id}: {e}")
+            return False
     
     async def _execute_strategy(self, db: AsyncSession, strategy: Strategy) -> None:
         """Execute a single strategy"""
@@ -127,8 +133,8 @@ class StrategyScheduler:
     async def _send_alert(
         self,
         strategy: Strategy,
-        execution: Optional["StrategyExecution"] = None,
-        error: Optional[str] = None
+        execution=None,
+        error: Optional[str] = None,
     ) -> None:
         """
         Send alert when a strategy fails

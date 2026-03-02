@@ -12,6 +12,7 @@ from crud.chat_files import (
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
+import mimetypes
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,49 @@ async def download_chat_file(
         raise
     except Exception as e:
         logger.error(f"Error downloading file: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{chat_id}/sandbox-file")
+async def get_sandbox_file(
+    chat_id: str,
+    path: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Proxy a file directly from the user's live sandbox by absolute path.
+    Used when the agent references a file by its VM path (e.g. /home/user/subdir/chart.png).
+    Falls back to 404 if the sandbox is not live.
+    """
+    from models.db import Chat
+    from sqlalchemy import select as sa_select
+
+    try:
+        result = db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
+        chat = result.scalar_one_or_none()
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        from modules.tools.implementations.code_execution import read_sandbox_file
+        basename = path.split("/")[-1] if "/" in path else path
+        data = await read_sandbox_file(chat.user_id, path)
+
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"File not found in sandbox: {path}")
+
+        content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
+        disposition = "inline" if content_type.startswith("image/") or content_type in ("text/html", "text/csv", "application/json") else "attachment"
+
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Content-Disposition": f'{disposition}; filename="{basename}"'}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error proxying sandbox file {path}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

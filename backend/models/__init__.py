@@ -52,6 +52,7 @@ from .api_keys import (
     TestApiKeyResponse,
 )
 from .strategies import (
+    CapitalConfig,
     StrategyConfig,
     StrategyStats,
     RiskLimits,
@@ -66,10 +67,6 @@ from .strategies import (
     RunStrategyRequest,
     RunStrategyResponse,
     StrategyInfoForLLM,
-)
-from .skills import (
-    SkillRequest,
-    SkillResponse,
 )
 
 __all__ = [
@@ -114,6 +111,7 @@ __all__ = [
     "TestApiKeyRequest",
     "TestApiKeyResponse",
     # Strategies
+    "CapitalConfig",
     "StrategyConfig",
     "StrategyStats",
     "RiskLimits",
@@ -128,8 +126,5 @@ __all__ = [
     "RunStrategyRequest",
     "RunStrategyResponse",
     "StrategyInfoForLLM",
-    # Skills
-    "SkillRequest",
-    "SkillResponse",
 ]
 

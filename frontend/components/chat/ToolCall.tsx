@@ -10,6 +10,7 @@ const getToolIcon = (toolName: string) => {
   switch (toolName) {
     case 'execute_code':
     case 'run_python':
+    case 'bash':
       return (
         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -160,14 +161,13 @@ const getToolDisplayName = (toolName: string): string => {
     'replace_in_chat_file': 'Edit File',
     'execute_code': 'Execute Code',
     'run_python': 'Run Python',
+    'bash': 'Run Bash',
     'web_search': 'Search',
     'news_search': 'News Search',
     'scrape_url': 'Scrape URL',
     'get_fmp_data': 'Get FMP Data',
     'get_reddit_trending_stocks': 'Get Reddit Trending',
     'get_reddit_ticker_sentiment': 'Get Reddit Sentiment',
-    'delegate_execution': 'Task Executor',
-    'finish_execution': 'Done',
   };
   
   return nameMap[toolName] || toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());

@@ -1,67 +1,39 @@
-// Simple in-memory cache for skills to avoid repeated API calls
-import type { Skill, GlobalSkill } from './api';
+// Simple in-memory cache for catalog skills to avoid repeated API calls
+import type { CatalogSkill } from './api';
 
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
 
-const CACHE_TTL_MS = 30000; // 30 seconds - keeps data fresh but avoids hammering the API
+const CACHE_TTL_MS = 5000; // 5 seconds
 
 class SkillsCache {
-  private userSkills: Map<string, CacheEntry<Skill[]>> = new Map();
-  private storeSkills: Map<string, CacheEntry<GlobalSkill[]>> = new Map();
-  private globalSkillsList: CacheEntry<GlobalSkill[]> | null = null;
+  private catalog: Map<string, CacheEntry<CatalogSkill[]>> = new Map();
 
-  // Get cached user skills if fresh
-  getUserSkills(userId: string): Skill[] | null {
-    const entry = this.userSkills.get(userId);
+  getCatalogSkills(userId: string): CatalogSkill[] | null {
+    const entry = this.catalog.get(userId);
     if (!entry) return null;
-    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
-      this.userSkills.delete(userId);
-      return null;
-    }
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) { this.catalog.delete(userId); return null; }
     return entry.data;
   }
 
-  // Cache user skills
-  setUserSkills(userId: string, skills: Skill[]) {
-    this.userSkills.set(userId, { data: skills, timestamp: Date.now() });
+  setCatalogSkills(userId: string, skills: CatalogSkill[]) {
+    this.catalog.set(userId, { data: skills, timestamp: Date.now() });
   }
 
-  // Get cached store skills by category
-  getStoreSkills(category?: string): GlobalSkill[] | null {
-    const key = category || '__all__';
-    const entry = this.storeSkills.get(key);
-    if (!entry) return null;
-    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
-      this.storeSkills.delete(key);
-      return null;
-    }
-    return entry.data;
-  }
-
-  // Cache store skills
-  setStoreSkills(category: string | undefined, skills: GlobalSkill[]) {
-    const key = category || '__all__';
-    this.storeSkills.set(key, { data: skills, timestamp: Date.now() });
-  }
-
-  // Invalidate cache for a user (call after create/update/delete/install)
   invalidateUser(userId: string) {
-    this.userSkills.delete(userId);
+    this.catalog.delete(userId);
   }
 
-  // Invalidate all user caches
-  invalidateAllUsers() {
-    this.userSkills.clear();
-  }
-
-  // Invalidate store cache
-  invalidateStore() {
-    this.storeSkills.clear();
-    this.globalSkillsList = null;
+  clearAll() {
+    this.catalog.clear();
   }
 }
 
 export const skillsCache = new SkillsCache();
+
+// @ts-ignore - expose for debugging
+if (typeof window !== 'undefined') {
+  (window as any).clearSkillsCache = () => skillsCache.clearAll();
+}

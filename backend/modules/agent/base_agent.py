@@ -15,6 +15,7 @@ from models.chat_history import ChatHistory, ChatMessage as HistoryChatMessage
 from .llm_config import LLMConfig
 from .llm_stream import stream_llm_response
 from .message_processor import enforce_tool_call_sequence
+from .session_pruner import prune_messages
 from .context import AgentContext
 from utils.logger import get_logger
 from .tracing_utils import AgentTracer
@@ -190,12 +191,16 @@ class BaseAgent:
                 async with self._agent_tracer.turn(iteration, len(messages)):
                     # Get tools for this agent from global registry
                     tools = tool_registry.get_openai_tools(tool_names=self.tool_names)
-                    
+
+                    # Prune old tool results from in-memory context before each LLM call.
+                    # This is transient — the database and chat_history are not affected.
+                    messages_for_llm = prune_messages(messages)
+
                     # Step 1: Call LLM and stream response (yields SSE events directly)
                     content = ""
                     tool_calls = []
                     async for event in stream_llm_response(
-                        messages=messages,
+                        messages=messages_for_llm,
                         tools=tools,
                         llm_config=llm_config,
                         user_id=self.context.user_id,
@@ -287,13 +292,6 @@ class BaseAgent:
                         # CRITICAL: Add to chat_history so next turn sees these tool results
                         if chat_history:
                             chat_history.add_message(hist_msg)
-                    
-                    # Check if finish_execution was called - cleanly exit the loop
-                    # This properly terminates the generator instead of leaving it running
-                    for tool_msg in tool_messages:
-                        if tool_msg.get("name") == "finish_execution":
-                            logger.info("🏁 finish_execution called - exiting agent loop")
-                            return
                     
                     # Check if any tool requires user input (e.g., message_ask_user)
                     # If so, pause the agent loop and wait for user response

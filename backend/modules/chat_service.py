@@ -4,7 +4,7 @@ Chat service for managing chat sessions and interactions
 from typing import List, AsyncGenerator, Dict, Any
 import json
 import asyncio
-from .agent.agent_config import create_planner_agent
+from .agent.agent_config import create_agent
 from .agent.llm_handler import LLMHandler
 from config import Config
 from .context_manager import context_manager
@@ -115,8 +115,7 @@ class ChatService:
                 
                 # Also log user message to conversation file for complete history
                 if Config.DEBUG_CHAT_LOGS:
-                    from modules.agent.llm_handler import LLMHandler
-                    llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="master")
+                    llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="agent")
                     if llm_handler.chat_logger:
                         llm_handler.chat_logger.add_message({
                             "role": "user",
@@ -144,17 +143,17 @@ class ChatService:
                     logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
                     previous_context.cancel()
                 
-                agent = await create_planner_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
+                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
                 
                 # Add user message to history (with optional images for multimodal)
                 history.add_user_message(message, images=images)
                 
-                # Track pending assistant message (with tool calls) for saving after tools complete
+                # Track pending assistant message (with tool calls) until tools_end arrives
                 pending_assistant_msg = None
-                # List of message save operations to batch
-                messages_to_save = []
                 
-                # Stream events from agent and save completed messages incrementally
+                # Stream events from agent and save completed messages immediately as they arrive.
+                # Saving inside the loop (not after) means progress is persisted even if the
+                # client disconnects mid-stream.
                 with tracer.start_as_current_span("agent_processing"):
                     async for event in agent.process_message_stream(
                         message=message,
@@ -162,60 +161,54 @@ class ChatService:
                         history_limit=Config.CHAT_HISTORY_LIMIT
                     ):
                         # YIELD EVENT FIRST for real-time streaming
-                        # Database saves happen after to not block the stream
                         yield event.to_sse_format()
                         
-                        # Log event type for debugging
                         if event.event == "tool_call_start":
                             logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
                         
-                        # INCREMENTAL SAVE: Collect messages to save with the shared DB session
-                        # This ensures real-time streaming while still saving completed work
-                        
                         if event.event == "message_end":
-                            # message_end signals a complete assistant message
                             tool_calls = event.data.get("tool_calls")
                             content = event.data.get("content", "")
                             
                             if tool_calls:
-                                # Assistant message with tool calls - save after tools complete
-                                logger.info(f"📝 message_end with {len(tool_calls)} tool calls - setting pending_assistant_msg")
+                                # Hold the assistant message until tools_end so we can attach
+                                # tool_results metadata to it in a single DB write.
+                                logger.info(f"📝 message_end with {len(tool_calls)} tool calls - holding for tools_end")
                                 pending_assistant_msg = {
                                     "content": content,
                                     "tool_calls": tool_calls
                                 }
                             else:
-                                # Final assistant message (no tool calls) - queue for saving
-                                seq = current_sequence
-                                current_sequence += 1
-                                messages_to_save.append({
-                                    "type": "final_message",
-                                    "content": content,
-                                    "sequence": seq
-                                })
-                                logger.info(f"📝 Queued final assistant message (seq={seq})")
+                                # Final assistant message with no tool calls — save immediately.
+                                try:
+                                    seq = current_sequence
+                                    current_sequence += 1
+                                    await chat_async.create_message(
+                                        db=db,
+                                        chat_id=chat_id,
+                                        role="assistant",
+                                        content=content,
+                                        sequence=seq
+                                    )
+                                    logger.info(f"💾 Saved final assistant message (seq={seq})")
+                                except Exception as e:
+                                    logger.error(f"Failed to save final assistant message: {e}")
                         
                         elif event.event == "tools_end":
-                            # tools_end signals tool execution is complete
-                            # Now save: 1) assistant message with tool_calls, 2) tool result messages
                             tool_messages = event.data.get("tool_messages", [])
                             execution_results = event.data.get("execution_results", [])
                             
-                            logger.info(f"🔧 tools_end event - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages, {len(execution_results)} execution results")
+                            logger.info(f"🔧 tools_end - pending_assistant_msg={'SET' if pending_assistant_msg else 'NONE'}, {len(tool_messages)} tool messages")
                             
-                            # Safety check: if no pending_assistant_msg, we have a bug - log it
                             if not pending_assistant_msg and tool_messages:
-                                logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg! This will create orphaned tool results.")
+                                logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg!")
                             
-                            # Log tool results to ChatLogger for complete conversation history
-                            # This ensures the conversation.json includes tool results
-                            from modules.agent.llm_handler import LLMHandler
-                            llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="master")
-                            if llm_handler.chat_logger:
-                                llm_handler.log_tool_results(tool_messages)
-                                logger.info(f"💾 Logged {len(tool_messages)} tool results to conversation file")
+                            if Config.DEBUG_CHAT_LOGS:
+                                llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="agent")
+                                if llm_handler.chat_logger:
+                                    llm_handler.log_tool_results(tool_messages)
                             
-                            # Build tool_results dict keyed by tool_call_id for persistence
+                            # Build tool_results dict keyed by tool_call_id
                             tool_results = {}
                             for exec_result in execution_results:
                                 tool_call_id = exec_result.get("tool_call_id")
@@ -235,76 +228,46 @@ class ChatService:
                                                 "stderr": stderr or ""
                                             }
                             
-                            # Queue for saving with shared DB session
+                            # Save assistant message + tool results immediately
                             if pending_assistant_msg:
-                                seq = current_sequence
-                                current_sequence += 1 + len(tool_messages)  # Reserve sequences
-                                
-                                messages_to_save.append({
-                                    "type": "tools_end",
-                                    "pending_msg": pending_assistant_msg,
-                                    "tool_results": tool_results,
-                                    "tool_messages": tool_messages,
-                                    "start_sequence": seq
-                                })
-                                logger.info(f"📝 Queued tools_end save (seq={seq})")
-                            
-                            pending_assistant_msg = None
-                
-                # Save all queued messages using the shared DB session
-                # This happens after streaming is complete, using a single connection
-                if messages_to_save:
-                    logger.info(f"💾 Saving {len(messages_to_save)} queued message batches...")
-                    for msg_data in messages_to_save:
-                        try:
-                            if msg_data["type"] == "final_message":
-                                await chat_async.create_message(
-                                    db=db,
-                                    chat_id=chat_id,
-                                    role="assistant",
-                                    content=msg_data["content"],
-                                    sequence=msg_data["sequence"]
-                                )
-                                logger.info(f"💾 Saved final assistant message (seq={msg_data['sequence']})")
-                            
-                            elif msg_data["type"] == "tools_end":
-                                seq = msg_data["start_sequence"]
-                                pending_msg = msg_data["pending_msg"]
-                                tool_results = msg_data["tool_results"]
-                                tool_messages = msg_data["tool_messages"]
-                                
-                                await chat_async.create_message(
-                                    db=db,
-                                    chat_id=chat_id,
-                                    role="assistant",
-                                    content=pending_msg["content"],
-                                    sequence=seq,
-                                    tool_calls=pending_msg["tool_calls"],
-                                    tool_results=tool_results if tool_results else None
-                                )
-                                logger.info(f"💾 Saved assistant message with {len(pending_msg['tool_calls'])} tool calls and {len(tool_results)} tool results (seq={seq})")
-                                seq += 1
-                                
-                                for tool_msg in tool_messages:
-                                    content = tool_msg.get("content", "")
-                                    if isinstance(content, list):
-                                        content = json.dumps(content)
+                                try:
+                                    seq = current_sequence
+                                    current_sequence += 1 + len(tool_messages)
                                     
                                     await chat_async.create_message(
                                         db=db,
                                         chat_id=chat_id,
-                                        role="tool",
-                                        content=content,
+                                        role="assistant",
+                                        content=pending_assistant_msg["content"],
                                         sequence=seq,
-                                        tool_call_id=tool_msg.get("tool_call_id"),
-                                        name=tool_msg.get("name")
+                                        tool_calls=pending_assistant_msg["tool_calls"],
+                                        tool_results=tool_results if tool_results else None
                                     )
+                                    logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls (seq={seq})")
                                     seq += 1
-                                
-                                if tool_messages:
-                                    logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
-                        except Exception as e:
-                            logger.error(f"Failed to save message batch: {e}")
+                                    
+                                    for tool_msg in tool_messages:
+                                        msg_content = tool_msg.get("content", "")
+                                        if isinstance(msg_content, list):
+                                            msg_content = json.dumps(msg_content)
+                                        
+                                        await chat_async.create_message(
+                                            db=db,
+                                            chat_id=chat_id,
+                                            role="tool",
+                                            content=msg_content,
+                                            sequence=seq,
+                                            tool_call_id=tool_msg.get("tool_call_id"),
+                                            name=tool_msg.get("name")
+                                        )
+                                        seq += 1
+                                    
+                                    if tool_messages:
+                                        logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
+                                except Exception as e:
+                                    logger.error(f"Failed to save tools_end batch: {e}")
+                            
+                            pending_assistant_msg = None
                 
                 # Log session usage summary (token counts and costs)
                 # Also deduct credits based on actual token usage
@@ -353,6 +316,14 @@ class ChatService:
                         logger.warning(f"⚠️  Failed to deduct {credits_to_deduct} credits - insufficient balance or user not found")
                 
                 LLMHandler.finalize_session(chat_id)
+
+                # Run compaction if the history has grown too large.
+                # This persists a summary row to the DB so future turns start lean.
+                from .agent.compactor import maybe_compact
+                try:
+                    await maybe_compact(chat_id, user_id, db)
+                except Exception as e:
+                    logger.warning(f"Compaction check failed (non-fatal): {e}")
                 
                 # Unregister this context (only if we're still the active one)
                 unregister_context(chat_id, agent_context)
@@ -509,8 +480,8 @@ class ChatService:
                         "tool_calls": tool_calls if tool_calls else None
                     })
             
-            # Skip tool response messages (internal)
-            elif msg.role == "tool":
+            # Skip internal messages
+            elif msg.role in ("tool", "compaction"):
                 continue
         
         return {"messages": display_messages}

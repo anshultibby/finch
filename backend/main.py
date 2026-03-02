@@ -76,6 +76,7 @@ async def log_requests(request, call_next):
 
 logger.info("Finch API initialized")
 
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,

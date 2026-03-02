@@ -19,9 +19,6 @@ from modules.tools.descriptions import (
     BUILD_CUSTOM_ETF_DESC,
     # Web Search
     WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC,
-    # Delegation (Two-tier agent)
-    DELEGATE_EXECUTION_DESC,
-    FINISH_EXECUTION_DESC,
     # Strategies
     DEPLOY_STRATEGY_DESC,
     LIST_STRATEGIES_DESC,
@@ -30,12 +27,12 @@ from modules.tools.descriptions import (
     APPROVE_STRATEGY_DESC,
     RUN_STRATEGY_DESC,
     DELETE_STRATEGY_DESC,
-    GET_CHAT_FILES_FOR_STRATEGY_DESC,
+    GET_STRATEGY_CODE_DESC,
 )
 
 # Import implementations
 from modules.tools.implementations import control
-from modules.tools.implementations import code_execution, file_management, etf_builder, web_search, delegation
+from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
 from modules.tools.implementations import strategies as strategies_impl
 
 
@@ -66,25 +63,14 @@ def idle(*, context: AgentContext) -> Dict[str, Any]:
 # ============================================================================
 
 @tool(
-    name="execute_code",
+    name="bash",
     description=EXECUTE_CODE_DESC,
     category="code"
 )
-async def execute_code(
-    *, 
-    code: Optional[str] = None,
-    filename: Optional[str] = None,
-    context: AgentContext
-):
-    """Execute Python code with virtual persistent filesystem
-    
-    Args:
-        code: Python code to execute directly (provide this OR filename)
-        filename: Filename of saved code to execute (provide this OR code)
-    """
-    # Construct params object for implementation
-    params = code_execution.ExecuteCodeParams(code=code, filename=filename)
-    async for item in code_execution.execute_code_impl(params, context):
+async def bash(*, cmd: str, context: AgentContext):
+    """Run a bash command in the persistent sandbox."""
+    params = code_execution.BashParams(cmd=cmd)
+    async for item in code_execution.bash_impl(params, context):
         yield item
 
 
@@ -115,10 +101,9 @@ def read_chat_file(
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
     peek: bool = False,
-    from_api_docs: bool = False
 ):
-    """Read file from chat directory, optionally by line range. Set peek=True to read first ~100 lines (like Cursor). Set from_api_docs=True to read API documentation."""
-    return file_management.read_chat_file_impl(context, filename, start_line, end_line, peek, from_api_docs)
+    """Read file from chat directory, optionally by line range. Set peek=True to read first ~100 lines (like Cursor)."""
+    return file_management.read_chat_file_impl(context, filename, start_line, end_line, peek)
 
 
 @tool(
@@ -203,63 +188,6 @@ def scrape_url(
 ):
     """Scrape a webpage and convert to clean markdown text"""
     return web_search.scrape_url_impl(url, context, timeout)
-
-
-# ============================================================================
-# DELEGATION TOOL (Two-tier agent system)
-# ============================================================================
-
-@tool(
-    name="delegate_execution",
-    description=DELEGATE_EXECUTION_DESC,
-    category="execution"
-)
-async def delegate_execution(
-    *,
-    direction: str,
-    result_file: str = "_executor_result.md",
-    context: AgentContext
-):
-    """Delegate execution to Executor Agent. Provide direction, tool loads tasks.md for context."""
-    params = delegation.DelegateExecutionParams(direction=direction, result_file=result_file)
-    async for item in delegation.delegate_execution_impl(params, context):
-        yield item
-
-
-@tool(
-    name="finish_execution",
-    description=FINISH_EXECUTION_DESC,
-    category="execution"
-)
-def finish_execution(
-    *,
-    summary: str,
-    files_created: List[str] = None,
-    success: bool = True,
-    error: str = None,
-    context: AgentContext
-):
-    """Signal execution is complete and return results to Master Agent."""
-    # Handle case where LLM sends files_created as a string representation of a list
-    parsed_files = files_created or []
-    if isinstance(parsed_files, str):
-        # Try to parse string like "['file1', 'file2']" into actual list
-        import ast
-        try:
-            parsed_files = ast.literal_eval(parsed_files)
-            if not isinstance(parsed_files, list):
-                parsed_files = []
-        except (ValueError, SyntaxError):
-            # If parsing fails, treat as single filename or empty
-            parsed_files = [parsed_files] if parsed_files.strip() else []
-    
-    params = delegation.FinishExecutionParams(
-        summary=summary,
-        files_created=parsed_files,
-        success=success,
-        error=error
-    )
-    return delegation.finish_execution_impl(params, context)
 
 
 # ============================================================================
@@ -349,14 +277,13 @@ async def delete_strategy(*, strategy_id: str, context: AgentContext):
 
 
 @tool(
-    name="get_chat_files_for_strategy",
-    description=GET_CHAT_FILES_FOR_STRATEGY_DESC,
+    name="get_strategy_code",
+    description=GET_STRATEGY_CODE_DESC,
     category="strategy",
-    hidden_from_ui=True
 )
-def get_chat_files_for_strategy(*, context: AgentContext):
-    """Get list of files in current chat for strategy deployment"""
-    return strategies_impl.get_chat_files_for_strategy_impl(context)
+async def get_strategy_code(*, strategy_id: str, context: AgentContext):
+    """Get the full code files for a strategy"""
+    return await strategies_impl.get_strategy_code_impl(strategy_id, context)
 
 
 # ============================================================================
@@ -366,17 +293,14 @@ def get_chat_files_for_strategy(*, context: AgentContext):
 __all__ = [
     # Control
     'idle',
-    # Code Execution (Universal Interface)
-    'execute_code',
-    # File Management (Essential utilities)
+    # Code Execution
+    'bash',
+    # File Management
     'write_chat_file', 'read_chat_file', 'replace_in_chat_file',
     # ETF Builder
     'build_custom_etf',
     # Web Search
     'web_search_tool', 'news_search', 'scrape_url',
-    # Delegation
-    'delegate_execution',
-    'finish_execution',
     # Strategies
     'deploy_strategy',
     'list_strategies',
@@ -385,6 +309,6 @@ __all__ = [
     'approve_strategy',
     'run_strategy',
     'delete_strategy',
-    'get_chat_files_for_strategy',
+    'get_strategy_code',
 ]
 

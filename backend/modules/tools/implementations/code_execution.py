@@ -1,918 +1,651 @@
 """
-Code Execution Implementation with Virtual Persistent Filesystem
+Code Execution Implementation with Persistent Per-User E2B Sandbox
 
-Provides a persistent filesystem experience backed by the database:
-- All chat files are mounted into execution environment
-- Agent can read/write files naturally across executions
-- Changes are automatically synced back to DB
-- Temp directory is cleaned up after each run
+One sandbox persists per user (not per-chat), surviving server restarts:
+- Created with auto-pause enabled; E2B pauses it automatically on timeout
+- sandbox_id stored in DB so it can be reconnected after server restarts
+- Skills are loaded from backend/skills/ onto the sandbox volume ONCE and stay there
+- Skills are read directly from the filesystem — no DB round-trips
+- Chat files synced back to DB after each run for UI visibility
+- API keys re-injected on reconnect since env vars don't survive pause/resume
+- Clearing a chat does NOT destroy the sandbox; reset_sandbox does
 """
 from modules.agent.context import AgentContext
 from models.sse import SSEEvent
-from typing import Optional, Dict, Any, AsyncGenerator, List, Set
+from typing import Optional, Dict, Any, AsyncGenerator, List
 from pydantic import BaseModel, Field
 from utils.logger import get_logger
-import subprocess
-import tempfile
 import os
-import shutil
 import hashlib
-from pathlib import Path
-from datetime import datetime
 import json
 import time
 import asyncio
+from datetime import datetime
+from pathlib import Path
 
 logger = get_logger(__name__)
 
+WORKSPACE_DIR = "/home/user"
+SKILLS_DIR = f"{WORKSPACE_DIR}/skills"
+APIS_DIR = f"{WORKSPACE_DIR}/apis"
+EXECUTION_TIMEOUT = 60       # seconds — max runtime per execution
+SANDBOX_IDLE_TIMEOUT = 600   # seconds — sandbox auto-pauses after this idle time
 
-def _save_code_execution_log(
-    user_id: str,
-    chat_id: str,
-    execution_data: Dict[str, Any]
-):
+# Absolute path to the skills directory on the host (sibling of this file's package root)
+_HOST_SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "skills"
+
+
+# ---------------------------------------------------------------------------
+# In-process sandbox cache (user_id → live sandbox + state)
+# ---------------------------------------------------------------------------
+
+class _SandboxEntry:
+    """Holds a live (running) sandbox and tracks state."""
+
+    def __init__(self, sbx, file_hashes: Dict[str, str], skills_loaded: bool, envs: Dict[str, str], skills_hash: str = ""):
+        self.sbx = sbx
+        self.file_hashes: Dict[str, str] = file_hashes
+        self.skills_loaded: bool = skills_loaded
+        self.skills_hash: str = skills_hash
+        self.envs: Dict[str, str] = envs
+
+
+# user_id → _SandboxEntry  (in-process cache; rebuilt from DB on server restart)
+_sandboxes: Dict[str, _SandboxEntry] = {}
+_sandboxes_lock = asyncio.Lock()
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
+
+async def _get_user_sandbox_record(user_id: str):
+    """Return the UserSandbox DB row for this user, or None."""
+    from database import get_db_session
+    from models.db import UserSandbox
+    from sqlalchemy import select
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(UserSandbox).where(UserSandbox.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+
+async def _upsert_user_sandbox(user_id: str, sandbox_id: str, skills_loaded: bool, skills_hash: str = None) -> None:
+    """Persist or update the UserSandbox record."""
+    from database import get_db_session
+    from models.db import UserSandbox
+    from sqlalchemy import select
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(UserSandbox).where(UserSandbox.user_id == user_id)
+        )
+        record = result.scalar_one_or_none()
+        if record:
+            record.sandbox_id = sandbox_id
+            record.skills_loaded = skills_loaded
+            if skills_hash is not None:
+                record.skills_hash = skills_hash
+        else:
+            db.add(UserSandbox(
+                user_id=user_id,
+                sandbox_id=sandbox_id,
+                skills_loaded=skills_loaded,
+                skills_hash=skills_hash,
+            ))
+        await db.commit()
+
+
+async def _delete_user_sandbox_record(user_id: str) -> None:
+    """Remove the UserSandbox record (called on hard reset)."""
+    from database import get_db_session
+    from models.db import UserSandbox
+    from sqlalchemy import select
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(UserSandbox).where(UserSandbox.user_id == user_id)
+        )
+        record = result.scalar_one_or_none()
+        if record:
+            await db.delete(record)
+            await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Sandbox lifecycle
+# ---------------------------------------------------------------------------
+
+async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxEntry:
     """
-    Save code execution log to file for debugging
-    
-    Saves to: backend/chat_logs/{date}/{timestamp}_{chat_id}/code_executions/{timestamp}_{filename}.json
+    Return the live sandbox for this user, creating or reconnecting as needed.
+
+    Resolution order:
+    1. In-process cache hit → renew timeout and return.
+    2. DB record exists → try AsyncSandbox.connect(sandbox_id).
+       - If sandbox is paused, E2B resumes it automatically.
+       - If sandbox is dead, fall through to creation.
+    3. No record → create new sandbox with auto_pause=True.
+
+    Skills are uploaded only when skills_loaded is False on the record.
     """
+    from e2b_code_interpreter import AsyncSandbox
+    from config import Config
+
+    async with _sandboxes_lock:
+        # --- 1. In-process cache ---
+        entry = _sandboxes.get(user_id)
+        if entry is not None:
+            try:
+                await entry.sbx.set_timeout(SANDBOX_IDLE_TIMEOUT)
+                # Refresh envs (API keys may have changed between requests)
+                entry.envs = envs
+                logger.info(f"Reusing in-process sandbox {entry.sbx.sandbox_id} for user {user_id}")
+                return entry
+            except Exception as e:
+                logger.warning(f"In-process sandbox for user {user_id} is dead ({e}), reconnecting")
+                _sandboxes.pop(user_id, None)
+
+        # --- 2. Try reconnecting from DB ---
+        record = await _get_user_sandbox_record(user_id)
+        if record:
+            try:
+                sbx = await AsyncSandbox.connect(
+                    record.sandbox_id,
+                    api_key=Config.E2B_API_KEY,
+                    timeout=SANDBOX_IDLE_TIMEOUT,
+                )
+                # Env vars don't survive pause/resume — stored on entry and
+                # injected per-run via commands.run(envs=...) instead.
+                entry = _SandboxEntry(
+                    sbx=sbx,
+                    file_hashes={},
+                    skills_loaded=record.skills_loaded,
+                    skills_hash=record.skills_hash or "",
+                    envs=envs,
+                )
+                _sandboxes[user_id] = entry
+                logger.info(
+                    f"Reconnected to sandbox {sbx.sandbox_id} for user {user_id} "
+                    f"(skills_loaded={record.skills_loaded}, hash={record.skills_hash})"
+                )
+                return entry
+            except Exception as e:
+                logger.warning(
+                    f"Failed to reconnect to sandbox {record.sandbox_id} for user {user_id} ({e}), "
+                    "creating new sandbox"
+                )
+                await _delete_user_sandbox_record(user_id)
+
+        # --- 3. Create new sandbox ---
+        sbx = await AsyncSandbox.beta_create(
+            api_key=Config.E2B_API_KEY,
+            timeout=SANDBOX_IDLE_TIMEOUT,
+            auto_pause=True,
+            envs=envs,
+        )
+        entry = _SandboxEntry(sbx=sbx, file_hashes={}, skills_loaded=False, envs=envs)
+        _sandboxes[user_id] = entry
+        await _upsert_user_sandbox(user_id, sbx.sandbox_id, skills_loaded=False)
+        logger.info(f"Created new persistent sandbox {sbx.sandbox_id} for user {user_id}")
+        return entry
+
+
+async def _get_or_reconnect_sandbox(user_id: str):
+    """
+    Return a live sandbox for file access, reconnecting from DB if not in cache.
+    Lighter than get_or_create_sandbox — does not build envs or create new sandboxes.
+    Returns None if no sandbox record exists or reconnect fails.
+    """
+    from e2b_code_interpreter import AsyncSandbox
+    from config import Config
+
+    entry = _sandboxes.get(user_id)
+    if entry:
+        return entry.sbx
+
+    record = await _get_user_sandbox_record(user_id)
+    if not record:
+        return None
+    try:
+        sbx = await AsyncSandbox.connect(
+            record.sandbox_id,
+            api_key=Config.E2B_API_KEY,
+            timeout=SANDBOX_IDLE_TIMEOUT,
+        )
+        entry = _SandboxEntry(sbx=sbx, file_hashes={}, skills_loaded=record.skills_loaded,
+                              skills_hash=record.skills_hash or "", envs={})
+        _sandboxes[user_id] = entry
+        logger.info(f"Reconnected sandbox {sbx.sandbox_id} for file access (user {user_id})")
+        return sbx
+    except Exception as e:
+        logger.warning(f"Could not reconnect sandbox for user {user_id}: {e}")
+        return None
+
+
+async def read_sandbox_file(user_id: str, path: str) -> Optional[bytes]:
+    """
+    Read a file directly from the user's sandbox volume (reconnecting if paused).
+    Returns raw bytes, or None if the sandbox doesn't exist or the file isn't found.
+    path may be absolute (/home/user/...) or relative to WORKSPACE_DIR.
+    """
+    sbx = await _get_or_reconnect_sandbox(user_id)
+    if not sbx:
+        return None
+    abs_path = path if path.startswith("/") else f"{WORKSPACE_DIR}/{path}"
+    try:
+        raw = await sbx.files.read(abs_path, format="bytes")
+        return bytes(raw)
+    except Exception:
+        try:
+            text = await sbx.files.read(abs_path, format="text")
+            return text.encode("utf-8")
+        except Exception:
+            return None
+
+
+async def reset_sandbox(user_id: str) -> None:
+    """
+    Hard-reset a user's sandbox: kill the running instance, delete the DB
+    record, and evict from cache. The next execution will create a fresh
+    sandbox and re-load skills onto it.
+    """
+    async with _sandboxes_lock:
+        entry = _sandboxes.pop(user_id, None)
+
+    if entry:
+        try:
+            await entry.sbx.kill()
+            logger.info(f"Killed sandbox {entry.sbx.sandbox_id} for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to kill sandbox for user {user_id}: {e}")
+
+    await _delete_user_sandbox_record(user_id)
+    logger.info(f"Reset persistent sandbox for user {user_id}")
+
+
+# ---------------------------------------------------------------------------
+# Legacy shim — called by routes/chat.py on chat clear.
+# We no longer destroy the sandbox on chat clear; the volume persists.
+# ---------------------------------------------------------------------------
+
+async def kill_sandbox(chat_id: str) -> None:
+    """
+    Backward-compatible shim. Chat clears no longer destroy the user sandbox
+    (skills on the volume would be lost). This is now a no-op; use
+    reset_sandbox(user_id) for a hard reset.
+    """
+    logger.info(f"kill_sandbox({chat_id}) called — sandbox preserved (skills volume intact)")
+
+
+# ---------------------------------------------------------------------------
+# File upload helpers
+# ---------------------------------------------------------------------------
+
+def _compute_skills_hash_from_fs() -> str:
+    """
+    MD5 over every file in the host skills directory.
+    Used to detect when skill files on disk have changed so the sandbox
+    volume can be refreshed without a hard reset.
+    """
+    h = hashlib.md5()
+    if not _HOST_SKILLS_DIR.exists():
+        return ""
+    for path in sorted(_HOST_SKILLS_DIR.rglob("*")):
+        if path.is_file() and "__pycache__" not in path.parts:
+            h.update(str(path.relative_to(_HOST_SKILLS_DIR)).encode())
+            h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+async def _upload_skills(sbx) -> str:
+    """
+    Upload all skill directories from backend/skills/ to /home/user/skills/
+    on the sandbox volume. Reads directly from the filesystem — no DB needed.
+    Returns a hash of the uploaded content so callers can detect future changes.
+    """
+    try:
+        if not _HOST_SKILLS_DIR.exists():
+            logger.warning(f"Skills directory not found at {_HOST_SKILLS_DIR}")
+            return ""
+
+        skill_dirs = [p for p in _HOST_SKILLS_DIR.iterdir() if p.is_dir()]
+        if not skill_dirs:
+            logger.warning(f"No skill subdirectories found in {_HOST_SKILLS_DIR}")
+            return ""
+
+        upload_tasks = []
+        total_files = 0
+
+        for skill_dir in skill_dirs:
+            for file_path in skill_dir.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                if "__pycache__" in file_path.parts:
+                    continue
+                rel = file_path.relative_to(_HOST_SKILLS_DIR)
+                sandbox_path = f"{SKILLS_DIR}/{rel}"
+                try:
+                    content = file_path.read_bytes()
+                    upload_tasks.append((sandbox_path, content))
+                    total_files += 1
+                except Exception as e:
+                    logger.warning(f"Could not read skill file {file_path}: {e}")
+
+        # Upload all files concurrently in batches to avoid overwhelming E2B
+        BATCH_SIZE = 20
+        for i in range(0, len(upload_tasks), BATCH_SIZE):
+            batch = upload_tasks[i:i + BATCH_SIZE]
+            await asyncio.gather(*[
+                sbx.files.write(path, content)
+                for path, content in batch
+            ])
+
+        logger.info(f"Uploaded {len(skill_dirs)} skills ({total_files} files) from {_HOST_SKILLS_DIR}")
+        return _compute_skills_hash_from_fs()
+    except Exception as e:
+        logger.warning(f"Failed to upload system skills: {e}", exc_info=True)
+        return ""
+
+
+async def _install_skill_packages(sbx) -> None:
+    """
+    Pre-install pip packages declared in skills' SKILL.md `requires.bins` lists.
+    Runs once when skills are first loaded onto the sandbox.
+    """
+    from modules.tools.skills_registry import get_all_skill_packages
+
+    packages = get_all_skill_packages()
+    if not packages:
+        return
+
+    pkg_str = " ".join(packages)
+    logger.info(f"Installing skill packages: {pkg_str}")
+    try:
+        result = await sbx.commands.run(
+            f"pip install -q {pkg_str}",
+            timeout=120,
+        )
+        if result.exit_code != 0:
+            logger.warning(f"pip install exited with code {result.exit_code}")
+        else:
+            logger.info(f"Installed skill packages: {pkg_str}")
+    except Exception as e:
+        logger.warning(f"Failed to install skill packages: {e}")
+
+
+async def _upload_api_docs(sbx) -> None:
+    """Write API documentation into the sandbox at /home/user/apis/."""
+    try:
+        from modules.tools.registry import tool_registry
+
+        api_tools = tool_registry.get_api_docs_only_tools()
+        if not api_tools:
+            return
+
+        for tool in api_tools:
+            properties = tool.parameters_schema.get("properties", {})
+            required = tool.parameters_schema.get("required", [])
+
+            lines = [f"# {tool.name}", "", tool.description, "", "## Parameters", ""]
+            for param_name, param_schema in properties.items():
+                is_required = param_name in required
+                param_type = param_schema.get("type", "any")
+                param_desc = param_schema.get("description", "")
+                req_marker = " (required)" if is_required else " (optional)"
+                lines.append(f"### `{param_name}` - {param_type}{req_marker}")
+                if param_desc:
+                    lines.append(param_desc)
+                lines.append("")
+
+            await sbx.files.write(f"{APIS_DIR}/{tool.name}.md", "\n".join(lines))
+
+        logger.info(f"Uploaded {len(api_tools)} API docs to sandbox")
+    except Exception as e:
+        logger.warning(f"Failed to upload API docs: {e}")
+
+
+async def _upload_finch_runtime(sbx) -> None:
+    """Write finch_runtime.py into the sandbox."""
+    try:
+        tools_dir = os.path.join(os.path.dirname(__file__), '..')
+        finch_runtime_path = os.path.join(tools_dir, 'finch_runtime.py')
+
+        if os.path.exists(finch_runtime_path):
+            with open(finch_runtime_path, 'r') as f:
+                content = f.read()
+            await sbx.files.write(f"{WORKSPACE_DIR}/finch_runtime.py", content)
+            logger.info("Uploaded finch_runtime.py to sandbox")
+    except Exception as e:
+        logger.warning(f"Failed to upload finch_runtime.py: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Debug logging
+# ---------------------------------------------------------------------------
+
+def _save_code_execution_log(user_id: str, chat_id: str, execution_data: Dict[str, Any]):
     from config import Config
     from modules.agent.chat_logger import get_chat_log_dir
-    
-    # Only log if DEBUG_CHAT_LOGS is enabled
+
     if not Config.DEBUG_CHAT_LOGS:
         return
-    
+
     try:
-        # Get backend directory (4 levels up from implementations/)
-        # Path: backend/modules/tools/implementations/code_execution.py
         backend_dir = Path(__file__).parent.parent.parent.parent
-        
-        # Get the chat log directory (using shared helper function)
         chat_log_dir = get_chat_log_dir(chat_id, backend_dir)
         code_log_dir = chat_log_dir / "code_executions"
         code_log_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create filename with timestamp and execution filename
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         exec_filename = execution_data.get("execution_filename", "script")
-        # Sanitize filename for safe filesystem use
         safe_exec_filename = exec_filename.replace("/", "_").replace("\\", "_").replace(".py", "")
-        log_filename = f"{timestamp}_{safe_exec_filename}.json"
-        log_filepath = code_log_dir / log_filename
-        
-        # Save execution data
-        logger.debug(f"Writing code execution log to: {log_filepath}")
+        log_filepath = code_log_dir / f"{timestamp}_{safe_exec_filename}.json"
+
         with open(log_filepath, "w") as f:
             json.dump(execution_data, f, indent=2)
-        
-        # Verify file was written
-        if log_filepath.exists():
-            logger.info(f"💾 Saved code execution log to: {log_filepath}")
-        else:
-            logger.error(f"File write appeared to succeed but file not found: {log_filepath}")
-        
+
+        logger.info(f"Saved code execution log to: {log_filepath}")
     except Exception as e:
         logger.error(f"Failed to save code execution log: {e}", exc_info=True)
 
 
-class ExecuteCodeParams(BaseModel):
-    """Execute Python code - provide either 'code' or 'filename' parameter"""
-    code: Optional[str] = Field(
-        default=None,
-        description="Python code to execute directly in sandbox (provide this OR filename). Code runs immediately without creating any file - only output files are saved."
+# ---------------------------------------------------------------------------
+# Tool parameters
+# ---------------------------------------------------------------------------
+
+class BashParams(BaseModel):
+    """Run a bash command in the persistent sandbox."""
+    cmd: str = Field(
+        description="Bash command or script to run. The sandbox is a full Linux environment — use python3, pip, curl, cat, tee, heredoc, etc."
     )
-    filename: Optional[str] = Field(
-        default=None,
-        description="Filename of saved code in chat directory to execute (provide this OR code). This runs an existing saved file from the filesystem."
-    )
-    
-    model_config = {
-        "json_schema_extra": {
-            "anyOf": [
-                {"required": ["code"]},
-                {"required": ["filename"]}
-            ]
-        }
+
+
+async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
+    """
+    Build the environment dict for the sandbox.
+
+    Iterates over SKILL_ENV_KEYS (the registry of all env vars required by skills)
+    and injects each one:
+    - "system" vars: fetched from global config via ApiKeyService.get_env_var()
+    - "user" vars: fetched per-user from DB (currently only Kalshi credentials)
+
+    API keys are injected directly as env vars. The agent is instructed
+    never to print or log key values.
+    """
+    from services.api_keys import ApiKeyService
+    from modules.tools.skills_registry import SKILL_ENV_KEYS
+    from database import get_db_session
+
+    env: Dict[str, str] = {
+        "FINCH_USER_ID": context.user_id or "",
+        "FINCH_CHAT_ID": context.chat_id or "",
+        "PYTHONWARNINGS": "ignore",
+        "LOG_LEVEL": "ERROR",
+        "CODE_SANDBOX": "true",
+        "PYTHONPATH": f"{SKILLS_DIR}:{WORKSPACE_DIR}",
     }
 
+    async with get_db_session() as db:
+        svc = ApiKeyService(db, context.user_id)
 
-class VirtualFilesystem:
-    """
-    Virtual filesystem that syncs with database.
-    
-    Provides persistent file storage across code executions while
-    keeping everything in the database.
-    """
-    
-    def __init__(self, user_id: str, chat_id: str):
-        self.user_id = user_id
-        self.chat_id = chat_id
-        self.temp_dir = None
-        self.file_hashes = {}  # Track file state before execution
-        self.exclude_from_sync = set()  # Files to exclude from syncing (e.g., execution scripts)
-    
-    def setup(self) -> str:
-        """
-        Create temp directory and mount all chat files + API docs.
-        
-        Returns:
-            Path to temp directory
-        """
-        from modules.resource_manager import resource_manager
-        
-        # Create temp directory
-        self.temp_dir = tempfile.mkdtemp(prefix='vfs_')
-        logger.info(f"Created virtual filesystem at: {self.temp_dir}")
-        
-        # Mount API documentation (progressive disclosure)
-        self._mount_api_docs()
-        # Exclude APIs directory from sync - these are system docs, not user files
-        self.exclude_from_sync.add('apis')
-        
-        # Mount finch_runtime module for discoverability
-        self._mount_finch_runtime()
-        # Exclude finch_runtime from sync - this is a system file, not a user file
-        self.exclude_from_sync.add('finch_runtime.py')
-        
-        # Mount servers directory (progressive disclosure - Anthropic pattern)
-        self._mount_servers()
-        self.exclude_from_sync.add('servers')
-        
-        # Load all existing chat files from DB
-        chat_files = resource_manager.list_chat_files(
-            self.user_id,
-            self.chat_id,
-            pattern="*"
-        )
-        
-        mounted_count = 0
-        for file_info in chat_files:
-            filename = file_info['name']
-            
-            # Read file content from DB
-            content = resource_manager.read_chat_file(
-                self.user_id,
-                self.chat_id,
-                filename
-            )
-            
-            if content is not None:
-                # Write to temp directory
-                file_path = os.path.join(self.temp_dir, filename)
-                
-                # Create subdirectories if needed
-                file_dir = os.path.dirname(file_path)
-                if file_dir:
-                    os.makedirs(file_dir, exist_ok=True)
-                
-                # Detect if this is base64-encoded binary data
-                is_binary = False
-                try:
-                    # Try to detect base64 encoded binary files
-                    # Strip any whitespace that might have been added during storage
-                    content_stripped = content.strip()
-                    # Check if content looks like base64 (only alphanumeric, +, /, =)
-                    if len(content_stripped) > 100 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n' for c in content_stripped[:100]):
-                        # Try to decode as base64
-                        import base64
-                        try:
-                            # Remove any newlines/whitespace from base64 string before decoding
-                            content_clean = content_stripped.replace('\n', '').replace('\r', '').replace(' ', '')
-                            binary_data = base64.b64decode(content_clean)
-                            # If successful and looks like binary file (images, pickles, etc), it's binary
-                            # Check for common binary file signatures:
-                            # - PNG: \x89PNG
-                            # - JPEG: \xff\xd8
-                            # - GIF: GIF
-                            # - BMP: BM
-                            # - Python pickle: \x80 (pickle protocol 2+) or other non-text bytes
-                            is_likely_binary = (
-                                binary_data[:4] == b'\x89PNG' or 
-                                binary_data[:2] in [b'\xff\xd8', b'GIF', b'BM'] or
-                                binary_data[:1] == b'\x80' or  # pickle protocol 2+
-                                any(b < 0x20 and b not in [0x09, 0x0a, 0x0d] for b in binary_data[:50])  # non-printable bytes (excluding tab, newline, CR)
-                            )
-                            if is_likely_binary:
-                                is_binary = True
-                                with open(file_path, 'wb') as f:
-                                    f.write(binary_data)
-                                self.file_hashes[filename] = hashlib.md5(binary_data).hexdigest()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                
-                if not is_binary:
-                    # Regular text file
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    self.file_hashes[filename] = self._hash_content(content)
-                
-                mounted_count += 1
-        
-        if mounted_count > 0:
-            logger.info(f"Mounted {mounted_count} existing files from chat resources")
-        
-        return self.temp_dir
-    
-    def _mount_api_docs(self):
-        """
-        Mount API documentation from tools marked with api_docs_only=True.
-        
-        This implements progressive disclosure - tools are discovered on-demand
-        by exploring the filesystem rather than loaded into context upfront.
-        """
-        from modules.tools.registry import tool_registry
-        
-        # Get tools marked for API docs only
-        api_tools = tool_registry.get_api_docs_only_tools()
-        
-        if not api_tools:
-            return
-        
-        # Create /apis directory in temp filesystem
-        apis_dir = os.path.join(self.temp_dir, 'apis')
-        os.makedirs(apis_dir, exist_ok=True)
-        
-        # Write each tool's documentation as a file
-        for tool in api_tools:
-            # Create filename from tool name
-            filename = f"{tool.name}.md"
-            filepath = os.path.join(apis_dir, filename)
-            
-            # Format tool documentation
-            doc_content = self._format_tool_docs(tool)
-            
-            with open(filepath, 'w') as f:
-                f.write(doc_content)
-        
-        logger.info(f"Mounted {len(api_tools)} API docs in /apis/ for progressive discovery")
-    
-    def _mount_finch_runtime(self):
-        """
-        Mount finch_runtime.py into the temp filesystem for discoverability.
-        
-        PROGRESSIVE DISCLOSURE IMPLEMENTATION:
-        This method implements the key pattern from Anthropic's MCP article:
-        
-        1. Query MCP servers for available tools (dynamic discovery)
-        2. Generate finch_runtime.py with all APIs documented
-        3. Agent reads the module to understand what's available
-        4. Only the MODULE DEFINITION loads into context, not tool results
-        5. Agent writes code to call specific tools as needed
-        
-        This allows the LLM to:
-        1. See that finch_runtime exists when exploring the filesystem
-        2. Read the source code to discover available methods
-        3. Understand the API without relying solely on tool description
-        
-        Key insight: Tool DEFINITIONS are cheap (few KB), tool RESULTS are expensive.
-        By loading definitions on-demand from filesystem, we avoid bloating context.
-        """
-        try:
-            # Option 1: Use static finch_runtime.py (current approach)
-            # Good for: Stability, offline development, known APIs
-            tools_dir = os.path.join(os.path.dirname(__file__), '..')
-            finch_runtime_path = os.path.join(tools_dir, 'finch_runtime.py')
-            
-            if os.path.exists(finch_runtime_path):
-                # Read the source
-                with open(finch_runtime_path, 'r') as f:
-                    content = f.read()
-                
-                # Write to temp filesystem
-                dest_path = os.path.join(self.temp_dir, 'finch_runtime.py')
-                with open(dest_path, 'w') as f:
-                    f.write(content)
-                
-                logger.info("Mounted finch_runtime.py for progressive discovery")
-            
-            # Option 2: Generate from MCP servers dynamically (future enhancement)
-            # Good for: Auto-updating as servers change, true progressive disclosure
-            # Uncomment when MCP servers are implemented:
-            #
-            # from modules.tools.mcp_runtime_generator import generate_runtime_sync
-            # dest_path = os.path.join(self.temp_dir, 'finch_runtime.py')
-            # generate_runtime_sync(dest_path)
-            # logger.info("Generated finch_runtime.py from MCP servers")
-            
-        except Exception as e:
-            logger.warning(f"Failed to mount finch_runtime.py: {e}")
-    
-    def _mount_servers(self):
-        """
-        Mount servers/ directory for progressive disclosure.
-        
-        Implements Anthropic's MCP pattern:
-        - One directory per server (fmp, polygon, reddit)
-        - One Python file per API endpoint
-        - Agent discovers by exploring filesystem
-        - Loads only what it needs (98% token savings!)
-        """
-        try:
-            # Path to servers directory
-            tools_dir = os.path.join(os.path.dirname(__file__), '..')
-            servers_source = os.path.join(tools_dir, 'servers')
-            
-            if not os.path.exists(servers_source):
-                logger.debug("No servers directory found - skipping mount")
-                return
-            
-            # Copy entire servers directory to VFS
-            servers_dest = os.path.join(self.temp_dir, 'servers')
-            shutil.copytree(servers_source, servers_dest)
-            
-            # Count what was mounted
-            server_count = len([d for d in os.listdir(servers_dest) 
-                              if os.path.isdir(os.path.join(servers_dest, d))])
-            
-            logger.info(f"Mounted servers directory with {server_count} API servers for progressive discovery")
-            
-        except Exception as e:
-            logger.warning(f"Failed to mount servers directory: {e}")
-    
-    @staticmethod
-    def _format_tool_docs(tool) -> str:
-        """Format tool documentation for filesystem"""
-        lines = [
-            f"# {tool.name}",
-            "",
-            tool.description,
-            "",
-            "## Parameters",
-            ""
-        ]
-        
-        # Add parameter documentation
-        properties = tool.parameters_schema.get("properties", {})
-        required = tool.parameters_schema.get("required", [])
-        
-        for param_name, param_schema in properties.items():
-            is_required = param_name in required
-            param_type = param_schema.get("type", "any")
-            param_desc = param_schema.get("description", "")
-            
-            req_marker = " (required)" if is_required else " (optional)"
-            lines.append(f"### `{param_name}` - {param_type}{req_marker}")
-            if param_desc:
-                lines.append(f"{param_desc}")
-            lines.append("")
-        
-        return "\n".join(lines)
+        # System-owned keys — same value for all users, from global config / .env
+        for env_var, (_, owner) in SKILL_ENV_KEYS.items():
+            if owner != "system":
+                continue
+            key = svc.get_env_var(env_var)
+            if key and key.get():
+                env[env_var] = key.get()
 
-    
-    def sync_changes(self) -> Dict[str, List[str]]:
-        """
-        Sync changes back to database.
-        
-        Detects:
-        - New files (didn't exist before)
-        - Modified files (hash changed)
-        - Deleted files (existed before, now gone)
-        
-        Returns:
-            Dict with lists of new, modified, and deleted files
-        """
-        from modules.resource_manager import resource_manager
-        
-        if not self.temp_dir or not os.path.exists(self.temp_dir):
-            return {"new": [], "modified": [], "deleted": []}
-        
-        changes = {"new": [], "modified": [], "deleted": []}
-        current_files = set()
-        
-        # Scan all files in temp directory
-        for root, dirs, files in os.walk(self.temp_dir):
-            for filename in files:
-                file_path = os.path.join(root, filename)
-                relative_path = os.path.relpath(file_path, self.temp_dir)
-                
-                # Skip Python cache and hidden files (except .finch_state.pkl for notebook mode)
-                if '__pycache__' in relative_path:
-                    continue
-                if relative_path.startswith('.') and relative_path != '.finch_state.pkl':
-                    continue
-                
-                # Skip files/directories marked for exclusion (e.g., temporary execution scripts, system files)
-                # Check if file itself is excluded OR if it's inside an excluded directory
-                should_exclude = False
-                if relative_path in self.exclude_from_sync:
-                    should_exclude = True
-                else:
-                    # Check if file is inside an excluded directory (e.g., apis/some_file.md)
-                    for excluded_path in self.exclude_from_sync:
-                        if relative_path.startswith(excluded_path + '/') or relative_path.startswith(excluded_path + os.sep):
-                            should_exclude = True
-                            break
-                
-                if should_exclude:
-                    continue
-                
-                current_files.add(relative_path)
-                
-                # Try to read as text first, then fall back to binary
-                is_binary = False
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    current_hash = self._hash_content(content)
-                except UnicodeDecodeError:
-                    # Binary file - read as bytes and base64 encode
-                    is_binary = True
-                    with open(file_path, 'rb') as f:
-                        binary_content = f.read()
-                    import base64
-                    content = base64.b64encode(binary_content).decode('ascii')
-                    current_hash = hashlib.md5(binary_content).hexdigest()
-                    logger.info(f"Detected binary file: {relative_path} ({len(binary_content)} bytes)")
-                
-                # Check if new or modified
-                if relative_path not in self.file_hashes:
-                    # New file
-                    resource_manager.write_chat_file(
-                        self.user_id,
-                        self.chat_id,
-                        relative_path,
-                        content
-                    )
-                    changes["new"].append(relative_path)
-                    file_type = " (binary)" if is_binary else ""
-                    logger.info(f"New file{file_type}: {relative_path}")
-                
-                elif current_hash != self.file_hashes[relative_path]:
-                    # Modified file
-                    resource_manager.write_chat_file(
-                        self.user_id,
-                        self.chat_id,
-                        relative_path,
-                        content
-                    )
-                    changes["modified"].append(relative_path)
-                    file_type = " (binary)" if is_binary else ""
-                    logger.info(f"Modified file{file_type}: {relative_path}")
-        
-        # Check for deleted files
-        for old_file in self.file_hashes.keys():
-            if old_file not in current_files:
-                resource_manager.delete_chat_file(
-                    self.user_id,
-                    self.chat_id,
-                    old_file
-                )
-                changes["deleted"].append(old_file)
-                logger.info(f"Deleted file: {old_file}")
-        
-        return changes
-    
-    def cleanup(self):
-        """Remove temp directory"""
-        if self.temp_dir and os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir, ignore_errors=True)
-            logger.info(f"Cleaned up virtual filesystem")
-    
-    @staticmethod
-    def _hash_content(content: str) -> str:
-        """Hash file content for change detection"""
-        return hashlib.md5(content.encode('utf-8')).hexdigest()
+        # User-owned keys — fetched per-user from DB
+        # Currently only Kalshi; add new user-key services here as needed.
+        kalshi = await svc.get_kalshi_credentials()
+        if kalshi:
+            env["KALSHI_API_KEY_ID"]  = kalshi["api_key_id"].get()
+            env["KALSHI_PRIVATE_KEY"] = kalshi["private_key"].get()
+
+    return env
 
 
-async def execute_code_impl(
-    params: ExecuteCodeParams,
+# ---------------------------------------------------------------------------
+# Main execution entry point
+# ---------------------------------------------------------------------------
+
+async def bash_impl(
+    params: BashParams,
     context: AgentContext
 ) -> AsyncGenerator[SSEEvent | Dict[str, Any], None]:
-    """Execute Python code with virtual persistent filesystem"""
-    from modules.resource_manager import resource_manager
-    
-    yield SSEEvent(event="tool_status", data={
-        "status": "loading",
-        "message": "Setting up environment..."
-    })
-    
-    vfs = VirtualFilesystem(context.user_id, context.chat_id)
-    
+    """Run a bash command in the user's persistent E2B sandbox."""
+    from config import Config
+
+    if not Config.E2B_API_KEY:
+        yield {"success": False, "error": "E2B_API_KEY not configured",
+               "message": "E2B API key is missing — set E2B_API_KEY in your environment"}
+        return
+
+    cmd = params.cmd
+    execution_timestamp = datetime.now().isoformat()
+    execution_start_time = time.time()
+
+    logger.info("=" * 80)
+    logger.info("BASH (persistent E2B sandbox)")
+    logger.info(f"User: {context.user_id}, Chat: {context.chat_id}")
+    logger.info(f"cmd:\n{'-'*40}\n{cmd}\n{'-'*40}")
+
     try:
-        # Determine execution mode
-        is_inline = params.code is not None
-        execution_mode = "inline"
-        script_path = None
-        code = None
-        
-        if params.code:
-            # Inline code - execute directly without creating files in VFS
-            code = params.code
-            source = "inline code"
-            execution_mode = "inline"
-                    
-        elif params.filename:
-            # File-based execution - run existing file from VFS
-            code = resource_manager.read_chat_file(
-                context.user_id,
-                context.chat_id,
-                params.filename
+        envs = await _build_sandbox_env(context)
+
+        is_new_sandbox = context.user_id not in _sandboxes
+
+        yield SSEEvent(event="tool_status", data={
+            "status": "loading",
+            "message": "Starting sandbox..." if is_new_sandbox else "Connecting to sandbox..."
+        })
+
+        entry = await get_or_create_sandbox(context.user_id, envs)
+        sbx = entry.sbx
+
+        # Compute current skills hash from disk to detect changes
+        current_skills_hash = _compute_skills_hash_from_fs()
+
+        needs_upload = not entry.skills_loaded or entry.skills_hash != current_skills_hash
+
+        if needs_upload:
+            yield SSEEvent(event="tool_status", data={
+                "status": "loading",
+                "message": "Loading skills onto sandbox..."
+            })
+            new_hash, _, _ = await asyncio.gather(
+                _upload_skills(sbx),
+                _upload_api_docs(sbx),
+                _upload_finch_runtime(sbx),
             )
-            if not code:
-                yield {"success": False, "error": f"File '{params.filename}' not found", "message": f"File '{params.filename}' not found in chat files"}
-                return
-            source = f"file '{params.filename}'"
-            execution_mode = "file"
-        else:
-            yield {"success": False, "error": "Provide either 'code' or 'filename'", "message": "Must provide either 'code' or 'filename' parameter"}
-            return
-        
-        # Setup virtual filesystem (mount existing files)
-        temp_dir = vfs.setup()
-        
-        # Determine where to write the script
-        if execution_mode == "inline":
-            # For inline code, write to a temp file OUTSIDE the VFS to avoid it showing up in filesystem
-            import tempfile
-            temp_script_fd, script_path = tempfile.mkstemp(suffix='.py', prefix='inline_', dir=None)
-            os.close(temp_script_fd)  # Close the file descriptor, we'll write to it below
-        else:
-            # For file execution, the file is already in the VFS
-            script_path = os.path.join(temp_dir, params.filename)
-        
-        # Track execution start time for logging
-        execution_start_time = time.time()
-        execution_timestamp = datetime.now().isoformat()
-        
-        # Get list of mounted files for logging
-        mounted_files = []
-        if os.path.exists(temp_dir):
-            for root, dirs, files in os.walk(temp_dir):
-                for f in files:
-                    rel_path = os.path.relpath(os.path.join(root, f), temp_dir)
-                    if not rel_path.startswith('.') and '__pycache__' not in rel_path:
-                        mounted_files.append(rel_path)
-        
-        # Log detailed execution info for debugging
-        logger.info(f"=" * 80)
-        logger.info(f"CODE EXECUTION START")
-        logger.info(f"Timestamp: {execution_timestamp}")
-        logger.info(f"Source: {source}")
-        logger.info(f"Execution mode: {execution_mode}")
-        logger.info(f"Script path: {script_path}")
-        logger.info(f"Working dir: {temp_dir}")
-        logger.info(f"User: {context.user_id}, Chat: {context.chat_id}")
-        logger.info(f"Mounted files: {len(mounted_files)} files")
-        if mounted_files:
-            logger.info(f"  Available files: {', '.join(mounted_files[:10])}")
-            if len(mounted_files) > 10:
-                logger.info(f"  ... and {len(mounted_files) - 10} more")
-        logger.info(f"Code length: {len(code)} characters")
-        logger.info(f"Code to execute:\n{'-' * 40}\n{code}\n{'-' * 40}")
-        
+            # Install skill package dependencies after files are uploaded
+            await _install_skill_packages(sbx)
+            entry.skills_loaded = True
+            entry.skills_hash = new_hash
+            await _upsert_user_sandbox(context.user_id, sbx.sandbox_id, skills_loaded=True, skills_hash=new_hash)
+
         yield SSEEvent(event="tool_status", data={
             "status": "executing",
-            "message": f"Running {source}..."
+            "message": "Running..."
         })
-        
-        try:
-            # Write code to script file
-            # For inline: writes to temp file outside VFS
-            # For file execution: file already exists in VFS, but we write it anyway for consistency
-            with open(script_path, 'w') as f:
-                f.write(code)
-            
-            # Set up environment with proper PYTHONPATH for finch_runtime access
-            # Go up 3 levels: implementations -> tools -> modules -> backend
-            backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-            env = os.environ.copy()
-            
-            # Pass API keys to sandbox using centralized service
-            # Priority: user-specific keys override global config keys
-            from services.api_keys import ApiKeyService
-            from database import get_db_session
-            
-            # Pass user context
-            env['FINCH_USER_ID'] = context.user_id or ''
-            env['FINCH_CHAT_ID'] = context.chat_id or ''
-            
-            # Fetch all API keys (user-specific + global) and pass to sandbox
-            try:
-                async with get_db_session() as db:
-                    key_service = ApiKeyService(db, context.user_id)
-                    
-                    # Standard API keys
-                    for service in ['FMP', 'POLYGON', 'SERPER', 'DOME']:
-                        key = await key_service.get_key(service)
-                        env[f'{service}_API_KEY'] = key.get() if key else ''
-                    
-                    # Kalshi (requires special handling for dual credentials)
-                    kalshi_creds = await key_service.get_kalshi_credentials()
-                    if kalshi_creds:
-                        env['KALSHI_API_KEY_ID'] = kalshi_creds['api_key_id'].get()
-                        env['KALSHI_PRIVATE_KEY'] = kalshi_creds['private_key'].get()
-                        logger.debug(f"Passed Kalshi credentials to sandbox for user {context.user_id}")
-                    else:
-                        env['KALSHI_API_KEY_ID'] = ''
-                        env['KALSHI_PRIVATE_KEY'] = ''
-                    
-            except Exception as e:
-                logger.warning(f"Failed to fetch API keys for sandbox: {e}")
-                # Fallback to global config keys only
-                from config import Config
-                env['FMP_API_KEY'] = Config.FMP_API_KEY or ''
-                env['POLYGON_API_KEY'] = Config.POLYGON_API_KEY or ''
-                env['SERPER_API_KEY'] = Config.SERPER_API_KEY or ''
-                env['DOME_API_KEY'] = Config.DOME_API_KEY or ''
-                env['KALSHI_API_KEY_ID'] = ''
-                env['KALSHI_PRIVATE_KEY'] = ''
-            
-            # Add both temp_dir and backend directory to PYTHONPATH
-            # temp_dir: allows "from finch_runtime import X" (direct import)
-            # backend_dir: allows "from modules.tools.finch_runtime import X" (module import)
-            if 'PYTHONPATH' in env:
-                env['PYTHONPATH'] = f"{temp_dir}:{backend_dir}:{env['PYTHONPATH']}"
-            else:
-                env['PYTHONPATH'] = f"{temp_dir}:{backend_dir}"
-            
-            # Suppress logging noise in sandbox environment
-            env['PYTHONWARNINGS'] = 'ignore'  # Suppress Python warnings (e.g., opentelemetry)
-            env['LOG_LEVEL'] = 'ERROR'  # Only show ERROR logs, suppress INFO/DEBUG
-            env['CODE_SANDBOX'] = 'true'  # Flag to indicate we're in sandbox (for future use)
-            
-            # Execute with subprocess - streaming mode for real-time output
-            import select
-            
-            process = subprocess.Popen(
-                ['python', script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=temp_dir,
-                env=env,
-                bufsize=1,  # Line buffered
-                universal_newlines=True
-            )
-            
-            # Stream stdout/stderr in real-time
-            stdout_lines = []
-            stderr_lines = []
-            start_time = time.time()
-            
-            # Use select to read from both stdout and stderr
-            import os as os_module
-            # Set non-blocking mode for pipes
-            import fcntl
-            fd_stdout = process.stdout.fileno()
-            fd_stderr = process.stderr.fileno()
-            fl_stdout = fcntl.fcntl(fd_stdout, fcntl.F_GETFL)
-            fl_stderr = fcntl.fcntl(fd_stderr, fcntl.F_GETFL)
-            fcntl.fcntl(fd_stdout, fcntl.F_SETFL, fl_stdout | os_module.O_NONBLOCK)
-            fcntl.fcntl(fd_stderr, fcntl.F_SETFL, fl_stderr | os_module.O_NONBLOCK)
-            
-            timeout_seconds = 60
-            last_output_time = time.time()
-            
-            while True:
-                # Check timeout
-                if time.time() - start_time > timeout_seconds:
-                    process.kill()
-                    process.wait()
-                    raise subprocess.TimeoutExpired(process.args, timeout_seconds)
-                
-                # Check if process has finished
-                returncode = process.poll()
-                
-                # Try to read from stdout
-                try:
-                    line = process.stdout.readline()
-                    if line:
-                        stdout_lines.append(line)
-                        # Stream to frontend - use code_output event for real-time streaming
-                        yield SSEEvent(event="code_output", data={
-                            "stream": "stdout",
-                            "content": line.rstrip()
-                        })
-                except:
-                    pass
-                
-                # Try to read from stderr
-                try:
-                    line = process.stderr.readline()
-                    if line:
-                        stderr_lines.append(line)
-                        last_output_time = time.time()
-                        # Stream to frontend - use code_output event for real-time streaming
-                        yield SSEEvent(event="code_output", data={
-                            "stream": "stderr",
-                            "content": line.rstrip()
-                        })
-                        logger.warning(f"STDERR: {line.rstrip()}")
-                except:
-                    pass
-                
-                # If process finished and no more output, break
-                if returncode is not None:
-                    # Read any remaining output
-                    try:
-                        remaining_stdout = process.stdout.read()
-                        if remaining_stdout:
-                            for line in remaining_stdout.splitlines(keepends=True):
-                                stdout_lines.append(line)
-                                yield SSEEvent(event="code_output", data={
-                                    "stream": "stdout",
-                                    "content": line.rstrip()
-                                })
-                    except:
-                        pass
-                    
-                    try:
-                        remaining_stderr = process.stderr.read()
-                        if remaining_stderr:
-                            for line in remaining_stderr.splitlines(keepends=True):
-                                stderr_lines.append(line)
-                                yield SSEEvent(event="code_output", data={
-                                    "stream": "stderr",
-                                    "content": line.rstrip()
-                                })
-                                logger.warning(f"STDERR: {line.rstrip()}")
-                    except:
-                        pass
-                    
-                    break
-                
-                # Small sleep to avoid busy waiting
-                await asyncio.sleep(0.01)
-            
-            # Build result object to match subprocess.run() interface
-            class Result:
-                def __init__(self, returncode, stdout, stderr):
-                    self.returncode = returncode
-                    self.stdout = stdout
-                    self.stderr = stderr
-            
-            result = Result(
-                returncode=returncode,
-                stdout=''.join(stdout_lines),
-                stderr=''.join(stderr_lines)
-            )
-            
-            # Log execution output to console for debugging
-            logger.info(f"Code execution completed with exit code: {result.returncode}")
-            
-            # Sync changes back to database
-            changes = vfs.sync_changes()
-            
-            # Calculate execution duration
-            execution_duration = time.time() - execution_start_time
-            
-            # Log file changes
-            if changes["new"]:
-                logger.info(f"New files created: {', '.join(changes['new'])}")
-            if changes["modified"]:
-                logger.info(f"Files modified: {', '.join(changes['modified'])}")
-            if changes["deleted"]:
-                logger.info(f"Files deleted: {', '.join(changes['deleted'])}")
-            
-            # Save code execution log
-            execution_log_data = {
-                "timestamp": execution_timestamp,
-                "execution_mode": execution_mode,
-                "execution_filename": params.filename if params.filename else "inline_code",
-                "source": source,
-                "user_id": context.user_id,
-                "chat_id": context.chat_id,
-                "code": code,
-                "code_length": len(code),
-                "working_directory": temp_dir,
-                "script_path": script_path,
-                "exit_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "execution_duration_seconds": execution_duration,
-                "mounted_files": mounted_files,
-                "file_changes": changes,
-                "success": result.returncode == 0
-            }
-            _save_code_execution_log(context.user_id, context.chat_id, execution_log_data)
-            
-            # Emit resource events for new/modified files so frontend knows about them
-            for filename in changes["new"] + changes["modified"]:
-                file_type = "text"
-                if filename.endswith('.py'):
-                    file_type = "python"
-                elif filename.endswith('.md'):
-                    file_type = "markdown"
-                elif filename.endswith('.csv'):
-                    file_type = "csv"
-                elif filename.endswith('.json'):
-                    file_type = "json"
-                elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
-                    file_type = "image"
-                
-                # Get file content to determine size
-                try:
-                    content = resource_manager.read_chat_file(context.user_id, context.chat_id, filename)
-                    size_bytes = len(content.encode('utf-8')) if isinstance(content, str) else len(content)
-                except:
-                    size_bytes = 0
-                
-                yield SSEEvent(
-                    event="resource",
-                    data={
-                        "resource_type": "file",
-                        "tool_name": "execute_code",
-                        "title": filename,
-                        "data": {
-                            "filename": filename,
-                            "file_type": file_type,
-                            "size_bytes": size_bytes
-                        }
-                    }
-                )
-            
-            # Clean up temp directory
-            vfs.cleanup()
-            
-            # Clean up inline script temp file if it exists
-            if execution_mode == "inline" and script_path and os.path.exists(script_path):
-                try:
-                    os.remove(script_path)
-                except:
-                    pass
-            
-            # Truncate output if needed
-            MAX_OUTPUT_SIZE = 8000
-            stdout_truncated = result.stdout
-            stderr_truncated = result.stderr
-            truncation_note = ""
-            
-            if len(stdout_truncated) > MAX_OUTPUT_SIZE:
-                stdout_truncated = stdout_truncated[:MAX_OUTPUT_SIZE] + "\n... [OUTPUT TRUNCATED]"
-                truncation_note = " (output truncated)"
-            
-            if len(stderr_truncated) > MAX_OUTPUT_SIZE:
-                stderr_truncated = stderr_truncated[:MAX_OUTPUT_SIZE] + "\n... [OUTPUT TRUNCATED]"
-            
-            if result.returncode != 0:
-                # Format error message with stderr for user
-                error_msg = f"Code failed with exit code {result.returncode}\n\n"
-                if stderr_truncated:
-                    error_msg += f"**Error output:**\n```\n{stderr_truncated}\n```"
-                if stdout_truncated:
-                    error_msg += f"\n\n**Standard output:**\n```\n{stdout_truncated}\n```"
-                
-                # Clean up inline script temp file if it exists
-                if execution_mode == "inline" and script_path and os.path.exists(script_path):
-                    try:
-                        os.remove(script_path)
-                    except:
-                        pass
-                
-                yield {
-                    "success": False,
-                    "error": error_msg,
-                    "stderr": stderr_truncated,
-                    "stdout": stdout_truncated,
-                    "changes": changes
-                }
-                return
-            
-            yield SSEEvent(event="tool_status", data={
-                "status": "complete",
-                "message": f"Execution complete{truncation_note}"
-            })
-            
-            yield {
-                "success": True,
-                "stdout": stdout_truncated,
-                "stderr": stderr_truncated,
-                "changes": changes,
-                "message": f"Code executed successfully{truncation_note}"
-            }
-        
-        except subprocess.TimeoutExpired:
-            vfs.cleanup()
-            # Clean up inline script temp file
-            if execution_mode == "inline" and script_path and os.path.exists(script_path):
-                try:
-                    os.remove(script_path)
-                except:
-                    pass
-            yield {"success": False, "error": "Code execution timed out after 60 seconds", "message": "Execution timed out after 60 seconds"}
-            return
-        
-        except Exception as e:
-            vfs.cleanup()
-            # Clean up inline script temp file
-            if execution_mode == "inline" and script_path and os.path.exists(script_path):
-                try:
-                    os.remove(script_path)
-                except:
-                    pass
-            raise e
-    
-    except Exception as e:
-        logger.error(f"Error executing code: {str(e)}", exc_info=True)
-        vfs.cleanup()
-        # Clean up inline script temp file
-        if execution_mode == "inline" and script_path and os.path.exists(script_path):
-            try:
-                os.remove(script_path)
-            except:
-                pass
-        yield {"success": False, "error": str(e), "message": f"Code execution failed: {str(e)}"}
 
+        stdout_lines: List[str] = []
+        stderr_lines: List[str] = []
+
+        run_result = await sbx.commands.run(
+            cmd,
+            cwd=WORKSPACE_DIR,
+            timeout=EXECUTION_TIMEOUT,
+            envs=entry.envs,
+            on_stdout=lambda msg: stdout_lines.append(msg.line if hasattr(msg, 'line') else str(msg)),
+            on_stderr=lambda msg: (
+                stderr_lines.append(msg.line if hasattr(msg, 'line') else str(msg)),
+                logger.warning(f"STDERR: {msg.line if hasattr(msg, 'line') else str(msg)}")
+            ),
+        )
+
+        for line in stdout_lines:
+            yield SSEEvent(event="code_output", data={"stream": "stdout", "content": line.rstrip()})
+        for line in stderr_lines:
+            yield SSEEvent(event="code_output", data={"stream": "stderr", "content": line.rstrip()})
+
+        exit_code = run_result.exit_code
+        stdout_text = "\n".join(stdout_lines)
+        stderr_text = "\n".join(stderr_lines)
+
+        logger.info(f"Execution completed with exit code: {exit_code}")
+
+        execution_duration = time.time() - execution_start_time
+
+        _save_code_execution_log(context.user_id, context.chat_id, {
+            "timestamp": execution_timestamp,
+            "user_id": context.user_id,
+            "chat_id": context.chat_id,
+            "cmd": cmd,
+            "sandbox_id": sbx.sandbox_id,
+            "exit_code": exit_code,
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+            "execution_duration_seconds": execution_duration,
+            "success": exit_code == 0,
+        })
+
+        MAX_OUTPUT_SIZE = 8000
+        stdout_truncated = stdout_text[:MAX_OUTPUT_SIZE] + "\n... [OUTPUT TRUNCATED]" if len(stdout_text) > MAX_OUTPUT_SIZE else stdout_text
+        stderr_truncated = stderr_text[:MAX_OUTPUT_SIZE] + "\n... [OUTPUT TRUNCATED]" if len(stderr_text) > MAX_OUTPUT_SIZE else stderr_text
+        truncation_note = " (output truncated)" if len(stdout_text) > MAX_OUTPUT_SIZE else ""
+
+        if exit_code != 0:
+            error_msg = f"Command exited with code {exit_code}\n\n"
+            if stderr_truncated:
+                error_msg += f"**stderr:**\n```\n{stderr_truncated}\n```"
+            if stdout_truncated:
+                error_msg += f"\n\n**stdout:**\n```\n{stdout_truncated}\n```"
+
+            yield {
+                "success": False,
+                "error": error_msg,
+                "stderr": stderr_truncated,
+                "stdout": stdout_truncated,
+            }
+            return
+
+        yield SSEEvent(event="tool_status", data={
+            "status": "complete",
+            "message": f"Done{truncation_note}"
+        })
+
+        yield {
+            "success": True,
+            "stdout": stdout_truncated,
+            "stderr": stderr_truncated,
+            "message": f"Done{truncation_note}",
+        }
+
+    except Exception as e:
+        logger.error(f"bash error: {str(e)}", exc_info=True)
+        yield {"success": False, "error": str(e), "message": f"bash failed: {str(e)}"}

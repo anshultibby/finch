@@ -68,9 +68,14 @@ export function getApiBaseUrl(): string {
 }
 
 /**
- * Build a chat file download URL
+ * Build a chat file download URL.
+ * Absolute VM paths (starting with /) are proxied directly from the live sandbox.
+ * Plain filenames are served from the DB.
  */
 export function getChatFileUrl(chatId: string, filename: string): string {
+  if (filename.startsWith('/')) {
+    return `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(filename)}`;
+  }
   return `${getApiBaseUrl()}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`;
 }
 

@@ -509,28 +509,14 @@ def read_chat_file_impl(
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
     peek: bool = False,
-    from_api_docs: bool = False,
-    from_skills: bool = False
 ):
     """
-    Read file from chat directory with optional line range (like Cursor).
-    Also supports reading API documentation from servers/ directory,
-    or reading skill content from DB by skill id.
-    
-    For text files: returns content as string, optionally sliced by line range
-    For images: returns image data that can be viewed by the LLM (multimodal)
-    
-    Args:
-        context: Agent context
-        filename: File to read. When from_skills=True, pass the skill id.
-        start_line: 1-indexed start line (default: 1)
-        end_line: 1-indexed end line, inclusive (default: last line)
-        peek: If True, read first 100 lines (like Cursor's default preview)
-        from_api_docs: If True, reads from servers/ directory instead of chat files
-        from_skills: If True, reads skill content from DB by skill id
+    Read file from chat directory with optional line range.
+
+    Note: from_skills is deprecated. Skill files now live at /home/user/skills/<name>/
+    on the sandbox filesystem. Use bash('cat /home/user/skills/<name>/SKILL.md') instead.
     """
     from modules.resource_manager import resource_manager
-    from pathlib import Path
     
     # If peek is True, read first 100 lines (Cursor's default)
     if peek:
@@ -544,51 +530,12 @@ def read_chat_file_impl(
         end_line = int(end_line)
     
     try:
-        # If reading a skill, load its content from DB synchronously
-        if from_skills:
-            from crud import skills as skills_crud
-            from database import sync_get_skill
-
-            content = sync_get_skill(filename, context.user_id)
-            if content is None:
-                return {"success": False, "error": f"Skill '{filename}' not found"}
-
-            file_data = {"content": content, "file_type": "markdown", "is_image": False}
-
-        # If reading from API docs, read from servers/ directory
-        elif from_api_docs:
-            backend_dir = Path(__file__).parent.parent.parent.parent  # backend/
-            # Support both "dome/AGENTS.md" and "servers/dome/AGENTS.md"
-            if filename.startswith('servers/'):
-                filename = filename[8:]  # Remove "servers/" prefix
-            
-            file_path = backend_dir / "modules" / "tools" / "servers" / filename
-            
-            if not file_path.exists() or not file_path.is_file():
-                # List available servers for helpful error
-                servers_dir = backend_dir / "modules" / "tools" / "servers"
-                available = [d.name for d in servers_dir.iterdir() 
-                           if d.is_dir() and not d.name.startswith('_')]
-                return {
-                    "success": False, 
-                    "error": f"API doc file '{filename}' not found",
-                    "hint": f"Available servers: {', '.join(available)}. Try reading '<server>/AGENTS.md' or 'AGENTS.md' for overview"
-                }
-            
-            content = file_path.read_text()
-            # Create file_data dict matching the expected format
-            file_data = {
-                "content": content,
-                "file_type": "text",
-                "is_image": False
-            }
-        else:
-            # Read from chat files (user's workspace)
-            file_data = resource_manager.read_chat_file_with_metadata(
-                context.user_id,
-                context.chat_id,
-                filename
-            )
+        # Read from chat files (user's workspace)
+        file_data = resource_manager.read_chat_file_with_metadata(
+            context.user_id,
+            context.chat_id,
+            filename
+        )
         
         if file_data is None:
             return {"success": False, "error": f"File '{filename}' not found"}

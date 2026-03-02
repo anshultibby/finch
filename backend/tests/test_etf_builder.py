@@ -175,7 +175,7 @@ class TestETFBuilderIntegration:
         """Test that tool is in executor agent config"""
         from config import Config
         
-        assert "build_custom_etf" in Config.EXECUTOR_AGENT_TOOLS
+        assert "build_custom_etf" in Config.AGENT_TOOLS
     
     def test_params_validation(self):
         """Test Pydantic validation"""

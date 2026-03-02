@@ -1,126 +1,150 @@
 """
-Skills API routes — user library + store
+Skills API routes.
+
+Skills live on disk at backend/skills/<name>/. This API:
+- Lists available skills with their metadata (read from SKILL.md frontmatter)
+- Exposes file contents for the UI browser
+- Manages per-user enabled/disabled state in DB (UserSkill table)
 """
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List
+from pydantic import BaseModel
+import re
+
 from database import get_db_session
 from crud import skills as skills_crud
-from models.skills import SkillRequest, SkillResponse, GlobalSkillRequest, GlobalSkillResponse
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
-
-def _skill_out(skill) -> SkillResponse:
-    return SkillResponse(
-        id=skill.id,
-        name=skill.name,
-        description=skill.description,
-        content=skill.content,
-        enabled=skill.enabled,
-        source_id=skill.source_id,
-        created_at=skill.created_at.isoformat(),
-        updated_at=skill.updated_at.isoformat(),
-    )
+_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 
-def _global_skill_out(skill) -> GlobalSkillResponse:
-    return GlobalSkillResponse(
-        id=skill.id,
-        name=skill.name,
-        description=skill.description,
-        content=skill.content,
-        category=skill.category,
-        is_official=skill.is_official,
-        install_count=skill.install_count,
-        author_user_id=skill.author_user_id,
-        created_at=skill.created_at.isoformat(),
-    )
+# ── Pydantic models ───────────────────────────────────────────────────────────
+
+class SkillFile(BaseModel):
+    filename: str
+    file_type: str
+    content: str
 
 
-# ── User library ──────────────────────────────────────────────────────────────
+class CatalogSkill(BaseModel):
+    name: str
+    description: str
+    content: str           # SKILL.md body (without frontmatter)
+    emoji: Optional[str] = None
+    homepage: Optional[str] = None
+    category: Optional[str] = None
+    is_system: bool = True
+    files: List[SkillFile] = []
+    enabled: bool = False  # user-specific
 
-@router.get("/", response_model=list[SkillResponse])
-async def list_skills(user_id: str, enabled_only: bool = False):
+
+# ── Filesystem helpers ────────────────────────────────────────────────────────
+
+def _file_type(filename: str) -> str:
+    ext = Path(filename).suffix.lower()
+    return {
+        ".md": "markdown", ".py": "python", ".js": "javascript",
+        ".ts": "typescript", ".json": "json", ".yaml": "yaml",
+        ".yml": "yaml", ".sh": "bash", ".txt": "text", ".html": "html",
+    }.get(ext, "text")
+
+
+def _parse_skill_dir(skill_dir: Path) -> Optional[dict]:
+    """Read a skill directory and return its metadata + file contents."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return None
+
+    raw = skill_md.read_text(encoding="utf-8")
+
+    # Parse YAML frontmatter
+    meta: dict = {}
+    body = raw
+    if raw.startswith("---"):
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", raw, re.DOTALL)
+        if match:
+            for line in match.group(1).splitlines():
+                if ":" in line:
+                    k, _, v = line.partition(":")
+                    meta[k.strip()] = v.strip().strip('"').strip("'")
+            body = match.group(2).strip()
+
+    # Collect supporting files (everything except SKILL.md)
+    files = []
+    for path in sorted(skill_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        if "__pycache__" in path.parts or path.name.startswith("."):
+            continue
+        if path == skill_md:
+            continue
+        try:
+            rel = str(path.relative_to(skill_dir))
+            files.append(SkillFile(
+                filename=rel,
+                file_type=_file_type(path.name),
+                content=path.read_text(encoding="utf-8"),
+            ))
+        except Exception:
+            pass
+
+    return {
+        "name": meta.get("name") or skill_dir.name,
+        "description": meta.get("description", ""),
+        "content": body,
+        "emoji": meta.get("emoji"),
+        "homepage": meta.get("homepage"),
+        "category": meta.get("category"),
+        "is_system": True,
+        "files": files,
+    }
+
+
+def _load_all_skills() -> dict[str, dict]:
+    """Return a dict of skill_name → metadata for all skills on disk."""
+    skills: dict[str, dict] = {}
+    if not _SKILLS_DIR.exists():
+        return skills
+    for skill_dir in sorted(_SKILLS_DIR.iterdir()):
+        if skill_dir.is_dir():
+            data = _parse_skill_dir(skill_dir)
+            if data:
+                skills[data["name"]] = data
+    return skills
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("/catalog", response_model=List[CatalogSkill])
+async def list_catalog(user_id: str):
+    """All available skills merged with the user's enabled state."""
+    all_skills = _load_all_skills()
+
     async with get_db_session() as db:
-        skills = await skills_crud.get_user_skills(db, user_id, enabled_only)
-        return [_skill_out(s) for s in skills]
+        user_skills = await skills_crud.get_user_skills(db, user_id)
+    enabled_map = {us.skill_name: us.enabled for us in user_skills}
+
+    return [
+        CatalogSkill(**data, enabled=enabled_map.get(data["name"], False))
+        for data in all_skills.values()
+    ]
 
 
-@router.post("/", response_model=SkillResponse)
-async def create_skill(user_id: str, request: SkillRequest):
+class ToggleRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/catalog/{skill_name}/toggle", response_model=CatalogSkill)
+async def toggle_skill(skill_name: str, user_id: str, body: ToggleRequest):
+    """Enable or disable a skill for a user."""
+    all_skills = _load_all_skills()
+    if skill_name not in all_skills:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
     async with get_db_session() as db:
-        skill = await skills_crud.create_skill(
-            db=db,
-            user_id=user_id,
-            name=request.name,
-            description=request.description,
-            content=request.content,
-            enabled=request.enabled,
-        )
-        return _skill_out(skill)
+        await skills_crud.toggle_skill(db, user_id, skill_name, body.enabled)
+        await db.commit()
 
-
-@router.put("/{skill_id}", response_model=SkillResponse)
-async def update_skill(skill_id: str, user_id: str, request: SkillRequest):
-    async with get_db_session() as db:
-        skill = await skills_crud.update_skill(
-            db=db,
-            skill_id=skill_id,
-            user_id=user_id,
-            name=request.name,
-            description=request.description,
-            content=request.content,
-            enabled=request.enabled,
-        )
-        if not skill:
-            raise HTTPException(status_code=404, detail="Skill not found")
-        return _skill_out(skill)
-
-
-@router.delete("/{skill_id}")
-async def delete_skill(skill_id: str, user_id: str):
-    async with get_db_session() as db:
-        deleted = await skills_crud.delete_skill(db, skill_id, user_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Skill not found")
-        return {"message": "Skill deleted"}
-
-
-# ── Store ─────────────────────────────────────────────────────────────────────
-
-@router.get("/store", response_model=list[GlobalSkillResponse])
-async def list_store_skills(category: Optional[str] = None, official_only: bool = False):
-    async with get_db_session() as db:
-        skills = await skills_crud.get_store_skills(db, category, official_only)
-        return [_global_skill_out(s) for s in skills]
-
-
-@router.post("/store", response_model=GlobalSkillResponse)
-async def publish_to_store(user_id: str, request: GlobalSkillRequest):
-    """Publish a skill to the store. Any user can contribute."""
-    async with get_db_session() as db:
-        skill = await skills_crud.publish_skill(
-            db=db,
-            name=request.name,
-            description=request.description,
-            content=request.content,
-            category=request.category,
-            author_user_id=user_id,
-            is_official=False,
-        )
-        return _global_skill_out(skill)
-
-
-@router.post("/store/{skill_id}/install", response_model=SkillResponse)
-async def install_skill(skill_id: str, user_id: str):
-    """Install a store skill into the user's library."""
-    async with get_db_session() as db:
-        # Check not already installed
-        already = await skills_crud.is_already_installed(db, user_id, skill_id)
-        if already:
-            raise HTTPException(status_code=409, detail="Already installed")
-
-        skill = await skills_crud.install_skill(db, user_id, skill_id)
-        if not skill:
-            raise HTTPException(status_code=404, detail="Store skill not found")
-        return _skill_out(skill)
+    return CatalogSkill(**all_skills[skill_name], enabled=body.enabled)

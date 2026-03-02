@@ -186,8 +186,8 @@ class LLMConfig(BaseModel):
         """
         from config import Config
         
-        # Determine model (default to PLANNER_LLM_MODEL if not specified)
-        selected_model = model or Config.PLANNER_LLM_MODEL
+        # Determine model (default to AGENT_LLM_MODEL if not specified)
+        selected_model = model or Config.AGENT_LLM_MODEL
         
         # Get model-specific defaults
         model_defaults = LLMConfig._get_model_defaults(selected_model)

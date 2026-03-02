@@ -410,7 +410,7 @@ export default function ChatView({
     const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
     const isSearchTool = tool.tool_name === 'web_search' || tool.tool_name === 'news_search';
     const isScrapeTool = tool.tool_name === 'scrape_url';
-    const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'run_python';
+    const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'run_python' || tool.tool_name === 'bash';
 
     if (isScrapeTool) {
       setSelectedTool(tool.scraped_content ? tool : {
@@ -474,17 +474,6 @@ export default function ChatView({
       setSelectedTool(hasOutput ? tool : {
         ...tool,
         code_output: { stdout: '(No output recorded)', stderr: '' },
-      });
-      return;
-    }
-
-    if (tool.tool_name === 'delegate_execution') {
-      setSelectedTool({
-        ...tool,
-        code_output: {
-          stdout: tool.result_summary || tool.statusMessage || 'Task execution in progress...',
-          stderr: tool.error || '',
-        },
       });
       return;
     }

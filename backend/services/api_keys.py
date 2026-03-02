@@ -2,18 +2,18 @@
 Centralized API Key Management Service
 
 Provides a unified interface for accessing API keys from multiple sources:
-1. Global config keys (from environment/settings)
-2. User-specific keys (from encrypted database storage)
+1. Global config keys (from environment/settings) — system-owned, shared
+2. User-specific keys (from encrypted database storage) — per-user
 
 All keys are wrapped in SecureKey to prevent accidental logging.
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
 from config import Config
 from crud.user_api_keys import get_decrypted_credentials
-from modules.tools.servers._secure_key import SecureKey, secure_key_or_none
+from modules.tools.apis._secure_key import SecureKey, secure_key_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -21,20 +21,37 @@ logger = logging.getLogger(__name__)
 class ApiKeyService:
     """
     Service for retrieving API keys with automatic fallback logic.
-    
+
     Priority order:
-    1. User-specific keys (if user_id provided and key exists)
-    2. Global config keys (from environment/settings)
-    
+    1. User-specific keys (if user_id provided and key exists in DB)
+    2. Global config keys (from .env / environment settings)
+
     All keys are returned as SecureKey wrappers for safe handling.
     """
-    
-    # Mapping of service names to global config attributes
-    _GLOBAL_KEYS = {
-        'FMP': lambda: Config.FMP_API_KEY,
-        'POLYGON': lambda: Config.POLYGON_API_KEY,
-        'SERPER': lambda: Config.SERPER_API_KEY,
-        'DOME': lambda: Config.DOME_API_KEY,
+
+    # service_name → callable returning the raw key value from global config.
+    # Services with multiple env vars (e.g. Reddit) expose each var individually
+    # via get_env_var(); get_key() returns the primary credential for simple checks.
+    _GLOBAL_KEYS: Dict[str, callable] = {
+        "FMP":       lambda: Config.FMP_API_KEY,
+        "POLYGON":   lambda: Config.POLYGON_API_KEY,
+        "SERPER":    lambda: Config.SERPER_API_KEY,
+        # Reddit — primary key is CLIENT_ID (secret fetched separately)
+        "REDDIT":    lambda: Config.REDDIT_CLIENT_ID,
+        # Snaptrade — primary key is CLIENT_ID (consumer key fetched separately)
+        "SNAPTRADE": lambda: Config.SNAPTRADE_CLIENT_ID,
+    }
+
+    # Env-var-level mapping: env_var_name → callable returning value from config.
+    # Used by _build_sandbox_env to resolve each env var individually.
+    _GLOBAL_ENV_VARS: Dict[str, callable] = {
+        "FMP_API_KEY":            lambda: Config.FMP_API_KEY,
+        "POLYGON_API_KEY":        lambda: Config.POLYGON_API_KEY,
+        "SERPER_API_KEY":         lambda: Config.SERPER_API_KEY,
+        "REDDIT_CLIENT_ID":       lambda: Config.REDDIT_CLIENT_ID,
+        "REDDIT_CLIENT_SECRET":   lambda: Config.REDDIT_CLIENT_SECRET,
+        "SNAPTRADE_CLIENT_ID":    lambda: Config.SNAPTRADE_CLIENT_ID,
+        "SNAPTRADE_CONSUMER_KEY": lambda: Config.SNAPTRADE_CONSUMER_KEY,
     }
     
     def __init__(self, db: Optional[AsyncSession] = None, user_id: Optional[str] = None):
@@ -55,7 +72,7 @@ class ApiKeyService:
         Tries user-specific key first (if available), then falls back to global config.
         
         Args:
-            service: Service name (FMP, POLYGON, SERPER, DOME, KALSHI, etc.)
+            service: Service name (FMP, POLYGON, SERPER, KALSHI, etc.)
             
         Returns:
             SecureKey wrapper or None if not found
@@ -177,14 +194,22 @@ class ApiKeyService:
             logger.error(f"Error fetching user Kalshi credentials: {e}")
             return None
     
+    def get_env_var(self, env_var: str) -> Optional[SecureKey]:
+        """
+        Get the value for a specific environment variable name from global config.
+
+        Used by _build_sandbox_env to resolve each env var from SKILL_ENV_KEYS.
+        Only works for system-owned (global) env vars; user-owned vars like
+        KALSHI_API_KEY_ID must be fetched via get_kalshi_credentials().
+        """
+        getter = self._GLOBAL_ENV_VARS.get(env_var)
+        if not getter:
+            return None
+        return secure_key_or_none(getter())
+
     def _get_global_key(self, service: str) -> Optional[SecureKey]:
         """Get global API key from config"""
         key_getter = self._GLOBAL_KEYS.get(service)
         if not key_getter:
             return None
-        
-        key_value = key_getter()
-        return secure_key_or_none(key_value)
-
-# Note: For sandbox/subprocess code that doesn't have DB access,
-# use modules.tools.servers._env instead (reads from environment variables)
+        return secure_key_or_none(key_getter())

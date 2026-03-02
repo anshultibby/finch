@@ -586,9 +586,9 @@ class ToolExecutor:
                 # Show first 500 chars of the llm_content as a preview
                 result_summary = result.llm_content[:500] if len(result.llm_content) > 500 else result.llm_content
             
-            # Extract code output if this is execute_code tool
+            # Extract code output if this is the bash tool
             code_output = None
-            if result.tool_name == "execute_code" and isinstance(result.raw_result, dict):
+            if result.tool_name == "bash" and isinstance(result.raw_result, dict):
                 stdout = result.raw_result.get("stdout")
                 stderr = result.raw_result.get("stderr")
                 if stdout or stderr:

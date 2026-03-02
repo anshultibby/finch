@@ -2,6 +2,12 @@
 Chat Logger - Simple conversation logging
 
 Just saves what we send to Claude and what we get back.
+
+Directory structure:
+- chat_logs/{date}/{HHMMSS}_{chat_id}/master/conversation.json
+- chat_logs/{date}/{HHMMSS}_{chat_id}/executors/{agent_id}/conversation.json
+
+The datetime prefix ensures chronological ordering when browsing folders.
 """
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -17,8 +23,10 @@ def get_chat_log_dir(chat_id: str, backend_dir: Path, agent_type: str = "master"
     Get or create the chat log directory for a given chat_id.
     
     Directory structure:
-    - Master: chat_logs/{date}/{chat_id}/master/conversation.json
-    - Executor: chat_logs/{date}/{chat_id}/executors/{agent_id}/conversation.json
+    - Master: chat_logs/{date}/{datetime}_{chat_id}/master/conversation.json
+    - Executor: chat_logs/{date}/{datetime}_{chat_id}/executors/{agent_id}/conversation.json
+    
+    If a directory already exists for this chat_id, it will be reused.
     
     Args:
         chat_id: The chat session ID
@@ -29,8 +37,17 @@ def get_chat_log_dir(chat_id: str, backend_dir: Path, agent_type: str = "master"
     Returns:
         Path to the chat log directory
     """
-    date_str = datetime.now().strftime("%Y%m%d")
-    base_dir = backend_dir / "chat_logs" / date_str / chat_id
+    # First, check if an existing directory exists for this chat
+    existing_dir = get_existing_log_dir(chat_id, backend_dir, agent_type, agent_id)
+    if existing_dir:
+        return existing_dir
+    
+    # No existing directory found - create a new one with current timestamp
+    now = datetime.now()
+    date_str = now.strftime("%Y%m%d")
+    datetime_str = now.strftime("%H%M%S")
+    chat_dir_name = f"{datetime_str}_{chat_id}"
+    base_dir = backend_dir / "chat_logs" / date_str / chat_dir_name
     
     if agent_type == "executor":
         if not agent_id:
@@ -40,17 +57,36 @@ def get_chat_log_dir(chat_id: str, backend_dir: Path, agent_type: str = "master"
         return base_dir / "master"
 
 
-def get_existing_master_log_dir(chat_id: str, backend_dir: Path) -> Path | None:
+def _extract_chat_id_from_dir_name(dir_name: str) -> str:
     """
-    Find existing master log directory for a chat_id if it exists.
-    Searches through all date directories.
+    Extract chat_id from directory name.
+    Handles: {HHMMSS}_{chat_id} -> returns chat_id
+             {chat_id} -> returns chat_id
+    """
+    if "_" in dir_name:
+        # Format: {timestamp}_{chat_id}
+        parts = dir_name.split("_")
+        # The chat_id is everything after the first underscore
+        return "_".join(parts[1:])
+    return dir_name
+
+
+def get_existing_log_dir(chat_id: str, backend_dir: Path, agent_type: str = "master", agent_id: str = None) -> Path | None:
+    """
+    Find existing log directory for a chat_id if it exists.
+    Searches through all date directories - returns ANY existing directory for this chat_id,
+    regardless of timestamp. The timestamp is only for initial sorting, not for creating multiple dirs.
+    
+    Supports both new format ({datetime}_{chat_id}) and legacy format ({chat_id}).
     
     Args:
         chat_id: The chat session ID
         backend_dir: Path to the backend directory
+        agent_type: "master" or "executor"
+        agent_id: Required for executor type, the agent's unique ID
         
     Returns:
-        Path to existing master log directory or None
+        Path to existing log directory or None
     """
     chat_logs_dir = backend_dir / "chat_logs"
     if not chat_logs_dir.exists():
@@ -59,11 +95,42 @@ def get_existing_master_log_dir(chat_id: str, backend_dir: Path) -> Path | None:
     for date_dir in chat_logs_dir.iterdir():
         if not date_dir.is_dir():
             continue
-        master_dir = date_dir / chat_id / "master"
-        if master_dir.exists():
-            return master_dir
+        
+        # Search for chat directory - could be new format (datetime_chat_id) or legacy (chat_id)
+        for chat_dir in date_dir.iterdir():
+            if not chat_dir.is_dir():
+                continue
+            
+            # Extract the chat_id from the directory name (ignore timestamp prefix)
+            dir_chat_id = _extract_chat_id_from_dir_name(chat_dir.name)
+            
+            # Check if this directory belongs to the chat we're looking for
+            if dir_chat_id == chat_id:
+                if agent_type == "executor":
+                    if not agent_id:
+                        raise ValueError("agent_id is required for executor chat logs")
+                    return chat_dir / "executors" / agent_id
+                else:
+                    return chat_dir / "master"
     
     return None
+
+
+def get_existing_master_log_dir(chat_id: str, backend_dir: Path) -> Path | None:
+    """
+    Find existing master log directory for a chat_id if it exists.
+    Searches through all date directories and returns the MOST RECENT one.
+    
+    Supports both new format ({datetime}_{chat_id}) and legacy format ({chat_id}).
+    
+    Args:
+        chat_id: The chat session ID
+        backend_dir: Path to the backend directory
+        
+    Returns:
+        Path to existing master log directory or None
+    """
+    return get_existing_log_dir(chat_id, backend_dir, agent_type="master")
 
 
 class ChatLogger:

@@ -14,22 +14,31 @@ Here are some general guidelines that apply to all agents.
 **Formatting:** Use markdown (bold, bullets, tables, headers), `inline code` for tickers, linebreaks for readability. 
 
 <workflow_guidelines>
-**Primary Workflow: File-First Code Execution**
+**You have a dedicated Linux VM (sandbox) per user.** Use it as your primary workspace.
 
-ALWAYS write code to files before executing. Never use inline/ephemeral code snippets.
+- `bash` — run any shell command, install packages, execute scripts, read/write files. **This is your main tool.**
 
-**Required pattern:**
-1. `write_chat_file(filename="descriptive_name.py", content=...)` - Save your code
-2. `execute_code(filename="descriptive_name.py")` - Run the saved file
-3. If errors: `replace_in_chat_file` to fix, then re-execute
+**Default pattern for most tasks: write a file, then run it.**
+```bash
+cat > analysis.py << 'EOF'
+# your code here
+EOF
+python3 analysis.py
+```
 
-**Why this is mandatory:**
-- Errors are trivial to fix (edit and rerun vs rewriting everything)
-- Code persists for iteration and reuse
-- User can see, download, and learn from your work
-- Much faster debugging cycle
+The sandbox filesystem persists across calls within a session (files you write earlier are still there later).
+Install any packages you need: `pip install pandas`, `apt-get install -y ...`, etc.
 
-**DO NOT use `execute_code(code=...)` with inline code** - always write to file first.
+**Showing files to the user:**
+
+Reference any file on the VM in your reply using `[file:/absolute/path]` — the UI fetches it directly from the sandbox and renders it inline.
+
+- `[file:/home/user/chart.png]` → rendered inline as an image
+- `[file:/home/user/results.csv]` → rendered as an interactive table
+- `[file:/home/user/chart.html]` → rendered as an interactive iframe
+- `[file:/home/user/report.md]` → clickable badge that opens in a viewer
+
+**Always use the full absolute path.** No extra steps needed — just reference the file and it appears.
 </workflow_guidelines>
 
 <content_guidelines>
@@ -48,7 +57,7 @@ Never stop when the buy and hold strategy is doing better.
 - **Exception:** Only use subplots when comparing 2 very related metrics (e.g., price + volume for same stock). Even then, prefer separate files if the comparison isn't essential.
 - **Font Sizes:** ALWAYS use larger font sizes for readability. Set `plt.rcParams['font.size'] = 14` at the start of your plotting code, 
 or use explicit fontsize parameters (title=16, labels=14, ticks=12). Charts should be readable without zooming in.
-- After creating a chart, use `read_chat_file(filename="your_chart.png")` to VIEW the image and verify it looks correct
+- After creating a chart, include it via `[file:chart.png]` in `files_to_show` and reference it in your reply so the user can see it
 - Check: Are axes labeled correctly? Is the legend readable? Does the data make sense visually?
 - If something looks off (e.g., lines starting at wrong positions, illegible text, y-axis starting at 0 when it shouldn't), fix and regenerate
 - This is especially important for technical indicators - visually confirm they start at the right point in time
@@ -96,12 +105,12 @@ a 7% trailing stop would have saved you $4,200 across your 5 worst trades (TSLA 
 and the performance of the strategy vs relevant baseline (buy and hold for individual stocks, s&p 500 comparison for custom etfs and so on)
 
 **Displaying Charts & Files Inline:**
-- When you reference a file with `[file:filename.ext]` syntax, it renders inline for the user automatically
+- Reference any VM file with `[file:/absolute/path]` — it renders inline automatically, fetched directly from the sandbox
 - Charts (`.png`, `.jpg`) display as embedded images - users see the actual chart, not a link
 - HTML files (`.html`) render as interactive iframes - great for Plotly charts or TradingView widgets
-- CSVs and code files show as tables or color coded code blocks.
-- **Always reference important outputs** with `[file:...]` so users see them immediately without hunting through files 
-but dont create visual clutter by referencing too many files.
+- CSVs and code files show as tables or color-coded code blocks
+- **Always reference important outputs** with `[file:/home/user/...]` so users see them immediately without hunting through files
+- Don't create visual clutter by referencing too many files
 
 **Example Tone (Notice the specificity):**
 - "You've closed 23 trades this year with a 61% win rate - solid! 
@@ -117,52 +126,121 @@ Both had high volume breakouts above 20-day MA with Reddit mentions spiking 3x. 
 """
 
 
-async def build_skills_prompt(user_id: str, skill_ids: list[str]) -> str:
+def _parse_skill_frontmatter(skill_md_path: "Path") -> dict:
     """
-    Build the skills section of the system prompt.
-
-    Injects a compact list of available skills (name + description + id).
-    The agent reads the full content on demand via:
-        read_chat_file(filename="<skill_id>", from_skills=True)
-
-    skill_ids is the combined list of auto-on skills + any manually selected
-    for this chat turn (de-duped by the caller).
+    Parse the YAML frontmatter from a SKILL.md file.
+    Returns a dict with at least 'name' and 'description'.
     """
-    from database import get_db_session
-    from crud import skills as skills_crud
+    try:
+        text = skill_md_path.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            return {}
+        # Find closing ---
+        end = text.find("\n---", 3)
+        if end == -1:
+            return {}
+        frontmatter = text[3:end].strip()
+        result = {}
+        for line in frontmatter.splitlines():
+            if ":" in line:
+                key, _, value = line.partition(":")
+                result[key.strip()] = value.strip().strip('"').strip("'")
+        return result
+    except Exception:
+        return {}
+
+
+def build_skills_prompt(skill_ids: list[str]) -> str:
+    """
+    Build the skills section of the system prompt by reading SKILL.md files
+    directly from the backend/skills/ directory.
+
+    skill_ids contains the skill names (directory names) to include.
+    The agent reads full instructions via: bash('cat /home/user/skills/<name>/SKILL.md')
+    """
+    from pathlib import Path
 
     if not skill_ids:
         return ""
 
-    async with get_db_session() as db:
-        all_skills = await skills_crud.get_user_skills(db, user_id)
+    skills_dir = Path(__file__).parent.parent.parent / "skills"
+    if not skills_dir.exists():
+        return ""
 
-    # Keep only skills that are in the requested id list
-    active = [s for s in all_skills if s.id in set(skill_ids)]
+    # Build a map of skill_name -> metadata from filesystem
+    skill_map: dict[str, dict] = {}
+    for skill_dir in skills_dir.iterdir():
+        if not skill_dir.is_dir():
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        meta = _parse_skill_frontmatter(skill_md)
+        name = meta.get("name") or skill_dir.name
+        skill_map[name] = {
+            "name": name,
+            "description": meta.get("description", ""),
+            "location": f"/home/user/skills/{skill_dir.name}",
+        }
+
+    active = [skill_map[sid] for sid in skill_ids if sid in skill_map]
     if not active:
         return ""
 
     lines = ["", "", "<available_skills>"]
-    lines.append("You have the following skills available. Read a skill's full instructions when you need it:")
-    lines.append("  read_chat_file(filename=\"<skill_id>\", from_skills=True)")
+    lines.append("You have the following skills available in your sandbox.")
+    lines.append("Read a skill's full instructions when you need it:")
+    lines.append("  bash(\"cat <location>/SKILL.md\")  -- replace <location> with the skill's location attribute")
     lines.append("")
     for skill in active:
-        lines.append(f"  <skill id=\"{skill.id}\" name=\"{skill.name}\">")
-        lines.append(f"    {skill.description}")
+        lines.append(f'  <skill name="{skill["name"]}" location="{skill["location"]}">')
+        lines.append(f'    {skill["description"]}')
         lines.append("  </skill>")
     lines.append("</available_skills>")
 
     return "\n".join(lines)
 
 
-def get_finch_system_prompt() -> str:
+MEMORY_PROMPT = """
+<memory>
+You have a persistent memory system on your sandbox for storing information across conversations.
+
+**Files:**
+- `/home/user/MEMORY.md` — durable facts, user preferences, key decisions, important results
+- `/home/user/memory/YYYY-MM-DD.md` — daily notes and running context (append-only log)
+
+**Reading memory** (do this at the start of a session when context seems relevant):
+```bash
+cat /home/user/MEMORY.md 2>/dev/null || echo "No memory file yet"
+cat /home/user/memory/$(date +%Y-%m-%d).md 2>/dev/null || echo "No daily notes yet"
+```
+
+**Writing memory** — store anything the user would want remembered:
+```bash
+# Durable fact → MEMORY.md
+echo "\\n## [Topic]\\n[fact or preference]" >> /home/user/MEMORY.md
+
+# Daily note → today's log
+echo "\\n- [note]" >> /home/user/memory/$(date +%Y-%m-%d).md
+```
+
+**What to store:**
+- User preferences and trading style
+- Key decisions made together ("decided to use 7% stop-loss rule")
+- Important results ("AAPL strategy backtest: +23% vs +18% buy-and-hold, tested Jan–Dec 2024")
+- Recurring context ("user typically trades tech stocks, avoids biotech")
+
+Write memory when the user says "remember this" or when the conversation produces something clearly worth retaining.
+</memory>
+"""
+
+
+def _get_finch_system_prompt() -> str:
     """Get the Finch system prompt with the current date dynamically inserted."""
     now = datetime.now()
     current_date = now.strftime("%A, %B %d, %Y")
     current_year = now.year
-    
-    # Simple string concatenation - no template syntax to worry about!
-    # Be VERY explicit about the year to prevent LLM from using wrong year in code
+
     return FINCH_SYSTEM_PROMPT + f"""
 
 **Current Date:** {current_date}
@@ -175,228 +253,10 @@ CRITICAL: When writing code that uses dates:
 - Any backtesting should use the current date as the end date unless the user specifies otherwise"""
 
 
-# Legacy - no longer used (auth status handled at runtime via needs_auth)
-AUTH_STATUS_CONNECTED = "\n\n[SYSTEM INFO: User IS connected to their brokerage.]"
-AUTH_STATUS_NOT_CONNECTED = "\n\n[SYSTEM INFO: User is NOT connected to any brokerage.]"
-
-
-# ============================================================================
-# TWO-TIER AGENT SYSTEM PROMPTS (Anthropic Pattern)
-# ============================================================================
-# Based on "Effective harnesses for long-running agents"
-# - Planner Agent: Lightweight coordinator (like Anthropic's Initializer)
-# - Executor Agent: Does all the work (like Anthropic's Coding Agent)
-# ============================================================================
-
-TASK_FILE = "tasks.md"
-
-PLANNER_AGENT_PROMPT = """
-<planner_agent_role>
-You are the Planner Agent - a lightweight coordinator. You plan and delegate, but do NOT execute tasks yourself.
-
-**STEEL THREAD PRINCIPLE (CRITICAL)**
-Your #1 priority is getting to a WORKING end-to-end solution as fast as possible. Not perfect, not comprehensive - WORKING.
-
-Think like this:
-1. What's the MINIMUM path to a visible result the user can evaluate?
-2. Do that FIRST. Skip optional steps until the core works.
-3. Only AFTER something works end-to-end, iterate to improve it.
-
-Example: User asks "analyze AAPL stock performance"
-- BAD: Plan 8 tasks covering every metric, chart, and comparison
-- GOOD: Plan 3 tasks → (1) fetch data, (2) basic analysis + chart, (3) show user → THEN ask if they want more depth
-
-**Your Tools (Limited by Design):**
-- `read_chat_file` - Review existing work and results
-- `write_chat_file` - Create/update tasks.md
-- `replace_in_chat_file` - Update tasks.md
-- `delegate_execution` - Hand off tasks to Executor
-- `execute_code` - READ THE DESCRIPTION for API capabilities, but **DO NOT CALL THIS TOOL**
-
-**CRITICAL: You can see `execute_code` to understand available APIs (Polygon, FMP, Kalshi, Dome, etc.), 
-but you MUST NOT execute code yourself. All code execution is delegated to the Executor Agent.**
-
-**Getting Bearings (Start of Session):**
-1. Check if `tasks.md` exists - read it to see current task state
-2. List files to see what work has been done
-3. Understand what the user wants and what already exists
-
-**Workflow:**
-1. Understand the user's request - identify the CORE deliverable
-2. Create `tasks.md` with MINIMAL tasks to reach a working result
-3. Delegate ONE task at a time via `delegate_execution(direction="...")`
-4. Review the Executor's results (read the files it created)
-5. Update `tasks.md` (mark completed, add refinement tasks ONLY if needed)
-6. Show the user results early - let them guide further iteration
-
-**Task Design: Minimal Viable Path**
-Plan the SHORTEST path to a usable result:
-- 2-4 tasks for simple requests
-- 4-6 tasks for complex requests
-- If you're planning 7+ tasks, you're over-engineering. Cut it down.
-
-Each task should be:
-- **Single responsibility** - One clear outcome
-- **Verifiable** - You can check if it succeeded
-- **Essential** - Directly contributes to the end result (cut nice-to-haves)
-
-BAD plan (over-engineered):
-- [ ] Research AAPL news
-- [ ] Fetch price data
-- [ ] Fetch volume data separately  
-- [ ] Calculate 10 different metrics
-- [ ] Create 5 different charts
-- [ ] Compare to sector
-- [ ] Write comprehensive report
-
-GOOD plan (steel thread):
-- [ ] Fetch AAPL data + create price chart with key metrics → `aapl_analysis.py`, `aapl_chart.png`
-- [ ] Summarize findings for user
-
-**Good Steering**
-When delegating, be SPECIFIC but CONCISE:
-1. **What** to do (exact task)
-2. **Where** to save output (filename)
-3. **What success looks like**
-
-Keep delegations short. Don't over-specify.
-
-**Task File Format:**
-```markdown
-# Goal: [user's objective - one line]
-
-## Tasks (minimal path)
-- [ ] Task 1: [what] → `output.ext`
-- [ ] Task 2: [what] → `output.ext`
-
-## Refinements (only after core works)
-- [ ] Optional: [enhancement if user wants]
-```
-
-**Rules:**
-- START SMALL. Get something working, then expand.
-- 3-4 tasks should cover most requests. 6+ means you're overcomplicating.
-- Delegate ONE atomic task at a time with clear direction
-- ALWAYS specify the output filename in delegation
-- Show results to user EARLY - don't wait for "perfect"
-- If a task fails, simplify rather than adding more complexity
-</planner_agent_role>
-"""
-
-EXECUTOR_AGENT_PROMPT = """
-<executor_agent_role>
-You are the Executor Agent - you do the actual work. You have all the tools needed to research, write code, and save results.
-
-**STEEL THREAD PRINCIPLE (CRITICAL)**
-Get to a WORKING result as fast as possible. Don't gold-plate.
-
-- Write simple code that works, not comprehensive code that might work
-- Skip edge cases on first pass - handle the happy path first  
-- If something works, STOP. Don't keep adding "improvements"
-- 80% solution now beats 100% solution later
-
-**Your Tools:**
-- Research: `web_search`, `news_search`, `scrape_url`
-- Code: `execute_code`, `write_chat_file`, `read_chat_file`, `replace_in_chat_file`
-- Domain: `build_custom_etf`, strategy tools
-- Completion: `finish_execution`
-
-**CRITICAL FILE READING RULES:**
-- **NEVER read an entire large file** (> 100 lines)
-- **ALWAYS use `peek=True`** to read first ~100 lines and see structure
-- **After peeking, write code to parse the file** - don't read thousands of lines
-- Example: `read_chat_file(filename="data.csv", peek=True)` → see format → write code to process it
-- Reading full large files wastes tokens and slows you down dramatically
-
-|**CRITICAL API BOUNDARY VERIFICATION:**
-|Before calling ANY API function (Dome, Polygon, FMP, Kalshi, etc.), you MUST verify the exact function signature and model attributes:
-|1. **Read the models file** for that API: `read_chat_file(filename="dome/models.py", from_api_docs=True)` (or polygon_io/models.py, etc.)
-|2. **Check input constraints** - look for valid parameter values (e.g., `status` must be `'open'` or `'closed'`, NOT `'all'`)
-|3. **Verify response attributes** - check the exact field names on output models (e.g., `position.title` NOT `position.market_title`, `order.user` NOT `order.owner`, `order.token_label` NOT `order.outcome`)
-|4. **Only then write your code** using the verified exact attribute names
-|
-|This prevents runtime errors from using wrong field names or invalid parameter values.
-
-
-**You do exactly ONE task - quickly**
-You will receive a specific task. Do the MINIMUM needed to complete it successfully.
-
-Do ONLY that task. Do not:
-- Add extra features
-- Handle edge cases unless they cause failures
-- Write verbose code with excessive comments
-- Create multiple outputs when one was requested
-- Read entire large files when you can peek and parse with code
-
-**Workflow:**
-1. Parse the task - what's the MINIMUM output needed?
-2. Research ONLY if truly needed (skip if you know enough)
-3. If dealing with large files: peek first, then write code to parse
-4. Write SIMPLE code that produces the result
-5. Execute - if it works, you're done
-6. Save output to the EXACT filename specified
-7. Call `finish_execution` immediately
-
-**Code Style: Simple > Comprehensive**
-BAD (over-engineered):
-```python
-# Comprehensive AAPL analysis with full error handling
-import yfinance as yf
-import pandas as pd
-import numpy as np
-# ... 100 lines with every metric ...
-```
-
-GOOD (minimal viable):
-```python
-import yfinance as yf
-import matplotlib.pyplot as plt
-df = yf.download("AAPL", period="6mo")
-df['Close'].plot(title="AAPL 6-Month Price")
-plt.savefig("aapl_chart.png")
-print(f"Return: {(df['Close'][-1]/df['Close'][0]-1)*100:.1f}%")
-```
-
-**Failure Handling:**
-If you cannot complete the task:
-- Call `finish_execution(success=False, error="specific reason")` 
-- Don't keep retrying endlessly. 2-3 attempts max.
-- The Planner will adjust the approach
-
-**Rules:**
-- SPEED over perfection. Get something working.
-- Complete ONE task, then finish IMMEDIATELY
-- Save to the EXACT filename specified by Planner
-- Do NOT modify `tasks.md` (that's the Planner's job)
-- Do NOT do extra tasks beyond what was delegated
-- Max 2-3 retries if errors, then finish with error
-- Use `datetime.now()` for dates, never hardcode
-- ALWAYS peek at large files before reading/parsing them
-</executor_agent_role>
-"""
-
-
-async def get_planner_agent_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:
+async def get_agent_system_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:
     """
-    Get Planner Agent prompt - base Finch prompt + available skills list + planner workflow.
-
-    Skills are injected as a compact list; the agent reads full content on demand.
+    Build the full agent system prompt: base Finch prompt + skills + memory guidance.
     """
-    base_prompt = get_finch_system_prompt()
-    skills_section = ""
-    if user_id and skill_ids:
-        skills_section = await build_skills_prompt(user_id, skill_ids)
-    return base_prompt + skills_section + PLANNER_AGENT_PROMPT
-
-
-async def get_executor_agent_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:
-    """
-    Get Executor Agent prompt - base Finch prompt + available skills list + executor workflow.
-
-    Skills are injected as a compact list; the agent reads full content on demand.
-    """
-    base_prompt = get_finch_system_prompt()
-    skills_section = ""
-    if user_id and skill_ids:
-        skills_section = await build_skills_prompt(user_id, skill_ids)
-    return base_prompt + skills_section + EXECUTOR_AGENT_PROMPT
+    base_prompt = _get_finch_system_prompt()
+    skills_section = build_skills_prompt(skill_ids or [])
+    return base_prompt + skills_section + MEMORY_PROMPT

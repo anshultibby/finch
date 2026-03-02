@@ -82,8 +82,6 @@ export interface SSEEventHandlers {
   onCodeOutput?: (event: SSECodeOutputEvent) => void;
   onFileContent?: (event: SSEFileContentEvent) => void;
   onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void;
-  onDelegationStart?: (event: { direction: string; agent_id: string; parent_agent_id: string }) => void;
-  onDelegationEnd?: (event: { success: boolean; summary: string; files_created: string[]; error?: string }) => void;
   onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
@@ -159,12 +157,6 @@ export const chatApi = {
           break;
         case 'tool_progress':
           handlers.onToolProgress?.(eventData as SSEToolProgressEvent);
-          break;
-        case 'delegation_start':
-          handlers.onDelegationStart?.(eventData as { direction: string; agent_id: string; parent_agent_id: string });
-          break;
-        case 'delegation_end':
-          handlers.onDelegationEnd?.(eventData as { success: boolean; summary: string; files_created: string[]; error?: string });
           break;
         case 'tool_log':
           handlers.onToolLog?.(eventData as SSEToolLogEvent);
@@ -669,80 +661,40 @@ export const strategiesApi = {
   },
 };
 
-export interface Skill {
-  id: string;
-  name: string;
-  description: string;
+export interface SkillFile {
+  filename: string;
+  file_type: string | null;
   content: string;
-  enabled: boolean;
-  source_id: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
-export interface GlobalSkill {
-  id: string;
+/** A skill from disk merged with the current user's enabled state */
+export interface CatalogSkill {
   name: string;
   description: string;
-  content: string;
+  content: string;      // SKILL.md body (without frontmatter)
+  emoji: string | null;
+  homepage: string | null;
   category: string | null;
-  is_official: boolean;
-  install_count: number;
-  author_user_id: string | null;
-  created_at: string;
+  is_system: boolean;
+  files: SkillFile[];
+  enabled: boolean;
 }
 
 export const skillsApi = {
-  // ── User library ────────────────────────────────────────────────────────────
-  async list(userId: string, enabledOnly = false): Promise<Skill[]> {
-    const url = `${API_BASE_URL}/skills/?user_id=${userId}${enabledOnly ? '&enabled_only=true' : ''}`;
-    const response = await fetch(url);
+  async listCatalog(userId: string): Promise<CatalogSkill[]> {
+    const response = await fetch(`${API_BASE_URL}/skills/catalog?user_id=${userId}`);
     return response.json();
   },
 
-  async create(userId: string, data: { name: string; description: string; content: string; enabled?: boolean }): Promise<Skill> {
-    const response = await fetch(`${API_BASE_URL}/skills/?user_id=${userId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    return response.json();
-  },
-
-  async update(userId: string, skillId: string, data: { name?: string; description?: string; content?: string; enabled?: boolean }): Promise<Skill> {
-    const response = await fetch(`${API_BASE_URL}/skills/${skillId}?user_id=${userId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    return response.json();
-  },
-
-  async delete(userId: string, skillId: string): Promise<void> {
-    await fetch(`${API_BASE_URL}/skills/${skillId}?user_id=${userId}`, { method: 'DELETE' });
-  },
-
-  // ── Store ───────────────────────────────────────────────────────────────────
-  async listStore(category?: string): Promise<GlobalSkill[]> {
-    const url = `${API_BASE_URL}/skills/store${category ? `?category=${category}` : ''}`;
-    const response = await fetch(url);
-    return response.json();
-  },
-
-  async install(userId: string, globalSkillId: string): Promise<Skill> {
-    const response = await fetch(`${API_BASE_URL}/skills/store/${globalSkillId}/install?user_id=${userId}`, {
-      method: 'POST',
-    });
-    if (response.status === 409) throw new Error('already_installed');
-    return response.json();
-  },
-
-  async publishToStore(userId: string, data: { name: string; description: string; content: string; category?: string }): Promise<GlobalSkill> {
-    const response = await fetch(`${API_BASE_URL}/skills/store?user_id=${userId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
+  async toggleCatalogSkill(userId: string, skillName: string, enabled: boolean): Promise<CatalogSkill> {
+    const response = await fetch(
+      `${API_BASE_URL}/skills/catalog/${skillName}/toggle?user_id=${userId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }
+    );
     return response.json();
   },
 };

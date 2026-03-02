@@ -65,13 +65,15 @@ async def send_chat_message_stream(chat_message: ChatMessage):
         if chat_message.images:
             images = [{"data": img.data, "media_type": img.media_type} for img in chat_message.images]
         
-        # Resolve active skill IDs: merge always-on skills with manually selected ones
+        # Resolve active skill names. Skills are identified by their directory name
+        # (e.g. "dome", "polygon_io"). auto-on skills come from DB; manually selected
+        # ones are sent directly as skill names from the frontend.
         from crud import skills as skills_crud
         async with get_db_session() as db:
-            auto_skills = await skills_crud.get_auto_skills(db, chat_message.user_id)
-        auto_ids = [s.id for s in auto_skills]
-        selected_ids = chat_message.skills or []
-        skill_ids = list(dict.fromkeys(auto_ids + selected_ids))  # de-dup, preserve order
+            auto_names = await skills_crud.get_enabled_skill_names(db, chat_message.user_id)
+
+        selected_names = chat_message.skills or []  # skill names sent by the frontend
+        skill_ids = list(dict.fromkeys(auto_names + selected_names))  # de-dup, preserve order
 
         # Create streaming generator with explicit flushing
         async def event_generator():
@@ -151,10 +153,23 @@ async def get_chat_history_display(chat_id: str):
 @router.delete("/history/{chat_id}")
 async def clear_chat_history(chat_id: str):
     """
-    Clear chat history for a specific chat
+    Clear chat history for a specific chat.
+    The user's persistent sandbox is preserved — skills on the volume stay intact.
     """
     success = await chat_service.clear_chat(chat_id)
     return {"message": "Chat history cleared" if success else "Chat not found or already cleared"}
+
+
+@router.delete("/sandbox/{user_id}")
+async def reset_user_sandbox(user_id: str):
+    """
+    Hard-reset a user's persistent sandbox: kills the running instance,
+    removes the DB record, and evicts the in-process cache. The next code
+    execution will provision a fresh sandbox and re-load skills onto it.
+    """
+    from modules.tools.implementations.code_execution import reset_sandbox
+    await reset_sandbox(user_id)
+    return {"message": f"Sandbox reset for user {user_id}"}
 
 
 @router.get("/user/{user_id}/chats")

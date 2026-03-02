@@ -5,7 +5,7 @@ Separated for better maintainability and readability
 import os
 from pathlib import Path
 
-from modules.tools.servers_tree import generate_servers_description
+from modules.tools.skills_registry import generate_skills_description
 
 
 # ============================================================================
@@ -32,55 +32,33 @@ Do NOT use this tool if:
 # CODE EXECUTION TOOL - Universal Interface for All Operations
 # ============================================================================
 
-# Build EXECUTE_CODE_DESC dynamically with servers README content
-_EXECUTE_CODE_BASE = """Execute Python code with direct API access and persistent filesystem (60s timeout).
+# Build EXECUTE_CODE_DESC dynamically with skills README content
+_EXECUTE_CODE_BASE = """Run bash in a persistent sandboxed VM (60s timeout). Full Linux — python3, pip, curl, jq, cat, tee, heredoc, whatever you need.
 
+The filesystem persists across calls. Write files, read them back, run scripts — it's just a shell.
 
-**✍️ CODE STYLE REQUIREMENTS:**
-- Write CONCISE code without verbose comments
-- NO explanatory comments unless absolutely necessary for complex logic
-- NO print statements like "Fetching data..." or "Processing..." unless needed for debugging
-- Code should be clean and self-documenting through clear variable names
-- NEVER include comments that just restate what the code does (e.g., "# Import pandas" above "import pandas")
+**Style:**
+- Concise. No verbose comments or progress prints.
+- Use python3 for data work, bash for everything else.
 
-**🎯 YOUR PRIMARY TOOL: Write Python code to accomplish most tasks**
-Most of the other tools are available as various files that can be imported from or called in codes.
-
-**🚨 CRITICAL: ALWAYS write code to files first, then execute**
-
-Each execution starts FRESH - NO variables or imports persist between calls.
-
-**Required workflow:**
-0. If you don't have enough info then search the web for more information before you start.
-1. Use `write_chat_file` to save your code to a descriptive .py file (e.g., `nvda_analysis.py`)
-2. Use `execute_code(filename="nvda_analysis.py")` to run it
-3. If errors occur, use `replace_in_chat_file` to fix and re-execute
-4. Iterate as needed
-
-**Why file-first is mandatory:**
-- Errors are much faster to fix (just edit and rerun, no rewriting)
-- Code is reusable and iterable
-- User can see and download your work
-- Debugging is easier with persistent files
-
-**DO NOT use inline code (the `code` param) except for trivial one-liners like `print(os.listdir())`**
+**Skill scripts** live at `/home/user/skills/<name>/` and are importable directly in python3:
+```
+python3 -c "from skills.polygon_io.scripts.market.quote import get_last_trade; print(get_last_trade('AAPL'))"
+```
+Read skill docs with: `cat /home/user/skills/<name>/SKILL.md`
 """
 
 _EXECUTE_CODE_GUIDELINES = """
-
 <guidelines>
-1. The filesystem persists across executions. Please write code to files in an incremental manner to solve the user's problem.
-2. When working with data you can write code to sample the data first and then write the complete fix.
-3. These packages are available:
-pandas, numpy, requests, matplotlib, plotly, seaborn, scikit-learn, beautifulsoup4, scipy
-Make sure you always import the packages you need.
-4. Users love charts. Create them proactively to emphasize your points.
-5. All the api keys you need are already set up in the environment variables. Please dont create dummy ones
+1. Available python packages: pandas, numpy, requests, matplotlib, plotly, seaborn, scikit-learn, beautifulsoup4, scipy
+2. Install missing packages inline: `pip install <package> -q && python3 script.py`
+3. Users love charts — create them proactively.
+4. If you don't have enough info, use web_search before running code.
 </guidelines>
 """
 
-# Dynamically build the full description with servers tree
-EXECUTE_CODE_DESC = _EXECUTE_CODE_BASE + generate_servers_description() + _EXECUTE_CODE_GUIDELINES
+# Dynamically build the full description with skills registry
+EXECUTE_CODE_DESC = _EXECUTE_CODE_BASE + generate_skills_description() + _EXECUTE_CODE_GUIDELINES
 
 
 # ============================================================================
@@ -97,7 +75,7 @@ WRITE_CHAT_FILE_DESC = """Write a file to the persistent chat filesystem (syncs 
 - Creating data files that persist across sessions
 """
 
-READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads, images, and API docs!**
+READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads and images!**
 
 **CRITICAL - NEVER READ ENTIRE LARGE FILES UNLESS NECESSARY:**
 - `peek=True` reads first ~100 lines (like Cursor's default preview)
@@ -105,19 +83,9 @@ READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supp
 - Reading thousands of lines wastes tokens and slows you down
 
 **When to use:**
-- Reading text files (code, data, configs)
+- Reading text files (code, data, configs) created during this chat session
 - **VIEWING IMAGES** - Use this to see charts/visualizations you've created
 - **Peeking at large files** - Use peek=True to read first ~100 lines
-- **READING API DOCUMENTATION** - Use from_api_docs=True to read server docs
-
-**Reading API documentation (CRITICAL - do this BEFORE using any API):**
-- `read_chat_file(filename="AGENTS.md", from_api_docs=True)` - Overview of all APIs
-- `read_chat_file(filename="dome/AGENTS.md", from_api_docs=True)` - Dome API (Polymarket/Kalshi)
-- `read_chat_file(filename="dome/models.py", from_api_docs=True)` - Dome Pydantic models
-- `read_chat_file(filename="polygon_io/AGENTS.md", from_api_docs=True)` - Polygon.io stock data
-- `read_chat_file(filename="polygon_io/models.py", from_api_docs=True)` - Polygon models
-- `read_chat_file(filename="financial_modeling_prep/AGENTS.md", from_api_docs=True)` - FMP fundamentals
-- `read_chat_file(filename="financial_modeling_prep/models.py", from_api_docs=True)` - FMP models
 
 **Peek at files (PREFERRED for large files):**
 - `read_chat_file(filename="data.json", peek=True)` - first ~100 lines only
@@ -135,6 +103,8 @@ READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supp
 - navigation: Hints about remaining content
 
 **For images:** Returns the image data so you can visually inspect it.
+
+**For skill documentation:** Use bash instead: `bash('cat /home/user/skills/<name>/SKILL.md')`
 """
 
 REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file (targeted editing). Supports multiple edits in one call.
@@ -184,10 +154,10 @@ BUILD_CUSTOM_ETF_DESC = """Build a custom ETF portfolio with specified stocks we
 - Returns structured data ready for backtesting
 
 **Typical workflow:**
-1. Screen stocks (execute_code) → Get list of tickers
+1. Screen stocks (bash) → Get list of tickers
 2. Build ETF (this tool) → Get portfolio allocation
-3. Backtest (execute_code) → Analyze historical performance
-4. Visualize if needed (execute_code with matplotlib/plotly)
+3. Backtest (bash) → Analyze historical performance
+4. Visualize if needed (bash with matplotlib/plotly)
 5. Compare to benchmarks (SPY, QQQ, etc.)
 
 **Use cases:**
@@ -261,105 +231,53 @@ Uses Jina AI Reader which:
 
 
 # ============================================================================
-# DELEGATION TOOL (Two-tier agent system)
-# ============================================================================
-
-DELEGATE_EXECUTION_DESC = """Delegate execution to the Executor Agent.
-
-**Prerequisites:** You must first create `tasks.md` with a checklist of tasks.
-
-**How it works:**
-1. You write `tasks.md` with `- [ ]` checklist items
-2. Call this tool with a direction (what to focus on)
-3. Executor works through tasks, creates files, executes code
-4. Executor saves detailed results to `result_file`
-5. You review results and update `tasks.md`
-
-**result_file parameter:**
-- Executor saves its detailed results to this file
-- Use unique names for each delegation to avoid overwrites!
-- Examples: `fetch_results.md`, `analysis_1.md`, `chart_fix.md`
-- You can read it later with `read_chat_file(filename="...")`
-
-**Direction examples:**
-- "Complete all the data fetching tasks"
-- "Fix the chart generation error and retry"  
-- "Finish the remaining analysis tasks"
-
-**After delegation:**
-- Review the summary in the result
-- Use `read_chat_file(filename=result_file)` for full details if needed
-- Update `tasks.md` to mark completed tasks `[x]`
-
-**Guidelines:**
-- Make sure you plan the exact APIs, functions and tools the subagent should use
-- Focus on task completion. A simple explore + execute pattern works pretty well.
-"""
-
-
-FINISH_EXECUTION_DESC = """Signal that you're done and return results to Master Agent.
-
-**Call this when:**
-- You've completed all the tasks you can
-- You hit an unrecoverable error
-- You need to stop and report back
-
-**Required:** summary of what you completed
-**Optional:** list of files created, success status, error message
-
-This returns control to the Master Agent with your results.
-"""
-
-
-# ============================================================================
 # STRATEGY TOOLS
 # ============================================================================
 
-DEPLOY_STRATEGY_DESC = """Deploy chat files as an automated trading strategy.
+DEPLOY_STRATEGY_DESC = """Promote strategy files from the current chat into a standalone strategy.
 
-**IMPORTANT - How to communicate with the user:**
+**When to use:**
+Call this after writing strategy.py + config.json as chat files. It copies
+those files into the strategy's own storage (independent of the chat) and
+creates the strategy record.
+
+**Required files (must exist as ChatFiles with these exact names):**
+- strategy.py  — uses the @strategy.on_entry / @strategy.on_exit contract
+- config.json  — platform, capital, risk_limits, schedule (from create_strategy scaffold)
+
+**How to communicate with the user:**
 
 1. BEFORE creating files, explain the strategy in plain language:
-   - What it will monitor (e.g., "Fed rate cut markets on Kalshi")
+   - What it monitors (e.g., "Fed rate cut markets on Kalshi")
    - What triggers action (e.g., "when price drops below 20 cents")
-   - What action it takes (e.g., "buy $50 worth of YES contracts")
+   - What action it takes (e.g., "buy $50 of YES contracts")
    - When it runs (e.g., "every hour" or "once daily at 9am ET")
 
-2. AFTER deploying, summarize for the user:
+2. AFTER deploying, summarize for the user (no code details):
    - "I've created a strategy called '{name}'"
-   - Explain in 1-2 sentences what it does (no code details)
-   - Mention the schedule in human terms ("runs every hour")
+   - Explain what it does in 1-2 sentences
+   - Mention the schedule in human terms
    - Remind them it needs approval before live trading
-   - Offer to do a dry run to show what it *would* do
+   - Offer to do a dry run
 
-3. NEVER show code to the user unless they explicitly ask
-   - Users don't need to understand Python
-   - Focus on WHAT the strategy does, not HOW
-   - Use analogies: "like setting a price alert that automatically buys"
-
-4. Risk communication:
+3. Risk communication:
    - Always mention the maximum amount at risk per run
-   - Explain any conditions/limits built in
    - Be clear about what "dry run" vs "live" means
 
-**Example response to user:**
+**Example response:**
 "I've set up a strategy called 'Fed Rate Dip Buyer' that:
  • Checks Fed rate cut markets every hour
  • Buys $50 of YES contracts when prices fall below 20¢
- • Maximum spend: $50 per trade, $200 per day
+ • Max spend: $50 per trade, $200 per day
  
  Before it can trade with real money, you'll need to approve it.
  Want me to do a test run to show you what it would do right now?"
 
-**Required files:**
-- The entrypoint file (default: strategy.py) must define `async def strategy(ctx)`
-- ctx provides: ctx.kalshi, ctx.alpaca (future), ctx.log(), ctx.read_json(), etc.
-
 **Schedule (cron expressions):**
-- "0 * * * *" = every hour at :00
+- "0 * * * *"    = every hour at :00
 - "*/30 * * * *" = every 30 minutes
-- "0 9 * * *" = daily at 9am UTC
-- "0 9 * * 1-5" = weekdays at 9am UTC
+- "0 9 * * *"    = daily at 9am UTC
+- "0 9 * * 1-5"  = weekdays at 9am UTC
 """
 
 LIST_STRATEGIES_DESC = """Get the user's strategies.
@@ -457,13 +375,12 @@ DELETE_STRATEGY_DESC = """Delete a strategy.
 **Confirm before deleting:**
 - "Are you sure you want to delete 'Strategy Name'?"
 - "This won't affect any positions you already have"
-- "The code files in your chat will still be there"
 """
 
-GET_CHAT_FILES_FOR_STRATEGY_DESC = """Get list of files in current chat for strategy deployment.
+GET_STRATEGY_CODE_DESC = """Get the full code files for a strategy.
 
-Use this internally to see what files are available before calling deploy_strategy.
-Don't expose file IDs to user - just use them when deploying.
+Use when the user asks to see, edit, or review a strategy's code.
+Returns all files (strategy.py, config.json, etc.) for the given strategy_id.
 """
 
 

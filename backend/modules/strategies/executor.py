@@ -1,317 +1,253 @@
 """
-Strategy Executor - Safely execute strategy code
+Strategy Executor — runs a strategy tick via the user's persistent E2B sandbox.
 
-Handles:
-- Loading strategy files from database
-- Setting up execution context
-- Running code in restricted environment
-- Capturing results and errors
+Flow:
+  1. Load strategy files from strategy_files table
+  2. Get (or create/reconnect) the user's persistent sandbox
+  3. Upload strategy_runner.py (once per sandbox lifetime, alongside skills)
+  4. Upload strategy files to /home/user/strategies/<strategy_id>/
+  5. Run: python /home/user/strategy_runner.py
+     with strategy config injected as env vars
+  6. Parse JSON output from stdout
+  7. Write StrategyExecution audit record
 """
 import asyncio
+import json
 import logging
-from typing import Any, Optional
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.db import Strategy, StrategyExecution
-from models.strategies import RiskLimits, ExecutionAction
+from models.strategies import ExecutionAction
 from crud.strategies import (
     load_strategy_files,
     create_execution,
     complete_execution,
 )
-from .context import StrategyContext
 
 logger = logging.getLogger(__name__)
 
-# Execution timeout (prevent runaway strategies)
-EXECUTION_TIMEOUT_SECONDS = 60
+EXECUTION_TIMEOUT_SECONDS = 120
+
+# Path to the runner script on the host
+_RUNNER_PATH = Path(__file__).parent.parent.parent / "sandbox_runner" / "strategy_runner.py"
+_SANDBOX_RUNNER_PATH = "/home/user/strategy_runner.py"
+_SANDBOX_STRATEGIES_DIR = "/home/user/strategies"
 
 
 async def execute_strategy(
     db: AsyncSession,
     strategy: Strategy,
-    trigger: str = "manual",  # 'scheduled', 'manual', 'dry_run'
-    dry_run: bool = True
+    trigger: str = "manual",
+    dry_run: bool = True,
 ) -> StrategyExecution:
     """
-    Execute a strategy
-    
+    Execute a strategy in the user's E2B sandbox.
+
     Args:
         db: Database session
         strategy: Strategy to execute
-        trigger: What triggered this execution
-        dry_run: If True, don't execute real trades
-    
+        trigger: 'scheduled', 'manual', or 'dry_run'
+        dry_run: If True, no real orders are placed
+
     Returns:
         StrategyExecution record with results
     """
-    # Create execution record
     execution = await create_execution(db, strategy, trigger)
-    
-    # Load strategy files
+
     try:
         files = await load_strategy_files(db, strategy)
     except Exception as e:
-        logger.error(f"Failed to load strategy files: {e}")
+        logger.error(f"Failed to load strategy files for {strategy.id}: {e}")
         return await complete_execution(
             db, execution,
             status="failed",
             error=f"Failed to load strategy files: {e}",
-            summary="Strategy execution failed: could not load files"
+            summary="Strategy execution failed: could not load files",
         )
-    
-    # Build context
+
     config = strategy.config or {}
-    risk_limits = None
-    if config.get("risk_limits"):
-        risk_limits = RiskLimits(**config["risk_limits"])
-    
-    ctx = StrategyContext(
-        user_id=strategy.user_id,
-        strategy_id=strategy.id,
-        execution_id=str(execution.id),
-        dry_run=dry_run,
-        _db=db,
-        _risk_limits=risk_limits,
-        _files={k: v for k, v in files.items() if not k.endswith('.py')},  # Non-code files
-    )
-    
-    ctx.log(f"Starting execution (trigger={trigger}, dry_run={dry_run})")
-    
+
     try:
-        # Execute via BaseStrategy pattern
-        from modules.tools.servers.strategies._executor import execute_strategy_cycle
         result = await asyncio.wait_for(
-            execute_strategy_cycle(db, strategy, ctx),
-            timeout=EXECUTION_TIMEOUT_SECONDS
+            _run_in_sandbox(strategy, config, files, dry_run),
+            timeout=EXECUTION_TIMEOUT_SECONDS,
         )
-        
-        # Build summary
-        actions = ctx.get_actions()
-        summary = _build_summary(result, actions, ctx.dry_run)
-        
-        ctx.log(f"Execution completed: {summary}")
-        
-        return await complete_execution(
-            db, execution,
-            status="success",
-            result=result,
-            summary=summary,
-            actions=actions,
-            logs=ctx.get_logs()
-        )
-        
     except asyncio.TimeoutError:
-        error_msg = f"Strategy timed out after {EXECUTION_TIMEOUT_SECONDS}s"
-        ctx.log(f"ERROR: {error_msg}")
+        msg = f"Strategy timed out after {EXECUTION_TIMEOUT_SECONDS}s"
         logger.error(f"Strategy {strategy.id} timed out")
-        
         return await complete_execution(
             db, execution,
             status="failed",
-            error=error_msg,
+            error=msg,
             summary="Strategy execution timed out",
-            actions=ctx.get_actions(),
-            logs=ctx.get_logs()
         )
-        
     except Exception as e:
-        error_msg = str(e)
-        ctx.log(f"ERROR: {error_msg}")
         logger.exception(f"Strategy {strategy.id} failed: {e}")
-        
         return await complete_execution(
             db, execution,
             status="failed",
-            error=error_msg,
-            summary=f"Strategy failed: {error_msg[:100]}",
-            actions=ctx.get_actions(),
-            logs=ctx.get_logs()
+            error=str(e),
+            summary=f"Strategy failed: {str(e)[:100]}",
         )
-        
-    finally:
-        await ctx.cleanup()
+
+    status = "success" if result.get("status") == "success" else "failed"
+    actions = [
+        ExecutionAction(
+            type=a["type"],
+            timestamp=datetime.fromisoformat(a["timestamp"]),
+            dry_run=a.get("dry_run", dry_run),
+            details=a.get("details", {}),
+        )
+        for a in result.get("actions", [])
+    ]
+
+    return await complete_execution(
+        db, execution,
+        status=status,
+        summary=result.get("summary"),
+        error=result.get("error"),
+        actions=actions,
+        logs=result.get("logs", []),
+    )
 
 
-async def _run_strategy_code(
+async def _run_in_sandbox(
+    strategy: Strategy,
+    config: dict,
     files: dict[str, str],
-    entrypoint: str,
-    ctx: StrategyContext
-) -> Any:
+    dry_run: bool,
+) -> dict:
     """
-    Execute strategy code in a controlled environment
-    
-    The entrypoint file must define an async function `strategy(ctx)`.
-    Other .py files in the bundle can be imported within the strategy.
+    Upload strategy files to the user's sandbox and run the runner.
+    Returns the parsed JSON output from the runner.
     """
-    if entrypoint not in files:
-        raise ValueError(f"Entrypoint '{entrypoint}' not found in strategy files")
-    
-    # Build execution globals
-    # We provide:
-    # - ctx: The StrategyContext
-    # - Common imports that strategies might need
-    # - A custom __import__ that allows importing strategy modules
-    
-    strategy_modules = {
-        name[:-3]: content 
-        for name, content in files.items() 
-        if name.endswith('.py') and name != entrypoint
-    }
-    
-    exec_globals = {
-        "ctx": ctx,
-        # Standard library
-        "datetime": __import__("datetime"),
-        "json": __import__("json"),
-        "math": __import__("math"),
-        "re": __import__("re"),
-        # Common data processing
-        "asyncio": __import__("asyncio"),
-        # Custom import for strategy modules
-        "__builtins__": _get_safe_builtins(strategy_modules),
-    }
-    
-    # Compile and execute the entrypoint
-    try:
-        code = compile(files[entrypoint], entrypoint, "exec")
-        exec(code, exec_globals)
-    except SyntaxError as e:
-        raise ValueError(f"Syntax error in {entrypoint}: {e}")
-    
-    # Find and call the strategy function
-    if "strategy" not in exec_globals:
-        raise ValueError(
-            f"Entrypoint '{entrypoint}' must define an async function called 'strategy'"
+    from modules.tools.implementations.code_execution import (
+        get_or_create_sandbox,
+        _compute_skills_hash_from_fs,
+        _upload_skills,
+        _upload_api_docs,
+        _upload_finch_runtime,
+        _install_skill_packages,
+        _upsert_user_sandbox,
+        _sandboxes,
+    )
+
+    envs = await _build_strategy_env(strategy, config, dry_run)
+
+    entry = await get_or_create_sandbox(strategy.user_id, envs)
+    sbx = entry.sbx
+
+    # Ensure skills + runner are loaded (reuse the same flag as chat execution)
+    current_hash = _compute_skills_hash_from_fs()
+    needs_upload = not entry.skills_loaded or entry.skills_hash != current_hash
+    if needs_upload:
+        new_hash, _, _ = await asyncio.gather(
+            _upload_skills(sbx),
+            _upload_api_docs(sbx),
+            _upload_finch_runtime(sbx),
         )
-    
-    strategy_func = exec_globals["strategy"]
-    
-    if not asyncio.iscoroutinefunction(strategy_func):
-        raise ValueError("'strategy' must be an async function (async def strategy(ctx): ...)")
-    
-    # Execute the strategy
-    return await strategy_func(ctx)
+        await _install_skill_packages(sbx)
+        entry.skills_loaded = True
+        entry.skills_hash = new_hash
+        await _upsert_user_sandbox(strategy.user_id, sbx.sandbox_id, skills_loaded=True, skills_hash=new_hash)
+
+    # Upload strategy_runner.py once (idempotent)
+    await _ensure_runner_uploaded(sbx, entry)
+
+    # Upload strategy files to /home/user/strategies/<strategy_id>/
+    strategy_dir = f"{_SANDBOX_STRATEGIES_DIR}/{strategy.id}"
+    await asyncio.gather(*[
+        sbx.files.write(f"{strategy_dir}/{filename}", content)
+        for filename, content in files.items()
+    ])
+    logger.info(f"Uploaded {len(files)} file(s) to {strategy_dir}")
+
+    # Run the strategy runner
+    cmd = f"python {_SANDBOX_RUNNER_PATH}"
+    try:
+        result = await sbx.commands.run(cmd, envs=envs, timeout=EXECUTION_TIMEOUT_SECONDS)
+    except Exception as e:
+        raise RuntimeError(f"Sandbox command failed: {e}")
+
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+
+    if stderr:
+        logger.debug(f"Strategy runner stderr (strategy {strategy.id}):\n{stderr}")
+
+    if result.exit_code != 0 and not stdout.strip():
+        raise RuntimeError(
+            f"Strategy runner exited with code {result.exit_code}. stderr: {stderr[:500]}"
+        )
+
+    # Parse JSON from stdout
+    try:
+        # Runner may emit non-JSON lines from print() — find the last JSON blob
+        for line in reversed(stdout.strip().splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                return json.loads(line)
+        raise ValueError("No JSON output found in runner stdout")
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(f"Could not parse runner output: {e}. stdout: {stdout[:500]}")
 
 
-def _get_safe_builtins(strategy_modules: dict[str, str]) -> dict:
-    """
-    Get a restricted set of builtins for strategy execution
-    
-    Allows:
-    - Basic operations (print, len, range, etc.)
-    - Type conversions
-    - Math operations
-    - Iteration helpers
-    
-    Blocks:
-    - File I/O (open, read, write)
-    - Code execution (eval, exec, compile)
-    - System access (import of dangerous modules)
-    """
-    import builtins
-    
-    # Allowed builtins
-    allowed = {
-        # Basic
-        "print", "len", "range", "enumerate", "zip", "map", "filter",
-        "sorted", "reversed", "list", "dict", "set", "tuple", "frozenset",
-        # Types
-        "str", "int", "float", "bool", "bytes", "bytearray",
-        "type", "isinstance", "issubclass",
-        # Math
-        "abs", "min", "max", "sum", "pow", "round", "divmod",
-        # Iteration
-        "iter", "next", "all", "any",
-        # String
-        "chr", "ord", "repr", "format",
-        # Object
-        "getattr", "setattr", "hasattr", "delattr",
-        "callable", "id", "hash",
-        # Exceptions
-        "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
-        "RuntimeError", "StopIteration", "AttributeError",
-        # Other
-        "None", "True", "False", "Ellipsis",
-        "slice", "property", "staticmethod", "classmethod",
+async def _ensure_runner_uploaded(sbx, entry) -> None:
+    """Upload strategy_runner.py to the sandbox (once per skills upload cycle)."""
+    if not _RUNNER_PATH.exists():
+        raise FileNotFoundError(f"strategy_runner.py not found at {_RUNNER_PATH}")
+
+    content = _RUNNER_PATH.read_text()
+    await sbx.files.write(_SANDBOX_RUNNER_PATH, content)
+    logger.debug("Uploaded strategy_runner.py to sandbox")
+
+
+async def _build_strategy_env(
+    strategy: Strategy,
+    config: dict,
+    dry_run: bool,
+) -> dict[str, str]:
+    """Build env vars to inject into the sandbox for a strategy run."""
+    from services.api_keys import ApiKeyService
+    from modules.tools.skills_registry import SKILL_ENV_KEYS
+    from database import get_db_session
+    from modules.tools.implementations.code_execution import SKILLS_DIR
+
+    risk_limits = config.get("risk_limits", {})
+    platform = config.get("platform", "kalshi")
+
+    env: dict[str, str] = {
+        "FINCH_STRATEGY_ID": strategy.id,
+        "FINCH_USER_ID": strategy.user_id,
+        "FINCH_EXECUTION_ID": "",  # populated after execution record is created
+        "FINCH_DRY_RUN": "true" if dry_run else "false",
+        "FINCH_PLATFORM": platform,
+        "FINCH_MAX_ORDER_USD": str(risk_limits.get("max_order_usd") or ""),
+        "FINCH_MAX_DAILY_USD": str(risk_limits.get("max_daily_usd") or ""),
+        "PYTHONWARNINGS": "ignore",
+        "LOG_LEVEL": "ERROR",
+        "PYTHONPATH": f"{SKILLS_DIR}:/home/user",
     }
-    
-    safe_builtins = {
-        name: getattr(builtins, name)
-        for name in allowed
-        if hasattr(builtins, name)
-    }
-    
-    # Custom import that only allows strategy modules and safe stdlib
-    def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-        # Allow importing strategy modules
-        if name in strategy_modules:
-            module_globals = {"__builtins__": safe_builtins}
-            exec(compile(strategy_modules[name], f"{name}.py", "exec"), module_globals)
-            
-            # Create a simple namespace object
-            class ModuleNamespace:
-                pass
-            
-            module = ModuleNamespace()
-            for key, value in module_globals.items():
-                if not key.startswith("_"):
-                    setattr(module, key, value)
-            return module
-        
-        # Allow safe stdlib modules
-        safe_modules = {
-            "datetime", "json", "math", "re", "random", "collections",
-            "itertools", "functools", "operator", "decimal", "statistics",
-            "csv", "io"  # For reading strategy data files
-        }
-        
-        if name in safe_modules:
-            return __import__(name, globals, locals, fromlist, level)
-        
-        # Block everything else
-        raise ImportError(f"Import of '{name}' is not allowed in strategies")
-    
-    safe_builtins["__import__"] = safe_import
-    
-    return safe_builtins
 
+    async with get_db_session() as db:
+        svc = ApiKeyService(db, strategy.user_id)
 
-def _build_summary(result: Any, actions: list[ExecutionAction], dry_run: bool) -> str:
-    """Build a human-readable summary of the execution"""
-    prefix = "[DRY RUN] " if dry_run else ""
-    
-    if not actions:
-        # No actions taken
-        if isinstance(result, dict) and "message" in result:
-            return f"{prefix}{result['message']}"
-        return f"{prefix}Completed with no trading actions"
-    
-    # Count actions by type
-    action_counts = {}
-    total_usd = 0.0
-    
-    for action in actions:
-        action_type = action.type
-        action_counts[action_type] = action_counts.get(action_type, 0) + 1
-        if "estimated_cost_usd" in action.details:
-            total_usd += action.details["estimated_cost_usd"]
-    
-    # Build summary
-    parts = []
-    for action_type, count in action_counts.items():
-        if action_type == "kalshi_order":
-            parts.append(f"{count} Kalshi order{'s' if count > 1 else ''}")
-        elif action_type == "alpaca_order":
-            parts.append(f"{count} Alpaca order{'s' if count > 1 else ''}")
-        else:
-            parts.append(f"{count} {action_type}")
-    
-    summary = ", ".join(parts)
-    
-    if total_usd > 0:
-        summary += f" (${total_usd:.2f})"
-    
-    return f"{prefix}{summary}"
+        # System-owned env vars
+        for env_var, (_, owner) in SKILL_ENV_KEYS.items():
+            if owner != "system":
+                continue
+            key = svc.get_env_var(env_var)
+            if key and key.get():
+                env[env_var] = key.get()
+
+        # User Kalshi credentials
+        kalshi = await svc.get_kalshi_credentials()
+        if kalshi:
+            env["KALSHI_API_KEY_ID"] = kalshi["api_key_id"].get()
+            env["KALSHI_PRIVATE_KEY"] = kalshi["private_key"].get()
+
+    return env

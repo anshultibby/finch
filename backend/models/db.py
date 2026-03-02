@@ -408,30 +408,55 @@ class ChatFile(Base):
         return f"<ChatFile(id='{self.id}', chat='{self.chat_id}', filename='{self.filename}')>"
 
 
+class StrategyFile(Base):
+    """
+    Code files owned by a strategy.
+
+    Replaces the old pattern of referencing ChatFile IDs in Strategy.config.
+    Each strategy directly owns its files here; deleting a strategy cascades
+    to its files via the FK constraint.
+    """
+    __tablename__ = "strategy_files"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    strategy_id = Column(String, nullable=False, index=True)
+    filename = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<StrategyFile(id='{self.id}', strategy='{self.strategy_id}', filename='{self.filename}')>"
+
+
 class Strategy(Base):
     """
-    Automated trading strategies owned by users
-    
-    Strategies are:
-    - Created via chat (LLM generates code files)
-    - Stored as references to ChatFile IDs
-    - Executed on schedule or manually
-    - Require approval before live trading
-    
-    Uses JSONB for flexibility - only essential query fields are columns.
-    
+    Automated trading strategies owned by users.
+
+    Strategies are first-class objects independent of any chat session:
+    - Code lives in StrategyFile rows (FK strategy_id), not ChatFile references.
+    - Executed via the user's persistent E2B sandbox on a schedule.
+    - Require approval before live trading.
+
+    Uses JSONB for config flexibility; only essential query fields are columns.
+
     config JSONB structure:
     {
+        "platform": "kalshi" | "alpaca",
         "description": "Plain language description",
-        "source_chat_id": "chat_abc123",
-        "file_ids": ["file_1", "file_2"],
-        "entrypoint": "strategy.py",
-        "schedule": "0 * * * *",  # Cron expression
-        "schedule_description": "Every hour",
+        "thesis": "Why this will make money",
+        "source_chat_id": "chat_abc123",   # optional, UI linkback only
+        "schedule": "*/5 * * * *",
+        "schedule_description": "Every 5 minutes",
+        "capital": {
+            "total": 500,
+            "per_trade": 50,
+            "max_positions": 5
+        },
         "risk_limits": {
             "max_order_usd": 100,
-            "max_daily_usd": 500,
-            "allowed_services": ["kalshi", "alpaca"]
+            "max_daily_usd": 300,
+            "allowed_services": ["kalshi"]
         },
         "approved_at": "2025-01-08T..."
     }
@@ -573,64 +598,55 @@ class CreditTransaction(Base):
         return f"<CreditTransaction(id='{self.id}', user='{self.user_id}', amount={self.amount}, type='{self.transaction_type}')>"
 
 
-class GlobalSkill(Base):
+
+
+class UserSandbox(Base):
     """
-    Skill store — developer-curated and user-contributed skills.
-    
-    Official skills (is_official=True) are published by the developer.
-    Community skills are submitted by users and go live immediately
-    (moderation can be added later via an is_approved flag).
+    Stores a user's persistent E2B sandbox ID so the sandbox can be resumed
+    across server restarts. One sandbox per user — scoped at the user level,
+    not per-chat. Skills are loaded onto the sandbox volume once and remain
+    there for the lifetime of the sandbox.
     """
-    __tablename__ = "global_skills"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    
-    # Author — null means official/system skill
-    author_user_id = Column(String, nullable=True, index=True)
-    
-    # Identity
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
-    
-    # Store metadata
-    is_official = Column(Boolean, nullable=False, default=False)  # Developer-curated
-    category = Column(String, nullable=True)  # e.g. "trading", "research", "analysis"
-    install_count = Column(Integer, nullable=False, default=0)
-    
-    # Timestamps
+    __tablename__ = "user_sandboxes"
+
+    user_id = Column(String, primary_key=True, index=True)
+
+    # E2B sandbox ID — used to reconnect via AsyncSandbox.connect(sandbox_id)
+    sandbox_id = Column(String, nullable=False)
+
+    # Whether skills have been loaded onto this sandbox's volume.
+    # Once True we skip re-uploading on reconnect — unless skills_hash differs.
+    skills_loaded = Column(Boolean, nullable=False, default=False)
+
+    # MD5 of all skill content at upload time. If it changes (re-seed), we
+    # re-upload on the next execution even if skills_loaded is True.
+    skills_hash = Column(String, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
+
     def __repr__(self):
-        return f"<GlobalSkill(id='{self.id}', name='{self.name}', official={self.is_official})>"
+        return f"<UserSandbox(user_id='{self.user_id}', sandbox_id='{self.sandbox_id}', skills_loaded={self.skills_loaded})>"
 
 
-class Skill(Base):
+class UserSkill(Base):
     """
-    A user's installed/created skills — gets injected into system prompt when selected.
+    Tracks which skills a user has enabled.
     
-    source_id links back to the GlobalSkill it was installed from (if any).
-    User-created skills have source_id=None.
+    Skills themselves live on disk at backend/skills/<skill_name>/SKILL.md.
+    This table only stores the user's enabled/disabled preference per skill name.
+    One row per (user, skill_name) pair — upserted on toggle.
     """
-    __tablename__ = "skills"
-    
+    __tablename__ = "user_skills"
+
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, nullable=False, index=True)
-    
-    # If installed from the store, track the source
-    source_id = Column(String, nullable=True, index=True)  # FK to global_skills.id
-    
-    # Skill data (copied at install time so edits don't break things)
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
+    skill_name = Column(String, nullable=False)  # matches backend/skills/<skill_name>/
     enabled = Column(Boolean, nullable=False, default=True)
-    
-    # Timestamps
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
+
     def __repr__(self):
-        return f"<Skill(id='{self.id}', name='{self.name}', enabled={self.enabled})>"
+        return f"<UserSkill(user_id='{self.user_id}', skill_name='{self.skill_name}', enabled={self.enabled})>"
 

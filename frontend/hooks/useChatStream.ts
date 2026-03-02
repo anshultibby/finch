@@ -400,9 +400,6 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       updateChatState(chatId, { pendingOptions: event }, onStateChange);
     },
 
-    onDelegationStart: () => {},
-    onDelegationEnd: () => {},
-
     onDone: async () => {
       saveAccumulatedTools(chatId, onStateChange);
 

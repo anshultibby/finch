@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, KeyboardEvent, useRef } from 'react';
-import SkillsMenu from './SkillsMenu';
 
 interface ActionPill {
   icon: string;
@@ -23,18 +22,12 @@ interface NewChatWelcomeProps {
 
 export default function NewChatWelcome({ onSendMessage, disabled = false }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {
     if (message.trim() && !disabled) {
-      onSendMessage(
-        message,
-        undefined,
-        selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
-      );
+      onSendMessage(message);
       setMessage('');
-      setSelectedSkillIds([]);
     }
   };
 
@@ -46,14 +39,7 @@ export default function NewChatWelcome({ onSendMessage, disabled = false }: NewC
   };
 
   const handlePillClick = (prompt: string) => {
-    if (!disabled) {
-      onSendMessage(
-        prompt,
-        undefined,
-        selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
-      );
-      setSelectedSkillIds([]);
-    }
+    if (!disabled) onSendMessage(prompt);
   };
 
   return (
@@ -76,13 +62,6 @@ export default function NewChatWelcome({ onSendMessage, disabled = false }: NewC
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm focus-within:border-gray-300 focus-within:shadow-md transition-all">
           {/* Input row */}
           <div className="flex items-end gap-2 px-3 py-3">
-            {/* Skills Menu */}
-            <SkillsMenu
-              selectedSkillIds={selectedSkillIds}
-              onSkillsChange={setSelectedSkillIds}
-              variant="compact"
-            />
-
             {/* Textarea */}
             <textarea
               ref={textareaRef}

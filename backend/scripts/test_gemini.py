@@ -186,9 +186,7 @@ async def main():
     if success_count > 0:
         working_model = next(r["model"] for r in results if r["status"] == "success")
         print(f"\n💡 To use Gemini in your app, set in .env:")
-        print(f"   PLANNER_LLM_MODEL={working_model}")
-        print(f"   # or")
-        print(f"   EXECUTOR_LLM_MODEL={working_model}")
+        print(f"   AGENT_LLM_MODEL={working_model}")
     
     return 0 if success_count > 0 else 1
 

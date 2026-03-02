@@ -1,0 +1,144 @@
+---
+name: kalshi_trading
+description: Trade on Kalshi prediction markets (CFTC-regulated exchange). Check portfolio, search markets, place/cancel orders. Use when working with Kalshi API, trading binary contracts, or managing prediction market positions.
+homepage: https://kalshi.com/docs/api
+metadata:
+  emoji: "📈"
+  category: trading
+  is_system: true
+  requires:
+    env:
+      - KALSHI_API_KEY_ID
+      - KALSHI_PRIVATE_KEY
+    bins:
+      - cryptography
+---
+
+# Kalshi Trading Skill
+
+Trade on Kalshi prediction markets. Requires Kalshi API credentials in Settings > API Keys.
+
+Prices are in **CENTS** (0–100). Quantities are **integer contracts**.
+
+## Import
+
+```python
+from skills.kalshi_trading.scripts.kalshi import (
+    get_portfolio, get_balance, get_positions,
+    get_events, get_markets, get_market, get_orderbook,
+    place_order, get_orders, cancel_order,
+)
+```
+
+## Portfolio
+
+```python
+# Full overview (balance + positions)
+p = get_portfolio()
+print(f"Cash: ${p['balance']:.2f}, Exposure: ${p['portfolio_value']:.2f}")
+for pos in p['positions']:
+    print(f"  {pos['ticker']}: {pos['position']} contracts")
+
+# Just balance
+b = get_balance()  # {balance, portfolio_value}
+
+# Just positions
+p = get_positions(limit=100)  # {positions, count}
+```
+
+## Browse Markets
+
+```python
+# Get open events (each event groups related markets)
+events = get_events(limit=20, status="open")
+for event in events['events']:
+    print(f"\n{event['event_ticker']}: {event['title']}")
+    for market in event.get('markets', []):
+        print(f"  {market['ticker']}: Yes {market['yes_bid']}¢/{market['yes_ask']}¢")
+
+# Filter by series — use the series_ticker param
+nba = get_events(limit=100, status="open", series_ticker="KXNBA")
+nhl = get_events(limit=100, status="open", series_ticker="KXNHLGAME")
+nfl = get_events(limit=100, status="open", series_ticker="KXNFL")
+
+# Flat market list (no event grouping) — also supports series_ticker
+markets = get_markets(limit=50, status="open")
+nhl_markets = get_markets(limit=100, status="open", series_ticker="KXNHLGAME")
+
+# Get a specific market
+m = get_market("KXBTC-26FEB28-W100")
+print(f"{m['ticker']}: Yes {m['yes_bid']}¢ bid / {m['yes_ask']}¢ ask")
+print(f"Volume: {m['volume']:,}  OI: {m['open_interest']:,}")
+
+# Get orderbook depth
+ob = get_orderbook("KXBTC-26FEB28-W100", depth=5)
+# ob['yes'] = [[price, size], ...]  ob['no'] = [[price, size], ...]
+```
+
+## Trading
+
+```python
+# Market buy — 10 YES contracts
+order = place_order(ticker="KXBTC-26FEB28-W100", side="yes", action="buy", count=10)
+
+# Limit buy — 10 YES at 45¢
+order = place_order(ticker="KXBTC-26FEB28-W100", side="yes", action="buy",
+                    count=10, order_type="limit", price=45)
+
+# Sell
+order = place_order(ticker="KXBTC-26FEB28-W100", side="yes", action="sell", count=5)
+
+# View open orders
+orders = get_orders(status="resting")  # or "executed", "canceled"
+
+# Cancel
+cancel_order(order_id="abc123")
+```
+
+## Error Handling
+
+All functions return `{"error": "..."}` on failure — check before using the result:
+
+```python
+result = get_market("INVALID-TICKER")
+if "error" in result:
+    print(f"Failed: {result['error']}")
+```
+
+## Common Workflows
+
+### Check account then trade
+1. `get_portfolio()` — see balance and open positions
+2. `get_events(status="open")` — find a market
+3. `get_market(ticker)` — check current prices
+4. `place_order(...)` — execute
+5. `get_orders(status="resting")` — confirm
+
+### Manage a position
+1. `get_positions()` — find position
+2. `get_market(ticker)` — check current price vs entry
+3. `place_order(action="sell", ...)` — close if needed
+
+## Sports Market Series Tickers
+
+Sports markets require `series_ticker` — they won't appear in general searches since titles use team names, not sport names.
+
+| Sport | series_ticker |
+|-------|--------------|
+| NHL   | `KXNHLGAME`  |
+| NBA   | `KXNBA`      |
+| NFL   | `KXNFL`      |
+
+### NHL ticker format
+```
+Event:  KXNHLGAME-[YYMMMDD][AWAY][HOME]        e.g. KXNHLGAME-26FEB28PITNYR
+Market: KXNHLGAME-[YYMMMDD][AWAY][HOME]-[TEAM]  e.g. KXNHLGAME-26FEB28PITNYR-PIT
+```
+Each game has two markets (one per team). The URL on kalshi.com uses the event ticker; add the team suffix to get a tradeable market ticker.
+
+## Risk Guidelines
+
+- Never bet more than 5% of balance on a single market
+- Prefer markets with high open interest (easier to exit)
+- Always check resolution criteria before trading
+- Limit orders are safer than market orders in thin markets

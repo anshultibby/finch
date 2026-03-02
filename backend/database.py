@@ -190,21 +190,6 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def sync_get_skill(skill_id: str, user_id: str) -> str | None:
-    """
-    Synchronously fetch a skill's content from DB by id.
-    Used by read_chat_file_impl (sync context) when from_skills=True.
-    Returns the content string, or None if not found.
-    """
-    from models.db import Skill
-    from sqlalchemy import select
-
-    with SessionLocal() as db:
-        row = db.execute(
-            select(Skill).where(Skill.id == skill_id, Skill.user_id == user_id)
-        ).scalar_one_or_none()
-        return row.content if row else None
-
 
 def init_db():
     """Initialize database tables (creates all tables defined in models)"""

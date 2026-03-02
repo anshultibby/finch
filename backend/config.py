@@ -38,13 +38,9 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Configuration
     # =========================================================================
-    PLANNER_LLM_MODEL: str = Field(
-        default=Models.CLAUDE_OPUS_4_5,
-        description="LLM model for Planner Agent (lightweight, planning)"
-    )
-    EXECUTOR_LLM_MODEL: str = Field(
+    AGENT_LLM_MODEL: str = Field(
         default=Models.CLAUDE_SONNET_4_5,
-        description="LLM model for Executor Agent (does the work)"
+        description="LLM model for the agent"
     )
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
@@ -82,9 +78,17 @@ class Settings(BaseSettings):
         default=None,
         description="Serper API key for Google search"
     )
-    DOME_API_KEY: Optional[str] = Field(
+    REDDIT_CLIENT_ID: Optional[str] = Field(
         default=None,
-        description="Dome API key for prediction market data"
+        description="Reddit app client ID for sentiment data"
+    )
+    REDDIT_CLIENT_SECRET: Optional[str] = Field(
+        default=None,
+        description="Reddit app client secret"
+    )
+    E2B_API_KEY: Optional[str] = Field(
+        default=None,
+        description="E2B API key for sandboxed code execution"
     )
     
     # =========================================================================
@@ -138,28 +142,14 @@ class Settings(BaseSettings):
     # =========================================================================
     # Agent Tool Configuration
     # =========================================================================
-    # Planner Agent: Lightweight - plan, delegate, review
-    # NOTE: execute_code is included for capability awareness (sees API docs) but planner should NOT call it
-    PLANNER_AGENT_TOOLS: List[str] = Field(
-        default=[
-            'read_chat_file',
-            'write_chat_file',
-            'replace_in_chat_file',
-            'delegate_execution',
-            'execute_code',  # For capability awareness only - DO NOT CALL
-        ],
-        description="Planner agent tools - planning and delegation only"
-    )
-    
-    # Task Executor Agent: All execution tools - research, code, save
-    EXECUTOR_AGENT_TOOLS: List[str] = Field(
+    AGENT_TOOLS: List[str] = Field(
         default=[
             # Research
             'web_search',
             'news_search',
             'scrape_url',
-            # Code execution
-            'execute_code',
+            # Sandbox
+            'bash',
             # File management
             'write_chat_file',
             'read_chat_file',
@@ -173,11 +163,41 @@ class Settings(BaseSettings):
             'delete_strategy',
             'list_strategies',
             'get_strategy',
-            'get_chat_files_for_strategy',
-            # Completion signal
-            'finish_execution',
+            'get_strategy_code',
         ],
-        description="Executor agent tools - all execution capabilities"
+        description="All agent tools"
+    )
+    
+    # =========================================================================
+    # Context Management
+    # =========================================================================
+    CONTEXT_PRUNE_ENABLED: bool = Field(
+        default=True,
+        description="Trim old tool results from in-memory context before each LLM call"
+    )
+    CONTEXT_PRUNE_KEEP_LAST_ASSISTANTS: int = Field(
+        default=3,
+        description="Number of recent assistant messages whose tool results are protected from pruning"
+    )
+    CONTEXT_SOFT_TRIM_MAX_CHARS: int = Field(
+        default=4000,
+        description="Soft-trim tool results larger than this to head+tail with ellipsis"
+    )
+    CONTEXT_HARD_CLEAR_RATIO: float = Field(
+        default=0.5,
+        description="If a tool result exceeds this fraction of CONTEXT_SOFT_TRIM_MAX_CHARS * 10, hard-clear it"
+    )
+    COMPACTION_ENABLED: bool = Field(
+        default=True,
+        description="Summarize old history into a persistent compaction message when context is large"
+    )
+    COMPACTION_THRESHOLD_TOKENS: int = Field(
+        default=150000,
+        description="Estimated token count at which compaction is triggered"
+    )
+    COMPACTION_MODEL: str = Field(
+        default=Models.CLAUDE_SONNET_4_5,
+        description="Model used for compaction summarization (prefer a cheap/fast model)"
     )
     
     # =========================================================================

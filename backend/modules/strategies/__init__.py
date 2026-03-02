@@ -2,12 +2,10 @@
 Strategy execution module
 
 Provides:
-- StrategyContext: Injected into strategy code, provides safe access to services
-- execute_strategy: Run a strategy with sandboxed code execution
+- execute_strategy: Run a strategy in the user's E2B sandbox
 - StrategyScheduler: Background task for scheduled execution
 """
-from .context import StrategyContext
 from .executor import execute_strategy
 from .scheduler import StrategyScheduler
 
-__all__ = ["StrategyContext", "execute_strategy", "StrategyScheduler"]
+__all__ = ["execute_strategy", "StrategyScheduler"]

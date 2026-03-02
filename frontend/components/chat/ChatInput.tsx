@@ -1,6 +1,5 @@
 import React, { useState, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
 import type { ImageAttachment } from '@/lib/types';
-import SkillsMenu from './SkillsMenu';
 
 interface ChatInputProps {
   onSendMessage: (message: string, images?: ImageAttachment[], skills?: string[]) => void;
@@ -19,7 +18,6 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -29,11 +27,9 @@ export default function ChatInput({
       onSendMessage(
         message,
         images.length > 0 ? images : undefined,
-        selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
       );
       setMessage('');
       setImages([]);
-      setSelectedSkillIds([]);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     }
   };
@@ -122,11 +118,7 @@ export default function ChatInput({
           ? 'border-primary-400 bg-primary-50'
           : 'border-gray-200 bg-white focus-within:border-gray-300 focus-within:shadow-md'
       }`}>
-        {/* Skills and input row */}
         <div className="flex items-end gap-2 px-3 py-3">
-          {/* Skills Menu (with plus button and inline pills) */}
-          <SkillsMenu selectedSkillIds={selectedSkillIds} onSkillsChange={setSelectedSkillIds} variant="full" />
-
           {/* Image attach button */}
           <button
             onClick={() => fileInputRef.current?.click()}

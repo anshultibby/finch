@@ -63,8 +63,12 @@ class ChatMessage(BaseModel):
     Content can be:
     - str: Simple text
     - List[Dict]: Multimodal content blocks [{"type": "text", "text": "..."}, {"type": "image", ...}]
+    
+    The "compaction" role is an internal marker stored in the DB. It is never sent
+    to the LLM directly — from_db_messages converts the latest compaction row into a
+    user-visible system context block and discards all messages before it.
     """
-    role: Literal["system", "user", "assistant", "tool"]
+    role: Literal["system", "user", "assistant", "tool", "compaction"]
     content: Optional[Union[str, List[Dict[str, Any]]]] = None
     
     # Assistant messages with tool calls
@@ -240,22 +244,42 @@ class ChatHistory(BaseModel):
     @classmethod
     def from_db_messages(cls, db_messages: List, chat_id: str, user_id: str) -> "ChatHistory":
         """
-        Create from database messages with sanitization.
-        
-        Handles corruption from interrupted streams:
+        Create from database messages with sanitization and compaction support.
+
+        Compaction:
+        - The DB may contain one or more rows with role="compaction". These are
+          persistent summaries produced when the context window was too large.
+        - We find the latest compaction row, discard everything before it, and inject
+          its content as a "system" message so the LLM sees it as context.
+        - Messages after the compaction row are loaded normally.
+
+        Sanitization (unchanged):
         - Removes malformed tool calls (truncated JSON from interrupted streams)
-        - Removes orphaned tool results (whose tool_call was removed OR never saved)
-        
+        - Removes orphaned tool results
+
         The key invariant for Anthropic API: every tool_result must have a matching
         tool_use in the immediately preceding assistant message.
         """
         history = cls(chat_id=chat_id, user_id=user_id)
+
+        # Find the latest compaction row and truncate everything before it
+        latest_compaction_idx = None
+        for i, db_msg in enumerate(db_messages):
+            if db_msg.role == "compaction":
+                latest_compaction_idx = i
+
+        compaction_summary: Optional[str] = None
+        if latest_compaction_idx is not None:
+            compaction_summary = db_messages[latest_compaction_idx].content
+            db_messages = db_messages[latest_compaction_idx + 1:]
+            logger.debug(f"Loaded chat history from compaction point (idx={latest_compaction_idx})")
+
         removed_tool_call_ids: Set[str] = set()
-        
+
         # First pass: collect all valid tool_call IDs from assistant messages
         valid_tool_call_ids: Set[str] = set()
         temp_messages = []
-        
+
         for db_msg in db_messages:
             msg_data = {
                 "role": db_msg.role,
@@ -267,25 +291,34 @@ class ChatHistory(BaseModel):
                 "timestamp": db_msg.timestamp,
                 "tool_calls": db_msg.tool_calls,
             }
-            
+
             # Sanitize tool_calls and collect valid IDs
             if db_msg.role == "assistant" and db_msg.tool_calls:
                 valid_tcs, removed = _sanitize_tool_calls(db_msg.tool_calls)
                 removed_tool_call_ids.update(removed)
                 msg_data["tool_calls"] = valid_tcs if valid_tcs else None
-                
-                # Track valid tool call IDs
+
                 for tc in (valid_tcs or []):
                     tc_id = tc.get("id")
                     if tc_id:
                         valid_tool_call_ids.add(tc_id)
-            
+
             temp_messages.append(msg_data)
-        
+
+        # If we have a compaction summary, prepend it as a user+assistant exchange
+        # so the model receives it as grounded context without breaking the
+        # assistant/tool sequence invariant.
+        if compaction_summary:
+            history.add_message(ChatMessage(
+                role="user",
+                content="[Previous conversation summary — use this as context for our continuing discussion]",
+            ))
+            history.add_message(ChatMessage(
+                role="assistant",
+                content=compaction_summary,
+            ))
+
         # Second pass: filter orphaned tool results
-        # A tool result is orphaned if:
-        # 1. Its tool_call_id was explicitly removed (malformed JSON)
-        # 2. Its tool_call_id doesn't exist in ANY assistant message (chat was interrupted)
         orphaned_count = 0
         for msg_data in temp_messages:
             if msg_data["role"] == "tool":
@@ -299,10 +332,10 @@ class ChatHistory(BaseModel):
                     orphaned_count += 1
                     continue
             history.add_message(ChatMessage.from_dict(msg_data))
-        
+
         if orphaned_count > 0:
             logger.info(f"Sanitized chat history: removed {orphaned_count} orphaned tool result(s)")
-        
+
         return history
     
     def __len__(self) -> int:
