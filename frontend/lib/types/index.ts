@@ -408,41 +408,31 @@ export interface TestApiKeyResponse {
 export interface RiskLimits {
   max_order_usd?: number;
   max_daily_usd?: number;
-  max_position_usd?: number;
   allowed_services?: string[];
 }
 
-export interface CapitalAllocation {
-  total_capital?: number;
-  capital_per_trade?: number;
+/** Matches backend CapitalConfig: total, per_trade, max_positions */
+export interface CapitalConfig {
+  total?: number;
+  per_trade?: number;
   max_positions?: number;
-  max_position_size?: number;
-  max_daily_loss?: number;
-  max_total_drawdown?: number;
-  sizing_method?: 'fixed' | 'kelly' | 'percent_capital';
-  deployed?: number;
 }
 
+/** Full config JSONB stored on Strategy — matches backend StrategyConfig */
 export interface StrategyConfig {
+  platform?: 'kalshi' | 'alpaca';
   description?: string;
+  thesis?: string;
   source_chat_id?: string;
-  file_ids?: string[];
-  entrypoint?: string;
   schedule?: string;
   schedule_description?: string;
   risk_limits?: RiskLimits;
+  capital?: CapitalConfig;
   approved_at?: string;
-  thesis?: string;
-  platform?: 'polymarket' | 'kalshi' | 'alpaca';
-  execution_frequency?: number;
-  capital?: CapitalAllocation;
-  entry_script?: string;
-  exit_script?: string;
-  entry_description?: string;
-  exit_description?: string;
-  parameters?: Record<string, any>;
+  paper_mode?: boolean;
 }
 
+/** Stats JSONB stored on Strategy — matches backend StrategyStats */
 export interface StrategyStats {
   total_runs?: number;
   successful_runs?: number;
@@ -452,63 +442,43 @@ export interface StrategyStats {
   last_run_summary?: string;
   total_spent_usd?: number;
   total_profit_usd?: number;
-  
-  // Mode tracking
-  mode?: 'backtest' | 'paper' | 'live';
-  
-  // Track record
-  total_trades?: number;
-  winning_trades?: number;
-  losing_trades?: number;
-  win_rate?: number;
-  total_pnl?: number;
-  total_volume?: number;
-  avg_trade_pnl?: number;
-  sharpe_ratio?: number;
-  max_drawdown?: number;
-  
-  // Per-mode stats
-  backtest_trades?: number;
-  backtest_win_rate?: number;
-  backtest_pnl?: number;
-  backtest_start?: string;
-  backtest_end?: string;
-  
-  paper_trades?: number;
-  paper_win_rate?: number;
-  paper_pnl?: number;
-  paper_start?: string;
-  paper_end?: string;
-  
-  live_trades?: number;
-  live_win_rate?: number;
-  live_pnl?: number;
-  live_start?: string;
-  
-  // Additional stats
-  avg_win?: number;
-  avg_loss?: number;
-  largest_win?: number;
-  largest_loss?: number;
-  current_positions?: number;
 }
 
+/**
+ * Strategy list item — returned by GET /strategies (StrategyResponse).
+ * Flat shape: no nested config/stats.
+ */
 export interface Strategy {
   id: string;
   name: string;
   description: string;
+  platform: string;
   enabled: boolean;
   approved: boolean;
   schedule_description?: string;
-  schedule?: string;
-  risk_limits?: RiskLimits;
-  stats?: StrategyStats;
-  config?: StrategyConfig;
+  total_runs: number;
+  successful_runs: number;
+  last_run_at?: string;
+  last_run_status?: string;
+  last_run_summary?: string;
   created_at: string;
   updated_at: string;
-  file_ids?: string[];
-  entrypoint?: string;
+}
+
+/**
+ * Strategy detail — returned by GET /strategies/{id} (StrategyDetailResponse).
+ * Extends the list shape with full config, stats, capital, risk_limits, files.
+ */
+export interface StrategyDetail extends Strategy {
+  thesis?: string;
   source_chat_id?: string;
+  schedule?: string;
+  risk_limits?: RiskLimits;
+  capital?: CapitalConfig;
+  paper_mode: boolean;
+  stats?: StrategyStats;
+  config?: StrategyConfig;
+  files?: Array<{ filename: string; content: string }>;
 }
 
 export interface StrategyExecution {
@@ -521,38 +491,22 @@ export interface StrategyExecution {
   summary?: string;
   error?: string;
   actions_count?: number;
-  data?: {
-    mode?: 'backtest' | 'paper' | 'live';
-    trigger: string;
-    completed_at?: string;
-    duration_ms?: number;
-    result?: any;
-    error?: string;
-    logs?: string[];
-    summary?: string;
-    signals?: Array<{
-      market_id: string;
-      market_name: string;
-      side: string;
-      reason: string;
-      confidence: number;
-      metadata?: any;
-    }>;
-    actions?: Array<{
-      type: string;
-      timestamp: string;
-      dry_run: boolean;
-      details: any;
-    }>;
-  };
+  duration_ms?: number;
+  logs?: string[];
+  actions?: Array<{
+    type: string;
+    timestamp: string;
+    dry_run: boolean;
+    details: any;
+  }>;
 }
 
 export interface StrategyCodeResponse {
   strategy_id: string;
   name: string;
-  entrypoint: string;
+  entrypoint?: string;
   files: Record<string, string>;
-  config: StrategyConfig;
+  config?: StrategyConfig;
   stats?: StrategyStats;
 }
 

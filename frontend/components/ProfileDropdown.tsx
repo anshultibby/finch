@@ -6,7 +6,11 @@ import ApiKeysModal from './ApiKeysModal';
 import CreditsModal from './CreditsModal';
 import { creditsApi } from '@/lib/api';
 
-export default function ProfileDropdown() {
+interface ProfileDropdownProps {
+  collapsed?: boolean;
+}
+
+export default function ProfileDropdown({ collapsed = false }: ProfileDropdownProps) {
   const { user, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [showApiKeysModal, setShowApiKeysModal] = useState(false);
@@ -66,26 +70,31 @@ export default function ProfileDropdown() {
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative w-full" ref={dropdownRef}>
       {/* Profile Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
-        title="Profile"
+        className={`flex items-center gap-2 rounded-lg hover:bg-gray-100 transition-colors w-full ${collapsed ? 'justify-center p-1.5' : 'px-2 py-1.5'}`}
+        title={collapsed ? user.email || 'Profile' : undefined}
       >
         {/* Avatar Circle */}
-        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-semibold">
+        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
           {getInitials(user.email || '')}
         </div>
-        {/* Dropdown Arrow */}
-        <svg
-          className={`w-3 h-3 text-gray-600 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        {!collapsed && (
+          <>
+            <span className="text-sm text-gray-700 truncate flex-1 text-left">{user.email?.split('@')[0]}</span>
+            {/* Dropdown Arrow */}
+            <svg
+              className={`w-3 h-3 text-gray-500 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </>
+        )}
       </button>
 
       {/* Modals */}
@@ -101,9 +110,9 @@ export default function ProfileDropdown() {
         }}
       />
 
-      {/* Dropdown Menu */}
+      {/* Dropdown Menu — opens upward */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+        <div className="absolute left-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
           {/* User Info Section */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>

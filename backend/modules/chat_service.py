@@ -4,6 +4,7 @@ Chat service for managing chat sessions and interactions
 from typing import List, AsyncGenerator, Dict, Any
 import json
 import asyncio
+from datetime import datetime, timezone
 from .agent.agent_config import create_agent
 from .agent.llm_handler import LLMHandler
 from config import Config
@@ -145,8 +146,12 @@ class ChatService:
                 
                 agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
                 
+                # Prepend current datetime so the LLM is always aware of the current time
+                now = datetime.now(timezone.utc).strftime("%A, %B %d, %Y %H:%M UTC")
+                message_with_datetime = f"[Current date/time: {now}]\n\n{message}"
+                
                 # Add user message to history (with optional images for multimodal)
-                history.add_user_message(message, images=images)
+                history.add_user_message(message_with_datetime, images=images)
                 
                 # Track pending assistant message (with tool calls) until tools_end arrives
                 pending_assistant_msg = None
@@ -156,7 +161,7 @@ class ChatService:
                 # client disconnects mid-stream.
                 with tracer.start_as_current_span("agent_processing"):
                     async for event in agent.process_message_stream(
-                        message=message,
+                        message=message_with_datetime,
                         chat_history=history,
                         history_limit=Config.CHAT_HISTORY_LIMIT
                     ):
@@ -321,7 +326,7 @@ class ChatService:
                 # This persists a summary row to the DB so future turns start lean.
                 from .agent.compactor import maybe_compact
                 try:
-                    await maybe_compact(chat_id, user_id, db)
+                    await maybe_compact(chat_id, user_id, db, skill_ids=skill_ids)
                 except Exception as e:
                     logger.warning(f"Compaction check failed (non-fatal): {e}")
                 

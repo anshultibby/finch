@@ -154,6 +154,16 @@ export default function ChatView({
     }
   }, [externalChatId, clearDisplay, currentChatId]);
 
+  // Allow other panels (e.g. StrategiesPanel) to inject a prompt into chat via window event
+  const handleSendMessageRef = useRef<((content: string) => void) | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const prompt = (e as CustomEvent<string>).detail;
+      if (prompt && handleSendMessageRef.current) handleSendMessageRef.current(prompt);
+    };
+    window.addEventListener('chat:prompt', handler);
+    return () => window.removeEventListener('chat:prompt', handler);
+  }, []);
   const setCurrentChatId = useCallback((id: string | null) => {
     setCurrentChatIdLocal(id);
     onChatIdChange?.(id);
@@ -374,6 +384,9 @@ export default function ChatView({
       }
     }
   };
+
+  // Keep the ref fresh so the chat:prompt window listener always calls the latest version
+  handleSendMessageRef.current = (msg: string) => handleSendMessage(msg);
 
   const handleStopStream = () => {
     if (currentChatId) {

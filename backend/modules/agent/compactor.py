@@ -5,7 +5,9 @@ database when the total history exceeds the configured token threshold.
 How it works:
 - After each chat turn, ChatService calls maybe_compact().
 - If total estimated tokens across all DB messages exceeds COMPACTION_THRESHOLD_TOKENS,
-  a compaction LLM call is made to summarize everything up to the most recent messages.
+  a pre-compaction memory flush is triggered: a silent agent turn that writes durable
+  memories to the sandbox before context is lost.
+- Then a compaction LLM call summarizes everything up to the most recent messages.
 - The summary is stored as a special "compaction" role message in the DB.
 - ChatHistory.from_db_messages already handles compaction rows by truncating everything
   before the latest one and injecting the summary as context.
@@ -14,13 +16,24 @@ The result: old messages remain in the DB for audit/display purposes but are exc
 from future LLM context windows. The model always sees:
   [system prompt] + [compaction summary as context] + [recent messages since compaction]
 """
-import json
 from typing import Optional
 
 from config import Config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_MEMORY_FLUSH_SYSTEM = (
+    "Session nearing context compaction. "
+    "Your job is to write any durable facts, decisions, or results to memory BEFORE context is lost."
+)
+_MEMORY_FLUSH_PROMPT = (
+    "Before this session is compacted, write any lasting notes:\n"
+    "- Key decisions, backtest results, strategy outcomes → memory_write with durable=True\n"
+    "- Today's analysis notes → memory_write with durable=False\n\n"
+    "If there is nothing new worth persisting, call idle immediately. "
+    "Do NOT reply to the user — this is a silent background operation."
+)
 
 _COMPACTION_SYSTEM_PROMPT = """You are summarizing a conversation between a user and an AI financial assistant called Finch.
 Produce a dense, structured summary that preserves ALL of the following without loss:
@@ -42,9 +55,63 @@ _COMPACTION_USER_PROMPT = """Summarize this conversation history. Preserve every
 Write a comprehensive structured summary that a future session can use as complete context."""
 
 
-async def maybe_compact(chat_id: str, user_id: str, db) -> bool:
+async def _run_memory_flush(chat_id: str, user_id: str, skill_ids: list, db) -> None:
+    """
+    Silent agent turn that writes durable memories to the sandbox before compaction.
+
+    The agent is given recent context, told this is a background operation, and
+    should call memory_write for any lasting facts then call idle.
+    The user never sees this turn — we consume the stream and discard events.
+    """
+    from crud import chat_async
+    from models.chat_history import ChatHistory
+    from modules.agent.agent_config import create_agent
+    from modules.agent.context import AgentContext, generate_agent_id
+
+    logger.info(f"Memory flush triggered for chat {chat_id} before compaction")
+
+    try:
+        # Load the current (large) history so the agent has context to work from
+        db_messages = await chat_async.get_chat_messages(db, chat_id)
+        chat_history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
+
+        agent_id = generate_agent_id()
+        context = AgentContext(
+            user_id=user_id,
+            chat_id=chat_id,
+            agent_id=agent_id,
+            skill_ids=skill_ids or [],
+        )
+
+        agent = await create_agent(context, user_id=user_id, skill_ids=skill_ids or [])
+
+        # Append flush instructions to system prompt without changing the base prompt
+        agent.system_prompt = agent.system_prompt + "\n\n" + _MEMORY_FLUSH_SYSTEM
+
+        # Consume the entire stream silently — we don't save messages or yield events
+        async for _ in agent.process_message_stream(
+            message=_MEMORY_FLUSH_PROMPT,
+            chat_history=chat_history,
+            history_limit=30,
+        ):
+            pass
+
+        logger.info(f"Memory flush complete for chat {chat_id}")
+    except Exception as exc:
+        logger.warning(f"Memory flush failed (non-fatal) for chat {chat_id}: {exc}")
+
+
+async def maybe_compact(
+    chat_id: str,
+    user_id: str,
+    db,
+    skill_ids: Optional[list] = None,
+) -> bool:
     """
     Check if the chat history needs compaction and run it if so.
+
+    Before compacting, runs a silent memory flush turn so the agent can write
+    durable facts to the sandbox before the context window is truncated.
 
     Returns True if compaction was performed, False otherwise.
     """
@@ -69,6 +136,9 @@ async def maybe_compact(chat_id: str, user_id: str, db) -> bool:
         f"Compaction triggered for chat {chat_id}: "
         f"~{estimated_tokens:,} tokens (threshold: {Config.COMPACTION_THRESHOLD_TOKENS:,})"
     )
+
+    # Fire memory flush before losing context — agent writes lasting facts to sandbox
+    await _run_memory_flush(chat_id, user_id, skill_ids or [], db)
 
     summary = await _run_compaction(history)
     if not summary:

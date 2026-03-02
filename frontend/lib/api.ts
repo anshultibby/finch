@@ -650,6 +650,16 @@ export const strategiesApi = {
     return response.json();
   },
 
+  async approveStrategy(userId: string, strategyId: string) {
+    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/approve`, {
+      method: 'POST',
+      headers: {
+        'X-User-ID': userId,
+      },
+    });
+    return response.json();
+  },
+
   async deleteStrategy(userId: string, strategyId: string) {
     const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
       method: 'DELETE',

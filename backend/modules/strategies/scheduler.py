@@ -113,14 +113,16 @@ class StrategyScheduler:
     
     async def _execute_strategy(self, db: AsyncSession, strategy: Strategy) -> None:
         """Execute a single strategy"""
-        logger.info(f"Running scheduled strategy: {strategy.name} ({strategy.id})")
-        
+        config = strategy.config or {}
+        paper_mode = config.get("paper_mode", True)
+        logger.info(f"Running scheduled strategy: {strategy.name} ({strategy.id}) paper_mode={paper_mode}")
+
         try:
             execution = await execute_strategy(
                 db=db,
                 strategy=strategy,
                 trigger="scheduled",
-                dry_run=False  # Scheduled runs are live
+                dry_run=paper_mode,
             )
             
             if execution.status == "failed":

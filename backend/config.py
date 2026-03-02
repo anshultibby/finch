@@ -164,6 +164,10 @@ class Settings(BaseSettings):
             'list_strategies',
             'get_strategy',
             'get_strategy_code',
+            # Memory
+            'memory_search',
+            'memory_get',
+            'memory_write',
         ],
         description="All agent tools"
     )

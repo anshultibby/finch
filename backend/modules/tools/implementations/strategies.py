@@ -91,6 +91,18 @@ async def deploy_strategy_impl(params: DeployStrategyParams, context: AgentConte
                 "error": "strategy.py not found in provided file_ids. Write strategy.py first.",
             }
 
+        # Validate strategy.py contract
+        strategy_code = chat_files["strategy.py"]
+        if "async def run(ctx)" not in strategy_code:
+            return {
+                "success": False,
+                "error": (
+                    "strategy.py must define `async def run(ctx)` at the top level. "
+                    "Do not use classes, decorators, or a synchronous def. "
+                    "Example: async def run(ctx):\\n    ctx.log('tick')\\n    portfolio = ctx.kalshi.get_portfolio()"
+                ),
+            }
+
         # Parse config.json if present
         config_data: dict = {}
         if "config.json" in chat_files:
@@ -106,12 +118,25 @@ async def deploy_strategy_impl(params: DeployStrategyParams, context: AgentConte
                 "error": "config.json must specify 'platform': 'kalshi' or 'alpaca'",
             }
 
+        # Validate capital field names — catch common wrong names upfront
+        capital_data = config_data.get("capital", {})
+        wrong_capital_keys = set(capital_data.keys()) - {"total", "per_trade", "max_positions"}
+        if wrong_capital_keys:
+            return {
+                "success": False,
+                "error": (
+                    f"config.json capital has unrecognised fields: {sorted(wrong_capital_keys)}. "
+                    "Required fields are: total, per_trade, max_positions. "
+                    "Example: {\"total\": 1000, \"per_trade\": 50, \"max_positions\": 10}"
+                ),
+            }
+
         capital = None
-        if "capital" in config_data:
+        if capital_data:
             try:
-                capital = CapitalConfig(**config_data["capital"])
-            except Exception:
-                pass
+                capital = CapitalConfig(**capital_data)
+            except Exception as exc:
+                return {"success": False, "error": f"config.json capital is invalid: {exc}"}
 
         risk_limits = None
         rl_data = config_data.get("risk_limits", {})

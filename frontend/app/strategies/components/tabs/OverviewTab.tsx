@@ -1,190 +1,165 @@
 'use client';
 
 import React from 'react';
-import type { Strategy } from '@/lib/types';
-import { CapitalMeter } from '../CapitalMeter';
-import { TrackRecordProgress } from '../TrackRecordProgress';
+import type { StrategyDetail } from '@/lib/types';
 
 interface OverviewTabProps {
-  strategy: Strategy;
-  onGraduate?: () => void;
+  strategy: StrategyDetail;
 }
 
-export function OverviewTab({ strategy, onGraduate }: OverviewTabProps) {
-  const config = strategy.config || {};
+export function OverviewTab({ strategy }: OverviewTabProps) {
   const stats = strategy.stats || {};
-  const capital = config.capital || {};
-  const mode = stats.mode || 'paper';
+  const capital = strategy.capital;
+  const riskLimits = strategy.risk_limits;
+
+  const successRate = (stats.total_runs || 0) > 0
+    ? Math.round(((stats.successful_runs || 0) / (stats.total_runs || 1)) * 100)
+    : null;
 
   return (
     <div className="space-y-6">
-      {/* Status Banner */}
+      {/* Approval banner */}
       {!strategy.approved && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div>
-              <h4 className="font-semibold text-yellow-900">Approval Required</h4>
-              <p className="text-sm text-yellow-700 mt-1">
-                This strategy needs your approval before it can be enabled.
-                Review the code and settings, then approve it in the Settings tab.
-              </p>
-            </div>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-xl">⚠️</span>
+          <div>
+            <h4 className="font-semibold text-yellow-900">Approval Required</h4>
+            <p className="text-sm text-yellow-700 mt-1">
+              Review the code and settings, then approve this strategy before enabling it.
+            </p>
           </div>
         </div>
       )}
 
       {/* Thesis */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start gap-2">
-          <span className="text-xl">💡</span>
-          <div>
-            <h4 className="font-semibold text-blue-900 mb-1">Investment Thesis</h4>
-            <p className="text-sm text-blue-800 italic">
-              {config.thesis || strategy.description}
-            </p>
-          </div>
+      {(strategy.thesis || strategy.description) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h4 className="font-semibold text-blue-900 mb-1">Thesis</h4>
+          <p className="text-sm text-blue-800 italic">
+            {strategy.thesis || strategy.description}
+          </p>
         </div>
-      </div>
-
-      {/* Platform Badge */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500 uppercase tracking-wide">Platform:</span>
-        <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
-          {config.platform || 'Unknown'}
-        </span>
-        <span className="text-xs text-gray-500 uppercase tracking-wide ml-4">Mode:</span>
-        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-          mode === 'live' ? 'bg-green-100 text-green-800' :
-          mode === 'paper' ? 'bg-blue-100 text-blue-800' :
-          'bg-gray-100 text-gray-800'
-        }`}>
-          {mode.charAt(0).toUpperCase() + mode.slice(1)}
-        </span>
-      </div>
-
-      {/* Capital Allocation */}
-      <CapitalMeter
-        totalCapital={capital.total_capital || 0}
-        deployed={capital.deployed || 0}
-        perTrade={capital.capital_per_trade || 0}
-        currentPositions={stats.current_positions || 0}
-        maxPositions={capital.max_positions || 5}
-      />
-
-      {/* Entry/Exit Conditions */}
-      <div>
-        <h3 className="font-semibold text-gray-900 mb-3">Entry & Exit Conditions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Entry */}
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xl">🚪</span>
-              <h4 className="font-semibold text-green-900">Entry</h4>
-            </div>
-            <p className="text-sm text-green-800">
-              {config.entry_description || 'No entry description provided'}
-            </p>
-          </div>
-
-          {/* Exit */}
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xl">🚪</span>
-              <h4 className="font-semibold text-red-900">Exit</h4>
-            </div>
-            <p className="text-sm text-red-800">
-              {config.exit_description || 'No exit description provided'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Track Record Progress (only show in paper mode) */}
-      {mode === 'paper' && (
-        <TrackRecordProgress
-          mode={mode}
-          paperTrades={stats.paper_trades || 0}
-          paperWinRate={stats.paper_win_rate || 0}
-          paperPnl={stats.paper_pnl || 0}
-          maxDrawdown={stats.max_drawdown || 0}
-          onGraduate={onGraduate}
-        />
       )}
 
-      {/* Performance Stats */}
+      {/* Meta */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full font-medium">
+          {strategy.platform}
+        </span>
+        {strategy.schedule_description && (
+          <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full">
+            {strategy.schedule_description}
+          </span>
+        )}
+        <span className={`px-3 py-1 rounded-full font-medium ${
+          !strategy.approved
+            ? 'bg-yellow-100 text-yellow-800'
+            : strategy.enabled
+            ? 'bg-green-100 text-green-800'
+            : 'bg-gray-100 text-gray-600'
+        }`}>
+          {!strategy.approved ? 'Needs Approval' : strategy.enabled ? 'Active' : 'Paused'}
+        </span>
+        <span className={`px-3 py-1 rounded-full font-medium ${
+          (strategy.paper_mode ?? true) ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+        }`}>
+          {(strategy.paper_mode ?? true) ? 'Paper' : 'Live'}
+        </span>
+      </div>
+
+      {/* Run stats */}
       <div>
-        <h3 className="font-semibold text-gray-900 mb-3">Performance Summary</h3>
+        <h3 className="font-semibold text-gray-900 mb-3">Execution Stats</h3>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Total Runs" value={stats.total_runs ?? 0} />
+          <StatCard label="Successful" value={stats.successful_runs ?? 0} color="green" />
+          <StatCard label="Failed" value={stats.failed_runs ?? 0} color={(stats.failed_runs || 0) > 0 ? 'red' : undefined} />
           <StatCard
-            label="Total Trades"
-            value={stats.total_trades || 0}
-          />
-          <StatCard
-            label="Win Rate"
-            value={`${((stats.win_rate || 0) * 100).toFixed(1)}%`}
-            color={(stats.win_rate || 0) > 0.55 ? 'green' : (stats.win_rate || 0) < 0.45 ? 'red' : undefined}
-          />
-          <StatCard
-            label="Total P&L"
-            value={`$${(stats.total_pnl || 0).toFixed(2)}`}
-            color={(stats.total_pnl || 0) > 0 ? 'green' : (stats.total_pnl || 0) < 0 ? 'red' : undefined}
-          />
-          <StatCard
-            label="Max Drawdown"
-            value={`${(Math.abs(stats.max_drawdown || 0) * 100).toFixed(1)}%`}
-            color="red"
+            label="Success Rate"
+            value={successRate !== null ? `${successRate}%` : '—'}
+            color={successRate !== null ? (successRate >= 80 ? 'green' : successRate < 50 ? 'red' : undefined) : undefined}
           />
         </div>
       </div>
 
-      {/* Risk Limits */}
-      {config.risk_limits && (
+      {/* Spend / profit */}
+      {((stats.total_spent_usd || 0) > 0 || (stats.total_profit_usd || 0) !== 0) && (
+        <div>
+          <h3 className="font-semibold text-gray-900 mb-3">Financials</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard label="Total Spent" value={`$${(stats.total_spent_usd || 0).toFixed(2)}`} />
+            <StatCard
+              label="Total Profit"
+              value={`$${(stats.total_profit_usd || 0).toFixed(2)}`}
+              color={(stats.total_profit_usd || 0) > 0 ? 'green' : (stats.total_profit_usd || 0) < 0 ? 'red' : undefined}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Capital */}
+      {capital && (
+        <div>
+          <h3 className="font-semibold text-gray-900 mb-3">Capital Allocation</h3>
+          <div className="grid grid-cols-3 gap-4">
+            {capital.total !== undefined && (
+              <StatCard label="Total Capital" value={`$${capital.total}`} />
+            )}
+            {capital.per_trade !== undefined && (
+              <StatCard label="Per Trade" value={`$${capital.per_trade}`} />
+            )}
+            {capital.max_positions !== undefined && (
+              <StatCard label="Max Positions" value={capital.max_positions} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Risk limits */}
+      {riskLimits && (riskLimits.max_order_usd || riskLimits.max_daily_usd) && (
         <div>
           <h3 className="font-semibold text-gray-900 mb-3">Risk Limits</h3>
           <div className="grid grid-cols-2 gap-4">
-            {config.risk_limits.max_order_usd && (
+            {riskLimits.max_order_usd && (
               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <div className="text-xs text-blue-600 font-medium uppercase tracking-wide mb-1">
-                  Max Per Order
-                </div>
-                <div className="text-2xl font-bold text-blue-900">
-                  ${config.risk_limits.max_order_usd}
-                </div>
+                <div className="text-xs text-blue-600 font-medium uppercase tracking-wide mb-1">Max Per Order</div>
+                <div className="text-2xl font-bold text-blue-900">${riskLimits.max_order_usd}</div>
               </div>
             )}
-            {config.risk_limits.max_daily_usd && (
+            {riskLimits.max_daily_usd && (
               <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                <div className="text-xs text-purple-600 font-medium uppercase tracking-wide mb-1">
-                  Max Per Day
-                </div>
-                <div className="text-2xl font-bold text-purple-900">
-                  ${config.risk_limits.max_daily_usd}
-                </div>
+                <div className="text-xs text-purple-600 font-medium uppercase tracking-wide mb-1">Max Per Day</div>
+                <div className="text-2xl font-bold text-purple-900">${riskLimits.max_daily_usd}</div>
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Last run */}
+      {strategy.last_run_summary && (
+        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Last Run</div>
+          <p className="text-sm text-gray-700">{strategy.last_run_summary}</p>
+          {strategy.last_run_at && (
+            <p className="text-xs text-gray-400 mt-1">{new Date(strategy.last_run_at).toLocaleString()}</p>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function StatCard({ 
-  label, 
-  value, 
-  color 
-}: { 
-  label: string; 
-  value: string | number; 
-  color?: 'green' | 'red' 
+function StatCard({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  color?: 'green' | 'red';
 }) {
-  const textColor = color === 'green' 
-    ? 'text-green-600' 
-    : color === 'red' 
-    ? 'text-red-600' 
-    : 'text-gray-900';
-  
+  const textColor = color === 'green' ? 'text-green-600' : color === 'red' ? 'text-red-600' : 'text-gray-900';
   return (
     <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
       <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">{label}</div>

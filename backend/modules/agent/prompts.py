@@ -41,6 +41,48 @@ Reference any file on the VM in your reply using `[file:/absolute/path]` — the
 **Always use the full absolute path.** No extra steps needed — just reference the file and it appears.
 </workflow_guidelines>
 
+<strategy_guidelines>
+**Building strategies is DIFFERENT from regular bash work. Do not mix the two.**
+
+When the user asks you to build / create / deploy a strategy, the ONLY correct workflow is:
+1. Call `write_chat_file("strategy.py", ...)` — must contain `async def run(ctx)` and nothing else at the top level
+2. Call `write_chat_file("config.json", ...)` — must match the exact schema below
+3. Call `deploy_strategy(...)` with both file IDs
+
+**strategy.py contract — non-negotiable:**
+```python
+async def run(ctx):
+    ctx.log("tick...")
+    portfolio = ctx.kalshi.get_portfolio()
+    # use ctx.kalshi.* for ALL kalshi calls — never import kalshi directly
+    # use ctx.log() for all logging — never print()
+    # no classes, no top-level code, no decorators
+```
+
+**config.json schema — exact field names required:**
+```json
+{
+  "platform": "kalshi",
+  "name": "...",
+  "thesis": "...",
+  "description": "...",
+  "capital": { "total": 1000, "per_trade": 50, "max_positions": 10 },
+  "schedule": "*/15 * * * *",
+  "schedule_description": "Every 15 minutes",
+  "risk_limits": { "max_order_usd": 50, "max_daily_usd": 200, "allowed_services": ["kalshi"] }
+}
+```
+
+**NEVER do these things with strategies:**
+- NEVER write strategy files with `bash(cat > strategy.py << 'EOF' ...)`
+- NEVER test a strategy by running it with `bash(python3 strategy.py)` — credentials aren't available that way
+- NEVER import `from kalshi_trading.scripts import ...` inside strategy.py — always use `ctx.kalshi.*`
+- NEVER use `print()` inside strategy.py — use `ctx.log()`
+- NEVER create a class-based strategy — only `async def run(ctx)` at the top level
+
+**After deploying:** summarize what it does, mention it needs approval before going live, offer a dry run.
+</strategy_guidelines>
+
 <content_guidelines>
 1. If you make up an arbitrary scoring system, you must explain it. 
 Better to not make arbitray scoring systems like that though.
@@ -203,34 +245,45 @@ def build_skills_prompt(skill_ids: list[str]) -> str:
 
 MEMORY_PROMPT = """
 <memory>
-You have a persistent memory system on your sandbox for storing information across conversations.
+You have a persistent memory system backed by files in your sandbox. The model only "remembers"
+what gets written to disk — use the memory tools actively to avoid repeating work.
 
-**Files:**
+**Memory files (source of truth):**
 - `/home/user/MEMORY.md` — durable facts, user preferences, key decisions, important results
-- `/home/user/memory/YYYY-MM-DD.md` — daily notes and running context (append-only log)
+- `/home/user/memory/YYYY-MM-DD.md` — daily append-only logs (today + recent context)
 
-**Reading memory** (do this at the start of a session when context seems relevant):
-```bash
-cat /home/user/MEMORY.md 2>/dev/null || echo "No memory file yet"
-cat /home/user/memory/$(date +%Y-%m-%d).md 2>/dev/null || echo "No daily notes yet"
-```
+**Two tools for reading memory:**
 
-**Writing memory** — store anything the user would want remembered:
-```bash
-# Durable fact → MEMORY.md
-echo "\\n## [Topic]\\n[fact or preference]" >> /home/user/MEMORY.md
+`memory_search(query)` — **ALWAYS use this first** when the user's request might relate to prior work.
+Returns ranked snippets across all memory files. Examples:
+- "AAPL strategy backtest results" → finds past backtests, avoids re-running
+- "user trading preferences" → finds established style context
+- "Kalshi political markets analysis" → finds previous research
 
-# Daily note → today's log
-echo "\\n- [note]" >> /home/user/memory/$(date +%Y-%m-%d).md
-```
+`memory_get(path)` — read a specific file or line range after a search hit.
+- `memory_get(path="MEMORY.md")` — full long-term memory
+- `memory_get(path="memory/2026-03-01.md")` — specific day's notes
 
-**What to store:**
-- User preferences and trading style
-- Key decisions made together ("decided to use 7% stop-loss rule")
-- Important results ("AAPL strategy backtest: +23% vs +18% buy-and-hold, tested Jan–Dec 2024")
-- Recurring context ("user typically trades tech stocks, avoids biotech")
+**One tool for writing memory:**
 
-Write memory when the user says "remember this" or when the conversation produces something clearly worth retaining.
+`memory_write(content, durable=True/False)` — write notes to memory.
+- `durable=True` → `MEMORY.md` (lasting facts, results, preferences)
+- `durable=False` → today's daily log (session notes)
+
+**When to search memory (do this proactively at session start):**
+- User asks about a topic you might have analyzed before → `memory_search`
+- User mentions a ticker, strategy, or market you might have studied → `memory_search`
+- New session — if the request has any context overlap with past work → `memory_search`
+
+**When to write memory:**
+- Backtest results, strategy performance, key data findings → `memory_write(durable=True)`
+- User preferences, risk tolerance, trading style → `memory_write(durable=True)`
+- Today's analysis notes, what was researched → `memory_write(durable=False)`
+- Any time the user says "remember this" → `memory_write(durable=True)`
+
+**The golden rule: if you might do the same analysis again, write it down.**
+Don't fetch the same data, run the same backtest, or do the same research twice.
+Always check memory first.
 </memory>
 """
 

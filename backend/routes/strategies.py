@@ -97,6 +97,7 @@ async def _strategy_to_detail_response(strategy, db: AsyncSession) -> StrategyDe
         schedule=config.get("schedule"),
         risk_limits=risk_limits,
         capital=capital,
+        paper_mode=config.get("paper_mode", True),
         stats=StrategyStats(**stats_dict),
         files=[{"filename": f.filename, "content": f.content} for f in files],
     )

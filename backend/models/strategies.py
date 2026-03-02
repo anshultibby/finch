@@ -44,6 +44,7 @@ class StrategyConfig(BaseModel):
     capital: Optional[CapitalConfig] = Field(None, description="Capital allocation config")
     risk_limits: Optional[RiskLimits] = Field(None, description="Risk limits for execution")
     approved_at: Optional[datetime] = Field(None, description="When strategy was approved")
+    paper_mode: bool = Field(default=True, description="If True, scheduled runs use dry_run=True (no real orders)")
 
     class Config:
         extra = "allow"
@@ -121,6 +122,7 @@ class UpdateStrategyRequest(BaseModel):
     schedule_description: Optional[str] = None
     risk_limits: Optional[RiskLimits] = None
     description: Optional[str] = None
+    paper_mode: Optional[bool] = None
     # Updating code files: filename -> new content (empty dict means no change)
     files: Optional[dict] = None
 
@@ -157,6 +159,7 @@ class StrategyDetailResponse(StrategyResponse):
     schedule: Optional[str] = None
     risk_limits: Optional[RiskLimits] = None
     capital: Optional[CapitalConfig] = None
+    paper_mode: bool = True
     stats: StrategyStats = Field(default_factory=StrategyStats)
     # files: list of {filename, content} — populated by route
     files: List[dict] = Field(default_factory=list)

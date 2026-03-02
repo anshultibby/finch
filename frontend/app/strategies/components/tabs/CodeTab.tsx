@@ -3,10 +3,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { strategiesApi } from '@/lib/api';
-import type { Strategy, StrategyCodeResponse } from '@/lib/types';
+import type { StrategyDetail, StrategyCodeResponse } from '@/lib/types';
 
 interface CodeTabProps {
-  strategy: Strategy;
+  strategy: StrategyDetail;
 }
 
 export function CodeTab({ strategy }: CodeTabProps) {

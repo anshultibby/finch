@@ -2,6 +2,7 @@
 
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback } from 'react';
 import { chatApi } from '@/lib/api';
+import ProfileDropdown from '../ProfileDropdown';
 
 export type SidebarPanel = 'chat' | 'strategies' | 'skills';
 
@@ -162,7 +163,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
         })}
       </nav>
 
-      <div className="flex-1 overflow-y-auto mt-1 px-2 space-y-0.5 min-h-0">
+      <div className="flex-1 overflow-y-auto mt-1 px-2 space-y-0.5 min-h-0 pb-1">
         {isLoading && chats.length === 0 ? (
           <div className="flex justify-center py-6">
             <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />
@@ -203,6 +204,10 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
             })}
           </>
         )}
+      </div>
+      {/* Profile / settings at bottom */}
+      <div className={`flex-shrink-0 border-t border-gray-200 px-2 py-2 ${expanded ? '' : 'flex justify-center'}`}>
+        <ProfileDropdown collapsed={!expanded} />
       </div>
     </div>
   );

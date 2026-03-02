@@ -19,36 +19,53 @@ Deploy and manage automated trading strategies that run in the user's sandbox on
 
 A strategy consists of two files:
 
-**strategy.py** — uses the `@strategy.on_entry` / `@strategy.on_exit` decorator pattern:
+**strategy.py** — defines a single `async def run(ctx)` function. Write whatever logic you need.
 
 ```python
-from finch import strategy, EntrySignal, ExitSignal, Position
+async def run(ctx):
+    """
+    ctx.kalshi     — full Kalshi client (dry_run aware, risk-limited on writes)
+    ctx.dry_run    — bool, True in paper mode
+    ctx.log(msg)   — visible in execution history
+    ctx.strategy_id, ctx.user_id
+    """
+    ctx.log("Checking positions...")
+    portfolio = ctx.kalshi.get_portfolio()
+    ctx.log(f"Balance: ${portfolio['balance']:.2f}")
 
-@strategy.on_entry
-async def check_entry(ctx) -> list[EntrySignal]:
-    """Return signals for positions to open."""
-    from kalshi_trading.scripts import kalshi
-    markets = kalshi.get_events(limit=20)
-    signals = []
-    for m in markets.get("events", []):
-        # ...your logic...
-        signals.append(EntrySignal(
-            market_id="KXBTC-...",
-            side="yes",
-            reason="price dip",
-            confidence=0.8,
-        ))
-    return signals
+    # Browse markets
+    events = ctx.kalshi.get_events(limit=20)
+    for event in events.get("events", []):
+        for market in event.get("markets", []):
+            ticker = market["ticker"]
+            yes_ask = market["yes_ask"]  # price in CENTS
 
-@strategy.on_exit
-async def check_exit(ctx, position: Position) -> ExitSignal | None:
-    """Return an exit signal if we should close this position, or None."""
-    if position.unrealized_pnl < -10:
-        return ExitSignal(position_id=position.position_id, reason="stop loss")
-    return None
+            if yes_ask < 20:  # example: buy if price below 20¢
+                ctx.log(f"Buying {ticker} at {yes_ask}¢")
+                ctx.kalshi.place_order(
+                    ticker=ticker,
+                    side="yes",
+                    action="buy",
+                    count=1,
+                    order_type="market",
+                )
+
+    # Check open positions for exit
+    positions = ctx.kalshi.get_positions()
+    for pos in positions.get("positions", []):
+        pnl = pos.get("realized_pnl", 0)
+        if pnl < -1000:  # stop loss at -$10 (pnl in cents)
+            ctx.log(f"Stop loss on {pos['ticker']}")
+            ctx.kalshi.place_order(
+                ticker=pos["ticker"],
+                side="yes" if pos["position"] > 0 else "no",
+                action="sell",
+                count=abs(pos["position"]),
+                order_type="market",
+            )
 ```
 
-**config.json** — platform, capital, and risk settings:
+**config.json** — platform, capital, risk limits, schedule:
 
 ```json
 {
@@ -67,60 +84,67 @@ async def check_exit(ctx, position: Position) -> ExitSignal | None:
 }
 ```
 
-## ctx Object
+## ctx.kalshi
 
-`ctx` is injected into check_entry / check_exit:
+Full proxy over the `kalshi_trading` skill. All read methods pass through directly.
+Write methods (`place_order`, `cancel_order`) are intercepted for dry_run and risk limits.
 
-- `ctx.kalshi` — KalshiContextWrapper (dry_run aware, risk limited)
-  - `.get_balance()`, `.get_positions()`, `.get_events()`, `.get_market(ticker)`
-  - `.create_order(ticker, side, action, count, order_type, price)`
-  - `.cancel_order(order_id)`
-- `ctx.dry_run` — bool, True when doing a test run
-- `ctx.strategy_id`, `ctx.user_id`, `ctx.execution_id`
-- `ctx.log(msg)` — structured log visible in execution history
+Read methods (pass-through, always safe):
+- `ctx.kalshi.get_balance()`
+- `ctx.kalshi.get_portfolio()`  — balance + positions in one call
+- `ctx.kalshi.get_positions(limit=100)`
+- `ctx.kalshi.get_events(limit=20, status="open", series_ticker=None)`
+- `ctx.kalshi.get_event(event_ticker)`
+- `ctx.kalshi.get_market(ticker)`
+- `ctx.kalshi.get_markets(limit=100, status="open", event_ticker=None)`
+- `ctx.kalshi.get_orderbook(ticker, depth=10)`
+- `ctx.kalshi.get_orders(ticker=None, status="resting")`
 
-## Deploying From Code Execution
+Write methods (dry_run aware + risk-limited):
+- `ctx.kalshi.place_order(ticker, side, action, count, order_type="market", price=None)`
+  - `side`: `"yes"` or `"no"`
+  - `action`: `"buy"` or `"sell"`
+  - `price`: limit price in cents (1–99), required for limit orders
+  - No-op in paper mode; blocked if `max_order_usd` or `max_daily_usd` exceeded
+- `ctx.kalshi.cancel_order(order_id)`
 
-If you want to deploy a strategy from within code execution (bash tool):
-
-```python
-from strategies.scripts.deploy_from_files import deploy_strategy_from_files
-
-result = deploy_strategy_from_files(
-    name="Fed Rate Monitor",
-    description="Buy Fed rate cut markets when price dips",
-    files={
-        "strategy.py": open("strategy.py").read(),
-        "config.json": open("config.json").read(),
-    }
-    # user_id and chat_id are auto-read from FINCH_USER_ID / FINCH_CHAT_ID env vars
-)
-print(result["strategy_id"])
-```
-
-## Querying Strategies
-
-```python
-from strategies.scripts.query_strategies import list_strategies, get_strategy_code
-
-# List all strategies
-result = await list_strategies(user_id="...")
-for s in result["strategies"]:
-    print(s["name"], s["platform"])
-
-# Get code
-code = await get_strategy_code(user_id="...", strategy_id="...")
-print(code["files"]["strategy.py"])
-```
+Prices are in **CENTS** (0–100). Divide by 100 for dollars.
 
 ## Lifecycle
 
-1. LLM writes strategy.py + config.json as chat files
-2. LLM calls `deploy_strategy` tool → files promoted to strategy_files table
+1. Use `write_chat_file` to write `strategy.py` and `config.json` — they appear in the chat for the user to review
+2. Call `deploy_strategy` with the file IDs → files promoted to strategy_files table
 3. User reviews + approves in Strategy Panel
 4. User enables → scheduler starts ticking
-5. Each tick: sandbox runner loads files, runs check_exit then check_entry
+5. Each tick: sandbox runner loads files fresh from DB, calls `run(ctx)`
 6. StrategyExecution audit records stored in DB
+
+**Iterating:** use `replace_in_chat_file` to edit `strategy.py` or `config.json`, then call `deploy_strategy` again with the updated file IDs to push a new version.
+
+## NEVER do these things
+
+```python
+# WRONG — do not write strategy files via bash
+bash("cat > strategy.py << 'EOF' ...")
+
+# WRONG — do not test by running the file directly (no credentials in bash context)
+bash("python3 strategy.py")
+
+# WRONG — do not import kalshi directly inside strategy.py
+from kalshi_trading.scripts import kalshi  # BREAKS — use ctx.kalshi instead
+
+# WRONG — do not use print() inside strategy.py
+print("something")  # use ctx.log("something")
+
+# WRONG — do not use a class or top-level code
+class MyStrategy:  # BREAKS — only async def run(ctx) is valid
+    def on_entry(self): ...
+
+# WRONG — wrong config.json field names
+{"capital": {"initial_usd": 1000, "max_order_usd": 50}}  # BREAKS
+# CORRECT:
+{"capital": {"total": 1000, "per_trade": 50, "max_positions": 10}}
+```
 
 ## Schedule Examples
 

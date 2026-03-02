@@ -124,6 +124,8 @@ async def update_strategy(
         config["schedule_description"] = request.schedule_description
     if request.risk_limits is not None:
         config["risk_limits"] = request.risk_limits.model_dump(mode="json")
+    if request.paper_mode is not None:
+        config["paper_mode"] = request.paper_mode
     strategy.config = config
 
     # Update code files if provided

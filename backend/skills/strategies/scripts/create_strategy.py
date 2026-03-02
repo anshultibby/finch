@@ -1,226 +1,126 @@
 """
-Create Strategy - Tool for LLM to create new trading strategies
+Create Strategy — reference scaffold for the correct strategy contract.
 
-This allows the LLM to generate strategies by creating:
-1. entry.py - Entry signal logic
-2. exit.py - Exit signal logic  
-3. config.json - Configuration with hard priors
+This module is NOT called by the LLM directly. It exists as documentation
+and a helper the LLM can import for validation.
+
+The correct workflow is:
+  1. LLM calls write_chat_file("strategy.py", <code>) — using the contract below
+  2. LLM calls write_chat_file("config.json", <json>)
+  3. LLM calls deploy_strategy tool with the file IDs
+
+Contract: strategy.py must use @strategy.on_entry / @strategy.on_exit.
+The runner injects ctx and handles dry_run / risk limits automatically.
 """
-from typing import Dict, Any
+import json
+from typing import Optional
+
+
+STRATEGY_PY_TEMPLATE = '''async def run(ctx):
+    """
+    ctx.kalshi     — full Kalshi client (dry_run aware, risk-limited on writes)
+    ctx.dry_run    — bool, True in paper mode
+    ctx.log(msg)   — visible in execution history
+
+    Read:  ctx.kalshi.get_portfolio(), get_events(), get_market(ticker), get_positions(), ...
+    Write: ctx.kalshi.place_order(ticker, side, action, count, order_type, price)
+           ctx.kalshi.cancel_order(order_id)
+    All prices are in CENTS (0-100).
+    """
+    ctx.log("Running strategy tick...")
+
+    # --- your logic here ---
+'''
+
+CONFIG_TEMPLATE = {
+    "platform": "kalshi",
+    "name": "Strategy Name",
+    "thesis": "Why this will make money",
+    "description": "What the strategy does in one sentence",
+    "capital": {
+        "total": 500,
+        "per_trade": 50,
+        "max_positions": 5,
+    },
+    "schedule": "0 * * * *",
+    "schedule_description": "Every hour",
+    "risk_limits": {
+        "max_order_usd": 50,
+        "max_daily_usd": 200,
+        "allowed_services": ["kalshi"],
+    },
+}
 
 
 def create_strategy(
     name: str,
     thesis: str,
     platform: str,
-    execution_frequency: int,
-    total_capital: float,
-    capital_per_trade: float,
-    max_positions: int,
-    entry_code: str,
-    exit_code: str,
-    entry_description: str,
-    exit_description: str,
-    parameters: Dict[str, Any] = None
-) -> Dict[str, Any]:
+    strategy_code: str,
+    description: str,
+    schedule: Optional[str] = None,
+    schedule_description: Optional[str] = None,
+    total: float = 500,
+    per_trade: float = 50,
+    max_positions: int = 5,
+    max_order_usd: Optional[float] = None,
+    max_daily_usd: Optional[float] = None,
+) -> dict:
     """
-    Create a new trading strategy
-    
-    Args:
-        name: Strategy name (e.g., "Polymarket Copy Trader")
-        thesis: Why this will make money (plain English)
-        platform: "polymarket", "kalshi", or "alpaca"
-        execution_frequency: Check for signals every N seconds
-        total_capital: Total USD allocated to strategy
-        capital_per_trade: USD per single trade
-        max_positions: Max concurrent positions
-        entry_code: Python code for entry.py (must define: async def check_entry(ctx))
-        exit_code: Python code for exit.py (must define: async def check_exit(ctx, position))
-        entry_description: Human-readable entry condition
-        exit_description: Human-readable exit condition
-        parameters: Optional strategy-specific parameters
-        
-    Returns:
-        Dict with:
-        - file_contents: Dict of filename -> code
-        - validation: Any validation errors
-        
-    Example:
-        result = create_strategy(
-            name="Polymarket Copy Trader",
-            thesis="Copy trades from proven successful traders",
-            platform="polymarket",
-            execution_frequency=60,
-            total_capital=5000,
-            capital_per_trade=100,
-            max_positions=5,
-            entry_code='''
-async def check_entry(ctx):
-    poly = await ctx.polymarket
-    signals = []
-    
-    tracked_traders = ["0x742d35Cc..."]
-    for trader in tracked_traders:
-        trades = await poly.get_trade_history(maker_address=trader, limit=10)
-        # Logic to detect new trades...
-        
-    return signals
-''',
-            exit_code='''
-async def check_exit(ctx, position):
-    pnl_pct = position.unrealized_pnl / position.size
-    
-    if pnl_pct < -0.10:  # Stop loss
-        return {"position_id": position.position_id, "reason": "Stop loss"}
-    if pnl_pct > 0.20:  # Take profit
-        return {"position_id": position.position_id, "reason": "Take profit"}
-    
-    return None
-''',
-            entry_description="When tracked traders make a new trade",
-            exit_description="Stop loss at -10%, take profit at +20%"
-        )
+    Validate and scaffold strategy files matching the runner contract.
+
+    Returns {"success": True, "files": {"strategy.py": ..., "config.json": ...}}
+    or {"success": False, "errors": [...]}.
+
+    The LLM should write these files via write_chat_file then call deploy_strategy.
     """
-    import json
-    
-    # Validate required fields
     errors = []
-    
-    if platform not in ["polymarket", "kalshi", "alpaca"]:
-        errors.append(f"Invalid platform: {platform}")
-    
-    if execution_frequency < 10:
-        errors.append("execution_frequency must be >= 10 seconds")
-    
-    if capital_per_trade > total_capital:
-        errors.append("capital_per_trade cannot exceed total_capital")
-    
-    if "async def check_entry(ctx)" not in entry_code:
-        errors.append("entry_code must define: async def check_entry(ctx)")
-    
-    if "async def check_exit(ctx, position)" not in exit_code:
-        errors.append("exit_code must define: async def check_exit(ctx, position)")
-    
+
+    if platform not in ("kalshi", "alpaca"):
+        errors.append(f"Invalid platform '{platform}'. Must be 'kalshi' or 'alpaca'.")
+
+    if per_trade > total:
+        errors.append("per_trade cannot exceed total capital")
+
+    if "@strategy.on_entry" not in strategy_code:
+        errors.append("strategy_code must use @strategy.on_entry decorator")
+
+    if "@strategy.on_exit" not in strategy_code:
+        errors.append("strategy_code must use @strategy.on_exit decorator")
+
+    if "from finch import" not in strategy_code:
+        errors.append("strategy_code must start with: from finch import strategy, EntrySignal, ExitSignal, Position")
+
     if errors:
-        return {
-            "success": False,
-            "errors": errors
-        }
-    
-    # Generate config.json
+        return {"success": False, "errors": errors}
+
     config = {
         "name": name,
         "thesis": thesis,
         "platform": platform,
-        "execution_frequency": execution_frequency,
+        "description": description,
         "capital": {
-            "total_capital": total_capital,
-            "capital_per_trade": capital_per_trade,
+            "total": total,
+            "per_trade": per_trade,
             "max_positions": max_positions,
-            "max_position_size": capital_per_trade * 2,  # Default to 2x per trade
-            "max_daily_loss": total_capital * 0.10,  # Default 10% of capital
-            "sizing_method": "fixed"
         },
-        "entry_script": "entry.py",
-        "exit_script": "exit.py",
-        "entry_description": entry_description,
-        "exit_description": exit_description,
-        "parameters": parameters or {}
+        "schedule": schedule,
+        "schedule_description": schedule_description,
+        "risk_limits": {
+            "max_order_usd": max_order_usd or per_trade,
+            "max_daily_usd": max_daily_usd or total * 0.1,
+            "allowed_services": [platform],
+        },
     }
-    
-    # Return file contents for LLM to save as ChatFiles
+
     return {
         "success": True,
         "files": {
-            "entry.py": entry_code,
-            "exit.py": exit_code,
-            "config.json": json.dumps(config, indent=2)
+            "strategy.py": strategy_code,
+            "config.json": json.dumps(config, indent=2),
         },
-        "config": config,
-        "message": f"Strategy '{name}' created. Save these 3 files as ChatFiles and deploy."
+        "message": (
+            f"Strategy '{name}' scaffolded. "
+            "Write these as chat files then call deploy_strategy."
+        ),
     }
-
-
-# Example usage for LLM
-USAGE_EXAMPLE = """
-To create a Polymarket copy trading strategy:
-
-from .strategies.create_strategy import create_strategy
-
-result = create_strategy(
-    name="Copy Top Traders",
-    thesis="Successful traders have edge, copy their moves",
-    platform="polymarket",
-    execution_frequency=60,
-    total_capital=5000,
-    capital_per_trade=100,
-    max_positions=5,
-    entry_code='''
-async def check_entry(ctx):
-    from .strategies import EntrySignal
-    
-    poly = await ctx.polymarket
-    signals = []
-    
-    # Get tracked traders from parameters
-    tracked_traders = ctx.get_param('tracked_traders', [])
-    processed_trades = ctx.load_state('processed_trades', set())
-    
-    for trader in tracked_traders:
-        result = await poly.get_trade_history(maker_address=trader, limit=20)
-        
-        for trade in result.get('trades', []):
-            if trade['id'] in processed_trades:
-                continue
-            
-            processed_trades.add(trade['id'])
-            
-            if trade['side'] == 'BUY':
-                signals.append({
-                    'market_id': trade['token_id'],
-                    'market_name': trade.get('market_slug', 'Unknown'),
-                    'side': 'yes',
-                    'reason': f"Copy trade from {trader[:10]}...",
-                    'confidence': 0.8,
-                    'metadata': {'original_trade': trade}
-                })
-    
-    ctx.save_state('processed_trades', processed_trades)
-    return signals
-''',
-    exit_code='''
-async def check_exit(ctx, position):
-    # Calculate P&L percentage
-    pnl_pct = position.unrealized_pnl / (position.size * position.entry_price)
-    
-    # Stop loss at -10%
-    if pnl_pct < -0.10:
-        return {
-            'position_id': position.position_id,
-            'reason': f'Stop loss: {pnl_pct:.1%}',
-            'metadata': {'exit_type': 'stop_loss'}
-        }
-    
-    # Take profit at +20%
-    if pnl_pct > 0.20:
-        return {
-            'position_id': position.position_id,
-            'reason': f'Take profit: {pnl_pct:.1%}',
-            'metadata': {'exit_type': 'take_profit'}
-        }
-    
-    return None
-''',
-    entry_description="When tracked traders make a new BUY trade",
-    exit_description="Stop loss -10%, take profit +20%",
-    parameters={
-        'tracked_traders': ['0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'],
-        'wallet_address': 'YOUR_WALLET'
-    }
-)
-
-# Result contains 3 files to save:
-# result['files']['entry.py']
-# result['files']['exit.py']  
-# result['files']['config.json']
-"""

@@ -28,12 +28,17 @@ from modules.tools.descriptions import (
     RUN_STRATEGY_DESC,
     DELETE_STRATEGY_DESC,
     GET_STRATEGY_CODE_DESC,
+    # Memory
+    MEMORY_SEARCH_DESC,
+    MEMORY_GET_DESC,
+    MEMORY_WRITE_DESC,
 )
 
 # Import implementations
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
 from modules.tools.implementations import strategies as strategies_impl
+from modules.tools.implementations import memory as memory_impl
 
 
 # ============================================================================
@@ -287,6 +292,62 @@ async def get_strategy_code(*, strategy_id: str, context: AgentContext):
 
 
 # ============================================================================
+# MEMORY TOOLS
+# ============================================================================
+
+@tool(
+    name="memory_search",
+    description=MEMORY_SEARCH_DESC,
+    category="memory",
+    hidden_from_ui=True,
+)
+async def memory_search(
+    *,
+    query: str,
+    max_results: int = 6,
+    context: AgentContext,
+):
+    """BM25 search over all persistent memory files in the user's sandbox."""
+    params = memory_impl.MemorySearchParams(query=query, max_results=max_results)
+    return await memory_impl.memory_search_impl(params, context)
+
+
+@tool(
+    name="memory_get",
+    description=MEMORY_GET_DESC,
+    category="memory",
+    hidden_from_ui=True,
+)
+async def memory_get(
+    *,
+    path: str = "MEMORY.md",
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    context: AgentContext,
+):
+    """Read a specific memory file or line range from the sandbox."""
+    params = memory_impl.MemoryGetParams(path=path, start_line=start_line, end_line=end_line)
+    return await memory_impl.memory_get_impl(params, context)
+
+
+@tool(
+    name="memory_write",
+    description=MEMORY_WRITE_DESC,
+    category="memory",
+    hidden_from_ui=True,
+)
+async def memory_write(
+    *,
+    content: str,
+    durable: bool = False,
+    context: AgentContext,
+):
+    """Write a note to durable memory (MEMORY.md) or today's daily log."""
+    params = memory_impl.MemoryWriteParams(content=content, durable=durable)
+    return await memory_impl.memory_write_impl(params, context)
+
+
+# ============================================================================
 # TOOL EXPORTS
 # ============================================================================
 
@@ -310,5 +371,9 @@ __all__ = [
     'run_strategy',
     'delete_strategy',
     'get_strategy_code',
+    # Memory
+    'memory_search',
+    'memory_get',
+    'memory_write',
 ]
 

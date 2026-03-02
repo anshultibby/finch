@@ -241,41 +241,37 @@ Call this after writing strategy.py + config.json as chat files. It copies
 those files into the strategy's own storage (independent of the chat) and
 creates the strategy record.
 
+**IMPORTANT: Deploy proactively. Do not ask the user "should I deploy?" — just do it.**
+If you've written the strategy files and the user asked you to build a strategy, deploy it.
+
 **Required files (must exist as ChatFiles with these exact names):**
-- strategy.py  — uses the @strategy.on_entry / @strategy.on_exit contract
-- config.json  — platform, capital, risk_limits, schedule (from create_strategy scaffold)
+- strategy.py  — single `async def run(ctx)` function (see strategies skill for contract)
+- config.json  — platform, capital, risk_limits, schedule
 
-**How to communicate with the user:**
+**Strategy code contract:**
+strategy.py must define `async def run(ctx)` — no decorators, no classes.
+Use ctx.kalshi.place_order() (not create_order) for placing trades.
+All Kalshi prices are in CENTS (0-100).
 
-1. BEFORE creating files, explain the strategy in plain language:
-   - What it monitors (e.g., "Fed rate cut markets on Kalshi")
-   - What triggers action (e.g., "when price drops below 20 cents")
-   - What action it takes (e.g., "buy $50 of YES contracts")
-   - When it runs (e.g., "every hour" or "once daily at 9am ET")
-
-2. AFTER deploying, summarize for the user (no code details):
-   - "I've created a strategy called '{name}'"
-   - Explain what it does in 1-2 sentences
-   - Mention the schedule in human terms
-   - Remind them it needs approval before live trading
-   - Offer to do a dry run
-
-3. Risk communication:
-   - Always mention the maximum amount at risk per run
-   - Be clear about what "dry run" vs "live" means
+**After deploying, summarize for the user (no code details):**
+- "I've created a strategy called '{name}'"
+- Explain what it does in 1-2 sentences
+- Mention the schedule in human terms
+- Remind them it needs approval before live trading
+- Offer to do a dry run
 
 **Example response:**
-"I've set up a strategy called 'Fed Rate Dip Buyer' that:
- • Checks Fed rate cut markets every hour
- • Buys $50 of YES contracts when prices fall below 20¢
- • Max spend: $50 per trade, $200 per day
+"I've set up a strategy called 'NHL Copy Trader' that:
+ • Checks every 15 minutes for consensus trades from top Polymarket sports traders
+ • Places matching bets on Kalshi when ≥2 traders agree on a team
+ • Max spend: $50 per trade, $200 per day (paper mode — no real money until approved)
  
- Before it can trade with real money, you'll need to approve it.
  Want me to do a test run to show you what it would do right now?"
 
 **Schedule (cron expressions):**
 - "0 * * * *"    = every hour at :00
 - "*/30 * * * *" = every 30 minutes
+- "*/15 * * * *" = every 15 minutes
 - "0 9 * * *"    = daily at 9am UTC
 - "0 9 * * 1-5"  = weekdays at 9am UTC
 """
@@ -381,6 +377,58 @@ GET_STRATEGY_CODE_DESC = """Get the full code files for a strategy.
 
 Use when the user asks to see, edit, or review a strategy's code.
 Returns all files (strategy.py, config.json, etc.) for the given strategy_id.
+"""
+
+
+# ============================================================================
+# MEMORY TOOLS
+# ============================================================================
+
+MEMORY_SEARCH_DESC = """Semantically search across all your persistent memory files.
+
+Runs BM25 keyword search over MEMORY.md and all memory/YYYY-MM-DD.md daily logs.
+Returns ranked snippets — the most relevant facts from past sessions.
+
+**Use this at the start of a session when the user's request might relate to prior work:**
+- "analyze X again" → search "X analysis results"
+- "how did that strategy do?" → search "strategy performance backtest"
+- "remember my preferences?" → search "user preferences trading style"
+- Any topic the user has discussed before
+
+**Returns:** list of snippets with source file and relevance score.
+"""
+
+MEMORY_GET_DESC = """Read a specific memory file (or a line range within it).
+
+**Files:**
+- `MEMORY.md` — durable long-term facts and preferences (default)
+- `memory/YYYY-MM-DD.md` — a specific day's running notes
+
+**When to use:**
+- You got a search hit and want to read the full surrounding context
+- You want to review everything stored about a topic
+- Start of session full memory review (read MEMORY.md)
+
+Use memory_search first to find the right file/range, then memory_get to read it.
+"""
+
+MEMORY_WRITE_DESC = """Write a note or fact to persistent memory.
+
+**durable=True → MEMORY.md** (use for):
+- User preferences ("user prefers momentum strategies over mean-reversion")
+- Key decisions ("decided to use 7% trailing stop as default")
+- Important results ("AAPL backtest Jan-Dec 2024: +23% vs +18% buy-and-hold")
+- Recurring context ("user trades Kalshi prediction markets, focuses on political events")
+
+**durable=False (default) → today's daily log**:
+- Today's analysis notes
+- What was researched/found this session
+- Intermediate results worth remembering
+
+**Always write memory when:**
+- User says "remember this"
+- You produce a key insight, backtest result, or strategy outcome
+- You learn something durable about the user's preferences or style
 """
 
 
