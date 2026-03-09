@@ -6,7 +6,7 @@ import sys
 from datetime import datetime, timedelta
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
 from modules.tools.clients.snaptrade import snaptrade_tools
-from database import SessionLocal
+from core.database import SessionLocal
 
 
 def quick_test_activities(user_id: str):

@@ -10,16 +10,16 @@ from snaptrade_client import SnapTrade
 from typing import Dict, Any, Optional, List, AsyncGenerator, Union
 from datetime import datetime
 from pydantic import BaseModel
-from config import Config
-from database import SessionLocal
+from core.config import Config
+from core.database import SessionLocal
 from crud import snaptrade_user as snaptrade_crud
 from crud import brokerage_account as brokerage_crud
-from models.db import SnapTradeUser as DBSnapTradeUser
-from models.snaptrade import (
+from models.user import SnapTradeUser as DBSnapTradeUser
+from schemas.snaptrade import (
     Position, Account, AggregatedHolding, Portfolio,
     SnapTradePositionResponse, SnapTradeAccountResponse
 )
-from models.sse import SSEEvent
+from schemas.sse import SSEEvent
 import asyncio
 
 

@@ -3,7 +3,7 @@ Chat Files Routes - API endpoints for file management
 """
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
-from database import get_db
+from core.database import get_db
 from crud.chat_files import (
     list_chat_files,
     get_chat_file,

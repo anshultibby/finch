@@ -11,7 +11,7 @@ One sandbox persists per user (not per-chat), surviving server restarts:
 - Clearing a chat does NOT destroy the sandbox; reset_sandbox does
 """
 from modules.agent.context import AgentContext
-from models.sse import SSEEvent
+from schemas.sse import SSEEvent
 from typing import Optional, Dict, Any, AsyncGenerator, List
 from pydantic import BaseModel, Field
 from utils.logger import get_logger

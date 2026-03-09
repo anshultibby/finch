@@ -4,7 +4,7 @@ Portfolio analytics and performance calculations
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, date
 from decimal import Decimal
-from database import SessionLocal
+from core.database import SessionLocal
 from crud import transactions as tx_crud
 from sqlalchemy import func, and_
 from utils.logger import get_logger

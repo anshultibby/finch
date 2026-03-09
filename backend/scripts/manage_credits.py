@@ -14,7 +14,7 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from database import get_db_session
+from core.database import get_db_session
 from services.credits import CreditsService
 from utils.logger import get_logger
 

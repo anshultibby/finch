@@ -11,7 +11,7 @@ from typing import Optional, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
-from config import Config
+from core.config import Config
 from crud.user_api_keys import get_decrypted_credentials
 from modules.tools.apis._secure_key import SecureKey, secure_key_or_none
 

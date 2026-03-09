@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from database import get_db_session
+from core.database import get_db_session
 from crud.bots import get_due_wakeups
 from .wakeup_executor import execute_wakeup
 

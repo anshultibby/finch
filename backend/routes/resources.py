@@ -4,9 +4,9 @@ Resources API routes
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 from sqlalchemy.orm import Session
-from database import get_db
+from core.database import get_db
 from crud import resource as resource_crud
-from models import ResourceResponse, ResourceMetadata
+from schemas import ResourceResponse, ResourceMetadata
 
 router = APIRouter(prefix="/resources", tags=["resources"])
 

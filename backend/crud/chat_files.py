@@ -3,7 +3,7 @@ CRUD operations for chat files (database-backed)
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from models.db import ChatFile
+from models.chat_models import ChatFile
 from typing import List, Optional, Dict
 import uuid
 import logging

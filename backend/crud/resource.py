@@ -3,7 +3,7 @@ CRUD operations for resources
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from models.db import Resource
+from models.chat_models import Resource
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime

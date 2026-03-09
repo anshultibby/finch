@@ -14,7 +14,7 @@ Strategy (mirrors OpenClaw's approach):
 from typing import List, Dict, Any
 import copy
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

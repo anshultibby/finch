@@ -17,7 +17,7 @@ Install dependencies:
     pip install opentelemetry-instrumentation-logging  # For log correlation
 """
 from typing import Optional, Dict, Any
-from config import Config
+from core.config import Config
 import logging
 
 # Check if OpenTelemetry is installed

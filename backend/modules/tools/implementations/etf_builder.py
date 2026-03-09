@@ -4,7 +4,7 @@ Custom ETF Builder Implementation
 Tools for building and analyzing custom ETF portfolios with different weighting strategies.
 """
 from modules.agent.context import AgentContext
-from models.sse import SSEEvent
+from schemas.sse import SSEEvent
 from typing import Optional, Dict, Any, AsyncGenerator, List, Literal
 from pydantic import BaseModel, Field
 from utils.logger import get_logger

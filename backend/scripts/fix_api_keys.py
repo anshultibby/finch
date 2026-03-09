@@ -18,8 +18,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select, update
-from database import get_async_db
-from models.db import UserSettings
+from core.database import get_async_db
+from models.user import UserSettings
 
 
 async def fix_user_api_keys(user_id: str):

@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from snaptrade_client import SnapTrade
 from supabase import create_client
-from config import Config
-from database import SessionLocal
+from core.config import Config
+from core.database import SessionLocal
 from crud import snaptrade_user as snaptrade_crud
 
 

@@ -9,10 +9,10 @@ import uuid
 import asyncio
 import json
 
-from models import ChatMessage, ChatResponse
+from schemas import ChatMessage, ChatResponse
 from modules.chat_service import ChatService
 from services.chat_title import generate_chat_title
-from database import get_db_session
+from core.database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
 

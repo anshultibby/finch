@@ -614,7 +614,7 @@ export const botsApi = {
     return response.json();
   },
 
-  async createBot(userId: string, data: { name?: string; platform?: string; icon?: string }) {
+  async createBot(userId: string, data: { name?: string; platform?: string; icon?: string; capital_amount?: number }) {
     const response = await fetch(`${API_BASE_URL}/bots`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },

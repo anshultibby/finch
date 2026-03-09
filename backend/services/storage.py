@@ -11,7 +11,7 @@ Benefits:
 - Automatic image optimization and resizing (if configured)
 """
 from supabase import create_client, Client
-from config import Config
+from core.config import Config
 from typing import Optional, BinaryIO
 from utils.logger import get_logger
 import uuid

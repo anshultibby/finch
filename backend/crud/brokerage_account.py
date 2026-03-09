@@ -2,7 +2,7 @@
 CRUD operations for brokerage accounts
 """
 from sqlalchemy.orm import Session
-from models.db import BrokerageAccount
+from models.brokerage import BrokerageAccount
 from datetime import datetime
 from typing import List, Optional
 import uuid

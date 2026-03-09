@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from modules.agent.context import AgentContext
 from modules.agent.tracing_utils import ToolTracer
 from .registry import tool_registry
-from models.sse import SSEEvent
+from schemas.sse import SSEEvent
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

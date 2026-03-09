@@ -44,7 +44,7 @@ class ExitConfig(BaseModel):
 
 class BotConfig(BaseModel):
     """Configuration stored in TradingBot.config JSONB"""
-    platform: Literal["kalshi", "alpaca"] = Field(default="kalshi", description="Trading platform")
+    platform: Literal["kalshi", "alpaca", "research"] = Field(default="kalshi", description="Trading platform")
     mandate: str = Field(default="", description="Bot's trading mandate / instructions")
     schedule: Optional[str] = Field(None, description="Cron expression for scheduled ticks")
     schedule_description: Optional[str] = Field(None, description="Human-readable schedule description")
@@ -161,8 +161,9 @@ class ExecutionDetailResponse(ExecutionResponse):
 
 class CreateBotRequest(BaseModel):
     name: str = Field(default="New Bot")
-    platform: Literal["kalshi", "alpaca"] = "kalshi"
+    platform: Literal["kalshi", "alpaca", "research"] = "kalshi"
     icon: Optional[str] = None
+    capital_amount: Optional[float] = Field(None, description="Initial capital allocation in USD")
 
 
 class UpdateBotRequest(BaseModel):

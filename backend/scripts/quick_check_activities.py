@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datetime import datetime, timedelta
 from crud.snaptrade_user import get_user_by_id
 from modules.tools.clients.snaptrade import snaptrade_tools
-from database import SessionLocal
+from core.database import SessionLocal
 
 
 def check(user_id: str):

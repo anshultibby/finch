@@ -13,8 +13,8 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import get_async_db
-from models.api_keys import (
+from core.database import get_async_db
+from schemas.api_keys import (
     SaveApiKeyRequest,
     ApiKeysResponse,
     ApiKeyResponse,

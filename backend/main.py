@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import time
 
-from config import Config
+from core.config import Config
 from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, bots_router, trades_router, credits_router, skills_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger

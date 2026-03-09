@@ -16,7 +16,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.db import BotWakeup, Chat
+from models.bot import BotWakeup
+from models.chat_models import Chat
 
 logger = logging.getLogger(__name__)
 

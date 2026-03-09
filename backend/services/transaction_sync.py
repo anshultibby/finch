@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from decimal import Decimal
 import asyncio
-from database import SessionLocal
+from core.database import SessionLocal
 from crud import transactions as tx_crud
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
 from modules.tools.clients.snaptrade import snaptrade_tools

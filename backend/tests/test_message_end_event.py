@@ -1,5 +1,5 @@
 """Quick test to verify MessageEndEvent includes tool_calls"""
-from models.sse import MessageEndEvent
+from schemas.sse import MessageEndEvent
 
 def test_message_end_event_includes_tool_calls():
     """MessageEndEvent must include tool_calls in model_dump output"""

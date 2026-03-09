@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Set
 
 from sqlalchemy import select
 
-from database import SessionLocal
-from models.db import ChatMessage
+from core.database import SessionLocal
+from models.chat_models import ChatMessageDB as ChatMessage
 from modules.agent.message_processor import enforce_tool_call_sequence
 
 

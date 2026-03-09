@@ -5,7 +5,7 @@ and list format is used consistently throughout the codebase.
 import pytest
 import json
 import copy
-from models.chat_history import ChatHistory, ChatMessage
+from schemas.chat_history import ChatHistory, ChatMessage
 from modules.agent.llm_stream import _add_cache_control_to_messages, _deep_copy_message
 
 

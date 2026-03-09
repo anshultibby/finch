@@ -4,7 +4,7 @@ Uses Fernet (symmetric encryption) for token storage
 """
 from cryptography.fernet import Fernet
 from typing import Optional
-from config import Config
+from core.config import Config
 
 
 class EncryptionService:

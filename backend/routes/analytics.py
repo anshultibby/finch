@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from services.analytics import analytics_service
 from services.transaction_sync import transaction_sync_service
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
-from database import get_db
+from core.database import get_db
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 

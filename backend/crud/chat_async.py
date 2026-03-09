@@ -5,7 +5,7 @@ from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from models.db import Chat, ChatMessage
+from models.chat_models import Chat, ChatMessageDB as ChatMessage
 from datetime import datetime
 
 

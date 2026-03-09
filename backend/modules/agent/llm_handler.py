@@ -16,7 +16,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 from utils.tracing import get_tracer, add_span_attributes, add_span_event, record_exception
 from .chat_logger import ChatLogger, get_chat_log_dir

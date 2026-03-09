@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from modules.tools.clients.snaptrade import snaptrade_tools
 from services.transaction_sync import transaction_sync_service
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
-from database import SessionLocal
+from core.database import SessionLocal
 
 
 def test_snaptrade_activities_api():

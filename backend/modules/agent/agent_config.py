@@ -3,7 +3,7 @@ Agent Configuration - single flat agent
 
 Single agent with full tool access and context management (session pruning + compaction).
 """
-from config import Config
+from core.config import Config
 from .prompts import get_agent_system_prompt
 
 

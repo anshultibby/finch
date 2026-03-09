@@ -24,7 +24,7 @@ import json
 import re
 import asyncio
 import traceback as traceback_module
-from models.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent
+from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
 from .message_processor import validate_and_fix_tool_calls, enforce_tool_call_sequence

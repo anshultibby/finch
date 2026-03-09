@@ -3,7 +3,7 @@ CRUD operations for chats and chat messages
 """
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from models.db import Chat, ChatMessage
+from models.chat_models import Chat, ChatMessageDB as ChatMessage
 from datetime import datetime
 
 

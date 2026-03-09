@@ -3,7 +3,7 @@ SnapTrade connection management routes
 """
 from fastapi import APIRouter, HTTPException
 
-from models import (
+from schemas import (
     SnapTradeConnectionRequest,
     SnapTradeConnectionResponse,
     SnapTradeCallbackRequest,

@@ -22,6 +22,8 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  X,
+  BarChart3,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +56,7 @@ export default function BotGrid() {
   });
   const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // ── Fetchers ──────────────────────────────────────────────────────────────
 
@@ -114,11 +117,11 @@ export default function BotGrid() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleCreateBot = async () => {
+  const handleCreateBot = async (data: { name: string; platform: string; capital_amount?: number }) => {
     if (!user || creating) return;
     setCreating(true);
     try {
-      const bot = await botsApi.createBot(user.id, { name: 'New Bot' });
+      const bot = await botsApi.createBot(user.id, data);
       router.push(`/bot/${bot.id}`);
     } catch (e) {
       console.error('Failed to create bot:', e);
@@ -226,16 +229,25 @@ export default function BotGrid() {
 
         {/* ── Tab content ── */}
         {tab === 'bots' && (
-          <BotsTab
-            bots={bots}
-            loading={loading}
-            creating={creating}
-            totalPnl={totalPnl}
-            activeBots={activeBots}
-            onCreateBot={handleCreateBot}
-            onBotClick={(id) => router.push(`/bot/${id}`)}
-            onDeleteBot={handleDeleteBot}
-          />
+          <>
+            <BotsTab
+              bots={bots}
+              loading={loading}
+              creating={creating}
+              totalPnl={totalPnl}
+              activeBots={activeBots}
+              onCreateBot={() => setShowCreateModal(true)}
+              onBotClick={(id) => router.push(`/bot/${id}`)}
+              onDeleteBot={handleDeleteBot}
+            />
+            {showCreateModal && (
+              <CreateBotModal
+                creating={creating}
+                onClose={() => setShowCreateModal(false)}
+                onCreate={(data) => handleCreateBot(data)}
+              />
+            )}
+          </>
         )}
 
         {tab === 'connections' && (
@@ -764,6 +776,171 @@ function ConnectionsTab({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Create Bot Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+type PlatformChoice = 'kalshi' | 'alpaca' | null;
+
+const PLATFORMS: { key: PlatformChoice; label: string; description: string; icon: React.ReactNode; available: boolean }[] = [
+  {
+    key: 'kalshi',
+    label: 'Kalshi',
+    description: 'Prediction markets',
+    icon: <TrendingUp className="w-5 h-5" />,
+    available: true,
+  },
+  {
+    key: 'alpaca',
+    label: 'Brokerage',
+    description: 'Stocks & ETFs',
+    icon: <BarChart3 className="w-5 h-5" />,
+    available: false,
+  },
+];
+
+function CreateBotModal({
+  creating,
+  onClose,
+  onCreate,
+}: {
+  creating: boolean;
+  onClose: () => void;
+  onCreate: (data: { name: string; platform: string; capital_amount?: number }) => void;
+}) {
+  const [name, setName] = useState('');
+  const [platform, setPlatform] = useState<PlatformChoice>(null);
+  const [capital, setCapital] = useState('');
+
+  const handleSubmit = () => {
+    const trimmedName = name.trim() || 'New Bot';
+    const capitalAmount = parseFloat(capital);
+    onCreate({
+      name: trimmedName,
+      platform: platform ?? 'research',
+      ...(capitalAmount > 0 ? { capital_amount: capitalAmount } : {}),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-1">
+          <h2 className="text-lg font-bold text-gray-900">New Bot</h2>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-6 pb-6 pt-4 space-y-5">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Election Tracker"
+              autoFocus
+              className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition-all"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !creating) handleSubmit();
+              }}
+            />
+          </div>
+
+          {/* Execution Platform (optional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Execution Platform
+              <span className="text-gray-400 font-normal ml-1">optional</span>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {PLATFORMS.map((p) => {
+                const selected = platform === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => {
+                      if (!p.available) return;
+                      setPlatform(selected ? null : p.key);
+                    }}
+                    disabled={!p.available}
+                    className={`relative flex flex-col items-center gap-1.5 p-3.5 rounded-xl border-2 transition-all text-center ${
+                      selected
+                        ? 'border-gray-900 bg-gray-50'
+                        : p.available
+                          ? 'border-gray-100 hover:border-gray-200 bg-white'
+                          : 'border-gray-100 bg-gray-50/50 opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className={`${selected ? 'text-gray-900' : 'text-gray-400'} transition-colors`}>
+                      {p.icon}
+                    </div>
+                    <span className={`text-xs font-semibold ${selected ? 'text-gray-900' : 'text-gray-500'}`}>
+                      {p.label}
+                    </span>
+                    <span className="text-[10px] text-gray-400 leading-tight">{p.description}</span>
+                    {!p.available && (
+                      <span className="absolute -top-1.5 -right-1.5 text-[9px] font-bold text-white bg-gray-400 px-1.5 py-0.5 rounded-full">
+                        Soon
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Capital — only when a platform is selected */}
+          {platform && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Starting Capital</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={capital}
+                  onChange={(e) => setCapital(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full pl-7 pr-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition-all tabular-nums"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !creating) handleSubmit();
+                  }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">You can add more later</p>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            disabled={creating}
+            className="w-full py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {creating ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              'Create Bot'
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

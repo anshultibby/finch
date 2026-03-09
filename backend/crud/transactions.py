@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
-from models.db import Transaction, PortfolioSnapshot, TradeAnalytics, TransactionSyncJob
+from models.brokerage import Transaction, PortfolioSnapshot, TradeAnalytics, TransactionSyncJob
 from decimal import Decimal
 import uuid
 

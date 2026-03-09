@@ -14,8 +14,8 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy import text
-from database import engine, Base
-from models.db import SnapTradeUser, CreditTransaction
+from core.database import engine, Base
+from models.user import SnapTradeUser, CreditTransaction
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

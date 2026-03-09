@@ -16,11 +16,13 @@ interface BotViewProps {
 
 const BOT_REFRESH_INTERVAL = 30_000; // 30s sidebar auto-refresh
 
-function getBotState(bot: BotDetail): { label: string; color: string } {
-  if (!bot.approved) return { label: 'Setting up', color: 'bg-amber-100 text-amber-700' };
-  if (!bot.enabled) return { label: 'Paused', color: 'bg-gray-100 text-gray-600' };
-  if ((bot.positions?.length ?? 0) > 0) return { label: 'Holding', color: 'bg-blue-100 text-blue-700' };
-  return { label: 'Seeking', color: 'bg-green-100 text-green-700' };
+function getPlatformLabel(platform: string): string {
+  switch (platform) {
+    case 'kalshi': return 'Kalshi';
+    case 'alpaca': return 'Brokerage';
+    case 'research': return 'Research';
+    default: return platform;
+  }
 }
 
 export default function BotView({ botId }: BotViewProps) {
@@ -139,8 +141,6 @@ export default function BotView({ botId }: BotViewProps) {
     );
   }
 
-  const state = getBotState(bot);
-
   return (
     <div className="flex flex-col h-dvh bg-white">
       {/* Top bar */}
@@ -155,8 +155,8 @@ export default function BotView({ botId }: BotViewProps) {
         </button>
         <span className="text-lg">{bot.icon || '🤖'}</span>
         <h1 className="text-sm font-semibold text-gray-900">{bot.name}</h1>
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${state.color}`}>
-          {state.label}
+        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">
+          {getPlatformLabel(bot.platform)}
         </span>
         <div className="flex-1" />
         {/* Settings button */}

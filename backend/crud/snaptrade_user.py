@@ -4,7 +4,7 @@ CRUD operations for SnapTrade users
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
-from models.db import SnapTradeUser
+from models.user import SnapTradeUser
 
 
 def create_user(

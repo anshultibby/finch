@@ -10,13 +10,14 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, case
 
-from models.db import TradingBot, BotExecution, BotFile, BotPosition, TradeLog, BotWakeup
-from models.bots import (
+from models.bot import TradingBot, BotExecution, BotFile, BotPosition, TradeLog, BotWakeup
+from schemas.bots import (
     CreateBotRequest,
     UpdateBotRequest,
     BotConfig,
     BotStats,
     ExitConfig,
+    CapitalConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,13 @@ async def create_bot(
     bot_id = str(uuid.uuid4())
     directory = f"bots/{_slugify(request.name)}-{bot_id[:8]}"
 
-    config = BotConfig(platform=request.platform).model_dump(mode="json")
+    bot_config = BotConfig(platform=request.platform)
+    if request.capital_amount and request.capital_amount > 0:
+        bot_config.capital = CapitalConfig(
+            amount_usd=request.capital_amount,
+            balance_usd=request.capital_amount,
+        )
+    config = bot_config.model_dump(mode="json")
 
     bot = TradingBot(
         id=bot_id,

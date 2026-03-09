@@ -14,8 +14,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from models.db import UserSettings
-from models.api_keys import ApiKeyInfo
+from models.user import UserSettings
+from schemas.api_keys import ApiKeyInfo
 from services.encryption import encryption_service
 
 logger = logging.getLogger(__name__)

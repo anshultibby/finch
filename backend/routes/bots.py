@@ -11,10 +11,10 @@ _candle_cache: Dict[Tuple, Tuple[float, Any]] = {}
 _CANDLE_TTL = 300
 _CANDLE_CACHE_MAX = 200
 
-from database import get_async_db
+from core.database import get_async_db
 from crud import bots as crud
 from crud.bots import get_open_positions, list_positions, get_position, close_position, count_open_positions_batch
-from models.bots import (
+from schemas.bots import (
     CreateBotRequest,
     UpdateBotRequest,
     BotResponse,

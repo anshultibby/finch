@@ -7,7 +7,7 @@ Uses actual token usage from LLM calls with 20% premium on costs.
 from typing import Dict, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from models.db import SnapTradeUser, CreditTransaction
+from models.user import SnapTradeUser, CreditTransaction
 from utils.logger import get_logger
 import uuid
 

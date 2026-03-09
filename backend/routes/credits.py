@@ -4,13 +4,13 @@ Credits API routes
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from database import get_db_session
+from core.database import get_db_session
 from services.credits import CreditsService
 from utils.logger import get_logger
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from config import Config
+from core.config import Config
 
 logger = get_logger(__name__)
 

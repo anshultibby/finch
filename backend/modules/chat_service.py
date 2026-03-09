@@ -7,11 +7,11 @@ import asyncio
 from datetime import datetime, timezone
 from .agent.agent_config import create_agent
 from .agent.llm_handler import LLMHandler
-from config import Config
+from core.config import Config
 from .context_manager import context_manager
-from database import get_db_session
+from core.database import get_db_session
 from modules.agent.context import AgentContext, generate_agent_id, register_context, unregister_context
-from models.chat_history import ChatHistory
+from schemas.chat_history import ChatHistory
 from crud import chat_async
 from utils.logger import get_logger
 from utils.tracing import get_tracer

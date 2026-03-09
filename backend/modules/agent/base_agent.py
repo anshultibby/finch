@@ -10,8 +10,8 @@ from modules.tools import (
     ToolExecutor, 
     ToolCallRequest
 )
-from models.sse import SSEEvent, ToolsEndEvent, ThinkingEvent, DoneEvent, ErrorEvent, CancelledEvent
-from models.chat_history import ChatHistory, ChatMessage as HistoryChatMessage
+from schemas.sse import SSEEvent, ToolsEndEvent, ThinkingEvent, DoneEvent, ErrorEvent, CancelledEvent
+from schemas.chat_history import ChatHistory, ChatMessage as HistoryChatMessage
 from .llm_config import LLMConfig
 from .llm_stream import stream_llm_response
 from .message_processor import enforce_tool_call_sequence

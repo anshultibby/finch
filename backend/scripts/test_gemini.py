@@ -18,7 +18,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from litellm import acompletion
-from config import Config
+from core.config import Config
 
 
 # Available Gemini models to test (most useful ones)

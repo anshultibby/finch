@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from .runner import tool_runner
 from modules.agent.context import AgentContext
-from models.sse import SSEEvent, ToolsEndEvent
+from schemas.sse import SSEEvent, ToolsEndEvent
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

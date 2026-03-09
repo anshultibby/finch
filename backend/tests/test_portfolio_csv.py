@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from models.snaptrade import Position, Account, Portfolio
+from schemas.snaptrade import Position, Account, Portfolio
 
 
 def test_positions_to_csv():

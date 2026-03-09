@@ -17,8 +17,8 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.db import TradingBot, BotExecution
-from models.bots import ExitConfig
+from models.bot import TradingBot, BotExecution
+from schemas.bots import ExitConfig
 from crud.bots import (
     create_execution,
     complete_execution,

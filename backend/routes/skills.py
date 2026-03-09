@@ -12,7 +12,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 import re
 
-from database import get_db_session
+from core.database import get_db_session
 from crud import skills as skills_crud
 
 router = APIRouter(prefix="/skills", tags=["skills"])

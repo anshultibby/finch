@@ -11,7 +11,7 @@ Usage:
 import logging
 import sys
 from typing import Optional
-from config import Config
+from core.config import Config
 
 # Define log format
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"

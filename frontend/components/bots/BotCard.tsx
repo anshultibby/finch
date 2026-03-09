@@ -10,12 +10,13 @@ interface BotCardProps {
   onDelete?: (id: string) => void;
 }
 
-function getBotState(bot: Bot): { label: string; dotColor: string; textColor: string } {
-  if (!bot.enabled) return { label: 'Paused', dotColor: 'bg-gray-300', textColor: 'text-gray-400' };
-  if (bot.open_positions_count > 0) {
-    return { label: 'Holding', dotColor: 'bg-blue-400', textColor: 'text-blue-500' };
+function getPlatformLabel(platform: string): string | null {
+  switch (platform) {
+    case 'kalshi': return 'Kalshi';
+    case 'alpaca': return 'Brokerage';
+    case 'research': return 'Research';
+    default: return null;
   }
-  return { label: 'Seeking', dotColor: 'bg-emerald-400', textColor: 'text-emerald-500' };
 }
 
 function formatPnl(value: number): string {
@@ -37,25 +38,19 @@ function formatTimeAgo(dateStr: string): string {
 export default function BotCard({ bot, onClick, onDelete }: BotCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const state = getBotState(bot);
   const totalPnl = (bot.total_profit_usd || 0) + (bot.open_unrealized_pnl || 0);
-  const isActive = bot.enabled && bot.approved;
 
   return (
     <button
       onClick={onClick}
       className="group relative flex flex-col items-start p-5 rounded-2xl bg-white border border-gray-100 hover:border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-300 text-left w-full"
     >
-      {/* Top row: icon + state + menu */}
+      {/* Top row: icon + menu */}
       <div className="flex items-start justify-between w-full mb-3">
         <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform duration-200">
           {bot.icon || '🤖'}
         </div>
         <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1.5 ${state.textColor}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${state.dotColor} ${isActive ? 'animate-pulse' : ''}`} />
-            <span className="text-[11px] font-medium tracking-wide uppercase">{state.label}</span>
-          </div>
           {onDelete && (
             <div className="relative">
               <span
@@ -127,6 +122,11 @@ export default function BotCard({ bot, onClick, onDelete }: BotCardProps) {
       <h3 className="text-[15px] font-semibold text-gray-900 truncate w-full leading-tight">
         {bot.name}
       </h3>
+      {bot.platform && (
+        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mt-0.5">
+          {bot.platform === 'alpaca' ? 'Brokerage' : bot.platform}
+        </span>
+      )}
 
       {/* P&L */}
       <div className="mt-2 flex items-baseline gap-2">

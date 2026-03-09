@@ -4,7 +4,7 @@ File Management Implementation (Manus-inspired)
 File manipulation tools for chat sessions.
 """
 from modules.agent.context import AgentContext
-from models.sse import SSEEvent
+from schemas.sse import SSEEvent
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from utils.logger import get_logger

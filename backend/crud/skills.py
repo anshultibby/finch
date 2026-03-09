@@ -6,7 +6,7 @@ This module only manages the user's enabled/disabled preferences.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from models.db import UserSkill
+from models.user import UserSkill
 from typing import List, Optional
 from uuid import uuid4
 
