@@ -144,7 +144,19 @@ class ChatService:
                     logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
                     previous_context.cancel()
                 
-                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
+                # Check if this chat belongs to a bot — if so, build bot-specific context
+                bot_context = None
+                if db_chat and getattr(db_chat, 'bot_id', None):
+                    try:
+                        bot_context = await self._build_bot_context(db, db_chat.bot_id, user_id)
+                        # Store bot_id in agent context so bot tools can access it
+                        if agent_context.data is None:
+                            agent_context.data = {}
+                        agent_context.data["bot_id"] = str(db_chat.bot_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to build bot context: {e}")
+
+                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids, bot_context=bot_context)
                 
                 # Prepend current datetime so the LLM is always aware of the current time
                 now = datetime.now(timezone.utc).strftime("%A, %B %d, %Y %H:%M UTC")
@@ -338,6 +350,83 @@ class ChatService:
                 
                 logger.info("Chat turn complete - all messages saved incrementally")
     
+    async def _build_bot_context(self, db, bot_id: str, user_id: str) -> dict:
+        """Load bot data and API connection status to build bot-specific agent context."""
+        from crud.bots import get_bot, get_bot_files, get_open_positions, list_positions, list_executions
+        from services.api_keys import ApiKeyService
+        import json
+
+        bot = await get_bot(db, bot_id, user_id)
+        if not bot:
+            return None
+
+        config = bot.config or {}
+
+        # Load context files
+        files = await get_bot_files(db, bot_id)
+        mandate = config.get("mandate", "")
+        memory_md = ""
+        for f in files:
+            if f.filename == "CONTEXT.md" or f.file_type == "context":
+                mandate = f.content or mandate
+            elif f.filename == "MEMORY.md" or f.file_type == "memory":
+                memory_md = f.content
+
+        # Load positions
+        open_positions = await get_open_positions(db, bot_id)
+        positions_data = []
+        for p in open_positions:
+            positions_data.append({
+                "id": str(p.id), "market": p.market, "side": p.side,
+                "entry_price": p.entry_price, "current_price": p.current_price,
+                "quantity": p.quantity, "cost_usd": p.cost_usd,
+                "unrealized_pnl_usd": p.unrealized_pnl_usd,
+                "market_title": p.market_title, "monitor_note": p.monitor_note,
+            })
+        positions_json = json.dumps(positions_data, indent=2) if positions_data else "No open positions."
+
+        # Recent tick summaries
+        executions = await list_executions(db, bot_id, limit=5)
+        tick_lines = []
+        for ex in executions:
+            data = ex.data or {}
+            tick_lines.append(f"- [{ex.status}] {data.get('summary', 'No summary')}")
+        recent_ticks = "\n".join(tick_lines) if tick_lines else ""
+
+        # Check API connections
+        from crud.user_api_keys import get_decrypted_credentials
+        connections = {}
+        try:
+            kalshi_creds = await get_decrypted_credentials(db, user_id, "kalshi")
+            connections["kalshi"] = kalshi_creds is not None and bool(kalshi_creds.get("api_key_id"))
+        except Exception:
+            connections["kalshi"] = False
+        try:
+            poly_creds = await get_decrypted_credentials(db, user_id, "polymarket")
+            connections["polymarket"] = poly_creds is not None and bool(poly_creds.get("private_key"))
+        except Exception:
+            connections["polymarket"] = False
+
+        # Capital info
+        capital = config.get("capital", {}) or {}
+        capital_balance = capital.get("balance_usd")
+        per_position_usd = capital.get("per_trade") or capital.get("amount_usd")
+        max_positions = capital.get("max_positions")
+
+        return {
+            "bot_name": bot.name,
+            "bot_id": bot_id,
+            "mandate": mandate,
+            "memory_md": memory_md,
+            "positions_json": positions_json,
+            "recent_ticks_summary": recent_ticks,
+            "platform": config.get("platform", "kalshi"),
+            "connections": connections,
+            "capital_balance": capital_balance,
+            "per_position_usd": per_position_usd,
+            "max_positions": max_positions,
+        }
+
     async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:
         """Get chat history for a chat, including tool calls (OpenAI format)"""
         if db is None:

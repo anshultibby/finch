@@ -1,26 +1,24 @@
 """
-Bot Scheduler - Background task for scheduled bot ticks.
+Bot Scheduler — checks for due wakeups and executes them.
+
+Replaces the old cron-based tick scheduler. Bots schedule their own
+wakeups via the `schedule_wakeup` tool, and this loop fires them.
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
-from croniter import croniter
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from database import get_db_session
-from models.db import TradingBot
-from crud.bots import get_due_bots
-from .executor import execute_bot_tick
+from crud.bots import get_due_wakeups
+from .wakeup_executor import execute_wakeup
 
 logger = logging.getLogger(__name__)
 
 
 class BotScheduler:
-    """Background scheduler for bot tick execution."""
+    """Background scheduler that checks for and executes due bot wakeups."""
 
-    def __init__(self, check_interval_seconds: int = 60):
+    def __init__(self, check_interval_seconds: int = 30):
         self.check_interval = check_interval_seconds
         self._running = False
         self._task: Optional[asyncio.Task] = None
@@ -30,7 +28,7 @@ class BotScheduler:
             logger.warning("Bot scheduler already running")
             return
         self._running = True
-        logger.info("Bot scheduler started")
+        logger.info("Bot wakeup scheduler started (interval=%ds)", self.check_interval)
         await self._run_loop()
 
     async def stop(self) -> None:
@@ -41,74 +39,43 @@ class BotScheduler:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Bot scheduler stopped")
+        logger.info("Bot wakeup scheduler stopped")
 
     async def run_once(self) -> None:
+        """Check for due wakeups and fire them concurrently.
+
+        Each wakeup runs in its own DB session (via execute_wakeup)
+        so the scheduler session is only held for the brief query.
+        """
         async with get_db_session() as db:
-            bots = await get_due_bots(db)
-            for bot in bots:
-                if self._should_run_now(bot):
-                    await self._execute_tick(db, bot)
+            wakeups = await get_due_wakeups(db)
+            if not wakeups:
+                return
+            logger.info("Found %d due wakeup(s)", len(wakeups))
+
+        # Execute wakeups concurrently, each with its own DB session.
+        # Don't hold the scheduler's session during long agent loops.
+        async def _run_one(wakeup):
+            try:
+                async with get_db_session() as db:
+                    chat_id = await execute_wakeup(db, wakeup)
+                if chat_id:
+                    logger.info(
+                        "Wakeup %s executed → chat %s (bot=%s, reason=%s)",
+                        wakeup.id, chat_id, wakeup.bot_id, wakeup.reason[:60],
+                    )
+            except Exception as e:
+                logger.exception("Failed to execute wakeup %s: %s", wakeup.id, e)
+
+        await asyncio.gather(*[_run_one(w) for w in wakeups])
 
     async def _run_loop(self) -> None:
         while self._running:
             try:
                 await self.run_once()
             except Exception as e:
-                logger.exception(f"Bot scheduler error: {e}")
+                logger.exception("Bot scheduler loop error: %s", e)
             await asyncio.sleep(self.check_interval)
-
-    def _should_run_now(self, bot: TradingBot) -> bool:
-        config = bot.config or {}
-        schedule = config.get("schedule")
-        if not schedule:
-            return False
-
-        stats = bot.stats or {}
-        last_run = stats.get("last_run_at")
-        now = datetime.now(timezone.utc)
-
-        if not last_run:
-            try:
-                cron = croniter(schedule, now)
-                prev = cron.get_prev(datetime)
-                return (now - prev).total_seconds() < 3600
-            except Exception:
-                return True
-
-        try:
-            last_run_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-            cron = croniter(schedule, last_run_dt)
-            next_run = cron.get_next(datetime)
-            return now >= next_run
-        except Exception as e:
-            logger.warning(f"Error parsing schedule for bot {bot.id}: {e}")
-            return False
-
-    async def _execute_tick(self, db: AsyncSession, bot: TradingBot) -> None:
-        config = bot.config or {}
-        paper_mode = config.get("paper_mode", True)
-        logger.info(f"Running scheduled bot tick: {bot.name} ({bot.id}) paper_mode={paper_mode}")
-
-        try:
-            execution = await execute_bot_tick(
-                db=db,
-                bot=bot,
-                trigger="scheduled",
-                dry_run=paper_mode,
-            )
-            if execution.status == "failed":
-                await self._send_alert(bot, execution)
-        except Exception as e:
-            logger.exception(f"Failed to execute bot {bot.id}: {e}")
-            await self._send_alert(bot, error=str(e))
-
-    async def _send_alert(self, bot: TradingBot, execution=None, error: Optional[str] = None) -> None:
-        error_msg = error or (execution.data.get("error") if execution else "Unknown error")
-        logger.warning(
-            f"Bot '{bot.name}' tick failed: {error_msg}",
-            extra={"bot_id": bot.id, "user_id": bot.user_id, "error": error_msg}
-        )
 
 
 _scheduler: Optional[BotScheduler] = None

@@ -643,6 +643,19 @@ export const botsApi = {
     return response.json();
   },
 
+  async adjustCapital(userId: string, botId: string, amount: number) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/capital`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+      body: JSON.stringify({ amount }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || 'Failed to adjust capital');
+    }
+    return response.json();
+  },
+
   async approveBot(userId: string, botId: string) {
     const response = await fetch(`${API_BASE_URL}/bots/${botId}/approve`, {
       method: 'POST',
@@ -734,6 +747,50 @@ export const botsApi = {
     if (!response.ok) return [];
     const data = await response.json();
     return data.history ?? [];
+  },
+
+  async listWakeups(userId: string, botId: string, status: string = 'pending') {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/wakeups?status=${status}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  },
+
+  async cancelWakeup(userId: string, botId: string, wakeupId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/wakeups/${wakeupId}`, {
+      method: 'DELETE',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to cancel wakeup');
+    return response.json();
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trade Logs API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const tradesApi = {
+  /** List all trades across all bots */
+  async listAll(userId: string, limit: number = 50) {
+    const response = await fetch(`${API_BASE_URL}/trades?limit=${limit}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  },
+
+  /** List trades for a specific bot */
+  async listForBot(userId: string, botId: string, limit: number = 50) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/trades?limit=${limit}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return [];
+    return response.json();
   },
 };
 

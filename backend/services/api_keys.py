@@ -115,9 +115,9 @@ class ApiKeyService:
             service = ApiKeyService(db, user_id)
             creds = await service.get_kalshi_credentials()
             if creds:
-                client = KalshiClient(
-                    api_key_id=creds['api_key_id'].get(),
-                    private_key=creds['private_key'].get()
+                client = KalshiHTTPClient(
+                    creds['api_key_id'].get(),
+                    creds['private_key'].get()
                 )
         """
         # Try user-specific credentials first

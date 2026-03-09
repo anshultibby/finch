@@ -29,6 +29,7 @@ from modules.tools.descriptions import (
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
 from modules.tools.implementations import memory as memory_impl
+from modules.tools.implementations import bots as bots_impl
 
 
 # ============================================================================
@@ -242,6 +243,135 @@ async def memory_write(
 
 
 # ============================================================================
+# BOT MANAGEMENT TOOLS
+# ============================================================================
+
+CONFIGURE_BOT_DESC = """Update this bot's settings. All parameters are optional — pass only what you want to change.
+
+Use this to set your name, mandate, capital, and position limits.
+Only available in bot chats."""
+
+APPROVE_BOT_DESC = """Approve this bot for live trading. The bot must be approved before it can trade real money.
+Only available in bot chats."""
+
+RUN_BOT_DESC = """Trigger an immediate bot tick (autonomous run). Use dry_run=True to simulate without placing real orders.
+Only available in bot chats."""
+
+CLOSE_POSITION_DESC = """Close a specific open position by its ID. Returns the exit price and realized P&L.
+Only available in bot chats."""
+
+
+@tool(
+    name="configure_bot",
+    description=CONFIGURE_BOT_DESC,
+    category="bot_management",
+)
+async def configure_bot(
+    *,
+    name: Optional[str] = None,
+    mandate: Optional[str] = None,
+    capital_usd: Optional[float] = None,
+    max_positions: Optional[int] = None,
+    context: AgentContext,
+):
+    """Update bot settings."""
+    return await bots_impl.configure_bot_impl(
+        context, name=name, mandate=mandate,
+        capital_usd=capital_usd, max_positions=max_positions,
+    )
+
+
+@tool(
+    name="approve_bot",
+    description=APPROVE_BOT_DESC,
+    category="bot_management",
+)
+async def approve_bot(*, context: AgentContext):
+    """Approve bot for live trading."""
+    return await bots_impl.approve_bot_impl(context)
+
+
+@tool(
+    name="run_bot",
+    description=RUN_BOT_DESC,
+    category="bot_management",
+)
+async def run_bot(*, dry_run: bool = True, context: AgentContext):
+    """Trigger an immediate bot tick."""
+    return await bots_impl.run_bot_impl(context, dry_run=dry_run)
+
+
+@tool(
+    name="close_position",
+    description=CLOSE_POSITION_DESC,
+    category="bot_management",
+)
+async def close_position(*, position_id: str, context: AgentContext):
+    """Close a specific open position."""
+    return await bots_impl.close_position_impl(context, position_id=position_id)
+
+
+SCHEDULE_WAKEUP_DESC = """Schedule a future wake-up for this bot. When the time comes, a new chat thread
+is created and the bot runs with full tool access, seeing the reason in its system prompt.
+
+Use this to wake yourself up at important times — e.g. before a market resolves, to review
+a position after a news event, or for any future action you want to take.
+
+Parameters:
+- trigger_at: ISO 8601 datetime string (UTC) for when to wake up (e.g. "2026-03-15T14:00:00Z")
+- reason: Why you're waking up — this appears in your system prompt when triggered
+- trigger_type: Category — "resolution_check", "periodic_review", or "custom" (default: "custom")
+- position_id: Optional — link to a specific position this wakeup is about
+
+Only available in bot chats."""
+
+LIST_WAKEUPS_DESC = """List your scheduled wake-ups. Returns pending wakeups with their trigger times and reasons.
+Only available in bot chats."""
+
+CANCEL_WAKEUP_DESC = """Cancel a pending wake-up by its ID. Only available in bot chats."""
+
+
+@tool(
+    name="schedule_wakeup",
+    description=SCHEDULE_WAKEUP_DESC,
+    category="bot_management",
+)
+async def schedule_wakeup(
+    *,
+    trigger_at: str,
+    reason: str,
+    trigger_type: str = "custom",
+    position_id: Optional[str] = None,
+    context: AgentContext,
+):
+    """Schedule a future wakeup."""
+    return await bots_impl.schedule_wakeup_impl(
+        context, trigger_at=trigger_at, reason=reason,
+        trigger_type=trigger_type, position_id=position_id,
+    )
+
+
+@tool(
+    name="list_wakeups",
+    description=LIST_WAKEUPS_DESC,
+    category="bot_management",
+)
+async def list_wakeups_tool(*, context: AgentContext):
+    """List pending wakeups."""
+    return await bots_impl.list_wakeups_impl(context)
+
+
+@tool(
+    name="cancel_wakeup",
+    description=CANCEL_WAKEUP_DESC,
+    category="bot_management",
+)
+async def cancel_wakeup_tool(*, wakeup_id: str, context: AgentContext):
+    """Cancel a pending wakeup."""
+    return await bots_impl.cancel_wakeup_impl(context, wakeup_id=wakeup_id)
+
+
+# ============================================================================
 # TOOL EXPORTS
 # ============================================================================
 
@@ -260,5 +390,13 @@ __all__ = [
     'memory_search',
     'memory_get',
     'memory_write',
+    # Bot Management
+    'configure_bot',
+    'approve_bot',
+    'run_bot',
+    'close_position',
+    'schedule_wakeup',
+    'list_wakeups_tool',
+    'cancel_wakeup_tool',
 ]
 

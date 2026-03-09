@@ -19,13 +19,15 @@ KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2"
 _NO_CREDS = {"error": "Kalshi credentials not found. Add your Kalshi API key in Settings > API Keys."}
 
 
-def _sign(method: str, path: str, body: str, api_key_id: str, private_key_pem: str) -> Dict[str, str]:
+def _sign(method: str, path: str, api_key_id: str, private_key_pem: str) -> Dict[str, str]:
     """Return Authorization headers using RSA-PS256 message signing."""
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
 
     ts_ms = str(int(time.time() * 1000))
-    msg = (ts_ms + method.upper() + path + (body or "")).encode()
+    # Kalshi requires: timestamp + METHOD + path_without_query (no body, no query params)
+    path_without_query = path.split("?")[0]
+    msg = (ts_ms + method.upper() + path_without_query).encode("utf-8")
 
     key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
     sig = key.sign(msg, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH), hashes.SHA256())
@@ -51,9 +53,9 @@ class KalshiHTTPClient:
         url   = KALSHI_BASE + path + query
 
         body_str = json.dumps(body) if body is not None else ""
-        # signing uses path without base, but with query string
-        sign_path = "/trade-api/v2" + path + query
-        headers   = _sign(method, sign_path, body_str, self._key_id, self._key_pem)
+        # Kalshi signs: timestamp + METHOD + path_without_query (no query params, no body)
+        sign_path = "/trade-api/v2" + path
+        headers   = _sign(method, sign_path, self._key_id, self._key_pem)
 
         data = body_str.encode() if body_str else None
         req  = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
@@ -91,3 +93,27 @@ def create_client() -> Optional[KalshiHTTPClient]:
     if not private_key:
         return None
     return KalshiHTTPClient(api_key_id, private_key)
+
+
+def test_credentials(api_key_id: str, private_key_pem: str) -> Dict[str, Any]:
+    """Test Kalshi credentials by fetching balance. Returns {success, message, balance?}."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        client = KalshiHTTPClient(api_key_id, private_key_pem)
+    except Exception as e:
+        return {"success": False, "message": f"Failed to load private key: {e}"}
+
+    try:
+        r = client.get("/portfolio/balance")
+        dollars = r.get("balance", 0) / 100
+        return {"success": True, "message": f"Credentials valid! Balance: ${dollars:.2f}", "balance": dollars}
+    except Exception as e:
+        msg = str(e)
+        logger.warning(f"Kalshi credential test failed: {msg}")
+        if "401" in msg or "Unauthorized" in msg:
+            return {"success": False, "message": "Invalid credentials. Check that your API Key ID matches the private key."}
+        if "signature" in msg.lower():
+            return {"success": False, "message": "Signature error. Make sure you're using the correct private key."}
+        return {"success": False, "message": f"Connection error: {msg}"}

@@ -7,6 +7,7 @@ from .resources import router as resources_router
 from .chat_files import router as chat_files_router
 from .api_keys import router as api_keys_router
 from .bots import router as bots_router
+from .bots import trades_router
 from .credits import router as credits_router
 from .skills import router as skills_router
 
@@ -17,6 +18,7 @@ __all__ = [
     "chat_files_router",
     "api_keys_router",
     "bots_router",
+    "trades_router",
     "credits_router",
     "skills_router",
 ]

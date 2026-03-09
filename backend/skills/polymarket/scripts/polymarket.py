@@ -1,5 +1,5 @@
 """
-Polymarket market data — event discovery and orderbook prices.
+Polymarket market data — event discovery, orderbook prices, trader leaderboards, and profiles.
 
 All functions are synchronous. Do not await them.
 
@@ -19,6 +19,7 @@ from typing import Optional
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
+DATA_BASE = "https://data-api.polymarket.com"
 
 
 def _get(url: str, params: dict = None) -> any:
@@ -222,6 +223,282 @@ def get_market_trades(condition_id: str, limit: int = 100) -> dict:
             for t in (data if isinstance(data, list) else data.get("data", []))
         ]
         return {"condition_id": condition_id, "trades": trades}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard & Top Traders
+# ---------------------------------------------------------------------------
+
+def get_leaderboard(
+    category: str = "OVERALL",
+    time_period: str = "ALL",
+    order_by: str = "PNL",
+    limit: int = 25,
+    offset: int = 0,
+) -> dict:
+    """
+    Get the top traders leaderboard.
+
+    Args:
+        category:    OVERALL, POLITICS, SPORTS, CRYPTO, CULTURE, WEATHER, ECONOMICS, TECH, FINANCE
+        time_period: DAY, WEEK, MONTH, ALL
+        order_by:    PNL (profit/loss) or VOL (volume)
+        limit:       Max traders (1-50)
+        offset:      Pagination offset (0-1000)
+
+    Returns: {traders: list}
+    Each trader: {rank, proxy_wallet, username, pnl, volume, profile_image, x_username, verified}
+    """
+    params = {
+        "category": category,
+        "timePeriod": time_period,
+        "orderBy": order_by,
+        "limit": limit,
+        "offset": offset,
+    }
+    try:
+        data = _get(f"{DATA_BASE}/v1/leaderboard", params)
+        traders = [
+            {
+                "rank":          t.get("rank"),
+                "proxy_wallet":  t.get("proxyWallet"),
+                "username":      t.get("userName"),
+                "pnl":           float(t.get("pnl") or 0),
+                "volume":        float(t.get("vol") or 0),
+                "profile_image": t.get("profileImage"),
+                "x_username":    t.get("xUsername"),
+                "verified":      t.get("verifiedBadge", False),
+            }
+            for t in (data if isinstance(data, list) else [])
+        ]
+        return {"traders": traders, "count": len(traders)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_trader_profile(address: str) -> dict:
+    """
+    Get a trader's public profile by wallet address.
+
+    Args:
+        address: Wallet address (0x-prefixed, 40 hex chars)
+
+    Returns: {name, pseudonym, bio, proxy_wallet, profile_image, x_username, verified, created_at}
+    """
+    try:
+        data = _get(f"{GAMMA_BASE}/public-profile", params={"address": address})
+        return {
+            "name":          data.get("name"),
+            "pseudonym":     data.get("pseudonym"),
+            "bio":           data.get("bio"),
+            "proxy_wallet":  data.get("proxyWallet"),
+            "profile_image": data.get("profileImage"),
+            "x_username":    data.get("xUsername"),
+            "verified":      data.get("verifiedBadge", False),
+            "created_at":    data.get("createdAt"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_trader_positions(
+    address: str,
+    limit: int = 100,
+    offset: int = 0,
+    sort_by: str = "CURRENT",
+    sort_direction: str = "DESC",
+) -> dict:
+    """
+    Get a trader's current open positions.
+
+    Args:
+        address:        Wallet address (0x-prefixed)
+        limit:          Max positions (0-500)
+        offset:         Pagination offset
+        sort_by:        CURRENT, INITIAL, TOKENS, CASHPNL, PERCENTPNL, TITLE, PRICE, AVGPRICE
+        sort_direction: ASC or DESC
+
+    Returns: {positions: list}
+    Each position: {condition_id, title, outcome, size, avg_price, initial_value,
+                    current_value, cash_pnl, percent_pnl, slug, event_slug}
+    """
+    params = {
+        "user": address,
+        "limit": limit,
+        "offset": offset,
+        "sortBy": sort_by,
+        "sortDirection": sort_direction,
+    }
+    try:
+        data = _get(f"{DATA_BASE}/positions", params)
+        positions = [
+            {
+                "condition_id":  p.get("conditionId"),
+                "title":         p.get("title"),
+                "outcome":       p.get("outcome"),
+                "size":          float(p.get("size") or 0),
+                "avg_price":     float(p.get("avgPrice") or 0),
+                "initial_value": float(p.get("initialValue") or 0),
+                "current_value": float(p.get("currentValue") or 0),
+                "cash_pnl":      float(p.get("cashPnl") or 0),
+                "percent_pnl":   float(p.get("percentPnl") or 0),
+                "slug":          p.get("slug"),
+                "event_slug":    p.get("eventSlug"),
+            }
+            for p in (data if isinstance(data, list) else [])
+        ]
+        return {"positions": positions, "count": len(positions)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_trader_trades(
+    address: str,
+    limit: int = 100,
+    offset: int = 0,
+    market: str = None,
+) -> dict:
+    """
+    Get a trader's trade history.
+
+    Args:
+        address: Wallet address (0x-prefixed)
+        limit:   Max trades (0-10000)
+        offset:  Pagination offset
+        market:  Optional condition_id to filter to a specific market
+
+    Returns: {trades: list}
+    Each trade: {condition_id, title, outcome, side, price, size, timestamp, slug, event_slug}
+    """
+    params = {"user": address, "limit": limit, "offset": offset}
+    if market:
+        params["market"] = market
+    try:
+        data = _get(f"{DATA_BASE}/trades", params)
+        trades = [
+            {
+                "condition_id": t.get("conditionId"),
+                "title":        t.get("title"),
+                "outcome":      t.get("outcome"),
+                "side":         t.get("side"),
+                "price":        float(t.get("price") or 0),
+                "size":         float(t.get("size") or 0),
+                "timestamp":    t.get("timestamp"),
+                "slug":         t.get("slug"),
+                "event_slug":   t.get("eventSlug"),
+            }
+            for t in (data if isinstance(data, list) else [])
+        ]
+        return {"trades": trades, "count": len(trades)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_trader_activity(
+    address: str,
+    limit: int = 100,
+    offset: int = 0,
+    activity_type: str = None,
+) -> dict:
+    """
+    Get a trader's full activity feed (trades, splits, merges, redemptions, rewards).
+
+    Args:
+        address:       Wallet address (0x-prefixed)
+        limit:         Max activities (0-500)
+        offset:        Pagination offset
+        activity_type: Optional filter: TRADE, SPLIT, MERGE, REDEEM, REWARD, CONVERSION, MAKER_REBATE
+
+    Returns: {activities: list}
+    Each activity: {type, condition_id, title, outcome, side, price, size, usdc_size, timestamp}
+    """
+    params = {"user": address, "limit": limit, "offset": offset}
+    if activity_type:
+        params["type"] = activity_type
+    try:
+        data = _get(f"{DATA_BASE}/activity", params)
+        activities = [
+            {
+                "type":         a.get("type"),
+                "condition_id": a.get("conditionId"),
+                "title":        a.get("title"),
+                "outcome":      a.get("outcome"),
+                "side":         a.get("side"),
+                "price":        float(a.get("price") or 0),
+                "size":         float(a.get("size") or 0),
+                "usdc_size":    float(a.get("usdcSize") or 0),
+                "timestamp":    a.get("timestamp"),
+                "slug":         a.get("slug"),
+                "event_slug":   a.get("eventSlug"),
+            }
+            for a in (data if isinstance(data, list) else [])
+        ]
+        return {"activities": activities, "count": len(activities)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_market_holders(condition_id: str, limit: int = 20) -> dict:
+    """
+    Get top holders for a market (biggest position holders).
+
+    Args:
+        condition_id: The market's condition_id
+        limit:        Max holders per outcome (1-20)
+
+    Returns: {holders: list}
+    Each entry: {token, holders: [{proxy_wallet, amount, pseudonym, name, profile_image}]}
+    """
+    try:
+        data = _get(f"{DATA_BASE}/holders", params={"market": condition_id, "limit": limit})
+        result = []
+        for group in (data if isinstance(data, list) else []):
+            holders = [
+                {
+                    "proxy_wallet":  h.get("proxyWallet"),
+                    "amount":        float(h.get("amount") or 0),
+                    "pseudonym":     h.get("pseudonym"),
+                    "name":          h.get("name"),
+                    "profile_image": h.get("profileImage"),
+                }
+                for h in (group.get("holders") or [])
+            ]
+            result.append({"token": group.get("token"), "holders": holders})
+        return {"holders": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def search_markets(query: str, limit: int = 10, include_profiles: bool = False) -> dict:
+    """
+    Search for markets, events, and optionally profiles.
+
+    Args:
+        query:            Search text
+        limit:            Max results per type
+        include_profiles: Also return matching trader profiles
+
+    Returns: {events: list, profiles: list (if requested)}
+    """
+    params = {"q": query, "limit_per_type": limit}
+    if include_profiles:
+        params["search_profiles"] = "true"
+    try:
+        data = _get(f"{GAMMA_BASE}/public-search", params)
+        result = {"events": _parse_events(data.get("events") or [])}
+        if include_profiles:
+            result["profiles"] = [
+                {
+                    "name":          p.get("name"),
+                    "pseudonym":     p.get("pseudonym"),
+                    "proxy_wallet":  p.get("proxyWallet"),
+                    "profile_image": p.get("profileImage"),
+                }
+                for p in (data.get("profiles") or [])
+            ]
+        return result
     except Exception as e:
         return {"error": str(e)}
 

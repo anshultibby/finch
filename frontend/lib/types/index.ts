@@ -448,6 +448,8 @@ export interface BotStats {
   total_spent_usd?: number;
   total_profit_usd?: number;
   open_unrealized_pnl?: number;
+  paper_profit_usd?: number;
+  paper_unrealized_pnl?: number;
 }
 
 /** Bot position — matches backend BotPositionResponse */
@@ -476,6 +478,7 @@ export interface BotPosition {
   market_title?: string;
   event_ticker?: string;
   monitor_note?: string;
+  paper?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -496,6 +499,7 @@ export interface Bot {
   open_positions_count: number;
   total_profit_usd: number;
   open_unrealized_pnl: number;
+  capital_balance?: number;
   created_at: string;
   updated_at: string;
 }
@@ -541,5 +545,43 @@ export interface BotChat {
   icon?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface BotWakeup {
+  id: string;
+  bot_id: string;
+  trigger_at: string;
+  trigger_type: string;
+  reason: string;
+  context: Record<string, any>;
+  status: string;
+  chat_id?: string;
+  triggered_at?: string;
+  created_at: string;
+}
+
+/** Trade log entry — every buy/sell attempted by any bot */
+export interface TradeLog {
+  id: string;
+  bot_id: string;
+  bot_name?: string;
+  bot_icon?: string;
+  execution_id?: string;
+  position_id?: string;
+  action: 'buy' | 'sell';
+  market: string;
+  market_title?: string;
+  platform: string;
+  side?: string;
+  price?: number;
+  quantity?: number;
+  cost_usd?: number;
+  status: 'executed' | 'dry_run' | 'failed' | 'pending_approval' | 'approved' | 'rejected' | 'expired';
+  approval_method?: string;
+  approved_at?: string;
+  expires_at?: string;
+  error?: string;
+  dry_run: boolean;
+  created_at: string;
 }
 

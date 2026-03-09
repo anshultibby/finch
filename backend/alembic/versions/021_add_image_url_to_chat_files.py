@@ -1,7 +1,7 @@
 """add_image_url_to_chat_files
 
-Revision ID: efbae5d0ce1e
-Revises: 018
+Revision ID: 021
+Revises: 020
 Create Date: 2025-12-08 02:22:10.532414
 
 """
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'efbae5d0ce1e'
-down_revision: Union[str, None] = '018'
+revision: str = '021'
+down_revision: Union[str, None] = '020'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

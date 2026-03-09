@@ -42,27 +42,41 @@ def get_balance() -> dict:
     }
 
 
-def get_positions(limit: int = 100) -> dict:
+def get_positions(limit: int = 100, count_filter: str = "position") -> dict:
     """
     Get current Kalshi positions.
 
+    Args:
+        limit:        Max positions to return (default 100)
+        count_filter: Filter for non-zero fields. "position" (default) returns only
+                      positions with non-zero contracts. "total_traded" includes any
+                      market you've ever traded. None returns all.
+
     Returns: {positions: list, count: int}
-    Each position: {ticker, position, market_exposure, realized_pnl, fees_paid}
+    Each position: {ticker, position, market_exposure, market_exposure_dollars,
+                    total_traded, realized_pnl, fees_paid, last_updated_ts}
+    position > 0 means YES contracts, < 0 means NO contracts.
     """
     c = _api()
     if not c:
         return _NO_CREDS
-    r = c.get("/portfolio/positions", params={"limit": limit})
-    positions = []
-    for ep in (r.get("event_positions") or []):
-        for mp in (ep.get("market_positions") or []):
-            positions.append({
-                "ticker":          mp.get("ticker"),
-                "position":        mp.get("position"),
-                "market_exposure": mp.get("market_exposure"),
-                "realized_pnl":    mp.get("realized_pnl"),
-                "fees_paid":       mp.get("fees_paid"),
-            })
+    params = {"limit": limit}
+    if count_filter:
+        params["count_filter"] = count_filter
+    r = c.get("/portfolio/positions", params=params)
+    positions = [
+        {
+            "ticker":                  mp.get("ticker"),
+            "position":                mp.get("position"),
+            "market_exposure":         mp.get("market_exposure"),
+            "market_exposure_dollars": mp.get("market_exposure_dollars"),
+            "total_traded":            mp.get("total_traded"),
+            "realized_pnl":            mp.get("realized_pnl"),
+            "fees_paid":               mp.get("fees_paid"),
+            "last_updated_ts":         mp.get("last_updated_ts"),
+        }
+        for mp in (r.get("market_positions") or [])
+    ]
     return {"positions": positions, "count": len(positions)}
 
 
@@ -330,6 +344,47 @@ def cancel_order(order_id: str) -> dict:
         "order_id": o.get("order_id", order_id),
         "status":   "canceled",
     }
+
+
+def get_fills(ticker: str = None, limit: int = 100, cursor: str = None) -> dict:
+    """
+    Get your recent trade fills (matched trades).
+
+    Fills older than the historical cutoff are only available via get_historical_fills().
+
+    Args:
+        ticker: Optional market ticker filter
+        limit:  Max fills per page (default 100, max 200)
+        cursor: Pagination cursor from a previous response
+
+    Returns: {fills: list, cursor: str | None}
+    Each fill: {fill_id, ticker, side, action, count, yes_price, no_price, created_time}
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    params = {"limit": limit}
+    if ticker:
+        params["ticker"] = ticker
+    if cursor:
+        params["cursor"] = cursor
+    r = c.get("/portfolio/fills", params=params)
+    fills = [
+        {
+            "fill_id":      f.get("fill_id"),
+            "order_id":     f.get("order_id"),
+            "ticker":       f.get("ticker"),
+            "side":         f.get("side"),
+            "action":       f.get("action"),
+            "count":        f.get("count"),
+            "yes_price":    f.get("yes_price"),
+            "no_price":     f.get("no_price"),
+            "is_taker":     f.get("is_taker"),
+            "created_time": f.get("created_time"),
+        }
+        for f in (r.get("fills") or [])
+    ]
+    return {"fills": fills, "cursor": r.get("cursor")}
 
 
 # ---------------------------------------------------------------------------

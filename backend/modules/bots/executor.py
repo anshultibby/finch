@@ -31,6 +31,10 @@ from crud.bots import (
     get_bot_files,
     upsert_bot_file,
     get_position,
+    deduct_capital_for_position,
+    credit_capital_for_close,
+    create_trade_log,
+    update_trade_log_status,
 )
 from .prompts import build_tick_system_prompt
 
@@ -224,7 +228,14 @@ async def _apply_actions(
     dry_run: bool,
     kalshi_client,
 ) -> None:
-    """Process action dicts from the bot's tick."""
+    """Process action dicts from the bot's tick.
+
+    Capital enforcement:
+    - Capital check happens BEFORE any exchange API call
+    - Risk limits are checked against actual cost_usd (not just requested amount)
+    - Sell verifies position is still open to prevent double-credit
+    - Paper (dry_run) positions are tracked separately and don't affect live capital
+    """
     execution_id = str(execution.id)
     risk_limits = config.get("risk_limits", {})
     capital = config.get("capital", {})
@@ -242,13 +253,7 @@ async def _apply_actions(
             side = action.get("side", "yes")
             order_amount = action.get("amount_usd", amount_usd)
 
-            if max_order_usd and order_amount > max_order_usd:
-                logger.warning(f"BLOCKED: ${order_amount:.2f} exceeds max_order_usd")
-                continue
-            if max_daily_usd and (total_spent_this_run + order_amount) > max_daily_usd:
-                logger.warning(f"BLOCKED: would exceed max_daily_usd")
-                continue
-
+            # Fetch price first so we can check actual cost
             entry_price = 0
             quantity = 0
             try:
@@ -257,22 +262,53 @@ async def _apply_actions(
                 logger.error(f"Failed to get market price for {market}: {e}")
                 continue
 
-            if dry_run:
-                logger.info(f"[DRY RUN] Would buy {market} {side} x{quantity} @ {entry_price}c")
-            else:
-                if not kalshi_client:
-                    continue
-                try:
-                    await _place_kalshi_order(kalshi_client, market, side, "buy", quantity)
-                except Exception as e:
-                    logger.error(f"Failed to place buy order for {market}: {e}")
+            cost_usd = (quantity * entry_price) / 100
+
+            # Risk limits — check actual cost, not just requested amount
+            if max_order_usd and cost_usd > max_order_usd:
+                logger.warning(f"BLOCKED: ${cost_usd:.2f} exceeds max_order_usd ${max_order_usd}")
+                continue
+            if max_daily_usd and (total_spent_this_run + cost_usd) > max_daily_usd:
+                logger.warning(f"BLOCKED: ${total_spent_this_run + cost_usd:.2f} would exceed max_daily_usd ${max_daily_usd}")
+                continue
+
+            # Capital check BEFORE placing any order
+            if not dry_run:
+                has_funds = await deduct_capital_for_position(db, bot, cost_usd)
+                if not has_funds:
+                    logger.warning(f"BLOCKED: insufficient capital for ${cost_usd:.2f} order on {market}")
                     continue
 
-            cost_usd = (quantity * entry_price) / 100
+            # Log the trade attempt
+            trade_log = await create_trade_log(
+                db=db, bot=bot, action="buy", market=market, side=side,
+                price=entry_price, quantity=quantity, cost_usd=cost_usd,
+                execution_id=execution_id, dry_run=dry_run,
+                status="dry_run" if dry_run else "executed",
+            )
+
+            if dry_run:
+                logger.info(f"[PAPER] Buy {market} {side} x{quantity} @ {entry_price}c (${cost_usd:.2f})")
+            else:
+                if not kalshi_client:
+                    # Refund the capital we just deducted
+                    await credit_capital_for_close(db, bot, cost_usd, 0)
+                    await update_trade_log_status(db, trade_log, "failed", error="No Kalshi client")
+                    continue
+                try:
+                    order_result = await _place_kalshi_order(kalshi_client, market, side, "buy", quantity)
+                    await update_trade_log_status(db, trade_log, "executed", order_response=order_result if isinstance(order_result, dict) else None)
+                except Exception as e:
+                    logger.error(f"Failed to place buy order for {market}: {e}")
+                    # Refund capital on failed order
+                    await credit_capital_for_close(db, bot, cost_usd, 0)
+                    await update_trade_log_status(db, trade_log, "failed", error=str(e))
+                    continue
+
             total_spent_this_run += cost_usd
 
             try:
-                await create_position(
+                position = await create_position(
                     db=db,
                     bot=bot,
                     market=market,
@@ -282,9 +318,14 @@ async def _apply_actions(
                     cost_usd=cost_usd,
                     exit_config=ExitConfig(),
                     entered_via=execution_id,
+                    paper=dry_run,
                 )
+                await update_trade_log_status(db, trade_log, trade_log.status, position_id=str(position.id))
             except Exception as e:
                 logger.error(f"Failed to create position for {market}: {e}")
+                # Refund capital if position creation failed (live only)
+                if not dry_run:
+                    await credit_capital_for_close(db, bot, cost_usd, 0)
 
         elif action_type == "sell":
             position_id = action.get("position_id", "")
@@ -292,6 +333,10 @@ async def _apply_actions(
 
             pos = await get_position(db, position_id)
             if not pos:
+                logger.warning(f"Sell skipped: position {position_id} not found")
+                continue
+            if pos.status == "closed":
+                logger.warning(f"Sell skipped: position {position_id} already closed")
                 continue
 
             exit_price = pos.current_price or pos.entry_price
@@ -307,17 +352,34 @@ async def _apply_actions(
                 except Exception:
                     pass
 
+            # Log the sell trade
+            trade_log = await create_trade_log(
+                db=db, bot=bot, action="sell", market=pos.market, side=pos.side,
+                price=exit_price, quantity=int(pos.quantity),
+                cost_usd=pos.cost_usd,
+                execution_id=execution_id, dry_run=dry_run,
+                status="dry_run" if dry_run else "executed",
+            )
+            trade_log.position_id = pos.id
+
             if not dry_run:
                 if not kalshi_client:
+                    await update_trade_log_status(db, trade_log, "failed", error="No Kalshi client")
                     continue
                 try:
-                    await _place_kalshi_order(kalshi_client, pos.market, pos.side, "sell", int(pos.quantity))
+                    order_result = await _place_kalshi_order(kalshi_client, pos.market, pos.side, "sell", int(pos.quantity))
+                    await update_trade_log_status(db, trade_log, "executed", order_response=order_result if isinstance(order_result, dict) else None)
                 except Exception as e:
                     logger.error(f"Failed to place sell order: {e}")
+                    await update_trade_log_status(db, trade_log, "failed", error=str(e))
                     continue
 
             try:
                 await close_position(db=db, position=pos, exit_price=exit_price, close_reason=reason, closed_via=execution_id)
+                # Return cost + realized P&L to capital balance (live positions only)
+                if not pos.paper:
+                    realized_pnl = (exit_price - pos.entry_price) * pos.quantity
+                    await credit_capital_for_close(db, bot, pos.cost_usd, realized_pnl)
             except Exception as e:
                 logger.error(f"Failed to close position {position_id}: {e}")
 
@@ -374,6 +436,7 @@ def _position_to_dict(position) -> dict:
         "current_price": position.current_price,
         "unrealized_pnl_usd": position.unrealized_pnl_usd,
         "monitor_note": position.monitor_note,
+        "paper": position.paper,
         "market_title": position.market_title,
         "event_ticker": position.event_ticker,
         "exit_price": position.exit_price,

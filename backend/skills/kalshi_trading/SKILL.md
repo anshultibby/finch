@@ -52,7 +52,7 @@ def run():
 from kalshi_trading.scripts.kalshi import (
     get_portfolio, get_balance, get_positions,
     get_events, get_markets, get_market, get_orderbook,
-    place_order, get_orders, cancel_order,
+    place_order, get_orders, cancel_order, get_fills,
     # Historical (data older than ~3 months)
     get_historical_cutoff,
     get_historical_markets, get_historical_market,
@@ -73,8 +73,9 @@ for pos in p['positions']:
 # Just balance
 b = get_balance()  # {balance, portfolio_value}
 
-# Just positions
+# Just positions (only non-zero by default)
 p = get_positions(limit=100)  # {positions, count}
+# position > 0 = YES contracts, < 0 = NO contracts
 ```
 
 ## Browse Markets
@@ -124,6 +125,18 @@ orders = get_orders(status="resting")  # or "executed", "canceled"
 
 # Cancel
 cancel_order(order_id="abc123")
+```
+
+## Recent Fills (Trade History)
+
+```python
+# Your recent matched trades
+fills = get_fills(limit=20)
+for f in fills["fills"]:
+    print(f"{f['action']} {f['count']}x {f['ticker']} ({f['side']}) @ {f['yes_price']}¢  {f['created_time']}")
+
+# Filter by market
+fills = get_fills(ticker="KXBTC-26FEB28-W100")
 ```
 
 ## Error Handling

@@ -4,10 +4,12 @@ API routes for Trading Bots.
 import time as _time_module
 from typing import Optional, List, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Header
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _candle_cache: Dict[Tuple, Tuple[float, Any]] = {}
 _CANDLE_TTL = 300
+_CANDLE_CACHE_MAX = 200
 
 from database import get_async_db
 from crud import bots as crud
@@ -27,6 +29,8 @@ from models.bots import (
     RiskLimits,
     ExitConfig,
     ExecutionAction,
+    TradeLogResponse,
+    WakeupResponse,
 )
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -39,6 +43,7 @@ def _get_user_id(x_user_id: str = Header(..., alias="X-User-ID")) -> str:
 def _bot_to_response(bot, open_positions_count: int = 0) -> BotResponse:
     config = bot.config or {}
     stats = bot.stats or {}
+    capital = config.get("capital") or {}
     return BotResponse(
         id=bot.id,
         name=bot.name,
@@ -54,18 +59,23 @@ def _bot_to_response(bot, open_positions_count: int = 0) -> BotResponse:
         open_positions_count=open_positions_count,
         total_profit_usd=float(stats.get("total_profit_usd", 0.0)),
         open_unrealized_pnl=float(stats.get("open_unrealized_pnl", 0.0)),
+        capital_balance=capital.get("balance_usd"),
         created_at=bot.created_at,
         updated_at=bot.updated_at,
     )
 
 
 async def _bot_to_detail_response(bot, db: AsyncSession) -> BotDetailResponse:
+    import asyncio
     config = bot.config or {}
     stats_dict = bot.stats or {}
 
-    files = await crud.get_bot_files(db, bot.id)
-    active_positions = await get_open_positions(db, bot.id)
-    recent_closed = await list_positions(db, bot.id, status="closed", limit=20)
+    # Parallel fetch — files, open positions, closed positions
+    files, active_positions, recent_closed = await asyncio.gather(
+        crud.get_bot_files(db, bot.id),
+        get_open_positions(db, bot.id),
+        list_positions(db, bot.id, status="closed", limit=20),
+    )
 
     capital = None
     if config.get("capital"):
@@ -143,6 +153,7 @@ def _position_to_response(position) -> BotPositionResponse:
         market_title=position.market_title,
         event_ticker=position.event_ticker,
         monitor_note=position.monitor_note,
+        paper=position.paper,
         created_at=position.created_at,
         updated_at=position.updated_at,
     )
@@ -262,6 +273,30 @@ async def approve_bot(
 
 
 # ============================================================================
+# Capital Management
+# ============================================================================
+
+class CapitalAdjustRequest(BaseModel):
+    amount: float = Field(..., description="Amount in USD (positive = deposit, negative = withdraw)")
+
+@router.post("/{bot_id}/capital", response_model=BotDetailResponse)
+async def adjust_bot_capital(
+    bot_id: str,
+    request: CapitalAdjustRequest,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Deposit or withdraw capital from a bot."""
+    try:
+        bot = await crud.adjust_capital(db, bot_id, user_id, request.amount)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return await _bot_to_detail_response(bot, db)
+
+
+# ============================================================================
 # Bot Execution
 # ============================================================================
 
@@ -277,7 +312,11 @@ async def run_bot(
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
 
-    if not request.dry_run and not bot.approved:
+    # paper_mode in config forces dry_run — can't accidentally live-trade
+    config = bot.config or {}
+    should_dry_run = request.dry_run or config.get("paper_mode", True)
+
+    if not should_dry_run and not bot.approved:
         raise HTTPException(
             status_code=400,
             detail="Bot must be approved before live execution",
@@ -285,12 +324,12 @@ async def run_bot(
 
     from modules.bots.executor import execute_bot_tick
 
-    trigger = "dry_run" if request.dry_run else "manual"
+    trigger = "dry_run" if should_dry_run else "manual"
     execution = await execute_bot_tick(
         db=db,
         bot=bot,
         trigger=trigger,
-        dry_run=request.dry_run,
+        dry_run=should_dry_run,
     )
 
     data = execution.data or {}
@@ -414,6 +453,13 @@ async def get_position_candlesticks(
     if position.platform != "kalshi":
         raise HTTPException(status_code=400, detail="Candlesticks only available for Kalshi positions")
 
+    # Check cache before doing any heavy work (credentials, API client, parsing)
+    cache_key = (position.market, period_interval, hours)
+    now = _time_module.time()
+    cached = _candle_cache.get(cache_key)
+    if cached and (now - cached[0]) < _CANDLE_TTL:
+        return cached[1]
+
     from services.api_keys import ApiKeyService
     svc = ApiKeyService(db, user_id)
     creds = await svc.get_kalshi_credentials()
@@ -439,12 +485,6 @@ async def get_position_candlesticks(
             break
         series_parts.append(part)
     series_ticker = ("-".join(series_parts) if series_parts else parts[0]).upper()
-
-    cache_key = (position.market, period_interval, hours)
-    now = _time_module.time()
-    cached = _candle_cache.get(cache_key)
-    if cached and (now - cached[0]) < _CANDLE_TTL:
-        return cached[1]
 
     end_ts = int(now)
     start_ts = end_ts - (hours * 3600)
@@ -484,7 +524,13 @@ async def get_position_candlesticks(
                 "close": cl,
             })
         result = {"history": history, "series_ticker": series_ticker}
-        _candle_cache[cache_key] = (_time_module.time(), result)
+        # Evict expired entries if cache is large
+        now_ts = _time_module.time()
+        if len(_candle_cache) >= _CANDLE_CACHE_MAX:
+            expired = [k for k, (ts, _) in _candle_cache.items() if now_ts - ts > _CANDLE_TTL]
+            for k in expired:
+                del _candle_cache[k]
+        _candle_cache[cache_key] = (now_ts, result)
         return result
     except Exception as e:
         logger.error(f"Candlesticks failed for {position.market}: {e}")
@@ -515,6 +561,10 @@ async def close_bot_position(
         exit_price=exit_price,
         close_reason="manual",
     )
+    # Refund capital (live positions only)
+    if not position.paper:
+        realized_pnl = (exit_price - position.entry_price) * position.quantity
+        await crud.credit_capital_for_close(db, bot, position.cost_usd, realized_pnl)
     await crud.recompute_bot_pnl(db, bot_id)
     return _position_to_response(closed)
 
@@ -586,3 +636,157 @@ async def create_bot_chat(
         "title": chat.title,
         "created_at": chat.created_at.isoformat() if chat.created_at else None,
     }
+
+
+# ============================================================================
+# Wakeups
+# ============================================================================
+
+@router.get("/{bot_id}/wakeups", response_model=List[WakeupResponse])
+async def list_bot_wakeups(
+    bot_id: str,
+    status: Optional[str] = "pending",
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List wakeups for a bot. Defaults to pending only."""
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    wakeups = await crud.list_wakeups(db, bot_id, status=status)
+    return [
+        WakeupResponse(
+            id=str(w.id),
+            bot_id=w.bot_id,
+            trigger_at=w.trigger_at,
+            trigger_type=w.trigger_type,
+            reason=w.reason,
+            context=w.context or {},
+            status=w.status,
+            chat_id=w.chat_id,
+            triggered_at=w.triggered_at,
+            created_at=w.created_at,
+        )
+        for w in wakeups
+    ]
+
+
+@router.delete("/{bot_id}/wakeups/{wakeup_id}")
+async def cancel_bot_wakeup(
+    bot_id: str,
+    wakeup_id: str,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Cancel a pending wakeup."""
+    wakeup = await crud.cancel_wakeup(db, wakeup_id, user_id)
+    if not wakeup:
+        raise HTTPException(status_code=404, detail="Wakeup not found or already triggered/cancelled")
+    return {"success": True, "message": "Wakeup cancelled"}
+
+
+# ============================================================================
+# Trade Logs
+# ============================================================================
+
+def _trade_log_to_response(log, bot_name: str = "", bot_icon: str = "") -> TradeLogResponse:
+    return TradeLogResponse(
+        id=str(log.id),
+        bot_id=log.bot_id,
+        bot_name=bot_name,
+        bot_icon=bot_icon,
+        execution_id=str(log.execution_id) if log.execution_id else None,
+        position_id=str(log.position_id) if log.position_id else None,
+        action=log.action,
+        market=log.market,
+        market_title=log.market_title,
+        platform=log.platform,
+        side=log.side,
+        price=log.price,
+        quantity=log.quantity,
+        cost_usd=log.cost_usd,
+        status=log.status,
+        approval_method=log.approval_method,
+        approved_at=log.approved_at,
+        expires_at=log.expires_at,
+        error=log.error,
+        dry_run=log.dry_run,
+        created_at=log.created_at,
+    )
+
+
+@router.get("/{bot_id}/trades", response_model=List[TradeLogResponse])
+async def list_bot_trades(
+    bot_id: str,
+    limit: int = 50,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List all trade logs for a specific bot."""
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    logs = await crud.list_trade_logs(db, bot_id=bot_id, limit=limit)
+    return [_trade_log_to_response(l, bot.name, bot.icon) for l in logs]
+
+
+# Global trade log route (all bots for a user)
+trades_router = APIRouter(prefix="/trades", tags=["trades"])
+
+
+@trades_router.get("", response_model=List[TradeLogResponse])
+async def list_all_trades(
+    limit: int = 50,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List all trade logs across all bots for the current user."""
+    from sqlalchemy import select
+    from models.db import TradingBot
+
+    logs = await crud.list_trade_logs(db, user_id=user_id, limit=limit)
+    # Batch-fetch bot names/icons in a single query
+    bot_ids = list({l.bot_id for l in logs})
+    bots: dict = {}
+    if bot_ids:
+        result = await db.execute(
+            select(TradingBot).where(TradingBot.id.in_(bot_ids))
+        )
+        bots = {b.id: b for b in result.scalars().all()}
+    return [
+        _trade_log_to_response(
+            l,
+            bots[l.bot_id].name if l.bot_id in bots else "",
+            bots[l.bot_id].icon if l.bot_id in bots else "",
+        )
+        for l in logs
+    ]
+
+
+@trades_router.post("/approve/{token}")
+async def approve_trade(token: str, db: AsyncSession = Depends(get_async_db)):
+    """Approve a pending trade via its unique token."""
+    from datetime import datetime, timezone
+    log = await crud.get_trade_log_by_token(db, token)
+    if not log:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if log.status != "pending_approval":
+        return {"status": log.status, "message": f"Trade already {log.status}"}
+    if log.expires_at and datetime.now(timezone.utc) > log.expires_at:
+        await crud.update_trade_log_status(db, log, "expired")
+        return {"status": "expired", "message": "Trade approval expired"}
+    await crud.update_trade_log_status(db, log, "approved")
+    # TODO: Actually execute the trade here (Phase 2 — for now just marks as approved)
+    return {"status": "approved", "message": "Trade approved"}
+
+
+@trades_router.post("/reject/{token}")
+async def reject_trade(token: str, db: AsyncSession = Depends(get_async_db)):
+    """Reject a pending trade via its unique token."""
+    log = await crud.get_trade_log_by_token(db, token)
+    if not log:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if log.status != "pending_approval":
+        return {"status": log.status, "message": f"Trade already {log.status}"}
+    await crud.update_trade_log_status(db, log, "rejected")
+    return {"status": "rejected", "message": "Trade rejected"}

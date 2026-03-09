@@ -1,12 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { Bot } from '@/lib/types';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, MoreHorizontal, Trash2 } from 'lucide-react';
 
 interface BotCardProps {
   bot: Bot;
   onClick: () => void;
+  onDelete?: (id: string) => void;
 }
 
 function getBotState(bot: Bot): { label: string; dotColor: string; textColor: string } {
@@ -22,7 +23,20 @@ function formatPnl(value: number): string {
   return `${sign}$${Math.abs(value).toFixed(2)}`;
 }
 
-export default function BotCard({ bot, onClick }: BotCardProps) {
+function formatTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+export default function BotCard({ bot, onClick, onDelete }: BotCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const state = getBotState(bot);
   const totalPnl = (bot.total_profit_usd || 0) + (bot.open_unrealized_pnl || 0);
   const isActive = bot.enabled && bot.approved;
@@ -32,14 +46,80 @@ export default function BotCard({ bot, onClick }: BotCardProps) {
       onClick={onClick}
       className="group relative flex flex-col items-start p-5 rounded-2xl bg-white border border-gray-100 hover:border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-300 text-left w-full"
     >
-      {/* Top row: icon + state */}
-      <div className="flex items-start justify-between w-full mb-4">
+      {/* Top row: icon + state + menu */}
+      <div className="flex items-start justify-between w-full mb-3">
         <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform duration-200">
           {bot.icon || '🤖'}
         </div>
-        <div className={`flex items-center gap-1.5 ${state.textColor}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${state.dotColor} ${isActive ? 'animate-pulse' : ''}`} />
-          <span className="text-[11px] font-medium tracking-wide uppercase">{state.label}</span>
+        <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-1.5 ${state.textColor}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${state.dotColor} ${isActive ? 'animate-pulse' : ''}`} />
+            <span className="text-[11px] font-medium tracking-wide uppercase">{state.label}</span>
+          </div>
+          {onDelete && (
+            <div className="relative">
+              <span
+                role="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen(!menuOpen);
+                  setConfirming(false);
+                }}
+                className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-gray-100 transition-all cursor-pointer"
+              >
+                <MoreHorizontal className="w-3.5 h-3.5 text-gray-400" />
+              </span>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
+                  <div className="absolute right-0 top-7 z-50 w-36 bg-white rounded-xl border border-gray-100 shadow-lg shadow-gray-200/60 py-1">
+                    {confirming ? (
+                      <div className="px-3 py-2">
+                        <p className="text-xs text-gray-500 mb-2">Delete this bot?</p>
+                        <div className="flex gap-1.5">
+                          <span
+                            role="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpen(false);
+                              setConfirming(false);
+                              onDelete(bot.id);
+                            }}
+                            className="flex-1 text-center text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg py-1.5 transition-colors cursor-pointer"
+                          >
+                            Delete
+                          </span>
+                          <span
+                            role="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirming(false);
+                              setMenuOpen(false);
+                            }}
+                            className="flex-1 text-center text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg py-1.5 transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirming(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete bot
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -48,25 +128,33 @@ export default function BotCard({ bot, onClick }: BotCardProps) {
         {bot.name}
       </h3>
 
-      {/* Stats row */}
-      <div className="mt-2.5 flex items-center gap-2.5 text-xs">
-        {totalPnl !== 0 ? (
-          <span className={`font-semibold tabular-nums ${totalPnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {formatPnl(totalPnl)}
+      {/* P&L */}
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className={`text-lg font-bold tabular-nums tracking-tight ${totalPnl > 0 ? 'text-emerald-600' : totalPnl < 0 ? 'text-red-500' : 'text-gray-300'}`}>
+          {totalPnl !== 0 ? formatPnl(totalPnl) : '$0.00'}
+        </span>
+        {bot.capital_balance != null && (
+          <span className="text-[11px] text-gray-400 tabular-nums">
+            / ${bot.capital_balance.toFixed(0)}
           </span>
-        ) : (
-          <span className="text-gray-300 font-medium">$0.00</span>
         )}
+      </div>
+
+      {/* Metrics row */}
+      <div className="mt-2.5 flex items-center gap-2 text-[11px] text-gray-400 w-full">
         {bot.open_positions_count > 0 && (
-          <>
-            <span className="text-gray-200">&middot;</span>
-            <span className="text-gray-400">{bot.open_positions_count} pos</span>
-          </>
+          <span className="tabular-nums">{bot.open_positions_count} pos</span>
         )}
-        {bot.total_runs > 0 && !bot.open_positions_count && (
+        {bot.open_positions_count > 0 && bot.total_runs > 0 && (
+          <span className="text-gray-200">&middot;</span>
+        )}
+        {bot.total_runs > 0 && (
+          <span className="tabular-nums">{bot.total_runs} runs</span>
+        )}
+        {bot.last_run_at && (
           <>
             <span className="text-gray-200">&middot;</span>
-            <span className="text-gray-400">{bot.total_runs} runs</span>
+            <span>{formatTimeAgo(bot.last_run_at)}</span>
           </>
         )}
       </div>

@@ -8,6 +8,8 @@ SECURITY:
 - Test endpoint validates credentials without storing sensitive data in logs
 - Authentication required: Users can only access their own API keys
 """
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +23,7 @@ from models.api_keys import (
     ApiKeyInfo
 )
 from crud import user_api_keys
-from modules.tools.clients.kalshi import test_kalshi_credentials
+from skills.kalshi_trading.scripts._client import test_credentials as test_kalshi_credentials
 from modules.tools.clients.polymarket import test_polymarket_credentials
 from auth.dependencies import get_current_user_id, verify_user_access
 import logging
@@ -196,10 +198,10 @@ async def test_api_key(
             logger.info(f"api_key_id starts with: {api_key_id[:8] if len(api_key_id) > 8 else api_key_id}...")
             logger.info(f"private_key starts with: {private_key[:30] if len(private_key) > 30 else 'too short'}...")
             
-            result = await test_kalshi_credentials(
+            result = await asyncio.get_event_loop().run_in_executor(None, lambda: test_kalshi_credentials(
                 api_key_id=api_key_id,
                 private_key_pem=private_key
-            )
+            ))
             return TestApiKeyResponse(**result)
         elif request.service == "polymarket":
             private_key = creds.get("private_key", "")
@@ -266,7 +268,7 @@ async def test_credentials_before_save(
                     detail="Invalid private key format: missing BEGIN/END markers"
                 )
             
-            result = await test_kalshi_credentials(api_key_id, private_key)
+            result = await asyncio.get_event_loop().run_in_executor(None, lambda: test_kalshi_credentials(api_key_id, private_key))
             return TestApiKeyResponse(**result)
         elif request.service == "polymarket":
             private_key = request.credentials.get("private_key")

@@ -155,6 +155,7 @@ export default function ChatView({
       } else {
         setCurrentChatIdLocal(externalChatId);
         setIsNewChat(false);
+        clearDisplay();
       }
     }
   }, [externalChatId, clearDisplay, currentChatId]);
@@ -205,7 +206,9 @@ export default function ChatView({
   }, [streamingTools, selectedTool?.tool_call_id]);
 
   // Initialize: load most recent chat or show new chat state
+  // Skip when an external chat ID is provided (e.g. bot-scoped chats)
   useEffect(() => {
+    if (externalChatId !== undefined) return;
     const init = async () => {
       if (!userId) return;
       try {

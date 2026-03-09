@@ -8,9 +8,10 @@ interface BotChatListProps {
   activeChatId: string | null;
   onSelectChat: (chatId: string) => void;
   onNewChat: () => void;
+  loading?: boolean;
 }
 
-export default function BotChatList({ chats, activeChatId, onSelectChat, onNewChat }: BotChatListProps) {
+export default function BotChatList({ chats, activeChatId, onSelectChat, onNewChat, loading }: BotChatListProps) {
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -40,7 +41,11 @@ export default function BotChatList({ chats, activeChatId, onSelectChat, onNewCh
 
       {/* Chat list */}
       <div className="flex-1 overflow-y-auto">
-        {chats.length === 0 ? (
+        {loading ? (
+          <div className="p-4 flex justify-center">
+            <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
+          </div>
+        ) : chats.length === 0 ? (
           <p className="p-4 text-xs text-gray-400 text-center">No chats yet</p>
         ) : (
           <div className="py-1">

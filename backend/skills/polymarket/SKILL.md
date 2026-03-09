@@ -1,6 +1,6 @@
 ---
 name: polymarket
-description: Browse and research Polymarket prediction markets — search events, get live prices, and compare with other exchanges. Use when working with Polymarket, checking prediction market prices, researching sports game odds, or finding arbitrage opportunities against Kalshi.
+description: Browse and research Polymarket prediction markets — search events, get live prices, track top traders, view leaderboards, and compare with other exchanges. Use when working with Polymarket, checking prediction market prices, researching sports game odds, studying trader behavior, or finding arbitrage opportunities against Kalshi.
 homepage: https://polymarket.com
 metadata:
   emoji: "🔮"
@@ -19,8 +19,15 @@ Prices are **floats in [0, 1]** (e.g. `0.515` = 51.5¢).
 
 ```python
 from skills.polymarket.scripts.polymarket import (
-    get_events, get_sport_events, get_event,
+    # Event discovery
+    get_events, get_sport_events, get_event, search_markets,
+    # Orderbook & prices
     get_orderbook, get_prices,
+    # Leaderboard & traders
+    get_leaderboard, get_trader_profile,
+    get_trader_positions, get_trader_trades, get_trader_activity,
+    # Market holders
+    get_market_holders,
     # Historical
     get_resolved_events, get_market_trades,
 )
@@ -49,6 +56,20 @@ for e in nhl_games['events']:
         print(f"  {m['outcomes']}")  # e.g. {"Red Wings": 0.515, "Predators": 0.485}
 ```
 
+## Search Markets & Profiles
+
+```python
+# Search for markets by keyword
+results = search_markets("bitcoin", limit=10)
+for e in results['events']:
+    print(f"{e['title']} — {e['slug']}")
+
+# Also search for trader profiles
+results = search_markets("whale", limit=5, include_profiles=True)
+for p in results.get('profiles', []):
+    print(f"{p['name']} — {p['proxy_wallet']}")
+```
+
 ## Get a Specific Event
 
 ```python
@@ -71,6 +92,64 @@ print(ob['accepting_orders'])  # True if market is live
 # Just prices
 prices = get_prices("0xb529f668ece4bca3d05ed34864e04d30f41061a1779522585957ec01085bbc43")
 # {"Red Wings": 0.515, "Predators": 0.485}
+```
+
+## Top Traders & Leaderboard
+
+```python
+# Get top traders by P&L (all time)
+top = get_leaderboard(category="OVERALL", time_period="ALL", order_by="PNL", limit=25)
+for t in top['traders']:
+    print(f"#{t['rank']} {t['username']}: PnL=${t['pnl']:,.0f} Vol=${t['volume']:,.0f}")
+
+# Top sports traders this week
+sports_top = get_leaderboard(category="SPORTS", time_period="WEEK", order_by="PNL")
+
+# Top crypto traders by volume this month
+crypto_vol = get_leaderboard(category="CRYPTO", time_period="MONTH", order_by="VOL")
+
+# Categories: OVERALL, POLITICS, SPORTS, CRYPTO, CULTURE, WEATHER, ECONOMICS, TECH, FINANCE
+# Time periods: DAY, WEEK, MONTH, ALL
+# Order by: PNL, VOL
+```
+
+## Trader Deep Dive
+
+```python
+# Get a trader's profile
+profile = get_trader_profile("0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b")
+print(f"{profile['name']} (@{profile['x_username']})")
+
+# See their current positions (sorted by value)
+positions = get_trader_positions(
+    "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+    sort_by="CURRENT",  # CURRENT, INITIAL, TOKENS, CASHPNL, PERCENTPNL, TITLE, PRICE, AVGPRICE
+    limit=50,
+)
+for p in positions['positions']:
+    print(f"  {p['title']} — {p['outcome']}: {p['size']:.1f} shares @ avg {p['avg_price']:.3f}")
+    print(f"    PnL: ${p['cash_pnl']:.2f} ({p['percent_pnl']:.1f}%)")
+
+# See their trade history
+trades = get_trader_trades("0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b", limit=50)
+for t in trades['trades']:
+    print(f"  {t['timestamp']}: {t['side']} {t['outcome']} @ {t['price']:.3f} x {t['size']:.1f}")
+
+# Full activity feed (trades + redemptions + rewards etc.)
+activity = get_trader_activity("0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b", limit=50)
+for a in activity['activities']:
+    print(f"  {a['type']}: {a['title']} — ${a['usdc_size']:.2f}")
+```
+
+## Market Holders (Who Holds the Biggest Positions)
+
+```python
+# See who has the largest positions in a market
+holders = get_market_holders("0xb529f668ece4bca3d05ed34864e04d30f41061a1779522585957ec01085bbc43")
+for group in holders['holders']:
+    print(f"Token: {group['token']}")
+    for h in group['holders']:
+        print(f"  {h['pseudonym'] or h['name']}: {h['amount']:.1f} shares")
 ```
 
 ## The Restricted Market Problem
@@ -144,3 +223,26 @@ Profit: $0.045 per dollar (4.5%)
 ```
 
 Always account for fees, minimum order sizes ($5 on Polymarket CLOB), and execution risk.
+
+## Copy Trading Workflow
+
+Use the leaderboard + trader positions to build a copy-trading strategy:
+
+```python
+# 1. Find top traders in your category
+top = get_leaderboard(category="SPORTS", time_period="MONTH", order_by="PNL", limit=10)
+
+# 2. Deep-dive their current positions
+for t in top['traders']:
+    positions = get_trader_positions(t['proxy_wallet'], sort_by="CURRENT", limit=20)
+    print(f"\n{t['username']} (PnL: ${t['pnl']:,.0f}):")
+    for p in positions['positions']:
+        print(f"  {p['title']} — {p['outcome']} @ avg {p['avg_price']:.3f} (PnL: ${p['cash_pnl']:.2f})")
+
+# 3. Monitor their recent trades for signals
+for t in top['traders'][:3]:
+    recent = get_trader_trades(t['proxy_wallet'], limit=10)
+    print(f"\n{t['username']} recent trades:")
+    for trade in recent['trades']:
+        print(f"  {trade['side']} {trade['outcome']} @ {trade['price']:.3f}")
+```

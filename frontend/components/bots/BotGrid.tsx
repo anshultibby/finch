@@ -9,14 +9,19 @@ import BotCard, { CreateBotCard } from './BotCard';
 import {
   Bot as BotIcon,
   Link2,
-  Settings,
   LogOut,
-  ChevronRight,
-  ExternalLink,
   Check,
-  Minus,
   TrendingUp,
   Wallet,
+  Key,
+  Shield,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Loader2,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +126,17 @@ export default function BotGrid() {
     }
   };
 
+  const handleDeleteBot = async (botId: string) => {
+    if (!user) return;
+    try {
+      await botsApi.deleteBot(user.id, botId);
+      setBots((prev) => prev.filter((b) => b.id !== botId));
+    } catch (e) {
+      console.error('Failed to delete bot:', e);
+    }
+  };
+
+
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const totalPnl = bots.reduce((sum, b) => sum + (b.total_profit_usd || 0) + (b.open_unrealized_pnl || 0), 0);
@@ -163,7 +179,7 @@ export default function BotGrid() {
             {showAccountMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowAccountMenu(false)} />
-                <div className="absolute right-0 mt-1.5 w-56 bg-white rounded-xl border border-gray-100 shadow-lg shadow-gray-200/60 z-50 py-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div className="absolute right-0 mt-1.5 w-56 bg-white rounded-xl border border-gray-100 shadow-lg shadow-gray-200/60 z-50 py-1.5">
                   <div className="px-4 py-2.5 border-b border-gray-100">
                     <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
                     {user.email && (
@@ -171,15 +187,15 @@ export default function BotGrid() {
                     )}
                   </div>
                   <button
-                    onClick={() => { setShowAccountMenu(false); router.push('/settings'); }}
+                    onClick={() => { setShowAccountMenu(false); setTab('connections'); }}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
                   >
-                    <Settings className="w-4 h-4" />
-                    Settings
+                    <Key className="w-4 h-4" />
+                    Connections
                   </button>
                   <button
                     onClick={() => { setShowAccountMenu(false); signOut(); }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
                     Sign out
@@ -191,7 +207,7 @@ export default function BotGrid() {
         </header>
 
         {/* ── Tabs ── */}
-        <nav className="flex gap-1 mb-8 border-b border-gray-150">
+        <nav className="flex gap-1 mb-8 border-b border-gray-200">
           <TabButton
             active={tab === 'bots'}
             onClick={() => setTab('bots')}
@@ -218,6 +234,7 @@ export default function BotGrid() {
             activeBots={activeBots}
             onCreateBot={handleCreateBot}
             onBotClick={(id) => router.push(`/bot/${id}`)}
+            onDeleteBot={handleDeleteBot}
           />
         )}
 
@@ -225,7 +242,8 @@ export default function BotGrid() {
           <ConnectionsTab
             connections={connections}
             loading={connectionsLoading}
-            onNavigate={(path) => router.push(path)}
+            userId={user.id}
+            onRefresh={fetchConnections}
           />
         )}
 
@@ -291,6 +309,7 @@ function BotsTab({
   activeBots,
   onCreateBot,
   onBotClick,
+  onDeleteBot,
 }: {
   bots: Bot[];
   loading: boolean;
@@ -299,7 +318,12 @@ function BotsTab({
   activeBots: number;
   onCreateBot: () => void;
   onBotClick: (id: string) => void;
+  onDeleteBot: (id: string) => void;
 }) {
+  const totalCapital = bots.reduce((sum, b) => sum + (b.capital_balance ?? 0), 0);
+  const totalRuns = bots.reduce((sum, b) => sum + (b.total_runs || 0), 0);
+  const totalPositions = bots.reduce((sum, b) => sum + (b.open_positions_count || 0), 0);
+
   return (
     <div>
       {/* Summary strip */}
@@ -313,11 +337,27 @@ function BotsTab({
           </div>
           <div className="w-px h-8 bg-gray-200" />
           <div>
+            <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Capital</p>
+            <p className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">
+              ${totalCapital.toFixed(0)}
+            </p>
+          </div>
+          <div className="w-px h-8 bg-gray-200" />
+          <div>
             <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Active</p>
             <p className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">
               {activeBots}<span className="text-gray-300 font-normal">/{bots.length}</span>
             </p>
           </div>
+          {totalPositions > 0 && (
+            <>
+              <div className="w-px h-8 bg-gray-200" />
+              <div>
+                <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Positions</p>
+                <p className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">{totalPositions}</p>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -332,7 +372,7 @@ function BotsTab({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
           <CreateBotCard onClick={onCreateBot} disabled={creating} />
           {bots.map((bot) => (
-            <BotCard key={bot.id} bot={bot} onClick={() => onBotClick(bot.id)} />
+            <BotCard key={bot.id} bot={bot} onClick={() => onBotClick(bot.id)} onDelete={onDeleteBot} />
           ))}
         </div>
       )}
@@ -341,98 +381,389 @@ function BotsTab({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Connections tab
+// Connections tab — inline credential management
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ConnectionsTab({
   connections,
   loading,
-  onNavigate,
+  userId,
+  onRefresh,
 }: {
   connections: ConnectionStatus;
   loading: boolean;
-  onNavigate: (path: string) => void;
+  userId: string;
+  onRefresh: () => void;
 }) {
-  const items = [
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showKey, setShowKey] = useState<Record<string, boolean>>({});
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const toggle = (key: string) => {
+    setExpanded(expanded === key ? null : key);
+    setFormData({});
+    setFeedback(null);
+    setConfirmDelete(null);
+  };
+
+  const handleSave = async (service: string) => {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const res = await apiKeysApi.saveApiKey(userId, service, formData);
+      if (res.success) {
+        setFeedback({ type: 'success', message: 'Credentials saved and encrypted.' });
+        setFormData({});
+        onRefresh();
+      } else {
+        setFeedback({ type: 'error', message: res.message || 'Failed to save.' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.response?.data?.detail || 'Failed to save credentials.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async (service: string) => {
+    setTesting(true);
+    setFeedback(null);
+    try {
+      const hasFormData = Object.values(formData).some(v => v?.trim());
+      const res = hasFormData
+        ? await apiKeysApi.testCredentialsBeforeSave(userId, service, formData)
+        : await apiKeysApi.testApiKey(userId, service);
+      setFeedback({
+        type: res.success ? 'success' : 'error',
+        message: res.message,
+      });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.response?.data?.detail || 'Test failed.' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleDelete = async (service: string) => {
+    try {
+      await apiKeysApi.deleteApiKey(userId, service);
+      setFeedback({ type: 'success', message: 'Credentials removed.' });
+      setConfirmDelete(null);
+      onRefresh();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.response?.data?.detail || 'Failed to delete.' });
+    }
+  };
+
+  const handleSnaptradeConnect = async () => {
+    setConnecting(true);
+    setFeedback(null);
+    try {
+      const redirectUri = `${window.location.origin}/portfolio?snaptrade_callback=true`;
+      const res = await snaptradeApi.initiateConnection(userId, redirectUri);
+      if (res.redirect_uri) {
+        window.location.href = res.redirect_uri;
+      } else {
+        setFeedback({ type: 'error', message: 'Failed to get connection URL.' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.response?.data?.detail || 'Failed to start connection.' });
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const services = [
     {
       key: 'kalshi',
       name: 'Kalshi',
-      description: 'Prediction markets',
+      description: 'Event contracts & prediction markets',
       icon: <TrendingUp className="w-5 h-5" />,
       iconBg: 'bg-violet-50 text-violet-500',
       connected: connections.kalshi.connected,
-      detail: connections.kalshi.masked || 'API key connected',
-      path: '/settings',
+      masked: connections.kalshi.masked,
+      helpUrl: 'https://kalshi.com/account/api',
+      helpLabel: 'Get your Kalshi API key',
+      fields: [
+        { key: 'api_key_id', label: 'API Key ID', type: 'text' as const, placeholder: 'e.g. abc123-def456' },
+        { key: 'private_key', label: 'Private Key (PEM)', type: 'textarea' as const, placeholder: '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----' },
+      ],
+      steps: [
+        'Go to your Kalshi account settings',
+        'Navigate to API Keys section',
+        'Create a new key and download the .key file',
+        'Paste the Key ID and file contents here',
+      ],
     },
     {
       key: 'polymarket',
       name: 'Polymarket',
-      description: 'Prediction markets',
+      description: 'Crypto prediction markets',
       icon: <TrendingUp className="w-5 h-5" />,
       iconBg: 'bg-sky-50 text-sky-500',
       connected: connections.polymarket.connected,
-      detail: connections.polymarket.masked || 'Wallet connected',
-      path: '/settings',
+      masked: connections.polymarket.masked,
+      helpUrl: undefined,
+      helpLabel: undefined,
+      fields: [
+        { key: 'private_key', label: 'Wallet Private Key', type: 'text' as const, placeholder: '0x...' },
+        { key: 'funder_address', label: 'Funder Address (optional)', type: 'text' as const, placeholder: '0x...' },
+      ],
+      steps: [
+        'Export your private key from MetaMask or your wallet',
+        'In MetaMask: Account menu → Account Details → Show Private Key',
+        'Paste the key (starts with 0x) here',
+      ],
     },
     {
       key: 'snaptrade',
       name: 'Portfolio',
-      description: 'Brokerage accounts via SnapTrade',
+      description: 'Connect your brokerage account via SnapTrade',
       icon: <Wallet className="w-5 h-5" />,
       iconBg: 'bg-amber-50 text-amber-500',
       connected: connections.snaptrade.connected,
-      detail: connections.snaptrade.connected
-        ? `${connections.snaptrade.accountCount || 0} account${(connections.snaptrade.accountCount || 0) !== 1 ? 's' : ''} linked`
+      masked: connections.snaptrade.connected && connections.snaptrade.accountCount
+        ? `${connections.snaptrade.accountCount} account${connections.snaptrade.accountCount !== 1 ? 's' : ''} linked`
         : undefined,
-      path: '/portfolio',
+      helpUrl: undefined,
+      helpLabel: undefined,
+      fields: [],
+      steps: [],
     },
   ];
 
   return (
     <div>
-      <p className="text-sm text-gray-400 mb-5 px-1">
-        Connect your trading platforms and brokerage accounts.
-      </p>
+      {/* Security banner */}
+      <div className="flex items-center gap-2.5 mb-6 px-1">
+        <Shield className="w-4 h-4 text-gray-400 flex-shrink-0" />
+        <p className="text-xs text-gray-400">
+          All credentials are encrypted with AES-128 before storage. Private keys are never exposed in responses.
+        </p>
+      </div>
 
-      <div className="space-y-2.5">
-        {items.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => onNavigate(item.path)}
-            className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-gray-100 hover:border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.03)] hover:shadow-[0_3px_10px_rgba(0,0,0,0.05)] transition-all duration-200 text-left"
-          >
-            {/* Icon */}
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.iconBg}`}>
-              {item.icon}
-            </div>
+      <div className="space-y-3">
+        {services.map((svc) => {
+          const isExpanded = expanded === svc.key;
+          const isApiKeyService = svc.fields.length > 0;
+          const isExpandable = isApiKeyService || svc.key === 'snaptrade';
 
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2.5">
-                <span className="text-[15px] font-semibold text-gray-900">{item.name}</span>
-                {loading ? (
-                  <span className="w-2 h-2 rounded-full bg-gray-200 animate-pulse" />
-                ) : item.connected ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                    <Check className="w-3 h-3" />
-                    Connected
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">
-                    <Minus className="w-3 h-3" />
-                    Not set up
-                  </span>
+          return (
+            <div
+              key={svc.key}
+              className={`rounded-2xl bg-white border transition-all duration-200 overflow-hidden ${
+                isExpanded ? 'border-gray-200 shadow-[0_3px_12px_rgba(0,0,0,0.06)]' : 'border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.03)]'
+              }`}
+            >
+              {/* Header row */}
+              <button
+                onClick={() => isExpandable && toggle(svc.key)}
+                className={`w-full flex items-center gap-4 p-4 text-left transition-colors ${
+                  isExpandable ? 'hover:bg-gray-50/50 cursor-pointer' : 'cursor-default'
+                }`}
+              >
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${svc.iconBg}`}>
+                  {svc.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-[15px] font-semibold text-gray-900">{svc.name}</span>
+                    {loading ? (
+                      <span className="w-2 h-2 rounded-full bg-gray-200 animate-pulse" />
+                    ) : svc.connected ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        <Check className="w-3 h-3" />
+                        Connected
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">
+                    {!loading && svc.connected && svc.masked ? svc.masked : svc.description}
+                  </p>
+                </div>
+                {isExpandable && (
+                  <div className="flex-shrink-0 text-gray-300">
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
                 )}
-              </div>
-              <p className="text-xs text-gray-400 mt-0.5 truncate">
-                {!loading && item.connected && item.detail ? item.detail : item.description}
-              </p>
-            </div>
+              </button>
 
-            {/* Arrow */}
-            <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-400 flex-shrink-0 transition-colors" />
-          </button>
-        ))}
+              {/* SnapTrade expanded panel */}
+              {isExpanded && svc.key === 'snaptrade' && (
+                <div className="px-4 pb-4 pt-0">
+                  <div className="border-t border-gray-100 pt-4">
+                    {feedback && (
+                      <div className={`mb-4 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                        feedback.type === 'success'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                          : 'bg-red-50 text-red-600 border border-red-100'
+                      }`}>
+                        {feedback.message}
+                      </div>
+                    )}
+                    <p className="text-sm text-gray-500 mb-4">
+                      {svc.connected
+                        ? 'Your brokerage is connected. You can reconnect or add another account.'
+                        : 'Link your brokerage account securely through SnapTrade. You\'ll be redirected to authorize the connection.'}
+                    </p>
+                    <button
+                      onClick={handleSnaptradeConnect}
+                      disabled={connecting}
+                      className="w-full py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                      {connecting ? 'Connecting...' : svc.connected ? 'Add another account' : 'Connect brokerage'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* API key expanded panel */}
+              {isExpanded && isApiKeyService && (
+                <div className="px-4 pb-4 pt-0">
+                  <div className="border-t border-gray-100 pt-4">
+                    {/* Feedback */}
+                    {feedback && (
+                      <div className={`mb-4 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                        feedback.type === 'success'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                          : 'bg-red-50 text-red-600 border border-red-100'
+                      }`}>
+                        {feedback.message}
+                      </div>
+                    )}
+
+                    {/* Connected state: show status + actions */}
+                    {svc.connected && !Object.values(formData).some(v => v?.trim()) && (
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleTest(svc.key)}
+                            disabled={testing}
+                            className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Test connection'}
+                          </button>
+                          {confirmDelete === svc.key ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-red-500">Remove credentials?</span>
+                              <button
+                                onClick={() => handleDelete(svc.key)}
+                                className="px-2 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                              >
+                                Yes, delete
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(null)}
+                                className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDelete(svc.key)}
+                              className="p-1.5 text-gray-300 hover:text-red-400 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Form fields */}
+                    <div className="space-y-3">
+                      {svc.fields.map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-xs font-medium text-gray-500 mb-1.5">{field.label}</label>
+                          {field.type === 'textarea' ? (
+                            <textarea
+                              value={formData[field.key] || ''}
+                              onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                              placeholder={field.placeholder}
+                              rows={5}
+                              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition-all resize-none"
+                            />
+                          ) : (
+                            <div className="relative">
+                              <input
+                                type={field.key.includes('private_key') && !showKey[field.key] ? 'password' : 'text'}
+                                value={formData[field.key] || ''}
+                                onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                                placeholder={field.placeholder}
+                                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition-all pr-10"
+                              />
+                              {field.key.includes('private_key') && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowKey({ ...showKey, [field.key]: !showKey[field.key] })}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
+                                >
+                                  {showKey[field.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Help link + steps */}
+                    {(svc.helpUrl || svc.steps.length > 0) && (
+                      <div className="mt-4 p-3 bg-gray-50/70 rounded-xl">
+                        {svc.helpUrl && (
+                          <a
+                            href={svc.helpUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 hover:text-gray-600 transition-colors mb-2"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            {svc.helpLabel}
+                          </a>
+                        )}
+                        <ol className="text-xs text-gray-400 space-y-1">
+                          {svc.steps.map((step, i) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="text-gray-300 font-medium">{i + 1}.</span>
+                              {step}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2.5 mt-4">
+                      <button
+                        onClick={() => handleTest(svc.key)}
+                        disabled={testing || saving}
+                        className="flex-1 py-2.5 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                        {testing ? 'Testing...' : 'Test'}
+                      </button>
+                      <button
+                        onClick={() => handleSave(svc.key)}
+                        disabled={testing || saving || !svc.fields.some(f => formData[f.key]?.trim())}
+                        className="flex-1 py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                        {saving ? 'Saving...' : svc.connected ? 'Update credentials' : 'Save & connect'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

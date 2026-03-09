@@ -324,9 +324,18 @@ async def stream_llm_response(
     deferred_file_streams: Dict[int, tuple] = {}
     
     chunk_count = 0
+    CHUNK_TIMEOUT_SECONDS = 90  # Max seconds to wait between chunks before treating as stalled
     # Process stream - ONLY accumulate, DO NOT stream file content yet
     try:
-        async for chunk in stream_response:
+        chunk_iter = stream_response.__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=CHUNK_TIMEOUT_SECONDS)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ LLM stream stalled - no chunk received in {CHUNK_TIMEOUT_SECONDS}s after {chunk_count} chunks")
+                raise TimeoutError(f"LLM stream stalled after {chunk_count} chunks (no data for {CHUNK_TIMEOUT_SECONDS}s)")
             chunk_count += 1
             if chunk_count == 1:
                 logger.info("🔄 First chunk received from LLM stream")

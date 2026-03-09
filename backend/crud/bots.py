@@ -8,9 +8,9 @@ import logging
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, case
 
-from models.db import TradingBot, BotExecution, BotFile, BotPosition
+from models.db import TradingBot, BotExecution, BotFile, BotPosition, TradeLog, BotWakeup
 from models.bots import (
     CreateBotRequest,
     UpdateBotRequest,
@@ -30,6 +30,23 @@ def _slugify(name: str) -> str:
     """Convert bot name to a filesystem-safe directory name."""
     slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
     return slug or 'bot'
+
+
+def _compute_pnl(side: Optional[str], entry_price: float, current_price: float, quantity: float) -> float:
+    """Compute P&L accounting for position side (no side inverts the price movement)."""
+    if side == "no":
+        return (entry_price - current_price) * quantity
+    return (current_price - entry_price) * quantity
+
+
+def _get_capital_balance(bot: TradingBot) -> tuple[dict, dict, float]:
+    """Extract config, capital dict, and current balance from a bot. Returns (config, capital, balance)."""
+    config = dict(bot.config or {})
+    capital = dict(config.get("capital") or {})
+    balance = capital.get("balance_usd")
+    if balance is None:
+        balance = capital.get("amount_usd") or 0.0
+    return config, capital, balance
 
 
 async def create_bot(
@@ -117,6 +134,9 @@ async def update_bot(
     if request.capital is not None:
         existing_capital = config.get("capital") or {}
         updated = {**existing_capital, **request.capital.model_dump(mode="json", exclude_none=True)}
+        # Auto-initialize balance when amount_usd is first set and balance doesn't exist
+        if "amount_usd" in updated and "balance_usd" not in existing_capital:
+            updated["balance_usd"] = updated["amount_usd"]
         config["capital"] = updated
     if request.paper_mode is not None:
         config["paper_mode"] = request.paper_mode
@@ -161,9 +181,6 @@ async def delete_bot(
 
     # Delete related records
     await db.execute(
-        select(BotFile).where(BotFile.bot_id == bot_id).with_for_update()
-    )
-    await db.execute(
         BotFile.__table__.delete().where(BotFile.bot_id == bot_id)
     )
     await db.execute(
@@ -171,6 +188,9 @@ async def delete_bot(
     )
     await db.execute(
         BotExecution.__table__.delete().where(BotExecution.bot_id == bot_id)
+    )
+    await db.execute(
+        TradeLog.__table__.delete().where(TradeLog.bot_id == bot_id)
     )
 
     await db.delete(bot)
@@ -291,10 +311,11 @@ async def complete_execution(
 ) -> BotExecution:
     execution.status = status
 
+    now = datetime.now(timezone.utc)
     data = dict(execution.data or {})
-    data["completed_at"] = datetime.now(timezone.utc).isoformat()
+    data["completed_at"] = now.isoformat()
     data["duration_ms"] = int(
-        (datetime.now(timezone.utc) - execution.started_at).total_seconds() * 1000
+        (now - execution.started_at).total_seconds() * 1000
     )
 
     if result is not None:
@@ -367,6 +388,7 @@ async def create_position(
     cost_usd: float,
     exit_config: ExitConfig,
     entered_via: Optional[str] = None,
+    paper: bool = False,
 ) -> BotPosition:
     now = datetime.now(timezone.utc)
     initial_history = [{"t": now.isoformat(), "price": entry_price}]
@@ -383,6 +405,7 @@ async def create_position(
         status="open",
         exit_config=exit_config.model_dump(mode="json"),
         entered_via=entered_via,
+        paper=paper,
         price_history=initial_history,
     )
     db.add(position)
@@ -426,14 +449,10 @@ async def list_positions(
     status: Optional[str] = None,
     limit: int = 50,
 ) -> List[BotPosition]:
-    query = (
-        select(BotPosition)
-        .where(BotPosition.bot_id == bot_id)
-        .order_by(BotPosition.entry_time.desc())
-        .limit(limit)
-    )
+    query = select(BotPosition).where(BotPosition.bot_id == bot_id)
     if status:
         query = query.where(BotPosition.status == status)
+    query = query.order_by(BotPosition.entry_time.desc()).limit(limit)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -457,7 +476,7 @@ async def update_position_price(
 ) -> BotPosition:
     now = datetime.now(timezone.utc)
     position.current_price = current_price
-    position.unrealized_pnl_usd = (current_price - position.entry_price) * position.quantity
+    position.unrealized_pnl_usd = _compute_pnl(position.side, position.entry_price, current_price, position.quantity)
     position.last_priced_at = now
 
     history = list(position.price_history or [])
@@ -492,7 +511,7 @@ async def close_position(
     now = datetime.now(timezone.utc)
     position.status = "closed"
     position.exit_price = exit_price
-    position.realized_pnl_usd = (exit_price - position.entry_price) * position.quantity
+    position.realized_pnl_usd = _compute_pnl(position.side, position.entry_price, exit_price, position.quantity)
     position.close_reason = close_reason
     position.closed_at = now
     position.closed_via = closed_via
@@ -511,42 +530,288 @@ async def close_position(
     return position
 
 
+def get_capital_balance(bot: TradingBot) -> Optional[float]:
+    """Get the bot's current capital balance, or None if not set."""
+    _, _, balance = _get_capital_balance(bot)
+    return balance
+
+
+async def adjust_capital(
+    db: AsyncSession,
+    bot_id: str,
+    user_id: str,
+    delta: float,
+    reason: str = "manual",
+) -> Optional[TradingBot]:
+    """Add or withdraw capital. delta > 0 = deposit, delta < 0 = withdraw."""
+    bot = await get_bot(db, bot_id, user_id)
+    if not bot:
+        return None
+
+    config, capital, current = _get_capital_balance(bot)
+    new_balance = current + delta
+    if new_balance < 0:
+        raise ValueError(f"Insufficient balance: ${current:.2f} available, tried to withdraw ${abs(delta):.2f}")
+
+    capital["balance_usd"] = new_balance
+    config["capital"] = capital
+    bot.config = config
+    await db.commit()
+    await db.refresh(bot)
+    logger.info(f"Capital {reason}: bot {bot_id} {'+' if delta >= 0 else ''}{delta:.2f} -> ${new_balance:.2f}")
+    return bot
+
+
+async def deduct_capital_for_position(db: AsyncSession, bot: TradingBot, cost_usd: float) -> bool:
+    """Deduct capital when opening a position. Returns False if insufficient funds."""
+    config, capital, current = _get_capital_balance(bot)
+
+    if cost_usd > current:
+        return False
+
+    capital["balance_usd"] = current - cost_usd
+    config["capital"] = capital
+    bot.config = config
+    await db.commit()
+    return True
+
+
+async def credit_capital_for_close(db: AsyncSession, bot: TradingBot, cost_usd: float, realized_pnl: float) -> None:
+    """Return cost + P&L to capital when closing a position."""
+    config, capital, current = _get_capital_balance(bot)
+
+    capital["balance_usd"] = current + cost_usd + realized_pnl
+    config["capital"] = capital
+    bot.config = config
+    await db.commit()
+
+
+# ============================================================================
+# Trade Log CRUD
+# ============================================================================
+
+async def create_trade_log(
+    db: AsyncSession,
+    bot: TradingBot,
+    action: str,
+    market: str,
+    side: str,
+    price: float,
+    quantity: int,
+    cost_usd: float,
+    execution_id: Optional[str] = None,
+    dry_run: bool = False,
+    status: str = "executed",
+    approval_token: Optional[str] = None,
+    expires_at=None,
+) -> TradeLog:
+    """Create a trade log entry for every buy/sell attempt."""
+    log = TradeLog(
+        bot_id=bot.id,
+        user_id=bot.user_id,
+        execution_id=execution_id,
+        action=action,
+        market=market,
+        platform=bot.config.get("platform", "kalshi"),
+        side=side,
+        price=price,
+        quantity=quantity,
+        cost_usd=cost_usd,
+        status=status,
+        approval_token=approval_token,
+        dry_run=dry_run,
+        expires_at=expires_at,
+    )
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    logger.info(f"Trade log: {action} {market} {side} x{quantity} @ {price}c = ${cost_usd:.2f} [{status}]")
+    return log
+
+
+async def update_trade_log_status(
+    db: AsyncSession,
+    trade_log: TradeLog,
+    status: str,
+    error: Optional[str] = None,
+    position_id: Optional[str] = None,
+    order_response: Optional[dict] = None,
+) -> TradeLog:
+    """Update a trade log's status after execution or approval."""
+    trade_log.status = status
+    if error:
+        trade_log.error = error
+    if position_id:
+        trade_log.position_id = position_id
+    if order_response:
+        trade_log.order_response = order_response
+    if status == "approved":
+        trade_log.approved_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(trade_log)
+    return trade_log
+
+
+async def get_trade_log_by_token(
+    db: AsyncSession,
+    token: str,
+) -> Optional[TradeLog]:
+    """Find a trade log by its approval token."""
+    result = await db.execute(
+        select(TradeLog).where(TradeLog.approval_token == token)
+    )
+    return result.scalars().first()
+
+
+async def list_trade_logs(
+    db: AsyncSession,
+    bot_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    limit: int = 50,
+) -> List[TradeLog]:
+    """List trade logs, optionally filtered by bot or user."""
+    query = select(TradeLog).order_by(TradeLog.created_at.desc()).limit(limit)
+    if bot_id:
+        query = query.where(TradeLog.bot_id == bot_id)
+    if user_id:
+        query = query.where(TradeLog.user_id == user_id)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
 async def recompute_bot_pnl(db: AsyncSession, bot_id: str) -> None:
     """Recompute P&L stats from positions and persist into bot.stats."""
     bot = await get_bot(db, bot_id)
     if not bot:
         return
 
-    r = await db.execute(
-        select(func.sum(BotPosition.realized_pnl_usd)).where(
-            BotPosition.bot_id == bot_id,
-            BotPosition.status == "closed",
-        )
-    )
-    total_profit = float(r.scalar() or 0.0)
+    is_paper = BotPosition.paper == True
+    is_live = BotPosition.paper == False
+    is_closed = BotPosition.status == "closed"
+    is_open = BotPosition.status == "open"
 
     r = await db.execute(
-        select(func.sum(BotPosition.cost_usd)).where(
-            BotPosition.bot_id == bot_id,
-        )
+        select(
+            # Live stats
+            func.sum(case((and_(is_closed, is_live), BotPosition.realized_pnl_usd), else_=0)),
+            func.sum(case((is_live, BotPosition.cost_usd), else_=0)),
+            func.sum(case((and_(is_open, is_live), BotPosition.unrealized_pnl_usd), else_=0)),
+            # Paper stats
+            func.sum(case((and_(is_closed, is_paper), BotPosition.realized_pnl_usd), else_=0)),
+            func.sum(case((and_(is_open, is_paper), BotPosition.unrealized_pnl_usd), else_=0)),
+        ).where(BotPosition.bot_id == bot_id)
     )
-    total_spent = float(r.scalar() or 0.0)
-
-    r = await db.execute(
-        select(func.sum(BotPosition.unrealized_pnl_usd)).where(
-            BotPosition.bot_id == bot_id,
-            BotPosition.status == "open",
-        )
-    )
-    open_unrealized = float(r.scalar() or 0.0)
+    row = r.one()
+    total_profit = float(row[0] or 0.0)
+    total_spent = float(row[1] or 0.0)
+    open_unrealized = float(row[2] or 0.0)
+    paper_profit = float(row[3] or 0.0)
+    paper_unrealized = float(row[4] or 0.0)
 
     stats = dict(bot.stats or {})
     stats["total_profit_usd"] = total_profit
     stats["total_spent_usd"] = total_spent
     stats["open_unrealized_pnl"] = open_unrealized
+    stats["paper_profit_usd"] = paper_profit
+    stats["paper_unrealized_pnl"] = paper_unrealized
     bot.stats = stats
     await db.commit()
     logger.info(
         f"Recomputed P&L for bot {bot_id}: "
-        f"realized=${total_profit:.2f} spent=${total_spent:.2f} unrealized=${open_unrealized:.2f}"
+        f"realized=${total_profit:.2f} spent=${total_spent:.2f} unrealized=${open_unrealized:.2f} "
+        f"paper_realized=${paper_profit:.2f} paper_unrealized=${paper_unrealized:.2f}"
     )
+
+
+# ============================================================================
+# Wakeup CRUD
+# ============================================================================
+
+async def create_wakeup(
+    db: AsyncSession,
+    bot_id: str,
+    user_id: str,
+    trigger_at: datetime,
+    reason: str,
+    trigger_type: str = "custom",
+    context: Optional[dict] = None,
+) -> BotWakeup:
+    """Schedule a future wakeup for a bot."""
+    wakeup = BotWakeup(
+        bot_id=bot_id,
+        user_id=user_id,
+        trigger_at=trigger_at,
+        trigger_type=trigger_type,
+        reason=reason,
+        context=context or {},
+        status="pending",
+    )
+    db.add(wakeup)
+    await db.commit()
+    await db.refresh(wakeup)
+    logger.info(f"Scheduled wakeup for bot {bot_id} at {trigger_at}: {reason[:80]}")
+    return wakeup
+
+
+async def get_due_wakeups(db: AsyncSession) -> List[BotWakeup]:
+    """Get all pending wakeups whose trigger_at has passed."""
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(BotWakeup).where(
+            BotWakeup.status == "pending",
+            BotWakeup.trigger_at <= now,
+        ).order_by(BotWakeup.trigger_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def list_wakeups(
+    db: AsyncSession,
+    bot_id: str,
+    status: Optional[str] = "pending",
+    limit: int = 20,
+) -> List[BotWakeup]:
+    """List wakeups for a bot."""
+    query = (
+        select(BotWakeup)
+        .where(BotWakeup.bot_id == bot_id)
+        .order_by(BotWakeup.trigger_at.asc())
+        .limit(limit)
+    )
+    if status:
+        query = query.where(BotWakeup.status == status)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def cancel_wakeup(
+    db: AsyncSession,
+    wakeup_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[BotWakeup]:
+    """Cancel a pending wakeup."""
+    query = select(BotWakeup).where(BotWakeup.id == wakeup_id, BotWakeup.status == "pending")
+    if user_id:
+        query = query.where(BotWakeup.user_id == user_id)
+    result = await db.execute(query)
+    wakeup = result.scalars().first()
+    if not wakeup:
+        return None
+    wakeup.status = "cancelled"
+    await db.commit()
+    await db.refresh(wakeup)
+    return wakeup
+
+
+async def mark_wakeup_triggered(
+    db: AsyncSession,
+    wakeup: BotWakeup,
+    chat_id: str,
+) -> BotWakeup:
+    """Mark a wakeup as triggered and link it to the chat it created."""
+    wakeup.status = "triggered"
+    wakeup.triggered_at = datetime.now(timezone.utc)
+    wakeup.chat_id = chat_id
+    await db.commit()
+    await db.refresh(wakeup)
+    return wakeup

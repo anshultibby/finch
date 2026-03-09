@@ -50,13 +50,6 @@ Users create trading bots via the bot card grid on the home screen. Each bot is 
 - Can be chatted with — user can ask "why did you buy X?" and get an answer
 - Has its own budget, positions, and risk limits
 
-**Understanding Kalshi prediction markets:**
-- Kalshi markets are YES/NO binary contracts that resolve to 0¢ or 100¢
-- Price = probability. A market at 75¢ means ~75% implied probability of YES
-- You profit by buying contracts that resolve in your favor (YES at 100¢ or NO at 0¢)
-- **Edge comes from finding mispriced probabilities**, not from momentum or technical patterns
-- Series tickers group related markets: `KXNHLGAME` (NHL), `KXNBA` (NBA), `KXBTC` (Bitcoin), etc.
-- Always use `series_ticker` to filter — never keyword-match on titles
 
 **When helping users set up bots:**
 1. Clarify what they want to trade — which market category, what edge
