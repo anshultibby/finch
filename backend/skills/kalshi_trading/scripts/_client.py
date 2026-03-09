@@ -77,8 +77,17 @@ class KalshiHTTPClient:
 
 def create_client() -> Optional[KalshiHTTPClient]:
     """Return an authenticated KalshiHTTPClient, or None if credentials are missing."""
-    api_key_id  = os.getenv("KALSHI_API_KEY_ID")
-    private_key = os.getenv("KALSHI_PRIVATE_KEY")
-    if not api_key_id or not private_key:
+    import base64
+    api_key_id = os.getenv("KALSHI_API_KEY_ID")
+    if not api_key_id:
+        return None
+    # Prefer base64-encoded key (safe through E2B env var serialization)
+    pk_b64 = os.getenv("KALSHI_PRIVATE_KEY_B64")
+    if pk_b64:
+        private_key = base64.b64decode(pk_b64).decode()
+    else:
+        # Fallback for plain key (normalize any escaped newlines)
+        private_key = os.getenv("KALSHI_PRIVATE_KEY", "").replace("\\n", "\n")
+    if not private_key:
         return None
     return KalshiHTTPClient(api_key_id, private_key)

@@ -2,16 +2,13 @@
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type ChatModeType = 
-  | 'general' 
-  | 'create_strategy' 
-  | 'execute_strategy' 
-  | 'edit_strategy' 
+export type ChatModeType =
+  | 'general'
   | 'analyze_performance';
 
 export interface ChatModeMetadata {
-  strategyId?: string;
-  strategyName?: string;
+  botId?: string;
+  botName?: string;
   tradeId?: string;
   [key: string]: any;
 }

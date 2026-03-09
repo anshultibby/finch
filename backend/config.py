@@ -90,6 +90,15 @@ class Settings(BaseSettings):
         default=None,
         description="E2B API key for sandboxed code execution"
     )
+    E2B_TEMPLATE_ID: Optional[str] = Field(
+        default=None,
+        description=(
+            "E2B sandbox template ID with pre-installed packages. "
+            "Build with: python backend/sandbox/build_template.py. "
+            "If unset, falls back to the default E2B code-interpreter template "
+            "and installs packages at runtime (slower, less reliable)."
+        )
+    )
     
     # =========================================================================
     # Supabase Storage & Auth

@@ -1,4 +1,4 @@
-import React, { useState, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
+import React, { useState, useEffect, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
 import type { ImageAttachment } from '@/lib/types';
 
 interface ChatInputProps {
@@ -7,6 +7,7 @@ interface ChatInputProps {
   disabled?: boolean;
   isStreaming?: boolean;
   placeholder?: string;
+  prefillMessage?: string;
 }
 
 export default function ChatInput({
@@ -15,9 +16,17 @@ export default function ChatInput({
   disabled = false,
   isStreaming = false,
   placeholder = 'Ask me anything...',
+  prefillMessage,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
+
+  useEffect(() => {
+    if (prefillMessage) {
+      setMessage(prefillMessage);
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+  }, [prefillMessage]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

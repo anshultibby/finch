@@ -572,105 +572,6 @@ export const creditsApi = {
   },
 };
 
-// ============================================================================
-// Strategies API
-// ============================================================================
-
-export const strategiesApi = {
-  async listStrategies(userId: string) {
-    const response = await fetch(`${API_BASE_URL}/strategies`, {
-      method: 'GET',
-      headers: {
-        'X-User-ID': userId,
-      },
-    });
-    return response.json();
-  },
-
-  async getStrategy(userId: string, strategyId: string) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
-      method: 'GET',
-      headers: {
-        'X-User-ID': userId,
-      },
-    });
-    return response.json();
-  },
-
-  async getStrategyCode(userId: string, strategyId: string) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/code`, {
-      method: 'GET',
-      headers: {
-        'X-User-ID': userId,
-      },
-    });
-    return response.json();
-  },
-
-  async updateStrategy(userId: string, strategyId: string, data: {
-    name?: string;
-    enabled?: boolean;
-    schedule?: string;
-    schedule_description?: string;
-    risk_limits?: any;
-    description?: string;
-    stats?: any;
-    config?: any;
-  }) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId,
-      },
-      body: JSON.stringify(data),
-    });
-    return response.json();
-  },
-
-  async runStrategy(userId: string, strategyId: string, dryRun: boolean = true) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/run`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId,
-      },
-      body: JSON.stringify({ dry_run: dryRun }),
-    });
-    return response.json();
-  },
-
-  async getExecutions(userId: string, strategyId: string, limit: number = 20) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/executions?limit=${limit}`, {
-      method: 'GET',
-      headers: {
-        'X-User-ID': userId,
-      },
-    });
-    return response.json();
-  },
-
-  async approveStrategy(userId: string, strategyId: string) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}/approve`, {
-      method: 'POST',
-      headers: {
-        'X-User-ID': userId,
-      },
-    });
-    return response.json();
-  },
-
-  async deleteStrategy(userId: string, strategyId: string) {
-    const response = await fetch(`${API_BASE_URL}/strategies/${strategyId}`, {
-      method: 'DELETE',
-      headers: {
-        'X-User-ID': userId,
-      },
-    });
-    return response.json();
-  },
-};
-
 export interface SkillFile {
   filename: string;
   file_type: string | null;
@@ -689,6 +590,152 @@ export interface CatalogSkill {
   files: SkillFile[];
   enabled: boolean;
 }
+
+// ============================================================================
+// Trading Bots API
+// ============================================================================
+
+export const botsApi = {
+  async listBots(userId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to list bots');
+    return response.json();
+  },
+
+  async getBot(userId: string, botId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to get bot');
+    return response.json();
+  },
+
+  async createBot(userId: string, data: { name?: string; platform?: string; icon?: string }) {
+    const response = await fetch(`${API_BASE_URL}/bots`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create bot');
+    return response.json();
+  },
+
+  async updateBot(userId: string, botId: string, data: Record<string, any>) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update bot');
+    return response.json();
+  },
+
+  async deleteBot(userId: string, botId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}`, {
+      method: 'DELETE',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to delete bot');
+    return response.json();
+  },
+
+  async approveBot(userId: string, botId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/approve`, {
+      method: 'POST',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to approve bot');
+    return response.json();
+  },
+
+  async runBot(userId: string, botId: string, dryRun: boolean = true) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+      body: JSON.stringify({ dry_run: dryRun }),
+    });
+    if (!response.ok) throw new Error('Failed to run bot');
+    return response.json();
+  },
+
+  async listExecutions(userId: string, botId: string, limit: number = 20) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/executions?limit=${limit}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  },
+
+  async listPositions(userId: string, botId: string, status?: string) {
+    const url = status
+      ? `${API_BASE_URL}/bots/${botId}/positions?status=${status}`
+      : `${API_BASE_URL}/bots/${botId}/positions`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  },
+
+  async closePosition(userId: string, botId: string, positionId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/positions/${positionId}/close`, {
+      method: 'POST',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to close position');
+    return response.json();
+  },
+
+  async listBotChats(userId: string, botId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/chats`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  },
+
+  async createBotChat(userId: string, botId: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/chats`, {
+      method: 'POST',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to create bot chat');
+    return response.json();
+  },
+
+  async getPositionMarket(userId: string, botId: string, positionId: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/bots/${botId}/positions/${positionId}/market`,
+      { method: 'GET', headers: { 'X-User-ID': userId } },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.market ?? null;
+  },
+
+  async getPositionCandlesticks(
+    userId: string,
+    botId: string,
+    positionId: string,
+    periodInterval: 1 | 60 | 1440 = 60,
+    hours: number = 168,
+  ) {
+    const response = await fetch(
+      `${API_BASE_URL}/bots/${botId}/positions/${positionId}/candlesticks?period_interval=${periodInterval}&hours=${hours}`,
+      { method: 'GET', headers: { 'X-User-ID': userId } },
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.history ?? [];
+  },
+};
 
 export const skillsApi = {
   async listCatalog(userId: string): Promise<CatalogSkill[]> {

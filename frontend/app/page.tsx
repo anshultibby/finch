@@ -1,18 +1,12 @@
 'use client';
 
 import AuthGate from '@/components/PasswordGate';
-import AppLayout from '@/components/layout/AppLayout';
-import { NavigationProvider } from '@/contexts/NavigationContext';
-import { ChatModeProvider } from '@/contexts/ChatModeContext';
+import BotGrid from '@/components/bots/BotGrid';
 
 export default function Home() {
   return (
     <AuthGate>
-      <NavigationProvider>
-        <ChatModeProvider>
-          <AppLayout />
-        </ChatModeProvider>
-      </NavigationProvider>
+      <BotGrid />
     </AuthGate>
   );
 }

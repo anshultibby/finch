@@ -32,6 +32,9 @@ interface ChatViewProps {
   onLoadingChange?: (loading: boolean) => void;
   onHistoryRefresh?: () => void;
   sidebarRef?: React.RefObject<AppSidebarRef>;
+  prefillMessage?: string;
+  // If set, this chat is scoped to a trading bot
+  botId?: string;
 }
 
 function formatErrorForUser(error: string): string {
@@ -81,6 +84,8 @@ export default function ChatView({
   onLoadingChange,
   onHistoryRefresh,
   sidebarRef,
+  prefillMessage,
+  botId,
 }: ChatViewProps) {
   const { user } = useAuth();
   const { mode } = useChatMode();
@@ -590,7 +595,7 @@ export default function ChatView({
                 </div>
               </div>
             ) : messages.length === 0 && !isLoading ? (
-              <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} />
+              <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} />
             ) : (
               <>
                 {messages.map((msg, i) => {

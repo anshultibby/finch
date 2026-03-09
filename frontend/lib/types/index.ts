@@ -402,7 +402,7 @@ export interface TestApiKeyResponse {
 }
 
 // ============================================================================
-// Strategies
+// Shared Trading Types
 // ============================================================================
 
 export interface RiskLimits {
@@ -411,29 +411,34 @@ export interface RiskLimits {
   allowed_services?: string[];
 }
 
-/** Matches backend CapitalConfig: total, per_trade, max_positions */
 export interface CapitalConfig {
+  amount_usd?: number;
   total?: number;
   per_trade?: number;
   max_positions?: number;
 }
 
-/** Full config JSONB stored on Strategy — matches backend StrategyConfig */
-export interface StrategyConfig {
-  platform?: 'kalshi' | 'alpaca';
-  description?: string;
-  thesis?: string;
-  source_chat_id?: string;
-  schedule?: string;
-  schedule_description?: string;
-  risk_limits?: RiskLimits;
-  capital?: CapitalConfig;
-  approved_at?: string;
-  paper_mode?: boolean;
+export type ExitConfigType =
+  | 'event_resolution'
+  | 'time_based'
+  | 'profit_target'
+  | 'stop_loss'
+  | 'indefinite'
+  | 'composite';
+
+export interface ExitConfig {
+  type: ExitConfigType;
+  hold_days?: number;
+  profit_target_pct?: number;
+  stop_loss_pct?: number;
+  resolve_on_event?: boolean;
 }
 
-/** Stats JSONB stored on Strategy — matches backend StrategyStats */
-export interface StrategyStats {
+// ============================================================================
+// Trading Bots
+// ============================================================================
+
+export interface BotStats {
   total_runs?: number;
   successful_runs?: number;
   failed_runs?: number;
@@ -442,48 +447,77 @@ export interface StrategyStats {
   last_run_summary?: string;
   total_spent_usd?: number;
   total_profit_usd?: number;
+  open_unrealized_pnl?: number;
 }
 
-/**
- * Strategy list item — returned by GET /strategies (StrategyResponse).
- * Flat shape: no nested config/stats.
- */
-export interface Strategy {
+/** Bot position — matches backend BotPositionResponse */
+export interface BotPosition {
+  id: string;
+  bot_id: string;
+  market: string;
+  platform: string;
+  side: string;
+  entry_price: number;
+  entry_time: string;
+  quantity: number;
+  cost_usd: number;
+  status: 'open' | 'closed';
+  exit_config: ExitConfig;
+  entered_via?: string;
+  closed_via?: string;
+  closed_at?: string;
+  exit_price?: number;
+  realized_pnl_usd?: number;
+  close_reason?: string;
+  current_price?: number;
+  unrealized_pnl_usd?: number;
+  last_priced_at?: string;
+  price_history: Array<{ t: string; price: number }>;
+  market_title?: string;
+  event_ticker?: string;
+  monitor_note?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Bot list item — returned by GET /bots */
+export interface Bot {
   id: string;
   name: string;
-  description: string;
+  icon?: string;
   platform: string;
   enabled: boolean;
   approved: boolean;
   schedule_description?: string;
   total_runs: number;
-  successful_runs: number;
   last_run_at?: string;
   last_run_status?: string;
   last_run_summary?: string;
+  open_positions_count: number;
+  total_profit_usd: number;
+  open_unrealized_pnl: number;
   created_at: string;
   updated_at: string;
 }
 
-/**
- * Strategy detail — returned by GET /strategies/{id} (StrategyDetailResponse).
- * Extends the list shape with full config, stats, capital, risk_limits, files.
- */
-export interface StrategyDetail extends Strategy {
-  thesis?: string;
-  source_chat_id?: string;
+/** Bot detail — returned by GET /bots/{id} */
+export interface BotDetail extends Bot {
+  mandate?: string;
   schedule?: string;
   risk_limits?: RiskLimits;
   capital?: CapitalConfig;
   paper_mode: boolean;
-  stats?: StrategyStats;
-  config?: StrategyConfig;
-  files?: Array<{ filename: string; content: string }>;
+  model?: string;
+  directory?: string;
+  stats?: BotStats;
+  files?: Array<{ filename: string; content: string; file_type: string }>;
+  positions?: BotPosition[];
+  closed_positions?: BotPosition[];
 }
 
-export interface StrategyExecution {
+export interface BotExecution {
   id: string;
-  strategy_id: string;
+  bot_id: string;
   status: 'running' | 'success' | 'failed';
   started_at: string;
   completed_at?: string;
@@ -501,12 +535,11 @@ export interface StrategyExecution {
   }>;
 }
 
-export interface StrategyCodeResponse {
-  strategy_id: string;
-  name: string;
-  entrypoint?: string;
-  files: Record<string, string>;
-  config?: StrategyConfig;
-  stats?: StrategyStats;
+export interface BotChat {
+  chat_id: string;
+  title?: string;
+  icon?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 

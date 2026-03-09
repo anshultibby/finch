@@ -59,7 +59,10 @@ def _parse_frontmatter(skill_md: Path) -> dict:
             elif ":" in stripped:
                 key, _, value = stripped.partition(":")
                 value = value.strip().strip('"').strip("'")
-                if value:
+                if value == "[]":
+                    result[key.strip()] = []
+                    current_list_key = None
+                elif value:
                     result[key.strip()] = value
                     current_list_key = None
                 else:
@@ -163,7 +166,7 @@ Skills are at `/home/user/skills/<name>/` in the sandbox.
 Read any skill's docs on demand: `bash('cat /home/user/skills/<skill_name>/SKILL.md')`
 
 Skills include: `polygon_io`, `financial_modeling_prep`, `tradingview`,
-`kalshi_trading`, `snaptrade`, `reddit`, `strategies`
+`kalshi_trading`, `snaptrade`, `reddit`
 """
 
 

@@ -42,9 +42,8 @@ _HOST_SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "skills"
 class _SandboxEntry:
     """Holds a live (running) sandbox and tracks state."""
 
-    def __init__(self, sbx, file_hashes: Dict[str, str], skills_loaded: bool, envs: Dict[str, str], skills_hash: str = ""):
+    def __init__(self, sbx, skills_loaded: bool, envs: Dict[str, str], skills_hash: str = ""):
         self.sbx = sbx
-        self.file_hashes: Dict[str, str] = file_hashes
         self.skills_loaded: bool = skills_loaded
         self.skills_hash: str = skills_hash
         self.envs: Dict[str, str] = envs
@@ -120,16 +119,16 @@ async def _delete_user_sandbox_record(user_id: str) -> None:
 
 async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxEntry:
     """
-    Return the live sandbox for this user, creating or reconnecting as needed.
+    Return a fully-ready sandbox for this user — connected, skills uploaded,
+    packages installed.
 
     Resolution order:
-    1. In-process cache hit → renew timeout and return.
-    2. DB record exists → try AsyncSandbox.connect(sandbox_id).
-       - If sandbox is paused, E2B resumes it automatically.
-       - If sandbox is dead, fall through to creation.
-    3. No record → create new sandbox with auto_pause=True.
+    1. In-process cache hit → renew timeout, refresh envs, check hash.
+    2. DB record exists → reconnect via AsyncSandbox.connect(); check hash.
+    3. No record / dead sandbox → create new sandbox, upload everything.
 
-    Skills are uploaded only when skills_loaded is False on the record.
+    The skills hash covers skill files and (when no template is set) the pip
+    package list. Any change triggers a full re-upload automatically.
     """
     from e2b_code_interpreter import AsyncSandbox
     from config import Config
@@ -140,56 +139,69 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
         if entry is not None:
             try:
                 await entry.sbx.set_timeout(SANDBOX_IDLE_TIMEOUT)
-                # Refresh envs (API keys may have changed between requests)
                 entry.envs = envs
                 logger.info(f"Reusing in-process sandbox {entry.sbx.sandbox_id} for user {user_id}")
-                return entry
             except Exception as e:
                 logger.warning(f"In-process sandbox for user {user_id} is dead ({e}), reconnecting")
                 _sandboxes.pop(user_id, None)
+                entry = None
 
         # --- 2. Try reconnecting from DB ---
-        record = await _get_user_sandbox_record(user_id)
-        if record:
-            try:
-                sbx = await AsyncSandbox.connect(
-                    record.sandbox_id,
-                    api_key=Config.E2B_API_KEY,
-                    timeout=SANDBOX_IDLE_TIMEOUT,
-                )
-                # Env vars don't survive pause/resume — stored on entry and
-                # injected per-run via commands.run(envs=...) instead.
-                entry = _SandboxEntry(
-                    sbx=sbx,
-                    file_hashes={},
-                    skills_loaded=record.skills_loaded,
-                    skills_hash=record.skills_hash or "",
-                    envs=envs,
-                )
-                _sandboxes[user_id] = entry
-                logger.info(
-                    f"Reconnected to sandbox {sbx.sandbox_id} for user {user_id} "
-                    f"(skills_loaded={record.skills_loaded}, hash={record.skills_hash})"
-                )
-                return entry
-            except Exception as e:
-                logger.warning(
-                    f"Failed to reconnect to sandbox {record.sandbox_id} for user {user_id} ({e}), "
-                    "creating new sandbox"
-                )
-                await _delete_user_sandbox_record(user_id)
+        if entry is None:
+            record = await _get_user_sandbox_record(user_id)
+            if record:
+                try:
+                    sbx = await AsyncSandbox.connect(
+                        record.sandbox_id,
+                        api_key=Config.E2B_API_KEY,
+                        timeout=SANDBOX_IDLE_TIMEOUT,
+                    )
+                    entry = _SandboxEntry(
+                        sbx=sbx,
+                        skills_loaded=record.skills_loaded,
+                        skills_hash=record.skills_hash or "",
+                        envs=envs,
+                    )
+                    _sandboxes[user_id] = entry
+                    logger.info(
+                        f"Reconnected to sandbox {sbx.sandbox_id} for user {user_id} "
+                        f"(skills_loaded={record.skills_loaded}, hash={record.skills_hash})"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to reconnect to sandbox {record.sandbox_id} for user {user_id} ({e}), "
+                        "creating new sandbox"
+                    )
+                    await _delete_user_sandbox_record(user_id)
 
         # --- 3. Create new sandbox ---
-        sbx = await AsyncSandbox.beta_create(
-            api_key=Config.E2B_API_KEY,
-            timeout=SANDBOX_IDLE_TIMEOUT,
-            auto_pause=True,
-            envs=envs,
-        )
-        entry = _SandboxEntry(sbx=sbx, file_hashes={}, skills_loaded=False, envs=envs)
-        _sandboxes[user_id] = entry
-        await _upsert_user_sandbox(user_id, sbx.sandbox_id, skills_loaded=False)
-        logger.info(f"Created new persistent sandbox {sbx.sandbox_id} for user {user_id}")
+        if entry is None:
+            sbx = await AsyncSandbox.beta_create(
+                **({"template": Config.E2B_TEMPLATE_ID} if Config.E2B_TEMPLATE_ID else {}),
+                api_key=Config.E2B_API_KEY,
+                timeout=SANDBOX_IDLE_TIMEOUT,
+                auto_pause=True,
+                envs=envs,
+            )
+            entry = _SandboxEntry(sbx=sbx, skills_loaded=False, envs=envs)
+            _sandboxes[user_id] = entry
+            await _upsert_user_sandbox(user_id, sbx.sandbox_id, skills_loaded=False)
+            logger.info(f"Created new persistent sandbox {sbx.sandbox_id} for user {user_id}")
+
+        # --- 4. Upload skills + runner files if hash has changed ---
+        current_hash = _compute_skills_hash_from_fs()
+        if not entry.skills_loaded or entry.skills_hash != current_hash:
+            logger.info(f"Uploading skills to sandbox {entry.sbx.sandbox_id} (hash changed or first load)")
+            new_hash, _, _ = await asyncio.gather(
+                _upload_skills(entry.sbx),
+                _upload_api_docs(entry.sbx),
+                _upload_finch_runtime(entry.sbx),
+            )
+            await _install_skill_packages(entry.sbx)
+            entry.skills_loaded = True
+            entry.skills_hash = new_hash
+            await _upsert_user_sandbox(user_id, entry.sbx.sandbox_id, skills_loaded=True, skills_hash=new_hash)
+
         return entry
 
 
@@ -215,7 +227,7 @@ async def _get_or_reconnect_sandbox(user_id: str):
             api_key=Config.E2B_API_KEY,
             timeout=SANDBOX_IDLE_TIMEOUT,
         )
-        entry = _SandboxEntry(sbx=sbx, file_hashes={}, skills_loaded=record.skills_loaded,
+        entry = _SandboxEntry(sbx=sbx, skills_loaded=record.skills_loaded,
                               skills_hash=record.skills_hash or "", envs={})
         _sandboxes[user_id] = entry
         logger.info(f"Reconnected sandbox {sbx.sandbox_id} for file access (user {user_id})")
@@ -286,17 +298,34 @@ async def kill_sandbox(chat_id: str) -> None:
 
 def _compute_skills_hash_from_fs() -> str:
     """
-    MD5 over every file in the host skills directory.
-    Used to detect when skill files on disk have changed so the sandbox
-    volume can be refreshed without a hard reset.
+    MD5 over all files that get uploaded to the sandbox:
+    - backend/skills/** (skill code + SKILL.md files)
+
+    When no E2B template is configured, also includes the sorted package list
+    so that adding/removing a `requires.bins` entry triggers a re-install.
+
+    When a template is configured, packages are baked into the image and
+    excluded from the hash.
+
+    Any change to any of these files invalidates the hash and triggers a full
+    re-upload on the next sandbox run.
     """
+    from config import Config
+
     h = hashlib.md5()
-    if not _HOST_SKILLS_DIR.exists():
-        return ""
-    for path in sorted(_HOST_SKILLS_DIR.rglob("*")):
-        if path.is_file() and "__pycache__" not in path.parts:
-            h.update(str(path.relative_to(_HOST_SKILLS_DIR)).encode())
-            h.update(path.read_bytes())
+
+    # Skills files
+    if _HOST_SKILLS_DIR.exists():
+        for path in sorted(_HOST_SKILLS_DIR.rglob("*")):
+            if path.is_file() and "__pycache__" not in path.parts:
+                h.update(str(path.relative_to(_HOST_SKILLS_DIR)).encode())
+                h.update(path.read_bytes())
+
+    if not Config.E2B_TEMPLATE_ID:
+        from modules.tools.skills_registry import get_all_skill_packages
+        packages = sorted(get_all_skill_packages())
+        h.update(("\n".join(packages)).encode())
+
     return h.hexdigest()
 
 
@@ -334,12 +363,12 @@ async def _upload_skills(sbx) -> str:
                 except Exception as e:
                     logger.warning(f"Could not read skill file {file_path}: {e}")
 
-        # Upload all files concurrently in batches to avoid overwhelming E2B
-        BATCH_SIZE = 20
+        # Upload files sequentially in small batches to avoid E2B read timeouts
+        BATCH_SIZE = 5
         for i in range(0, len(upload_tasks), BATCH_SIZE):
             batch = upload_tasks[i:i + BATCH_SIZE]
             await asyncio.gather(*[
-                sbx.files.write(path, content)
+                sbx.files.write(path, content, request_timeout=60)
                 for path, content in batch
             ])
 
@@ -353,27 +382,37 @@ async def _upload_skills(sbx) -> str:
 async def _install_skill_packages(sbx) -> None:
     """
     Pre-install pip packages declared in skills' SKILL.md `requires.bins` lists.
-    Runs once when skills are first loaded onto the sandbox.
+
+    Skipped when E2B_TEMPLATE_ID is configured — in that case packages are
+    baked into the template image and are always present from the start.
+
+    When no template is set (local dev / fallback), installs at runtime and
+    raises RuntimeError on failure so the caller never marks skills_loaded=True
+    with missing packages.
     """
+    from config import Config
     from modules.tools.skills_registry import get_all_skill_packages
+
+    if Config.E2B_TEMPLATE_ID:
+        logger.debug("Skipping pip install — packages are baked into the E2B template")
+        return
 
     packages = get_all_skill_packages()
     if not packages:
         return
 
-    pkg_str = " ".join(packages)
-    logger.info(f"Installing skill packages: {pkg_str}")
-    try:
-        result = await sbx.commands.run(
-            f"pip install -q {pkg_str}",
-            timeout=120,
+    pkg_str = " ".join(sorted(packages))
+    logger.info(f"Installing skill packages (no template set): {pkg_str}")
+    result = await sbx.commands.run(
+        f"pip install -q {pkg_str}",
+        timeout=120,
+    )
+    if result.exit_code != 0:
+        error_detail = (result.stderr or result.stdout or "(no output)").strip()
+        raise RuntimeError(
+            f"pip install failed (exit {result.exit_code}) for packages [{pkg_str}]:\n{error_detail}"
         )
-        if result.exit_code != 0:
-            logger.warning(f"pip install exited with code {result.exit_code}")
-        else:
-            logger.info(f"Installed skill packages: {pkg_str}")
-    except Exception as e:
-        logger.warning(f"Failed to install skill packages: {e}")
+    logger.info(f"Installed skill packages: {pkg_str}")
 
 
 async def _upload_api_docs(sbx) -> None:
@@ -503,8 +542,12 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
         # Currently only Kalshi; add new user-key services here as needed.
         kalshi = await svc.get_kalshi_credentials()
         if kalshi:
-            env["KALSHI_API_KEY_ID"]  = kalshi["api_key_id"].get()
-            env["KALSHI_PRIVATE_KEY"] = kalshi["private_key"].get()
+            import base64
+            env["KALSHI_API_KEY_ID"] = kalshi["api_key_id"].get()
+            # Base64-encode the PEM key so multiline content survives E2B env var serialization.
+            # The sandbox client decodes it back before use.
+            private_key = kalshi["private_key"].get().replace("\\n", "\n")
+            env["KALSHI_PRIVATE_KEY_B64"] = base64.b64encode(private_key.encode()).decode()
 
     return env
 
@@ -546,27 +589,6 @@ async def bash_impl(
 
         entry = await get_or_create_sandbox(context.user_id, envs)
         sbx = entry.sbx
-
-        # Compute current skills hash from disk to detect changes
-        current_skills_hash = _compute_skills_hash_from_fs()
-
-        needs_upload = not entry.skills_loaded or entry.skills_hash != current_skills_hash
-
-        if needs_upload:
-            yield SSEEvent(event="tool_status", data={
-                "status": "loading",
-                "message": "Loading skills onto sandbox..."
-            })
-            new_hash, _, _ = await asyncio.gather(
-                _upload_skills(sbx),
-                _upload_api_docs(sbx),
-                _upload_finch_runtime(sbx),
-            )
-            # Install skill package dependencies after files are uploaded
-            await _install_skill_packages(sbx)
-            entry.skills_loaded = True
-            entry.skills_hash = new_hash
-            await _upsert_user_sandbox(context.user_id, sbx.sandbox_id, skills_loaded=True, skills_hash=new_hash)
 
         yield SSEEvent(event="tool_status", data={
             "status": "executing",

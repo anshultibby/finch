@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, KeyboardEvent, useRef } from 'react';
+import React, { useState, KeyboardEvent, useRef, useEffect } from 'react';
 
 interface ActionPill {
   icon: string;
@@ -18,11 +18,19 @@ const ACTION_PILLS: ActionPill[] = [
 interface NewChatWelcomeProps {
   onSendMessage: (message: string, images?: any[], skills?: string[]) => void;
   disabled?: boolean;
+  prefillMessage?: string;
 }
 
-export default function NewChatWelcome({ onSendMessage, disabled = false }: NewChatWelcomeProps) {
+export default function NewChatWelcome({ onSendMessage, disabled = false, prefillMessage }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (prefillMessage) {
+      setMessage(prefillMessage);
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+  }, [prefillMessage]);
 
   const handleSubmit = () => {
     if (message.trim() && !disabled) {

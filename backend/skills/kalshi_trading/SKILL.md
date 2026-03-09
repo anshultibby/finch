@@ -22,11 +22,42 @@ Prices are in **CENTS** (0–100). Quantities are **integer contracts**.
 
 ## Import
 
+**In strategy files (`strategy.py`)** — import from `finch`, not directly from this skill:
+
 ```python
-from skills.kalshi_trading.scripts.kalshi import (
+# ✅ In strategy.py — read-only API, return actions instead of placing orders
+from finch import kalshi, positions, log, state
+
+def run():
+    actions = []
+    # Read market data
+    markets = kalshi.get_markets(status="open", series_ticker="KXNHLGAME")
+    for m in markets["markets"]:
+        if m["yes_ask"] < 40:
+            actions.append({"action": "buy", "market": m["ticker"], "side": "yes", "amount_usd": 5})
+            break
+
+    # Check open positions
+    for pos in positions.open():
+        mkt = kalshi.get_market(pos["market"])
+        bid = mkt.get("yes_bid", 0)
+        if bid >= 90:
+            actions.append({"action": "sell", "position_id": pos["id"], "reason": "profit_target"})
+    return actions
+```
+
+**In chat / bash / code execution** — direct import (full read+write access):
+
+```python
+from kalshi_trading.scripts.kalshi import (
     get_portfolio, get_balance, get_positions,
     get_events, get_markets, get_market, get_orderbook,
     place_order, get_orders, cancel_order,
+    # Historical (data older than ~3 months)
+    get_historical_cutoff,
+    get_historical_markets, get_historical_market,
+    get_historical_candlesticks,
+    get_historical_fills, get_historical_orders,
 )
 ```
 
@@ -135,6 +166,55 @@ Event:  KXNHLGAME-[YYMMMDD][AWAY][HOME]        e.g. KXNHLGAME-26FEB28PITNYR
 Market: KXNHLGAME-[YYMMMDD][AWAY][HOME]-[TEAM]  e.g. KXNHLGAME-26FEB28PITNYR-PIT
 ```
 Each game has two markets (one per team). The URL on kalshi.com uses the event ticker; add the team suffix to get a tradeable market ticker.
+
+## Historical Data
+
+Kalshi partitions data older than ~3 months into historical endpoints. Use `get_historical_cutoff()` to find the boundary.
+
+```python
+from kalshi_trading.scripts.kalshi import (
+    get_historical_cutoff,
+    get_historical_markets, get_historical_market,
+    get_historical_candlesticks,
+    get_historical_fills, get_historical_orders,
+)
+
+# Step 1: check the cutoff dates
+cutoff = get_historical_cutoff()
+# cutoff["market_settled_ts"] — markets settled before this → use historical endpoints
+# cutoff["trades_created_ts"] — fills before this → use historical endpoints
+# cutoff["orders_updated_ts"] — orders before this → use historical endpoints
+
+# Settled markets older than the cutoff
+old_markets = get_historical_markets(limit=100, series_ticker="KXNBA")
+for m in old_markets["markets"]:
+    print(f"{m['ticker']}: settled {m['close_time']}, value={m['settlement_value']}")
+# Paginate with cursor
+next_page = get_historical_markets(cursor=old_markets["cursor"])
+
+# Single historical market
+m = get_historical_market("KXNBA-26FEB15-LAL")
+
+# OHLC candlestick data for a historical market
+import time
+candles = get_historical_candlesticks(
+    "KXNBA-26FEB15-LAL",
+    start_ts=int(time.time()) - 86400 * 30,  # 30 days ago
+    period_interval=60,  # 1-hour candles
+)
+for c in candles["candles"]:
+    print(f"  {c['ts']}: O={c['open']} H={c['high']} L={c['low']} C={c['close']}")
+
+# Historical fills (trades you made, older than cutoff)
+old_fills = get_historical_fills(ticker="KXNBA-26FEB15-LAL", limit=50)
+for f in old_fills["fills"]:
+    print(f"{f['trade_id']}: {f['action']} {f['count']}x {f['ticker']} @ {f['yes_price']}¢")
+
+# Historical orders (older than cutoff — resting orders always in get_orders())
+old_orders = get_historical_orders(limit=100)
+```
+
+> **Migration note (after March 6, 2026):** The standard live endpoints (`get_markets`, `get_orders`, `get_fills` via portfolio) no longer return data older than the cutoff. Always check `get_historical_cutoff()` and route to the historical endpoints accordingly.
 
 ## Risk Guidelines
 

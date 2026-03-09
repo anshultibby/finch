@@ -69,6 +69,9 @@ class Chat(Base):
     # Chat metadata
     title = Column(String, nullable=True)  # Auto-generated or user-set title
     icon = Column(String(10), nullable=True)  # Emoji icon for the chat (LLM-generated)
+
+    # Bot scope (nullable — NULL means general chat, non-NULL scopes chat to a bot)
+    bot_id = Column(String, nullable=True, index=True)
     
     # Processing state for stream reconnection
     is_processing = Column(Boolean, default=False, nullable=False, index=True)
@@ -408,159 +411,135 @@ class ChatFile(Base):
         return f"<ChatFile(id='{self.id}', chat='{self.chat_id}', filename='{self.filename}')>"
 
 
-class StrategyFile(Base):
+class BotFile(Base):
     """
-    Code files owned by a strategy.
-
-    Replaces the old pattern of referencing ChatFile IDs in Strategy.config.
-    Each strategy directly owns its files here; deleting a strategy cascades
-    to its files via the FK constraint.
+    Files owned by a trading bot: context, memory, notes, or code.
     """
-    __tablename__ = "strategy_files"
+    __tablename__ = "bot_files"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    strategy_id = Column(String, nullable=False, index=True)
+    bot_id = Column(String, nullable=False, index=True)
     filename = Column(String, nullable=False)
     content = Column(Text, nullable=False)
+    file_type = Column(String, nullable=False, default="code")  # "context" | "memory" | "note" | "code"
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     def __repr__(self):
-        return f"<StrategyFile(id='{self.id}', strategy='{self.strategy_id}', filename='{self.filename}')>"
+        return f"<BotFile(id='{self.id}', bot='{self.bot_id}', filename='{self.filename}', type='{self.file_type}')>"
 
 
-class Strategy(Base):
+class TradingBot(Base):
     """
-    Automated trading strategies owned by users.
+    LLM-driven trading bot owned by a user.
 
-    Strategies are first-class objects independent of any chat session:
-    - Code lives in StrategyFile rows (FK strategy_id), not ChatFile references.
-    - Executed via the user's persistent E2B sandbox on a schedule.
-    - Require approval before live trading.
-
-    Uses JSONB for config flexibility; only essential query fields are columns.
+    Each bot has its own chat threads, budget, positions, and context directory.
+    The bot uses full LLM reasoning on each tick with access to trading tools,
+    web search, and code execution.
 
     config JSONB structure:
     {
         "platform": "kalshi" | "alpaca",
-        "description": "Plain language description",
-        "thesis": "Why this will make money",
-        "source_chat_id": "chat_abc123",   # optional, UI linkback only
-        "schedule": "*/5 * * * *",
-        "schedule_description": "Every 5 minutes",
-        "capital": {
-            "total": 500,
-            "per_trade": 50,
-            "max_positions": 5
-        },
-        "risk_limits": {
-            "max_order_usd": 100,
-            "max_daily_usd": 300,
-            "allowed_services": ["kalshi"]
-        },
-        "approved_at": "2025-01-08T..."
+        "mandate": "Find underpriced NBA markets. Buy below 30c.",
+        "schedule": "0 */2 * * *",
+        "capital": { "amount_usd": 5, "max_positions": 3 },
+        "risk_limits": { "max_order_usd": 10, "max_daily_usd": 50 },
+        "state": {},
+        "model": "claude-sonnet-4-20250514"
     }
-    
+
     stats JSONB structure:
     {
-        "mode": "paper" | "live",  # Current execution mode
         "total_runs": 42,
         "successful_runs": 40,
         "failed_runs": 2,
         "last_run_at": "2025-01-08T...",
         "last_run_status": "success",
         "last_run_summary": "Bought 2 contracts for $35",
-        
-        # Track record
-        "total_trades": 25,
-        "winning_trades": 18,
-        "losing_trades": 7,
-        "win_rate": 0.72,
-        "total_pnl": 320.00,
-        "total_volume": 1250.00,
-        "avg_trade_pnl": 12.80,
-        "sharpe_ratio": 1.5,
-        "max_drawdown": -45.00,
-        
-        # Paper trading period
-        "paper_start_date": "2025-01-01T...",
-        "paper_end_date": "2025-01-15T...",
-        "paper_trades": 15,
-        "paper_pnl": 125.00,
-        
-        # Live trading
-        "live_start_date": "2025-01-15T...",
-        "live_trades": 10,
-        "live_pnl": 195.00
+        "total_profit_usd": 320.00,
+        "total_spent_usd": 1250.00,
+        "open_unrealized_pnl": 45.00
     }
     """
-    __tablename__ = "strategies"
-    
-    # Primary key
+    __tablename__ = "trading_bots"
+
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    
-    # Owner (indexed for user queries)
     user_id = Column(String, nullable=False, index=True)
-    
-    # Core identity (indexed)
+
     name = Column(String, nullable=False)
+    icon = Column(String(10), nullable=True)  # Emoji for card display
+    directory = Column(String, nullable=True)  # VM path, e.g. "bots/nba-bot"
     enabled = Column(Boolean, nullable=False, default=False, index=True)
     approved = Column(Boolean, nullable=False, default=False)
-    
-    # Flexible JSONB columns
-    config = Column(JSONB, nullable=False, default=dict)  # Configuration, file refs, risk limits
-    stats = Column(JSONB, nullable=False, default=dict)  # Execution stats, P&L tracking
-    
-    # Timestamps
+
+    config = Column(JSONB, nullable=False, default=dict)
+    stats = Column(JSONB, nullable=False, default=dict)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
+
     def __repr__(self):
-        return f"<Strategy(id='{self.id}', name='{self.name}', enabled={self.enabled})>"
+        return f"<TradingBot(id='{self.id}', name='{self.name}', enabled={self.enabled})>"
 
 
-class StrategyExecution(Base):
-    """
-    Audit log of strategy executions
-    
-    Every time a strategy runs (scheduled, manual, or dry run), we log it.
-    Uses JSONB for all execution details.
-    
-    data JSONB structure:
-    {
-        "trigger": "scheduled" | "manual" | "dry_run",
-        "completed_at": "2025-01-08T...",
-        "result": { ... return value from strategy ... },
-        "error": "Error message if failed",
-        "logs": ["log line 1", "log line 2"],
-        "summary": "Checked 5 markets, bought 2 for $45",
-        "actions": [
-            {"type": "kalshi_order", "ticker": "FED-25JAN", "side": "yes", "amount_usd": 25},
-            {"type": "kalshi_order", "ticker": "FED-25MAR", "side": "yes", "amount_usd": 20}
-        ],
-        "duration_ms": 1234,
-        "markets_checked": 5,
-        ... any other execution metadata
-    }
-    """
-    __tablename__ = "strategy_executions"
-    
-    # Primary key
+class BotExecution(Base):
+    """Audit log of bot tick executions."""
+    __tablename__ = "bot_executions"
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    
-    # Foreign keys (indexed)
-    strategy_id = Column(String, nullable=False, index=True)
+    bot_id = Column(String, nullable=False, index=True)
     user_id = Column(String, nullable=False, index=True)
-    
-    # Indexed for queries
     status = Column(String, nullable=False)  # 'running', 'success', 'failed'
     started_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    
-    # Everything else in JSONB
     data = Column(JSONB, nullable=False, default=dict)
-    
+
     def __repr__(self):
-        return f"<StrategyExecution(id='{self.id}', strategy='{self.strategy_id}', status='{self.status}')>"
+        return f"<BotExecution(id='{self.id}', bot='{self.bot_id}', status='{self.status}')>"
+
+
+class BotPosition(Base):
+    """An open or closed position held by a trading bot."""
+    __tablename__ = "bot_positions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bot_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+
+    market = Column(String, nullable=False)
+    platform = Column(String, nullable=False)
+    side = Column(String, nullable=False)
+
+    market_title = Column(String, nullable=True)
+    event_ticker = Column(String, nullable=True)
+
+    entry_price = Column(Float, nullable=False)
+    entry_time = Column(DateTime(timezone=True), nullable=False)
+    quantity = Column(Float, nullable=False)
+    cost_usd = Column(Float, nullable=False)
+
+    status = Column(String, nullable=False, default="open", index=True)
+    exit_config = Column(JSONB, nullable=False, default=dict)
+
+    entered_via = Column(UUID(as_uuid=True), nullable=True)
+    closed_via = Column(UUID(as_uuid=True), nullable=True)
+
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    exit_price = Column(Float, nullable=True)
+    realized_pnl_usd = Column(Float, nullable=True)
+    close_reason = Column(String, nullable=True)
+
+    current_price = Column(Float, nullable=True)
+    unrealized_pnl_usd = Column(Float, nullable=True)
+    last_priced_at = Column(DateTime(timezone=True), nullable=True)
+
+    price_history = Column(JSONB, nullable=False, default=list)
+    monitor_note = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<BotPosition(id='{self.id}', bot='{self.bot_id}', market='{self.market}', status='{self.status}')>"
 
 
 class CreditTransaction(Base):

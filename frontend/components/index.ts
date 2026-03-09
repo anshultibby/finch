@@ -12,7 +12,6 @@ export { default as FileTree } from './FileTree';
 // Other components
 export { default as ComputerPanel } from './ComputerPanel';
 export { default as ResourceViewer } from './ResourceViewer';
-export { default as AccountManagementModal } from './AccountManagementModal';
 export { default as ProfileDropdown } from './ProfileDropdown';
 export { default as PasswordGate } from './PasswordGate';
 export { default as ApiKeysModal } from './ApiKeysModal';

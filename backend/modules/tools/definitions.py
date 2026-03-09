@@ -19,15 +19,6 @@ from modules.tools.descriptions import (
     BUILD_CUSTOM_ETF_DESC,
     # Web Search
     WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC,
-    # Strategies
-    DEPLOY_STRATEGY_DESC,
-    LIST_STRATEGIES_DESC,
-    GET_STRATEGY_DESC,
-    UPDATE_STRATEGY_DESC,
-    APPROVE_STRATEGY_DESC,
-    RUN_STRATEGY_DESC,
-    DELETE_STRATEGY_DESC,
-    GET_STRATEGY_CODE_DESC,
     # Memory
     MEMORY_SEARCH_DESC,
     MEMORY_GET_DESC,
@@ -37,7 +28,6 @@ from modules.tools.descriptions import (
 # Import implementations
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
-from modules.tools.implementations import strategies as strategies_impl
 from modules.tools.implementations import memory as memory_impl
 
 
@@ -196,102 +186,6 @@ def scrape_url(
 
 
 # ============================================================================
-# STRATEGY TOOLS
-# ============================================================================
-
-@tool(
-    name="deploy_strategy",
-    description=DEPLOY_STRATEGY_DESC,
-    category="strategy"
-)
-async def deploy_strategy(
-    *,
-    params: strategies_impl.DeployStrategyParams,
-    context: AgentContext
-):
-    """Deploy chat files as an automated trading strategy"""
-    return await strategies_impl.deploy_strategy_impl(params, context)
-
-
-@tool(
-    name="list_strategies",
-    description=LIST_STRATEGIES_DESC,
-    category="strategy"
-)
-async def list_strategies(*, context: AgentContext):
-    """List all strategies for the current user"""
-    return await strategies_impl.list_strategies_impl(context)
-
-
-@tool(
-    name="get_strategy",
-    description=GET_STRATEGY_DESC,
-    category="strategy"
-)
-async def get_strategy(*, strategy_id: str, context: AgentContext):
-    """Get detailed info about a specific strategy"""
-    return await strategies_impl.get_strategy_impl(strategy_id, context)
-
-
-@tool(
-    name="update_strategy",
-    description=UPDATE_STRATEGY_DESC,
-    category="strategy"
-)
-async def update_strategy(
-    *,
-    params: strategies_impl.UpdateStrategyParams,
-    context: AgentContext
-):
-    """Update a strategy's settings"""
-    return await strategies_impl.update_strategy_impl(params, context)
-
-
-@tool(
-    name="approve_strategy",
-    description=APPROVE_STRATEGY_DESC,
-    category="strategy"
-)
-async def approve_strategy(*, strategy_id: str, context: AgentContext):
-    """Approve a strategy for live execution"""
-    return await strategies_impl.approve_strategy_impl(strategy_id, context)
-
-
-@tool(
-    name="run_strategy",
-    description=RUN_STRATEGY_DESC,
-    category="strategy"
-)
-async def run_strategy(
-    *,
-    params: strategies_impl.RunStrategyParams,
-    context: AgentContext
-):
-    """Manually run a strategy (dry run by default)"""
-    return await strategies_impl.run_strategy_impl(params, context)
-
-
-@tool(
-    name="delete_strategy",
-    description=DELETE_STRATEGY_DESC,
-    category="strategy"
-)
-async def delete_strategy(*, strategy_id: str, context: AgentContext):
-    """Delete a strategy"""
-    return await strategies_impl.delete_strategy_impl(strategy_id, context)
-
-
-@tool(
-    name="get_strategy_code",
-    description=GET_STRATEGY_CODE_DESC,
-    category="strategy",
-)
-async def get_strategy_code(*, strategy_id: str, context: AgentContext):
-    """Get the full code files for a strategy"""
-    return await strategies_impl.get_strategy_code_impl(strategy_id, context)
-
-
-# ============================================================================
 # MEMORY TOOLS
 # ============================================================================
 
@@ -362,15 +256,6 @@ __all__ = [
     'build_custom_etf',
     # Web Search
     'web_search_tool', 'news_search', 'scrape_url',
-    # Strategies
-    'deploy_strategy',
-    'list_strategies',
-    'get_strategy',
-    'update_strategy',
-    'approve_strategy',
-    'run_strategy',
-    'delete_strategy',
-    'get_strategy_code',
     # Memory
     'memory_search',
     'memory_get',

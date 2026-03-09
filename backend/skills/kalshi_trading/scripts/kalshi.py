@@ -330,3 +330,219 @@ def cancel_order(order_id: str) -> dict:
         "order_id": o.get("order_id", order_id),
         "status":   "canceled",
     }
+
+
+# ---------------------------------------------------------------------------
+# Historical Data
+# ---------------------------------------------------------------------------
+# Markets, fills, and orders older than the cutoff timestamps are only
+# available via these /historical endpoints. Call get_historical_cutoff()
+# first to know which date range requires historical queries.
+
+def get_historical_cutoff() -> dict:
+    """
+    Get the current cutoff timestamps that partition live vs historical data.
+
+    Returns:
+        {
+          market_settled_ts:  ISO timestamp — markets settled before this need /historical/markets
+          trades_created_ts:  ISO timestamp — fills before this need /historical/fills
+          orders_updated_ts:  ISO timestamp — orders before this need /historical/orders
+        }
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    r = c.get("/historical/cutoff")
+    return {
+        "market_settled_ts": r.get("market_settled_ts"),
+        "trades_created_ts": r.get("trades_created_ts"),
+        "orders_updated_ts": r.get("orders_updated_ts"),
+    }
+
+
+def get_historical_markets(
+    limit: int = 100,
+    series_ticker: str = None,
+    cursor: str = None,
+) -> dict:
+    """
+    Get settled markets older than the market_settled_ts cutoff.
+
+    Args:
+        limit:         Max markets per page (default 100)
+        series_ticker: Optional series filter (e.g. "KXNBA")
+        cursor:        Pagination cursor from a previous response
+
+    Returns: {markets: list, cursor: str | None}
+    Each market: {ticker, event_ticker, title, status, close_time, settlement_value}
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    params: dict = {"limit": limit}
+    if series_ticker:
+        params["series_ticker"] = series_ticker
+    if cursor:
+        params["cursor"] = cursor
+    r = c.get("/historical/markets", params=params)
+    markets = [
+        {
+            "ticker":            m.get("ticker"),
+            "event_ticker":      m.get("event_ticker"),
+            "title":             m.get("title", ""),
+            "status":            m.get("status"),
+            "close_time":        m.get("close_time"),
+            "settlement_value":  m.get("settlement_value"),
+        }
+        for m in (r.get("markets") or [])
+    ]
+    return {"markets": markets, "cursor": r.get("cursor")}
+
+
+def get_historical_market(ticker: str) -> dict:
+    """
+    Get a single historical (settled) market by ticker.
+
+    Returns: {ticker, event_ticker, title, status, close_time, settlement_value, ...}
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    r = c.get(f"/historical/markets/{ticker}")
+    m = r.get("market", {})
+    return {
+        "ticker":           m.get("ticker"),
+        "event_ticker":     m.get("event_ticker"),
+        "title":            m.get("title", ""),
+        "status":           m.get("status"),
+        "close_time":       m.get("close_time"),
+        "settlement_value": m.get("settlement_value"),
+    }
+
+
+def get_historical_candlesticks(
+    ticker: str,
+    start_ts: int = None,
+    end_ts: int = None,
+    period_interval: int = 60,
+) -> dict:
+    """
+    Get OHLC candlestick data for a historical (settled) market.
+
+    Args:
+        ticker:          Market ticker
+        start_ts:        Unix timestamp (seconds) for range start
+        end_ts:          Unix timestamp (seconds) for range end
+        period_interval: Candle size in minutes (default 60)
+
+    Returns: {ticker, candles: [{ts, open, high, low, close, volume}, ...]}
+    Prices in CENTS.
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    params: dict = {"period_interval": period_interval}
+    if start_ts:
+        params["start_ts"] = start_ts
+    if end_ts:
+        params["end_ts"] = end_ts
+    r = c.get(f"/historical/markets/{ticker}/candlesticks", params=params)
+    candles = [
+        {
+            "ts":     cs.get("end_period_ts"),
+            "open":   cs.get("open"),
+            "high":   cs.get("high"),
+            "low":    cs.get("low"),
+            "close":  cs.get("close"),
+            "volume": cs.get("volume"),
+        }
+        for cs in (r.get("candlesticks") or [])
+    ]
+    return {"ticker": ticker, "candles": candles}
+
+
+def get_historical_fills(
+    ticker: str = None,
+    limit: int = 100,
+    cursor: str = None,
+) -> dict:
+    """
+    Get your trade fills older than the trades_created_ts cutoff.
+
+    Args:
+        ticker: Optional market ticker filter
+        limit:  Max fills per page (default 100)
+        cursor: Pagination cursor from a previous response
+
+    Returns: {fills: list, cursor: str | None}
+    Each fill: {trade_id, ticker, side, action, count, yes_price, no_price, created_time}
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    params: dict = {"limit": limit}
+    if ticker:
+        params["ticker"] = ticker
+    if cursor:
+        params["cursor"] = cursor
+    r = c.get("/historical/fills", params=params)
+    fills = [
+        {
+            "trade_id":     f.get("trade_id"),
+            "ticker":       f.get("ticker"),
+            "side":         f.get("side"),
+            "action":       f.get("action"),
+            "count":        f.get("count"),
+            "yes_price":    f.get("yes_price"),
+            "no_price":     f.get("no_price"),
+            "created_time": f.get("created_time"),
+        }
+        for f in (r.get("fills") or [])
+    ]
+    return {"fills": fills, "cursor": r.get("cursor")}
+
+
+def get_historical_orders(
+    ticker: str = None,
+    limit: int = 100,
+    cursor: str = None,
+) -> dict:
+    """
+    Get your canceled/executed orders older than the orders_updated_ts cutoff.
+    Note: resting (active) orders always appear in get_orders(), regardless of cutoff.
+
+    Args:
+        ticker: Optional market ticker filter
+        limit:  Max orders per page (default 100)
+        cursor: Pagination cursor from a previous response
+
+    Returns: {orders: list, cursor: str | None}
+    Each order: {order_id, ticker, side, action, type, yes_price, no_price,
+                 remaining_count, status, created_time}
+    """
+    c = _api()
+    if not c:
+        return _NO_CREDS
+    params: dict = {"limit": limit}
+    if ticker:
+        params["ticker"] = ticker
+    if cursor:
+        params["cursor"] = cursor
+    r = c.get("/historical/orders", params=params)
+    orders = [
+        {
+            "order_id":        o.get("order_id"),
+            "ticker":          o.get("ticker"),
+            "side":            o.get("side"),
+            "action":          o.get("action"),
+            "type":            o.get("type"),
+            "yes_price":       o.get("yes_price"),
+            "no_price":        o.get("no_price"),
+            "remaining_count": o.get("remaining_count"),
+            "status":          o.get("status"),
+            "created_time":    o.get("created_time"),
+        }
+        for o in (r.get("orders") or [])
+    ]
+    return {"orders": orders, "cursor": r.get("cursor")}

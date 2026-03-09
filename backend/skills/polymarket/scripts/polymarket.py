@@ -174,6 +174,59 @@ def get_prices(condition_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Historical Data
+# ---------------------------------------------------------------------------
+
+def get_resolved_events(tag_slug: str = None, limit: int = 50) -> dict:
+    """
+    Get resolved/closed Polymarket events (markets that have already settled).
+
+    Args:
+        tag_slug: Category filter e.g. "nhl", "nba", "crypto", "politics"
+        limit:    Max events to return
+
+    Returns: {events: list, count: int}
+    Each event: {id, slug, title, end_date, volume24hr, restricted, markets: [...]}
+    Each market: {id, slug, question, outcomes, condition_id}
+    Note: outcomes prices reflect final settled values (0.0 or 1.0 for binary markets).
+    """
+    params: dict = {"limit": limit, "closed": "true", "active": "false"}
+    if tag_slug:
+        params["tag_slug"] = tag_slug
+    data = _get(f"{GAMMA_BASE}/events", params)
+    return {"events": _parse_events(data), "count": len(data)}
+
+
+def get_market_trades(condition_id: str, limit: int = 100) -> dict:
+    """
+    Get the public trade history for a market via the CLOB API.
+
+    Args:
+        condition_id: The market's condition_id
+        limit:        Max trades to return (default 100)
+
+    Returns: {condition_id, trades: list}
+    Each trade: {id, outcome, price, size, timestamp}
+    Prices are floats in [0, 1].
+    """
+    try:
+        data = _get(f"{CLOB_BASE}/trades", params={"market": condition_id, "limit": limit})
+        trades = [
+            {
+                "id":        t.get("id"),
+                "outcome":   t.get("outcome"),
+                "price":     float(t.get("price") or 0),
+                "size":      float(t.get("size") or 0),
+                "timestamp": t.get("timestamp"),
+            }
+            for t in (data if isinstance(data, list) else data.get("data", []))
+        ]
+        return {"condition_id": condition_id, "trades": trades}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

@@ -403,8 +403,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     onDone: async () => {
       saveAccumulatedTools(chatId, onStateChange);
 
-      // Notify any strategy panels to refresh (e.g. after deploy_strategy)
-      window.dispatchEvent(new CustomEvent('strategies:refresh'));
+      // Notify bot panels to refresh after tool calls complete
+      window.dispatchEvent(new CustomEvent('bots:refresh'));
 
       try {
         const [chatResources, chatFilesResponse] = await Promise.all([

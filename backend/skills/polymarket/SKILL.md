@@ -21,6 +21,8 @@ Prices are **floats in [0, 1]** (e.g. `0.515` = 51.5¢).
 from skills.polymarket.scripts.polymarket import (
     get_events, get_sport_events, get_event,
     get_orderbook, get_prices,
+    # Historical
+    get_resolved_events, get_market_trades,
 )
 ```
 
@@ -92,6 +94,22 @@ Examples:
   nhl-det-nsh-2026-03-02   (Detroit @ Nashville)
   nhl-cbj-nyr-2026-03-02   (Columbus @ NY Rangers)
   nba-lal-bos-2026-03-05   (Lakers @ Celtics)
+```
+
+## Historical Data
+
+```python
+# Resolved/settled events
+past = get_resolved_events(tag_slug="nhl", limit=50)
+for e in past['events']:
+    print(f"{e['slug']} | ended {e['end_date']}")
+    for m in e['markets']:
+        print(f"  {m['question']}: {m['outcomes']}")  # 0.0 or 1.0 = settled outcome
+
+# Public trade history for any market
+trades = get_market_trades("0xb529f668ece4bca3d05ed34864e04d30f41061a1779522585957ec01085bbc43", limit=100)
+for t in trades['trades']:
+    print(f"{t['timestamp']}: {t['outcome']} @ {t['price']:.3f} x {t['size']:.2f}")
 ```
 
 ## Cross-Exchange Comparison (Polymarket vs Kalshi)

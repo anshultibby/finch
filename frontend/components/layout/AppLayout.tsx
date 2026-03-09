@@ -4,8 +4,6 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppSidebar, { type SidebarPanel, type AppSidebarRef } from './AppSidebar';
 import ChatView from '@/components/chat/ChatView';
-import StrategiesPanel from '../StrategiesPanel';
-import SkillsPanel from '../SkillsPanel';
 
 export default function AppLayout() {
   const { user } = useAuth();
@@ -21,6 +19,17 @@ export default function AppLayout() {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [activeChatIsLoading, setActiveChatIsLoading] = useState(false);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
+  const [chatPrefill, setChatPrefill] = useState<string | undefined>();
+
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ message: string }>) => {
+      setCurrentChatId(null);
+      setChatPrefill(e.detail.message);
+      setActivePanel('chat');
+    };
+    window.addEventListener('chat:configure-skill', handler as EventListener);
+    return () => window.removeEventListener('chat:configure-skill', handler as EventListener);
+  }, []);
 
   const sidebarRef = useRef<AppSidebarRef>(null);
 
@@ -57,20 +66,9 @@ export default function AppLayout() {
             onLoadingChange={setActiveChatIsLoading}
             onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
             sidebarRef={sidebarRef}
+            prefillMessage={chatPrefill}
           />
         </div>
-
-        {activePanel === 'strategies' && (
-          <div className="h-full">
-            <StrategiesPanel />
-          </div>
-        )}
-
-        {activePanel === 'skills' && (
-          <div className="h-full">
-            <SkillsPanel />
-          </div>
-        )}
       </div>
     </div>
   );
