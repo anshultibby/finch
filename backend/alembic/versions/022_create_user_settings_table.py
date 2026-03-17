@@ -1,7 +1,7 @@
 """Create user_settings table for encrypted API keys
 
 Revision ID: 022
-Revises: 020
+Revises: 021
 Create Date: 2025-01-08
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '022'
-down_revision = '020'
+down_revision = '021'
 branch_labels = None
 depends_on = None
 

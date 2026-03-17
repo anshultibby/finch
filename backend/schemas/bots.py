@@ -126,7 +126,6 @@ class BotPositionResponse(BaseModel):
 class ExecutionAction(BaseModel):
     type: str
     timestamp: datetime
-    dry_run: bool = False
     details: dict = Field(default_factory=dict)
 
     class Config:
@@ -175,7 +174,6 @@ class UpdateBotRequest(BaseModel):
     schedule_description: Optional[str] = None
     risk_limits: Optional[RiskLimits] = None
     capital: Optional[CapitalConfig] = None
-    paper_mode: Optional[bool] = None
     model: Optional[str] = None
 
 
@@ -218,7 +216,6 @@ class BotDetailResponse(BotResponse):
     schedule: Optional[str] = None
     risk_limits: Optional[RiskLimits] = None
     capital: Optional[CapitalConfig] = None
-    paper_mode: bool = True
     model: str = "claude-sonnet-4-20250514"
     directory: Optional[str] = None
     stats: BotStats = Field(default_factory=BotStats)
@@ -228,7 +225,7 @@ class BotDetailResponse(BotResponse):
 
 
 class RunBotRequest(BaseModel):
-    dry_run: bool = Field(default=True, description="If true, simulate without real orders")
+    pass
 
 
 class RunBotResponse(BaseModel):
@@ -284,7 +281,6 @@ class TradeLogResponse(BaseModel):
     expires_at: Optional[datetime] = None
 
     error: Optional[str] = None
-    dry_run: bool = False
 
     created_at: datetime
 

@@ -514,7 +514,7 @@ export interface BotDetail extends Bot {
   model?: string;
   directory?: string;
   stats?: BotStats;
-  files?: Array<{ filename: string; content: string; file_type: string }>;
+  files?: Array<{ filename: string; content: string; file_type: string; updated_at?: string }>;
   positions?: BotPosition[];
   closed_positions?: BotPosition[];
 }

@@ -102,7 +102,7 @@ def delete_user_from_db(user_id: str) -> bool:
 
 def get_local_snaptrade_users() -> list[dict]:
     """Get all users from local snaptrade_users table"""
-    from models.db import SnapTradeUser
+    from models.user import SnapTradeUser
     db = SessionLocal()
     try:
         users = db.query(SnapTradeUser).all()

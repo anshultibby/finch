@@ -34,10 +34,10 @@ def _slugify(name: str) -> str:
 
 
 def _compute_pnl(side: Optional[str], entry_price: float, current_price: float, quantity: float) -> float:
-    """Compute P&L accounting for position side (no side inverts the price movement)."""
+    """Compute P&L in USD. Prices are in cents (0-100), so divide by 100."""
     if side == "no":
-        return (entry_price - current_price) * quantity
-    return (current_price - entry_price) * quantity
+        return (entry_price - current_price) / 100 * quantity
+    return (current_price - entry_price) / 100 * quantity
 
 
 def _get_capital_balance(bot: TradingBot) -> tuple[dict, dict, float]:
@@ -125,8 +125,6 @@ async def update_bot(
     if request.icon is not None:
         bot.icon = request.icon
     if request.enabled is not None:
-        if request.enabled and not bot.approved:
-            raise ValueError("Cannot enable bot that is not approved")
         bot.enabled = request.enabled
 
     config = dict(bot.config or {})
@@ -145,8 +143,6 @@ async def update_bot(
         if "amount_usd" in updated and "balance_usd" not in existing_capital:
             updated["balance_usd"] = updated["amount_usd"]
         config["capital"] = updated
-    if request.paper_mode is not None:
-        config["paper_mode"] = request.paper_mode
     if request.model is not None:
         config["model"] = request.model
     bot.config = config
@@ -283,6 +279,22 @@ async def upsert_bot_file(
     return file
 
 
+async def delete_bot_files(
+    db: AsyncSession,
+    bot_id: str,
+    file_type: Optional[str] = None,
+) -> int:
+    """Delete bot files. If file_type is given, only delete files of that type.
+    Returns the number of deleted rows."""
+    from sqlalchemy import delete as sql_delete
+    query = sql_delete(BotFile).where(BotFile.bot_id == bot_id)
+    if file_type:
+        query = query.where(BotFile.file_type == file_type)
+    result = await db.execute(query)
+    await db.commit()
+    return result.rowcount
+
+
 # ============================================================================
 # Execution CRUD
 # ============================================================================
@@ -396,6 +408,8 @@ async def create_position(
     exit_config: ExitConfig,
     entered_via: Optional[str] = None,
     paper: bool = False,
+    market_title: Optional[str] = None,
+    event_ticker: Optional[str] = None,
 ) -> BotPosition:
     now = datetime.now(timezone.utc)
     initial_history = [{"t": now.isoformat(), "price": entry_price}]
@@ -403,6 +417,8 @@ async def create_position(
         bot_id=bot.id,
         user_id=bot.user_id,
         market=market,
+        market_title=market_title,
+        event_ticker=event_ticker,
         platform=bot.config.get("platform", "kalshi"),
         side=side,
         entry_price=entry_price,
@@ -607,10 +623,11 @@ async def create_trade_log(
     quantity: int,
     cost_usd: float,
     execution_id: Optional[str] = None,
-    dry_run: bool = False,
     status: str = "executed",
     approval_token: Optional[str] = None,
     expires_at=None,
+    market_title: Optional[str] = None,
+    realized_pnl_usd: Optional[float] = None,
 ) -> TradeLog:
     """Create a trade log entry for every buy/sell attempt."""
     log = TradeLog(
@@ -619,6 +636,7 @@ async def create_trade_log(
         execution_id=execution_id,
         action=action,
         market=market,
+        market_title=market_title,
         platform=bot.config.get("platform", "kalshi"),
         side=side,
         price=price,
@@ -626,8 +644,9 @@ async def create_trade_log(
         cost_usd=cost_usd,
         status=status,
         approval_token=approval_token,
-        dry_run=dry_run,
+        dry_run=False,
         expires_at=expires_at,
+        realized_pnl_usd=realized_pnl_usd,
     )
     db.add(log)
     await db.commit()
@@ -643,6 +662,7 @@ async def update_trade_log_status(
     error: Optional[str] = None,
     position_id: Optional[str] = None,
     order_response: Optional[dict] = None,
+    realized_pnl_usd: Optional[float] = None,
 ) -> TradeLog:
     """Update a trade log's status after execution or approval."""
     trade_log.status = status
@@ -652,6 +672,8 @@ async def update_trade_log_status(
         trade_log.position_id = position_id
     if order_response:
         trade_log.order_response = order_response
+    if realized_pnl_usd is not None:
+        trade_log.realized_pnl_usd = realized_pnl_usd
     if status == "approved":
         trade_log.approved_at = datetime.now(timezone.utc)
     await db.commit()

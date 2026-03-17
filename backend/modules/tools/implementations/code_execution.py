@@ -60,8 +60,8 @@ _sandboxes_lock = asyncio.Lock()
 
 async def _get_user_sandbox_record(user_id: str):
     """Return the UserSandbox DB row for this user, or None."""
-    from database import get_db_session
-    from models.db import UserSandbox
+    from core.database import get_db_session
+    from models.user import UserSandbox
     from sqlalchemy import select
 
     async with get_db_session() as db:
@@ -73,8 +73,8 @@ async def _get_user_sandbox_record(user_id: str):
 
 async def _upsert_user_sandbox(user_id: str, sandbox_id: str, skills_loaded: bool, skills_hash: str = None) -> None:
     """Persist or update the UserSandbox record."""
-    from database import get_db_session
-    from models.db import UserSandbox
+    from core.database import get_db_session
+    from models.user import UserSandbox
     from sqlalchemy import select
 
     async with get_db_session() as db:
@@ -99,8 +99,8 @@ async def _upsert_user_sandbox(user_id: str, sandbox_id: str, skills_loaded: boo
 
 async def _delete_user_sandbox_record(user_id: str) -> None:
     """Remove the UserSandbox record (called on hard reset)."""
-    from database import get_db_session
-    from models.db import UserSandbox
+    from core.database import get_db_session
+    from models.user import UserSandbox
     from sqlalchemy import select
 
     async with get_db_session() as db:
@@ -131,7 +131,7 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
     package list. Any change triggers a full re-upload automatically.
     """
     from e2b_code_interpreter import AsyncSandbox
-    from config import Config
+    from core.config import Config
 
     async with _sandboxes_lock:
         # --- 1. In-process cache ---
@@ -212,7 +212,7 @@ async def _get_or_reconnect_sandbox(user_id: str):
     Returns None if no sandbox record exists or reconnect fails.
     """
     from e2b_code_interpreter import AsyncSandbox
-    from config import Config
+    from core.config import Config
 
     entry = _sandboxes.get(user_id)
     if entry:
@@ -310,7 +310,7 @@ def _compute_skills_hash_from_fs() -> str:
     Any change to any of these files invalidates the hash and triggers a full
     re-upload on the next sandbox run.
     """
-    from config import Config
+    from core.config import Config
 
     h = hashlib.md5()
 
@@ -390,7 +390,7 @@ async def _install_skill_packages(sbx) -> None:
     raises RuntimeError on failure so the caller never marks skills_loaded=True
     with missing packages.
     """
-    from config import Config
+    from core.config import Config
     from modules.tools.skills_registry import get_all_skill_packages
 
     if Config.E2B_TEMPLATE_ID:
@@ -466,7 +466,7 @@ async def _upload_finch_runtime(sbx) -> None:
 # ---------------------------------------------------------------------------
 
 def _save_code_execution_log(user_id: str, chat_id: str, execution_data: Dict[str, Any]):
-    from config import Config
+    from core.config import Config
     from modules.agent.chat_logger import get_chat_log_dir
 
     if not Config.DEBUG_CHAT_LOGS:
@@ -516,7 +516,7 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
     """
     from services.api_keys import ApiKeyService
     from modules.tools.skills_registry import SKILL_ENV_KEYS
-    from database import get_db_session
+    from core.database import get_db_session
 
     env: Dict[str, str] = {
         "FINCH_USER_ID": context.user_id or "",
@@ -561,7 +561,7 @@ async def bash_impl(
     context: AgentContext
 ) -> AsyncGenerator[SSEEvent | Dict[str, Any], None]:
     """Run a bash command in the user's persistent E2B sandbox."""
-    from config import Config
+    from core.config import Config
 
     if not Config.E2B_API_KEY:
         yield {"success": False, "error": "E2B_API_KEY not configured",

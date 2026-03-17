@@ -194,5 +194,5 @@ def get_db() -> Generator[Session, None, None]:
 def init_db():
     """Initialize database tables (creates all tables defined in models)"""
     # Import all models here so Base knows about them
-    from models.db import SnapTradeUser  # noqa
+    from models.user import SnapTradeUser  # noqa
     Base.metadata.create_all(bind=engine)

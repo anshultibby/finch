@@ -173,7 +173,7 @@ class TestETFBuilderIntegration:
     
     def test_tool_in_agent_config(self):
         """Test that tool is in executor agent config"""
-        from config import Config
+        from core.config import Config
         
         assert "build_custom_etf" in Config.AGENT_TOOLS
     

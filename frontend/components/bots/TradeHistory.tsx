@@ -7,7 +7,8 @@ import { tradesApi } from '@/lib/api';
 
 interface TradeHistoryProps {
   userId: string;
-  botId?: string;  // if provided, show only this bot's trades
+  botId?: string;
+  refreshKey?: number;
 }
 
 function StatusBadge({ status }: { status: TradeLog['status'] }) {
@@ -42,7 +43,7 @@ function formatTime(iso: string): string {
   return `${diffDay}d ago`;
 }
 
-export default function TradeHistory({ userId, botId }: TradeHistoryProps) {
+export default function TradeHistory({ userId, botId, refreshKey }: TradeHistoryProps) {
   const [trades, setTrades] = useState<TradeLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -61,7 +62,7 @@ export default function TradeHistory({ userId, botId }: TradeHistoryProps) {
       }
     };
     load();
-  }, [userId, botId]);
+  }, [userId, botId, refreshKey]);
 
   if (loading) {
     return (

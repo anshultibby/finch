@@ -163,7 +163,7 @@ async def get_sandbox_file(
     Used when the agent references a file by its VM path (e.g. /home/user/subdir/chart.png).
     Falls back to 404 if the sandbox is not live.
     """
-    from models.db import Chat
+    from models.chat_models import Chat
     from sqlalchemy import select as sa_select
 
     try:

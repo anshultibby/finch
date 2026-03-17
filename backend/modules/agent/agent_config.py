@@ -13,21 +13,22 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
 
     If bot_context is provided, builds a bot-specific system prompt instead
     of the generic Finch agent prompt. bot_context should contain keys like:
-      bot_name, bot_id, mandate, memory_md, positions_json,
+      bot_name, bot_id, strategy_md, agents_md, positions_json,
       recent_ticks_summary, platform, connections
     """
     from .base_agent import BaseAgent
 
     if bot_context:
         from modules.bots.prompts import build_chat_system_prompt
-        from .prompts import build_skills_prompt, MEMORY_PROMPT
+        from .prompts import build_skills_prompt
 
         skills_section = build_skills_prompt(skill_ids or [])
         system_prompt = build_chat_system_prompt(
             bot_name=bot_context.get("bot_name", "Trading Bot"),
             bot_id=bot_context.get("bot_id", ""),
-            mandate=bot_context.get("mandate", ""),
-            memory_md=bot_context.get("memory_md", ""),
+            bot_directory=bot_context.get("bot_directory", ""),
+            strategy_md=bot_context.get("strategy_md", ""),
+            agents_md=bot_context.get("agents_md", ""),
             positions_json=bot_context.get("positions_json", "None"),
             recent_ticks_summary=bot_context.get("recent_ticks_summary", ""),
             platform=bot_context.get("platform", "kalshi"),
@@ -40,8 +41,7 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
             wakeup_type=bot_context.get("wakeup_type"),
             wakeup_context=bot_context.get("wakeup_context"),
         )
-        # Append memory guidance
-        system_prompt += MEMORY_PROMPT
+        # Bot prompts already include per-bot memory paths — don't append generic MEMORY_PROMPT
     else:
         system_prompt = await get_agent_system_prompt(user_id, skill_ids)
 

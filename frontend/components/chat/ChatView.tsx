@@ -35,6 +35,7 @@ interface ChatViewProps {
   prefillMessage?: string;
   // If set, this chat is scoped to a trading bot
   botId?: string;
+  rightOffset?: number;
 }
 
 function formatErrorForUser(error: string): string {
@@ -86,6 +87,7 @@ export default function ChatView({
   sidebarRef,
   prefillMessage,
   botId,
+  rightOffset = 0,
 }: ChatViewProps) {
   const { user } = useAuth();
   const { mode } = useChatMode();
@@ -578,13 +580,14 @@ export default function ChatView({
   return (
     <div className="flex h-full bg-white">
 
-      <div className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300 ${
-        showComputerPanel
-          ? selectedTool?.file_content
-            ? 'mr-0 md:mr-[650px]'
-            : 'mr-0 md:mr-[520px]'
-          : ''
-      }`}>
+      <div
+        className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300`}
+        style={showComputerPanel ? {
+          marginRight: selectedTool?.file_content
+            ? `${650 + rightOffset}px`
+            : `${520 + rightOffset}px`
+        } : undefined}
+      >
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -724,9 +727,12 @@ export default function ChatView({
       </div>
 
       {showComputerPanel && selectedTool && (
-        <div className={`fixed right-0 top-0 h-full z-40 ${
-          selectedTool.file_content ? 'w-full md:w-[650px]' : 'w-full md:w-[520px]'
-        }`}>
+        <div
+          className={`fixed top-0 h-full z-40 ${
+            selectedTool.file_content ? 'w-full md:w-[650px]' : 'w-full md:w-[520px]'
+          }`}
+          style={{ right: rightOffset }}
+        >
           <ComputerPanel
             mode={
               selectedTool.search_results ? 'search' :

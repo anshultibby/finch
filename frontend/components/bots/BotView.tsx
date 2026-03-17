@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { botsApi } from '@/lib/api';
 import type { BotDetail, BotChat } from '@/lib/types';
-import BotChatList from './BotChatList';
-import BotSidebar from './BotSidebar';
+import BotChatList, { type BotPanel } from './BotChatList';
+import BotDocViewer from './BotDocViewer';
+import BotJournalViewer from './BotJournalViewer';
+import BotPositionsPanel from './BotPositionsPanel';
+import BotTradesPanel from './BotTradesPanel';
 import ChatView from '@/components/chat/ChatView';
 import { ApiKeysModal } from '@/components';
 
@@ -14,7 +17,7 @@ interface BotViewProps {
   botId: string;
 }
 
-const BOT_REFRESH_INTERVAL = 30_000; // 30s sidebar auto-refresh
+const BOT_REFRESH_INTERVAL = 30_000; // 30s auto-refresh
 
 function getPlatformLabel(platform: string): string {
   switch (platform) {
@@ -31,11 +34,14 @@ export default function BotView({ botId }: BotViewProps) {
   const [bot, setBot] = useState<BotDetail | null>(null);
   const [chats, setChats] = useState<BotChat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activePanel, setActivePanel] = useState<BotPanel>('chat');
   const [botLoading, setBotLoading] = useState(true);
   const [chatsLoading, setChatsLoading] = useState(true);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
-  const sidebarRef = useRef(null);
   const [showApiKeys, setShowApiKeys] = useState(false);
+  const [showCapitalModal, setShowCapitalModal] = useState(false);
+  const [capitalInput, setCapitalInput] = useState('');
+  const [capitalAdjusting, setCapitalAdjusting] = useState(false);
   const autoCreatingRef = useRef(false);
 
   const fetchBot = useCallback(async () => {
@@ -97,6 +103,34 @@ export default function BotView({ botId }: BotViewProps) {
     createFirstChat();
   }, [user, bot, chatsLoading, chats.length, activeChatId, botId]);
 
+  // Extract strategy, memory, and journal entries from bot data
+  const { strategyContent, memoryContent, journalEntries } = useMemo(() => {
+    if (!bot) return { strategyContent: '', memoryContent: '', journalEntries: [] };
+    const files = bot.files || [];
+
+    let strategy = bot.mandate || '';
+    let memory = '';
+    const journal: Array<{ filename: string; content: string; updated_at?: string }> = [];
+
+    for (const f of files) {
+      if (f.filename === 'STRATEGY.md' || f.file_type === 'strategy') {
+        strategy = f.content || strategy;
+      } else if (f.filename === 'MEMORY.md' || f.file_type === 'memory') {
+        memory = f.content || '';
+      } else if (f.file_type === 'log') {
+        journal.push({ filename: f.filename, content: f.content, updated_at: f.updated_at });
+      }
+      // Legacy fallbacks
+      else if (f.filename === 'CONTEXT.md' || f.file_type === 'context') {
+        strategy = strategy || f.content || '';
+      } else if (f.filename === 'AGENTS.md' || f.file_type === 'agents') {
+        memory = memory || f.content || '';
+      }
+    }
+
+    return { strategyContent: strategy, memoryContent: memory, journalEntries: journal };
+  }, [bot]);
+
   const handleNewChat = async () => {
     if (!user) return;
     try {
@@ -115,6 +149,23 @@ export default function BotView({ botId }: BotViewProps) {
       fetchBot(); // Refresh bot data
     } catch (e) {
       console.error('Failed to close position:', e);
+    }
+  };
+
+  const handleCapitalAdjust = async (direction: 'add' | 'withdraw') => {
+    if (!user) return;
+    const amount = parseFloat(capitalInput);
+    if (!amount || amount <= 0) return;
+    setCapitalAdjusting(true);
+    try {
+      await botsApi.adjustCapital(user.id, botId, direction === 'add' ? amount : -amount);
+      setCapitalInput('');
+      setShowCapitalModal(false);
+      fetchBot();
+    } catch (e: any) {
+      alert(e.message || 'Failed to adjust capital');
+    } finally {
+      setCapitalAdjusting(false);
     }
   };
 
@@ -141,6 +192,76 @@ export default function BotView({ botId }: BotViewProps) {
     );
   }
 
+  const renderCenterPanel = () => {
+    switch (activePanel) {
+      case 'strategy':
+        return (
+          <BotDocViewer
+            title="Strategy"
+            icon="⚡"
+            content={strategyContent}
+            description="Trading thesis, signal rules, risk parameters"
+            onBack={() => setActivePanel('chat')}
+          />
+        );
+      case 'memory':
+        return (
+          <BotDocViewer
+            title="Memory"
+            icon="🧠"
+            content={memoryContent}
+            description="Learned behaviors, rules & preferences"
+            onBack={() => setActivePanel('chat')}
+          />
+        );
+      case 'journal':
+        return (
+          <BotJournalViewer
+            entries={journalEntries}
+            onBack={() => setActivePanel('chat')}
+          />
+        );
+      case 'positions':
+        return (
+          <BotPositionsPanel
+            bot={bot}
+            userId={user.id}
+            onBack={() => setActivePanel('chat')}
+            onClosePosition={handleClosePosition}
+          />
+        );
+      case 'trades':
+        return (
+          <BotTradesPanel
+            userId={user.id}
+            botId={botId}
+            refreshKey={chatHistoryRefresh}
+            onBack={() => setActivePanel('chat')}
+          />
+        );
+      case 'chat':
+      default:
+        return activeChatId ? (
+          <ChatView
+            externalChatId={activeChatId}
+            onChatIdChange={setActiveChatId}
+            onCreatingChatChange={() => {}}
+            onLoadingChange={() => {}}
+            onHistoryRefresh={() => {
+              setChatHistoryRefresh((p) => p + 1);
+              fetchChats();
+              fetchBot();
+            }}
+            botId={botId}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            {chatsLoading ? 'Loading...' : 'Select or create a chat'}
+          </div>
+        );
+    }
+  };
+
   return (
     <div className="flex flex-col h-dvh bg-white">
       {/* Top bar */}
@@ -158,6 +279,19 @@ export default function BotView({ botId }: BotViewProps) {
         <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">
           {getPlatformLabel(bot.platform)}
         </span>
+        {bot.capital_balance != null && bot.platform !== 'research' && (
+          <button
+            onClick={() => setShowCapitalModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
+          >
+            <span className="text-[12px] font-semibold text-gray-700 tabular-nums">
+              ${bot.capital_balance.toFixed(2)}
+            </span>
+            <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+        )}
         <div className="flex-1" />
         {/* Settings button */}
         <button onClick={() => setShowApiKeys(true)} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
@@ -168,48 +302,92 @@ export default function BotView({ botId }: BotViewProps) {
         </button>
       </div>
 
-      {/* 3-column layout */}
+      {/* 2-column layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: Chat list */}
+        {/* Left: Chat list + nav */}
         <div className="w-56 shrink-0">
           <BotChatList
             chats={chats}
             activeChatId={activeChatId}
+            activePanel={activePanel}
             onSelectChat={setActiveChatId}
             onNewChat={handleNewChat}
+            onSelectPanel={setActivePanel}
             loading={chatsLoading}
+            hasStrategy={!!strategyContent}
+            hasMemory={!!memoryContent}
+            hasJournal={journalEntries.length > 0}
+            hasPositions={(bot.positions?.length ?? 0) > 0}
+            hasTrades={true}
           />
         </div>
 
-        {/* Center: Chat */}
+        {/* Center: Chat or doc viewer */}
         <div className="flex-1 min-w-0">
-          {activeChatId ? (
-            <ChatView
-              externalChatId={activeChatId}
-              onChatIdChange={setActiveChatId}
-              onCreatingChatChange={() => {}}
-              onLoadingChange={() => {}}
-              onHistoryRefresh={() => {
-                setChatHistoryRefresh((p) => p + 1);
-                fetchChats();
-              }}
-              sidebarRef={sidebarRef}
-              botId={botId}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-              {chatsLoading ? 'Loading...' : 'Select or create a chat'}
-            </div>
-          )}
-        </div>
-
-        {/* Right: Sidebar */}
-        <div className="w-72 shrink-0">
-          <BotSidebar bot={bot} userId={user.id} onClosePosition={handleClosePosition} onCapitalChanged={fetchBot} />
+          {renderCenterPanel()}
         </div>
       </div>
       {showApiKeys && (
         <ApiKeysModal isOpen={showApiKeys} onClose={() => setShowApiKeys(false)} />
+      )}
+      {showCapitalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-80">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-900">Adjust Capital</h3>
+              <button onClick={() => setShowCapitalModal(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="mb-4">
+              <div className="text-2xl font-bold text-gray-900 tabular-nums">
+                ${(bot.capital_balance ?? 0).toFixed(2)}
+              </div>
+              <div className="text-xs text-gray-400">Available balance</div>
+              {(() => {
+                const deployed = (bot.positions || []).reduce((s, p) => s + (p.cost_usd || 0), 0);
+                return deployed > 0 ? (
+                  <div className="mt-2 text-xs text-gray-500">
+                    <span className="text-gray-400">In positions:</span> ${deployed.toFixed(2)}
+                  </div>
+                ) : null;
+              })()}
+            </div>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={capitalInput}
+                  onChange={(e) => setCapitalInput(e.target.value)}
+                  autoFocus
+                  className="w-full pl-7 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-300 tabular-nums"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleCapitalAdjust('add')}
+                disabled={capitalAdjusting || !capitalInput}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 disabled:opacity-40 transition-colors"
+              >
+                Deposit
+              </button>
+              <button
+                onClick={() => handleCapitalAdjust('withdraw')}
+                disabled={capitalAdjusting || !capitalInput}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-100 disabled:opacity-40 transition-colors"
+              >
+                Withdraw
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

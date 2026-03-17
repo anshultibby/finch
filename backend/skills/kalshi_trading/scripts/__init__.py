@@ -1,37 +1,12 @@
 """
-Kalshi Trading — CFTC-regulated prediction market trading.
+Kalshi Trading — authenticated HTTP client for the Kalshi REST API.
 
-Requires Kalshi API credentials (set in Settings > API Keys).
-Market prices are in CENTS (0–100). Quantities are integer contracts.
+Handles RSA-PS256 signing. Call get/post/delete with any Kalshi API path.
+All responses are raw JSON from Kalshi.
 
-Quick start:
-    from skills.kalshi_trading.scripts.kalshi import (
-        get_portfolio, get_events, get_market,
-        place_order, get_orders, cancel_order,
-    )
+Higher-level helpers:
+  get_all() — auto-paginating GET for any list endpoint
 """
-from .kalshi import (
-    get_balance,
-    get_positions,
-    get_portfolio,
-    get_events,
-    get_markets,
-    get_market,
-    get_orderbook,
-    place_order,
-    get_orders,
-    cancel_order,
-)
+from .kalshi import get, get_all, post, delete
 
-__all__ = [
-    "get_balance",
-    "get_positions",
-    "get_portfolio",
-    "get_events",
-    "get_markets",
-    "get_market",
-    "get_orderbook",
-    "place_order",
-    "get_orders",
-    "cancel_order",
-]
+__all__ = ["get", "get_all", "post", "delete"]

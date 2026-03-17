@@ -70,6 +70,22 @@ const isScrapeOperation = (toolName: string) => {
   return toolName === 'scrape_url';
 };
 
+const isTradeOperation = (toolName: string) => {
+  return toolName === 'place_trade';
+};
+
+const extractTradeInfo = (toolCall: ToolCallStatus) => {
+  const args = toolCall.arguments;
+  if (!args) return null;
+  return {
+    action: args.action as string,
+    market: args.market as string,
+    side: args.side as string || 'yes',
+    count: args.count as number || 1,
+    order_type: args.order_type as string || 'market',
+  };
+};
+
 // Extract search query from arguments
 const extractSearchQuery = (toolCall: ToolCallStatus): string | null => {
   if (toolCall.arguments?.query) {
@@ -168,6 +184,8 @@ const getToolDisplayName = (toolName: string): string => {
     'get_fmp_data': 'Get FMP Data',
     'get_reddit_trending_stocks': 'Get Reddit Trending',
     'get_reddit_ticker_sentiment': 'Get Reddit Sentiment',
+    'place_trade': 'Place Trade',
+    'list_trades': 'List Trades',
   };
   
   return nameMap[toolName] || toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -177,66 +195,96 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
   const description = toolCall.statusMessage || '';
   const isError = toolCall.status === 'error' || !!toolCall.error;
   const styles = getStatusStyles(toolCall.status, isError);
-  
+
   const toolName = getToolDisplayName(toolCall.tool_name);
   const isFile = isFileOperation(toolCall.tool_name);
   const isSearch = isSearchOperation(toolCall.tool_name);
   const isScrape = isScrapeOperation(toolCall.tool_name);
+  const isTrade = isTradeOperation(toolCall.tool_name);
+  const tradeInfo = isTrade ? extractTradeInfo(toolCall) : null;
   const filename = isFile ? extractFilename(toolCall) : null;
   const searchQuery = isSearch ? extractSearchQuery(toolCall) : null;
   const url = isScrape ? extractUrl(toolCall) : null;
-  
+
   // Truncate search query for display
-  const displayQuery = searchQuery && searchQuery.length > 80 
-    ? searchQuery.substring(0, 80) + '...' 
+  const displayQuery = searchQuery && searchQuery.length > 80
+    ? searchQuery.substring(0, 80) + '...'
     : searchQuery;
-  
+
   // Truncate URL for display
-  const displayUrl = url && url.length > 50 
-    ? url.substring(0, 50) + '...' 
+  const displayUrl = url && url.length > 50
+    ? url.substring(0, 50) + '...'
     : url;
   return (
-    <div 
+    <div
       onClick={onShowOutput}
       className={`inline-flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer transition-all duration-150 whitespace-nowrap overflow-hidden touch-manipulation ${styles.container}`}
       style={{ minHeight: '44px' }}
     >
-      {/* Icon - never shrink */}
-      <span className={`flex-shrink-0 ${styles.icon}`}>
-        {getToolIcon(toolCall.tool_name)}
-      </span>
-      
-      {/* Tool name - never shrink */}
-      <span className={`text-sm sm:text-sm font-medium flex-shrink-0 ${styles.text}`}>
-        {toolName}
-      </span>
+      {isTrade && tradeInfo ? (
+        <>
+          <span className={`flex-shrink-0 ${tradeInfo.action === 'buy' ? 'text-emerald-500' : 'text-red-500'}`}>
+            {tradeInfo.action === 'buy' ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" />
+              </svg>
+            )}
+          </span>
+          <span className={`text-xs font-bold uppercase flex-shrink-0 ${tradeInfo.action === 'buy' ? 'text-emerald-600' : 'text-red-600'}`}>
+            {tradeInfo.action}
+          </span>
+          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${tradeInfo.side === 'yes' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+            {tradeInfo.side?.toUpperCase()}
+          </span>
+          <span className="text-sm font-medium text-gray-700 truncate min-w-0">
+            {tradeInfo.market?.length > 30 ? tradeInfo.market.slice(0, 30) + '…' : tradeInfo.market}
+          </span>
+          <span className="text-xs text-gray-400 flex-shrink-0">×{tradeInfo.count}</span>
+        </>
+      ) : (
+        <>
+          {/* Icon - never shrink */}
+          <span className={`flex-shrink-0 ${styles.icon}`}>
+            {getToolIcon(toolCall.tool_name)}
+          </span>
 
-      {/* Filename pill for file operations - can shrink, hide on very small screens */}
-      {filename && (
-        <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-          {filename}
-        </span>
-      )}
+          {/* Tool name - never shrink */}
+          <span className={`text-sm sm:text-sm font-medium flex-shrink-0 ${styles.text}`}>
+            {toolName}
+          </span>
 
-      {/* Search query pill for search operations - hide on very small screens */}
-      {displayQuery && (
-        <span className={`hidden xs:inline-block text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-          {displayQuery}
-        </span>
-      )}
+          {/* Filename pill for file operations - can shrink, hide on very small screens */}
+          {filename && (
+            <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+              {filename}
+            </span>
+          )}
 
-      {/* URL pill for scrape operations - hide on very small screens */}
-      {displayUrl && (
-        <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-          {displayUrl}
-        </span>
-      )}
+          {/* Search query pill for search operations - hide on very small screens */}
+          {displayQuery && (
+            <span className={`hidden xs:inline-block text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+              {displayQuery}
+            </span>
+          )}
 
-      {/* Description - show for all tools when available and not just the tool name */}
-      {description && description !== toolCall.tool_name && !filename && !displayQuery && !displayUrl && (
-        <span className={`hidden sm:inline text-sm ${styles.muted} truncate min-w-0`}>
-          {description}
-        </span>
+          {/* URL pill for scrape operations - hide on very small screens */}
+          {displayUrl && (
+            <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+              {displayUrl}
+            </span>
+          )}
+
+          {/* Description - show for all tools when available and not just the tool name */}
+          {description && description !== toolCall.tool_name && !filename && !displayQuery && !displayUrl && (
+            <span className={`hidden sm:inline text-sm ${styles.muted} truncate min-w-0`}>
+              {description}
+            </span>
+          )}
+        </>
       )}
 
       {/* Status indicator - never shrink */}

@@ -115,13 +115,13 @@ async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int
 
 async def get_last_message_preview(db: AsyncSession, chat_id: str, max_length: int = 100) -> Optional[str]:
     """Get a preview of the last user or assistant message in a chat"""
-    from models.db import ChatMessage
-    
+    from models.chat_models import ChatMessageDB
+
     result = await db.execute(
-        select(ChatMessage)
-        .where(ChatMessage.chat_id == chat_id)
-        .where(ChatMessage.role.in_(['user', 'assistant']))
-        .order_by(ChatMessage.sequence.desc())
+        select(ChatMessageDB)
+        .where(ChatMessageDB.chat_id == chat_id)
+        .where(ChatMessageDB.role.in_(['user', 'assistant']))
+        .order_by(ChatMessageDB.sequence.desc())
         .limit(1)
     )
     message = result.scalar_one_or_none()

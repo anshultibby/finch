@@ -77,10 +77,18 @@ async def _bot_to_detail_response(bot, db: AsyncSession) -> BotDetailResponse:
         list_positions(db, bot.id, status="closed", limit=20),
     )
 
-    capital = None
-    if config.get("capital"):
+    # Refresh prices for open positions (best-effort, non-blocking)
+    if active_positions:
         try:
-            capital = CapitalConfig(**config["capital"])
+            await _refresh_position_prices(db, bot, active_positions)
+        except Exception:
+            pass  # Don't fail the whole response if price refresh fails
+
+    capital = None
+    capital_dict = config.get("capital") or {}
+    if capital_dict:
+        try:
+            capital = CapitalConfig(**capital_dict)
         except Exception:
             pass
 
@@ -103,22 +111,80 @@ async def _bot_to_detail_response(bot, db: AsyncSession) -> BotDetailResponse:
         last_run_at=stats_dict.get("last_run_at"),
         last_run_status=stats_dict.get("last_run_status"),
         last_run_summary=stats_dict.get("last_run_summary"),
+        capital_balance=capital_dict.get("balance_usd"),
         created_at=bot.created_at,
         updated_at=bot.updated_at,
-        mandate=config.get("mandate", ""),
+        mandate=next((f.content for f in files if f.file_type == "strategy" or f.filename == "STRATEGY.md"), config.get("mandate", "")),
         schedule=config.get("schedule"),
         risk_limits=risk_limits,
         capital=capital,
-        paper_mode=config.get("paper_mode", True),
         model=config.get("model", "claude-sonnet-4-20250514"),
         directory=bot.directory,
         total_profit_usd=float(stats_dict.get("total_profit_usd", 0.0)),
         open_unrealized_pnl=float(stats_dict.get("open_unrealized_pnl", 0.0)),
         stats=BotStats(**stats_dict),
-        files=[{"filename": f.filename, "content": f.content, "file_type": f.file_type} for f in files],
+        files=[{
+            "filename": f.filename, "content": f.content, "file_type": f.file_type,
+            "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+        } for f in files],
         positions=[_position_to_response(p) for p in active_positions],
         closed_positions=[_position_to_response(p) for p in recent_closed],
     )
+
+
+async def _refresh_position_prices(db: AsyncSession, bot, positions) -> None:
+    """Refresh current prices for open positions from the exchange.
+
+    Uses the platform dispatch layer from the tools module so we don't
+    duplicate Kalshi/Polymarket-specific logic here.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+    from modules.tools.implementations.bots import _get_platform_client, _fetch_market_data
+
+    platform = (bot.config or {}).get("platform", "kalshi")
+    client = await _get_platform_client(db, bot.user_id, platform)
+    if not client:
+        return
+
+    for pos in positions:
+        try:
+            mkt = await _fetch_market_data(client, platform, pos.market)
+
+            # Compute mid price
+            if pos.side == "yes":
+                bid = mkt.get("yes_bid") or 0
+                ask = mkt.get("yes_ask") or 0
+            else:
+                bid = mkt.get("no_bid") or 0
+                ask = mkt.get("no_ask") or 0
+
+            if bid and ask:
+                price = (bid + ask) / 2
+            elif bid:
+                price = bid
+            elif ask:
+                price = ask
+            else:
+                continue
+
+            now = datetime.now(timezone.utc)
+            pos.current_price = price
+            pos.unrealized_pnl_usd = (price - pos.entry_price) / 100 * pos.quantity
+            pos.last_priced_at = now
+
+            # Backfill title/event_ticker if missing
+            if not pos.market_title and mkt.get("title"):
+                pos.market_title = mkt["title"]
+            if not pos.event_ticker and mkt.get("event_ticker"):
+                pos.event_ticker = mkt["event_ticker"]
+
+        except Exception:
+            pass  # Skip positions that fail — don't block the whole response
+
+    await db.commit()
+    for pos in positions:
+        await db.refresh(pos)
 
 
 def _position_to_response(position) -> BotPositionResponse:
@@ -312,24 +378,12 @@ async def run_bot(
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
 
-    # paper_mode in config forces dry_run — can't accidentally live-trade
-    config = bot.config or {}
-    should_dry_run = request.dry_run or config.get("paper_mode", True)
-
-    if not should_dry_run and not bot.approved:
-        raise HTTPException(
-            status_code=400,
-            detail="Bot must be approved before live execution",
-        )
-
     from modules.bots.executor import execute_bot_tick
 
-    trigger = "dry_run" if should_dry_run else "manual"
     execution = await execute_bot_tick(
         db=db,
         bot=bot,
-        trigger=trigger,
-        dry_run=should_dry_run,
+        trigger="manual",
     )
 
     data = execution.data or {}
@@ -380,6 +434,7 @@ async def list_bot_positions(
     bot_id: str,
     status: Optional[str] = None,
     limit: int = 50,
+    refresh: bool = False,
     user_id: str = Depends(_get_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -387,6 +442,13 @@ async def list_bot_positions(
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
     positions = await list_positions(db, bot_id, status=status, limit=limit)
+
+    # Optionally refresh prices for open positions from the exchange
+    if refresh:
+        open_pos = [p for p in positions if p.status == "open"]
+        if open_pos:
+            await _refresh_position_prices(db, bot, open_pos)
+
     return [_position_to_response(p) for p in positions]
 
 
@@ -581,7 +643,7 @@ async def list_bot_chats(
 ):
     """List all chats scoped to this bot."""
     from sqlalchemy import select
-    from models.db import Chat
+    from models.chat_models import Chat
 
     bot = await crud.get_bot(db, bot_id, user_id)
     if not bot:
@@ -613,7 +675,7 @@ async def create_bot_chat(
 ):
     """Create a new chat scoped to this bot."""
     import uuid
-    from models.db import Chat
+    from models.chat_models import Chat
 
     bot = await crud.get_bot(db, bot_id, user_id)
     if not bot:
@@ -710,9 +772,23 @@ def _trade_log_to_response(log, bot_name: str = "", bot_icon: str = "") -> Trade
         approved_at=log.approved_at,
         expires_at=log.expires_at,
         error=log.error,
-        dry_run=log.dry_run,
         created_at=log.created_at,
     )
+
+
+@router.delete("/{bot_id}/files")
+async def delete_bot_files(
+    bot_id: str,
+    file_type: str = None,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Delete bot files. Optionally filter by file_type (e.g. 'log', 'agents', 'strategy')."""
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    count = await crud.delete_bot_files(db, bot_id, file_type=file_type)
+    return {"deleted": count}
 
 
 @router.get("/{bot_id}/trades", response_model=List[TradeLogResponse])
@@ -742,7 +818,7 @@ async def list_all_trades(
 ):
     """List all trade logs across all bots for the current user."""
     from sqlalchemy import select
-    from models.db import TradingBot
+    from models.bot import TradingBot
 
     logs = await crud.list_trade_logs(db, user_id=user_id, limit=limit)
     # Batch-fetch bot names/icons in a single query

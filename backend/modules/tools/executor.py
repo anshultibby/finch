@@ -592,14 +592,14 @@ class ToolExecutor:
                 stdout = result.raw_result.get("stdout")
                 stderr = result.raw_result.get("stderr")
                 if stdout or stderr:
-                    from models.sse import CodeOutput
+                    from schemas.sse import CodeOutput
                     code_output = CodeOutput(stdout=stdout, stderr=stderr).model_dump()
             
             # Extract search results for web_search and news_search tools
             search_results = None
             if result.tool_name in ("web_search", "news_search") and isinstance(result.raw_result, dict):
                 if result.raw_result.get("success"):
-                    from models.sse import SearchResults, SearchResult, SearchAnswerBox, SearchKnowledgeGraph
+                    from schemas.sse import SearchResults, SearchResult, SearchAnswerBox, SearchKnowledgeGraph
                     
                     # Extract organic results
                     organic = result.raw_result.get("organic", [])
@@ -654,7 +654,7 @@ class ToolExecutor:
             scraped_content = None
             if result.tool_name == "scrape_url" and isinstance(result.raw_result, dict):
                 if result.raw_result.get("success"):
-                    from models.sse import ScrapedContent
+                    from schemas.sse import ScrapedContent
                     
                     scraped_content = ScrapedContent(
                         url=result.raw_result.get("url", ""),
@@ -667,7 +667,7 @@ class ToolExecutor:
             file_content = None
             if result.tool_name == "read_chat_file" and isinstance(result.raw_result, dict):
                 if result.raw_result.get("success"):
-                    from models.sse import FileContent
+                    from schemas.sse import FileContent
                     
                     file_content = FileContent(
                         filename=result.raw_result.get("filename", ""),

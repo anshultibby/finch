@@ -27,7 +27,7 @@ setup_tracing(app)
 # Add simple timing middleware for request duration logging
 @app.middleware("http")
 async def log_requests(request, call_next):
-    from database import get_pool_status
+    from core.database import get_pool_status
     from fastapi.responses import JSONResponse
     import traceback
 
@@ -106,7 +106,7 @@ _pool_monitor_task = None
 
 async def monitor_connection_pool():
     """Background task to monitor connection pool usage"""
-    from database import get_pool_status
+    from core.database import get_pool_status
 
     while True:
         try:
@@ -135,7 +135,7 @@ async def startup_event():
     global _pool_monitor_task
     from services.storage import storage_service
     from modules.bots.scheduler import start_scheduler
-    from database import get_pool_status
+    from core.database import get_pool_status
 
     # Log database connection pool configuration
     pool_status = get_pool_status()
@@ -190,7 +190,7 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check endpoint with database pool status"""
-    from database import get_pool_status
+    from core.database import get_pool_status
 
     pool_status = get_pool_status()
 

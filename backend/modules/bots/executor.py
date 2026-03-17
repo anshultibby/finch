@@ -2,7 +2,7 @@
 Bot Executor — runs a bot tick using LLM reasoning with full tool access.
 
 Flow:
-  1. Load bot config, context.md + memory.md from DB/VM
+  1. Load bot config, STRATEGY.md + MEMORY.md from DB/VM
   2. Load open positions (refreshed prices) + recent closed
   3. Build system prompt with all context
   4. Multi-turn LLM loop with trading + research tools
@@ -47,7 +47,6 @@ async def execute_bot_tick(
     db: AsyncSession,
     bot: TradingBot,
     trigger: str = "manual",
-    dry_run: bool = True,
 ) -> BotExecution:
     """
     Execute a single bot tick — LLM reasons about markets and decides actions.
@@ -64,19 +63,47 @@ async def execute_bot_tick(
     closed_positions = await list_positions(db, bot.id, status="closed", limit=20)
     closed_positions_data = [_position_to_dict(p) for p in closed_positions]
 
-    # Load context files from DB
+    # Ensure bot has its own sandbox directory (migrate legacy files on first run)
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+    await ensure_bot_directory(bot.user_id, bot_dir)
+
+    # Load context files from DB (bot_files is the synced mirror)
     files = await get_bot_files(db, bot.id)
-    context_md = ""
+    strategy_md = ""
     memory_md = ""
     daily_note = ""
     for f in files:
-        if f.filename == "CONTEXT.md" or f.file_type == "context":
-            context_md = f.content
+        if f.filename == "STRATEGY.md" or f.file_type == "strategy":
+            strategy_md = f.content
         elif f.filename == "MEMORY.md" or f.file_type == "memory":
             memory_md = f.content
+        # Legacy fallbacks
+        elif f.filename == "CONTEXT.md" or f.file_type == "context":
+            strategy_md = strategy_md or f.content
+        elif f.filename == "AGENTS.md" or f.file_type == "agents":
+            memory_md = memory_md or f.content
 
-    # Use mandate from config if no CONTEXT.md file exists
-    mandate = context_md or config.get("mandate", "")
+    # Legacy: fall back to config.mandate if no STRATEGY.md file exists yet
+    if not strategy_md:
+        strategy_md = config.get("mandate", "")
+
+    # Bootstrap from sandbox if not in DB (source of truth is sandbox files)
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+    from modules.tools.implementations.code_execution import read_sandbox_file
+    if not strategy_md:
+        try:
+            raw = await read_sandbox_file(bot.user_id, f"{bot_dir}/STRATEGY.md")
+            if raw:
+                strategy_md = raw.decode("utf-8", errors="replace").strip()
+        except Exception:
+            pass
+    if not memory_md:
+        try:
+            raw = await read_sandbox_file(bot.user_id, f"{bot_dir}/MEMORY.md")
+            if raw:
+                memory_md = raw.decode("utf-8", errors="replace").strip()
+        except Exception:
+            pass
 
     # Fetch Kalshi client for price operations
     kalshi_client = await _get_kalshi_client(db, bot.user_id)
@@ -89,9 +116,9 @@ async def execute_bot_tick(
         # (In full implementation, this would be a multi-turn LLM agent loop)
         result = await asyncio.wait_for(
             _run_tick_simple(
-                db, bot, config, mandate, memory_md,
+                db, bot, config, strategy_md, memory_md,
                 open_positions_data, closed_positions_data,
-                kalshi_client, dry_run,
+                kalshi_client,
             ),
             timeout=EXECUTION_TIMEOUT_SECONDS,
         )
@@ -116,7 +143,7 @@ async def execute_bot_tick(
     # Apply actions
     actions_list = result.get("actions", [])
     if actions_list:
-        await _apply_actions(db, bot, execution, actions_list, config, dry_run, kalshi_client)
+        await _apply_actions(db, bot, execution, actions_list, config, kalshi_client)
 
     # Persist state updates
     state_update = result.get("state_update")
@@ -135,6 +162,9 @@ async def execute_bot_tick(
     }
     await _refresh_open_position_prices(db, bot, config, kalshi_client, exclude_ids=updated_ids)
 
+    # Sync STRATEGY.md and MEMORY.md from sandbox to bot_files DB
+    await _sync_bot_docs_from_sandbox(db, bot)
+
     status = "success" if result.get("status") == "success" else "failed"
 
     return await complete_execution(
@@ -151,12 +181,11 @@ async def _run_tick_simple(
     db: AsyncSession,
     bot: TradingBot,
     config: dict,
-    mandate: str,
+    strategy_md: str,
     memory_md: str,
     open_positions: list[dict],
     closed_positions: list[dict],
     kalshi_client,
-    dry_run: bool,
 ) -> dict:
     """
     Run a simplified tick — scan markets based on mandate and make decisions.
@@ -186,7 +215,7 @@ async def _run_tick_simple(
         markets = data.get("markets", [])
         logs.append(f"Scanned {len(markets)} markets")
 
-        summary = f"Scanned {len(markets)} markets. Mandate: {mandate[:100] if mandate else 'None set'}"
+        summary = f"Scanned {len(markets)} markets. Strategy: {strategy_md[:100] if strategy_md else 'None set'}"
 
         return {
             "status": "success",
@@ -202,6 +231,94 @@ async def _run_tick_simple(
             "logs": logs,
             "actions": [],
         }
+
+
+async def ensure_bot_directory(user_id: str, bot_directory: str) -> None:
+    """Create the bot's sandbox directory and migrate any legacy files from /home/user/.
+
+    Creates the bot's per-bot directory in the sandbox. Removes any leftover
+    shared-location files (/home/user/MEMORY.md, etc.) to prevent old bot
+    data from contaminating new bots.
+    """
+    from modules.tools.implementations.code_execution import (
+        get_or_create_sandbox,
+    )
+
+    try:
+        envs = {}
+        entry = await get_or_create_sandbox(user_id, envs)
+        sbx = entry.sbx
+
+        bot_home = f"/home/user/{bot_directory}"
+
+        # Create bot directory. Remove any leftover shared-location files
+        # to prevent old bot data from contaminating new bots.
+        script = (
+            "import os, shutil\n"
+            f"bot_home = {bot_home!r}\n"
+            "os.makedirs(bot_home + '/memory', exist_ok=True)\n"
+            "# Remove leftover shared-location files — each bot starts clean\n"
+            "for fname in ['STRATEGY.md', 'MEMORY.md', 'AGENTS.md']:\n"
+            "    old = f'/home/user/{fname}'\n"
+            "    if os.path.exists(old):\n"
+            "        os.remove(old)\n"
+            "# Clean up legacy shared memory dir\n"
+            "old_mem = '/home/user/memory'\n"
+            "if os.path.exists(old_mem) and old_mem != bot_home + '/memory':\n"
+            "    shutil.rmtree(old_mem, ignore_errors=True)\n"
+        )
+        script_path = "/home/user/.finch_migrate_bot_dir.py"
+        await sbx.files.write(script_path, script)
+        await sbx.commands.run(f"python3 {script_path}", cwd="/home/user", timeout=15)
+    except Exception as e:
+        logger.debug(f"Bot directory setup/migration failed (non-fatal): {e}")
+
+
+async def _sync_bot_docs_from_sandbox(db: AsyncSession, bot: TradingBot) -> None:
+    """Read STRATEGY.md, MEMORY.md, and daily logs from sandbox and sync to bot_files DB."""
+    from modules.tools.implementations.code_execution import (
+        read_sandbox_file,
+        get_or_create_sandbox,
+    )
+
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+
+    # Sync strategy + memory
+    for filename, file_type in [("STRATEGY.md", "strategy"), ("MEMORY.md", "memory")]:
+        try:
+            raw = await read_sandbox_file(bot.user_id, f"{bot_dir}/{filename}")
+            if raw:
+                content = raw.decode("utf-8", errors="replace").strip()
+                if content:
+                    await upsert_bot_file(db, bot.id, filename, content=content, file_type=file_type)
+        except Exception as e:
+            logger.debug(f"Sync {filename} failed (non-fatal): {e}")
+
+    # Sync daily logs (memory/*.md)
+    try:
+        entry = await get_or_create_sandbox(bot.user_id, {})
+        sbx = entry.sbx
+        memory_dir = f"/home/user/{bot_dir}/memory"
+        result = await sbx.commands.run(
+            f"ls {memory_dir}/*.md 2>/dev/null || true",
+            timeout=10,
+        )
+        if result.stdout:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line or not line.endswith(".md"):
+                    continue
+                filename = line.split("/")[-1]
+                try:
+                    raw = await read_sandbox_file(bot.user_id, f"{bot_dir}/memory/{filename}")
+                    if raw:
+                        content = raw.decode("utf-8", errors="replace").strip()
+                        if content:
+                            await upsert_bot_file(db, bot.id, filename, content=content, file_type="log")
+                except Exception as e:
+                    logger.debug(f"Sync log {filename} failed (non-fatal): {e}")
+    except Exception as e:
+        logger.debug(f"Sync daily logs failed (non-fatal): {e}")
 
 
 async def _get_kalshi_client(db: AsyncSession, user_id: str):
@@ -225,7 +342,6 @@ async def _apply_actions(
     execution: BotExecution,
     actions: list[dict],
     config: dict,
-    dry_run: bool,
     kalshi_client,
 ) -> None:
     """Process action dicts from the bot's tick.
@@ -234,7 +350,6 @@ async def _apply_actions(
     - Capital check happens BEFORE any exchange API call
     - Risk limits are checked against actual cost_usd (not just requested amount)
     - Sell verifies position is still open to prevent double-credit
-    - Paper (dry_run) positions are tracked separately and don't affect live capital
     """
     execution_id = str(execution.id)
     risk_limits = config.get("risk_limits", {})
@@ -273,37 +388,33 @@ async def _apply_actions(
                 continue
 
             # Capital check BEFORE placing any order
-            if not dry_run:
-                has_funds = await deduct_capital_for_position(db, bot, cost_usd)
-                if not has_funds:
-                    logger.warning(f"BLOCKED: insufficient capital for ${cost_usd:.2f} order on {market}")
-                    continue
+            has_funds = await deduct_capital_for_position(db, bot, cost_usd)
+            if not has_funds:
+                logger.warning(f"BLOCKED: insufficient capital for ${cost_usd:.2f} order on {market}")
+                continue
 
             # Log the trade attempt
             trade_log = await create_trade_log(
                 db=db, bot=bot, action="buy", market=market, side=side,
                 price=entry_price, quantity=quantity, cost_usd=cost_usd,
-                execution_id=execution_id, dry_run=dry_run,
-                status="dry_run" if dry_run else "executed",
+                execution_id=execution_id,
+                status="executed",
             )
 
-            if dry_run:
-                logger.info(f"[PAPER] Buy {market} {side} x{quantity} @ {entry_price}c (${cost_usd:.2f})")
-            else:
-                if not kalshi_client:
-                    # Refund the capital we just deducted
-                    await credit_capital_for_close(db, bot, cost_usd, 0)
-                    await update_trade_log_status(db, trade_log, "failed", error="No Kalshi client")
-                    continue
-                try:
-                    order_result = await _place_kalshi_order(kalshi_client, market, side, "buy", quantity)
-                    await update_trade_log_status(db, trade_log, "executed", order_response=order_result if isinstance(order_result, dict) else None)
-                except Exception as e:
-                    logger.error(f"Failed to place buy order for {market}: {e}")
-                    # Refund capital on failed order
-                    await credit_capital_for_close(db, bot, cost_usd, 0)
-                    await update_trade_log_status(db, trade_log, "failed", error=str(e))
-                    continue
+            if not kalshi_client:
+                # Refund the capital we just deducted
+                await credit_capital_for_close(db, bot, cost_usd, 0)
+                await update_trade_log_status(db, trade_log, "failed", error="No Kalshi client")
+                continue
+            try:
+                order_result = await _place_kalshi_order(kalshi_client, market, side, "buy", quantity)
+                await update_trade_log_status(db, trade_log, "executed", order_response=order_result if isinstance(order_result, dict) else None)
+            except Exception as e:
+                logger.error(f"Failed to place buy order for {market}: {e}")
+                # Refund capital on failed order
+                await credit_capital_for_close(db, bot, cost_usd, 0)
+                await update_trade_log_status(db, trade_log, "failed", error=str(e))
+                continue
 
             total_spent_this_run += cost_usd
 
@@ -318,14 +429,13 @@ async def _apply_actions(
                     cost_usd=cost_usd,
                     exit_config=ExitConfig(),
                     entered_via=execution_id,
-                    paper=dry_run,
+                    paper=False,
                 )
                 await update_trade_log_status(db, trade_log, trade_log.status, position_id=str(position.id))
             except Exception as e:
                 logger.error(f"Failed to create position for {market}: {e}")
-                # Refund capital if position creation failed (live only)
-                if not dry_run:
-                    await credit_capital_for_close(db, bot, cost_usd, 0)
+                # Refund capital if position creation failed
+                await credit_capital_for_close(db, bot, cost_usd, 0)
 
         elif action_type == "sell":
             position_id = action.get("position_id", "")
@@ -357,29 +467,27 @@ async def _apply_actions(
                 db=db, bot=bot, action="sell", market=pos.market, side=pos.side,
                 price=exit_price, quantity=int(pos.quantity),
                 cost_usd=pos.cost_usd,
-                execution_id=execution_id, dry_run=dry_run,
-                status="dry_run" if dry_run else "executed",
+                execution_id=execution_id,
+                status="executed",
             )
             trade_log.position_id = pos.id
 
-            if not dry_run:
-                if not kalshi_client:
-                    await update_trade_log_status(db, trade_log, "failed", error="No Kalshi client")
-                    continue
-                try:
-                    order_result = await _place_kalshi_order(kalshi_client, pos.market, pos.side, "sell", int(pos.quantity))
-                    await update_trade_log_status(db, trade_log, "executed", order_response=order_result if isinstance(order_result, dict) else None)
-                except Exception as e:
-                    logger.error(f"Failed to place sell order: {e}")
-                    await update_trade_log_status(db, trade_log, "failed", error=str(e))
-                    continue
+            if not kalshi_client:
+                await update_trade_log_status(db, trade_log, "failed", error="No Kalshi client")
+                continue
+            try:
+                order_result = await _place_kalshi_order(kalshi_client, pos.market, pos.side, "sell", int(pos.quantity))
+                await update_trade_log_status(db, trade_log, "executed", order_response=order_result if isinstance(order_result, dict) else None)
+            except Exception as e:
+                logger.error(f"Failed to place sell order: {e}")
+                await update_trade_log_status(db, trade_log, "failed", error=str(e))
+                continue
 
             try:
                 await close_position(db=db, position=pos, exit_price=exit_price, close_reason=reason, closed_via=execution_id)
-                # Return cost + realized P&L to capital balance (live positions only)
-                if not pos.paper:
-                    realized_pnl = (exit_price - pos.entry_price) * pos.quantity
-                    await credit_capital_for_close(db, bot, pos.cost_usd, realized_pnl)
+                # Return cost + realized P&L to capital balance
+                realized_pnl = pos.realized_pnl_usd or 0.0
+                await credit_capital_for_close(db, bot, pos.cost_usd, realized_pnl)
             except Exception as e:
                 logger.error(f"Failed to close position {position_id}: {e}")
 
@@ -417,7 +525,7 @@ async def _place_kalshi_order(kalshi_client, market: str, side: str, action: str
     from kalshi_trading.scripts import kalshi as kalshi_lib
     result = await asyncio.get_event_loop().run_in_executor(
         None,
-        lambda: kalshi_lib.place_order(ticker=market, side=side, action=action, count=count, order_type="market"),
+        lambda: kalshi_lib.post("/portfolio/orders", body={"ticker": market, "side": side, "action": action, "count": count, "type": "market"}),
     )
     return result
 

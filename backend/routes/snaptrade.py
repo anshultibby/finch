@@ -182,7 +182,7 @@ async def toggle_account_visibility(user_id: str, account_id: str, request: dict
         "is_visible": bool
     }
     """
-    from database import SessionLocal
+    from core.database import SessionLocal
     from crud import brokerage_account as brokerage_crud
     
     is_visible = request.get("is_visible", True)

@@ -35,7 +35,7 @@ async def build_custom_etf_impl(
 ) -> AsyncGenerator[SSEEvent | Dict[str, Any], None]:
     """Build a custom ETF portfolio"""
     import httpx
-    from config import Config
+    from core.config import Config
     
     logger.info(f"Building custom ETF with {len(params.tickers)} tickers using {params.weighting_method}")
     

@@ -5,7 +5,7 @@ from crud import chat_async
 
 
 async def cleanup_chat(chat_id: str) -> int:
-    from database import get_db_session
+    from core.database import get_db_session
     async with get_db_session() as db:
         removed = await chat_async.cleanup_incomplete_tool_sequences(db, chat_id)
         return removed

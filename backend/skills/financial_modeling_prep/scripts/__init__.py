@@ -1,4 +1,4 @@
-"""Financial Modeling Prep - See servers/financial_modeling_prep/AGENTS.md for documentation."""
+"""Financial Modeling Prep - See servers/financial_modeling_prep/MEMORY.md for documentation."""
 
 from .api import fmp
 

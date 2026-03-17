@@ -232,56 +232,6 @@ Uses Jina AI Reader which:
 
 
 
-# ============================================================================
-# MEMORY TOOLS
-# ============================================================================
-
-MEMORY_SEARCH_DESC = """Semantically search across all your persistent memory files.
-
-Runs BM25 keyword search over MEMORY.md and all memory/YYYY-MM-DD.md daily logs.
-Returns ranked snippets — the most relevant facts from past sessions.
-
-**Use this at the start of a session when the user's request might relate to prior work:**
-- "analyze X again" → search "X analysis results"
-- "how did that strategy do?" → search "strategy performance backtest"
-- "remember my preferences?" → search "user preferences trading style"
-- Any topic the user has discussed before
-
-**Returns:** list of snippets with source file and relevance score.
-"""
-
-MEMORY_GET_DESC = """Read a specific memory file (or a line range within it).
-
-**Files:**
-- `MEMORY.md` — durable long-term facts and preferences (default)
-- `memory/YYYY-MM-DD.md` — a specific day's running notes
-
-**When to use:**
-- You got a search hit and want to read the full surrounding context
-- You want to review everything stored about a topic
-- Start of session full memory review (read MEMORY.md)
-
-Use memory_search first to find the right file/range, then memory_get to read it.
-"""
-
-MEMORY_WRITE_DESC = """Write a note or fact to persistent memory.
-
-**durable=True → MEMORY.md** (use for):
-- User preferences ("user prefers momentum strategies over mean-reversion")
-- Key decisions ("decided to use 7% trailing stop as default")
-- Important results ("AAPL backtest Jan-Dec 2024: +23% vs +18% buy-and-hold")
-- Recurring context ("user trades Kalshi prediction markets, focuses on political events")
-
-**durable=False (default) → today's daily log**:
-- Today's analysis notes
-- What was researched/found this session
-- Intermediate results worth remembering
-
-**Always write memory when:**
-- User says "remember this"
-- You produce a key insight, backtest result, or strategy outcome
-- You learn something durable about the user's preferences or style
-"""
 
 
 # ============================================================================

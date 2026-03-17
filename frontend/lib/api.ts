@@ -705,6 +705,16 @@ export const botsApi = {
     return response.json();
   },
 
+  async deleteBotFiles(userId: string, botId: string, fileType?: string) {
+    const params = fileType ? `?file_type=${fileType}` : '';
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/files${params}`, {
+      method: 'DELETE',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to delete bot files');
+    return response.json();
+  },
+
   async listBotChats(userId: string, botId: string) {
     const response = await fetch(`${API_BASE_URL}/bots/${botId}/chats`, {
       method: 'GET',

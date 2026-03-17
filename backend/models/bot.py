@@ -141,6 +141,7 @@ class TradeLog(Base):
     price = Column(Float, nullable=True)
     quantity = Column(Integer, nullable=True)
     cost_usd = Column(Float, nullable=True)
+    realized_pnl_usd = Column(Float, nullable=True)
     status = Column(String, nullable=False, default="executed", index=True)
     approval_token = Column(String, nullable=True, index=True)
     approval_method = Column(String, nullable=True)

@@ -45,7 +45,7 @@ Reference any file on the VM in your reply using `[file:/absolute/path]` — the
 **Trading Bots — LLM-driven autonomous trading**
 
 Users create trading bots via the bot card grid on the home screen. Each bot is an autonomous agent that:
-- Has its own mandate (CONTEXT.md), memory (MEMORY.md), and context directory on the sandbox
+- Has its own strategy (STRATEGY.md), operational memory (MEMORY.md), and context directory on the sandbox
 - Runs on a schedule (cron) to scan markets, enter/exit positions
 - Can be chatted with — user can ask "why did you buy X?" and get an answer
 - Has its own budget, positions, and risk limits
@@ -221,45 +221,29 @@ def build_skills_prompt(skill_ids: list[str]) -> str:
 
 MEMORY_PROMPT = """
 <memory>
-You have a persistent memory system backed by files in your sandbox. The model only "remembers"
-what gets written to disk — use the memory tools actively to avoid repeating work.
+You have persistent memory files in your sandbox. You read and write them with `bash` — just like any other file.
 
-**Memory files (source of truth):**
-- `/home/user/MEMORY.md` — durable facts, user preferences, key decisions, important results
-- `/home/user/memory/YYYY-MM-DD.md` — daily append-only logs (today + recent context)
+**Files (all under `/home/user/`):**
+- `STRATEGY.md` — your financial soul: thesis, signals, risk rules, learnings (bot chats only)
+- `MEMORY.md` — short operational rules and learned behaviors
+- `memory/YYYY-MM-DD.md` — daily notes (append-only)
 
-**Two tools for reading memory:**
+Both STRATEGY.md and MEMORY.md are injected into your system prompt at session start, so keep them concise.
 
-`memory_search(query)` — **ALWAYS use this first** when the user's request might relate to prior work.
-Returns ranked snippets across all memory files. Examples:
-- "AAPL strategy backtest results" → finds past backtests, avoids re-running
-- "user trading preferences" → finds established style context
-- "Kalshi political markets analysis" → finds previous research
+**Reading:** `cat /home/user/MEMORY.md`, `cat /home/user/STRATEGY.md`, `grep -r "keyword" /home/user/memory/`
 
-`memory_get(path)` — read a specific file or line range after a search hit.
-- `memory_get(path="MEMORY.md")` — full long-term memory
-- `memory_get(path="memory/2026-03-01.md")` — specific day's notes
+**Writing STRATEGY.md:** Rewrite the entire file when strategy evolves. Use `cat > /home/user/STRATEGY.md << 'EOF' ... EOF`.
 
-**One tool for writing memory:**
+**Writing MEMORY.md:** Append **brief rules** — a bullet or two per entry, not essays.
+```bash
+echo "- never enter markets closing within 2 hours" >> /home/user/MEMORY.md
+```
+Good examples: `- min edge 8% after fees`, `- user prefers half-Kelly sizing`, `- weather markets unreliable below 10% edge`
+Bad examples: multi-paragraph analysis, full trade recaps, verbose explanations. Those go in daily notes instead.
 
-`memory_write(content, durable=True/False)` — write notes to memory.
-- `durable=True` → `MEMORY.md` (lasting facts, results, preferences)
-- `durable=False` → today's daily log (session notes)
+**Writing daily notes:** `echo "- analyzed NHL markets, found 3 candidates" >> /home/user/memory/$(date +%Y-%m-%d).md`
 
-**When to search memory (do this proactively at session start):**
-- User asks about a topic you might have analyzed before → `memory_search`
-- User mentions a ticker, strategy, or market you might have studied → `memory_search`
-- New session — if the request has any context overlap with past work → `memory_search`
-
-**When to write memory:**
-- Backtest results, strategy performance, key data findings → `memory_write(durable=True)`
-- User preferences, risk tolerance, trading style → `memory_write(durable=True)`
-- Today's analysis notes, what was researched → `memory_write(durable=False)`
-- Any time the user says "remember this" → `memory_write(durable=True)`
-
-**The golden rule: if you might do the same analysis again, write it down.**
-Don't fetch the same data, run the same backtest, or do the same research twice.
-Always check memory first.
+**The golden rule:** MEMORY.md = short rules. Daily notes = detailed analysis. STRATEGY.md = complete strategy doc.
 </memory>
 """
 

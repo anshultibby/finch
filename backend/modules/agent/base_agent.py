@@ -219,7 +219,7 @@ class BaseAgent:
                     if not tool_calls:
                         # Emit message_end for content-only response
                         if content:
-                            from models.sse import MessageEndEvent
+                            from schemas.sse import MessageEndEvent
                             yield SSEEvent(
                                 event="message_end",
                                 data=MessageEndEvent(content=content, tool_calls=None).model_dump()
@@ -260,7 +260,7 @@ class BaseAgent:
                     
                     # Emit message_end with tool_calls to signal we're about to execute tools
                     # This eliminates the visual gap between LLM finishing and tools starting
-                    from models.sse import MessageEndEvent
+                    from schemas.sse import MessageEndEvent
                     yield SSEEvent(
                         event="message_end",
                         data=MessageEndEvent(content=content, tool_calls=tool_calls).model_dump()

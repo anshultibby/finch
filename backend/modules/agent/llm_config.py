@@ -133,7 +133,7 @@ class LLMConfig(BaseModel):
         Returns:
             API key for the model's provider
         """
-        from config import Config
+        from core.config import Config
         
         model_lower = model.lower()
         
@@ -184,7 +184,7 @@ class LLMConfig(BaseModel):
                 max_tokens=2000
             )
         """
-        from config import Config
+        from core.config import Config
         
         # Determine model (default to AGENT_LLM_MODEL if not specified)
         selected_model = model or Config.AGENT_LLM_MODEL

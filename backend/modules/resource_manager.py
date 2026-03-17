@@ -103,7 +103,7 @@ class ResourceManager:
         
         Returns: File ID
         """
-        from database import get_db
+        from core.database import get_db
         from crud.chat_files import create_chat_file
         from crud.resource import create_resource
         from services.storage import storage_service
@@ -205,7 +205,7 @@ class ResourceManager:
     
     def read_chat_file(self, user_id: str, chat_id: str, filename: str) -> Optional[str]:
         """Read a file from chat (from database). For text files returns content, for images returns None."""
-        from database import get_db
+        from core.database import get_db
         from crud.chat_files import get_chat_file
         
         db = next(get_db())
@@ -226,7 +226,7 @@ class ResourceManager:
             - image_url: str (for images stored in Supabase)
             - is_image: bool
         """
-        from database import get_db
+        from core.database import get_db
         from crud.chat_files import get_chat_file
         from services.storage import storage_service
         import base64
@@ -278,7 +278,7 @@ class ResourceManager:
     
     def list_chat_files(self, user_id: str, chat_id: str, pattern: str = "*") -> List[Dict[str, str]]:
         """List files in chat (from database)"""
-        from database import get_db
+        from core.database import get_db
         from crud.chat_files import list_chat_files
         
         db = next(get_db())
@@ -309,7 +309,7 @@ class ResourceManager:
     
     def delete_chat_file(self, user_id: str, chat_id: str, filename: str) -> bool:
         """Delete a file from chat (from database and storage)"""
-        from database import get_db
+        from core.database import get_db
         from crud.chat_files import delete_chat_file, get_chat_file
         from services.storage import storage_service
         

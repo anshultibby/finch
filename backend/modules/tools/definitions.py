@@ -19,16 +19,11 @@ from modules.tools.descriptions import (
     BUILD_CUSTOM_ETF_DESC,
     # Web Search
     WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC,
-    # Memory
-    MEMORY_SEARCH_DESC,
-    MEMORY_GET_DESC,
-    MEMORY_WRITE_DESC,
 )
 
 # Import implementations
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
-from modules.tools.implementations import memory as memory_impl
 from modules.tools.implementations import bots as bots_impl
 
 
@@ -187,77 +182,48 @@ def scrape_url(
 
 
 # ============================================================================
-# MEMORY TOOLS
-# ============================================================================
-
-@tool(
-    name="memory_search",
-    description=MEMORY_SEARCH_DESC,
-    category="memory",
-    hidden_from_ui=True,
-)
-async def memory_search(
-    *,
-    query: str,
-    max_results: int = 6,
-    context: AgentContext,
-):
-    """BM25 search over all persistent memory files in the user's sandbox."""
-    params = memory_impl.MemorySearchParams(query=query, max_results=max_results)
-    return await memory_impl.memory_search_impl(params, context)
-
-
-@tool(
-    name="memory_get",
-    description=MEMORY_GET_DESC,
-    category="memory",
-    hidden_from_ui=True,
-)
-async def memory_get(
-    *,
-    path: str = "MEMORY.md",
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
-    context: AgentContext,
-):
-    """Read a specific memory file or line range from the sandbox."""
-    params = memory_impl.MemoryGetParams(path=path, start_line=start_line, end_line=end_line)
-    return await memory_impl.memory_get_impl(params, context)
-
-
-@tool(
-    name="memory_write",
-    description=MEMORY_WRITE_DESC,
-    category="memory",
-    hidden_from_ui=True,
-)
-async def memory_write(
-    *,
-    content: str,
-    durable: bool = False,
-    context: AgentContext,
-):
-    """Write a note to durable memory (MEMORY.md) or today's daily log."""
-    params = memory_impl.MemoryWriteParams(content=content, durable=durable)
-    return await memory_impl.memory_write_impl(params, context)
-
-
-# ============================================================================
 # BOT MANAGEMENT TOOLS
 # ============================================================================
 
 CONFIGURE_BOT_DESC = """Update this bot's settings. All parameters are optional — pass only what you want to change.
 
-Use this to set your name, mandate, capital, and position limits.
+Use this to set your name, capital, and position limits.
 Only available in bot chats."""
 
 APPROVE_BOT_DESC = """Approve this bot for live trading. The bot must be approved before it can trade real money.
 Only available in bot chats."""
 
-RUN_BOT_DESC = """Trigger an immediate bot tick (autonomous run). Use dry_run=True to simulate without placing real orders.
+RUN_BOT_DESC = """Trigger an immediate autonomous tick. Places live orders.
 Only available in bot chats."""
 
-CLOSE_POSITION_DESC = """Close a specific open position by its ID. Returns the exit price and realized P&L.
+PLACE_TRADE_DESC = """Place a trade (buy or sell) with full tracking. This is the ONLY way you should place trades.
+
+**IMPORTANT:** Do NOT use bash/code to place orders directly (e.g. kalshi.post("/portfolio/orders")).
+Always use this tool — it automatically handles tracking, capital, and risk limits.
+
+**Buy:** Opens a new position.
+- action: "buy"
+- market: Market ticker (e.g. "KXNHLGAME-26MAR09OTTVAN-OTT")
+- side: "yes" or "no"
+- count: Number of contracts (default: 1)
+- price: Price in cents (1-99). REQUIRED. Check the market price first and set this to the price you're willing to pay.
+- reason: Brief explanation of why you're trading
+
+**Sell:** Closes an existing position.
+- action: "sell"
+- position_id: ID of the position to close (required for sells)
+- price: Price in cents (1-99). Optional for sells — if omitted, uses current market bid.
+- reason: Why you're exiting
+
+What it does automatically:
+- Checks capital balance and risk limits
+- Places a limit order at your specified price
+- Creates a trade log entry
+- Creates/closes a tracked position
+- Manages capital balance (deduct on buy, credit on sell)
+
+If the bot is not yet approved, trades run in paper (dry-run) mode.
+Use bash for research only (checking markets, prices, events).
 Only available in bot chats."""
 
 
@@ -269,14 +235,13 @@ Only available in bot chats."""
 async def configure_bot(
     *,
     name: Optional[str] = None,
-    mandate: Optional[str] = None,
     capital_usd: Optional[float] = None,
     max_positions: Optional[int] = None,
     context: AgentContext,
 ):
     """Update bot settings."""
     return await bots_impl.configure_bot_impl(
-        context, name=name, mandate=mandate,
+        context, name=name,
         capital_usd=capital_usd, max_positions=max_positions,
     )
 
@@ -296,19 +261,48 @@ async def approve_bot(*, context: AgentContext):
     description=RUN_BOT_DESC,
     category="bot_management",
 )
-async def run_bot(*, dry_run: bool = True, context: AgentContext):
+async def run_bot(*, context: AgentContext):
     """Trigger an immediate bot tick."""
-    return await bots_impl.run_bot_impl(context, dry_run=dry_run)
+    return await bots_impl.run_bot_impl(context)
 
 
 @tool(
-    name="close_position",
-    description=CLOSE_POSITION_DESC,
+    name="place_trade",
+    description=PLACE_TRADE_DESC,
     category="bot_management",
 )
-async def close_position(*, position_id: str, context: AgentContext):
-    """Close a specific open position."""
-    return await bots_impl.close_position_impl(context, position_id=position_id)
+async def place_trade(
+    *,
+    action: str,
+    market: str = "",
+    side: str = "yes",
+    count: int = 1,
+    reason: str = "",
+    price: Optional[int] = None,
+    position_id: Optional[str] = None,
+    context: AgentContext,
+):
+    """Place a trade (buy or sell) with full tracking."""
+    return await bots_impl.place_trade_impl(
+        context, action=action, market=market, side=side, count=count,
+        reason=reason, price=price,
+        position_id=position_id,
+    )
+
+
+LIST_TRADES_DESC = """List your recent trade history. Shows all tracked trades with status, price, P&L.
+Use this to review your performance, check what trades were executed, and analyze patterns.
+Only available in bot chats."""
+
+
+@tool(
+    name="list_trades",
+    description=LIST_TRADES_DESC,
+    category="bot_management",
+)
+async def list_trades(*, limit: int = 20, context: AgentContext):
+    """List recent trades for this bot."""
+    return await bots_impl.list_trades_impl(context, limit=limit)
 
 
 SCHEDULE_WAKEUP_DESC = """Schedule a future wake-up for this bot. When the time comes, a new chat thread
@@ -386,15 +380,12 @@ __all__ = [
     'build_custom_etf',
     # Web Search
     'web_search_tool', 'news_search', 'scrape_url',
-    # Memory
-    'memory_search',
-    'memory_get',
-    'memory_write',
     # Bot Management
     'configure_bot',
     'approve_bot',
     'run_bot',
-    'close_position',
+    'place_trade',
+    'list_trades',
     'schedule_wakeup',
     'list_wakeups_tool',
     'cancel_wakeup_tool',

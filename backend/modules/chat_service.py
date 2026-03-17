@@ -70,7 +70,7 @@ class ChatService:
                 
                 if user_credits is not None and user_credits <= 0:
                     # User has no credits - send error and stop
-                    from models.sse import SSEEvent
+                    from schemas.sse import SSEEvent
                     logger.warning(f"User {user_id} has insufficient credits: {user_credits}")
                     await chat_async.set_chat_processing(db, chat_id, is_processing=False)
                     yield SSEEvent(
@@ -81,7 +81,7 @@ class ChatService:
                     return
                 
                 # Send immediate acknowledgment so frontend knows connection is alive
-                from models.sse import SSEEvent, ThinkingEvent
+                from schemas.sse import SSEEvent, ThinkingEvent
                 yield SSEEvent(
                     event="thinking",
                     data=ThinkingEvent(message="Processing your message...").model_dump()
@@ -334,6 +334,17 @@ class ChatService:
                 
                 LLMHandler.finalize_session(chat_id)
 
+                # Sync STRATEGY.md and MEMORY.md from sandbox to bot_files DB
+                # (so frontend can display them without waking the sandbox)
+                if bot_context and db_chat and getattr(db_chat, 'bot_id', None):
+                    try:
+                        await self._sync_bot_docs_from_sandbox(
+                            db, str(db_chat.bot_id), user_id,
+                            bot_directory=bot_context.get("bot_directory", ""),
+                        )
+                    except Exception as e:
+                        logger.debug(f"Bot doc sync failed (non-fatal): {e}")
+
                 # Run compaction if the history has grown too large.
                 # This persists a summary row to the DB so future turns start lean.
                 from .agent.compactor import maybe_compact
@@ -350,6 +361,26 @@ class ChatService:
                 
                 logger.info("Chat turn complete - all messages saved incrementally")
     
+    async def _sync_bot_docs_from_sandbox(self, db, bot_id: str, user_id: str, bot_directory: str = "") -> None:
+        """Read STRATEGY.md and MEMORY.md from the sandbox and sync to bot_files DB.
+
+        Called at the end of each bot chat session while the sandbox is still hot.
+        This lets the frontend display the docs without waking the sandbox.
+        """
+        from modules.tools.implementations.code_execution import read_sandbox_file
+        from crud.bots import upsert_bot_file
+
+        for filename, file_type in [("STRATEGY.md", "strategy"), ("MEMORY.md", "memory")]:
+            try:
+                path = f"{bot_directory}/{filename}" if bot_directory else filename
+                raw = await read_sandbox_file(user_id, path)
+                if raw:
+                    content = raw.decode("utf-8", errors="replace").strip()
+                    if content:
+                        await upsert_bot_file(db, bot_id, filename, content=content, file_type=file_type)
+            except Exception as e:
+                logger.debug(f"Sync {filename} failed (non-fatal): {e}")
+
     async def _build_bot_context(self, db, bot_id: str, user_id: str) -> dict:
         """Load bot data and API connection status to build bot-specific agent context."""
         from crud.bots import get_bot, get_bot_files, get_open_positions, list_positions, list_executions
@@ -362,15 +393,47 @@ class ChatService:
 
         config = bot.config or {}
 
-        # Load context files
+        # Ensure bot has its own sandbox directory (migrate legacy files on first run)
+        bot_dir = bot.directory or f"bots/{bot_id[:8]}"
+        from modules.bots.executor import ensure_bot_directory
+        await ensure_bot_directory(user_id, bot_dir)
+
+        # Load context files from DB (bot_files is the synced mirror)
         files = await get_bot_files(db, bot_id)
-        mandate = config.get("mandate", "")
+        strategy_md = ""
         memory_md = ""
         for f in files:
-            if f.filename == "CONTEXT.md" or f.file_type == "context":
-                mandate = f.content or mandate
+            if f.filename == "STRATEGY.md" or f.file_type == "strategy":
+                strategy_md = f.content or ""
             elif f.filename == "MEMORY.md" or f.file_type == "memory":
-                memory_md = f.content
+                memory_md = f.content or ""
+            # Legacy fallbacks
+            elif f.filename == "CONTEXT.md" or f.file_type == "context":
+                strategy_md = strategy_md or (f.content or "")
+            elif f.filename == "AGENTS.md" or f.file_type == "agents":
+                memory_md = memory_md or (f.content or "")
+
+        # Legacy: fall back to config.mandate if no STRATEGY.md file exists yet
+        if not strategy_md:
+            strategy_md = config.get("mandate", "")
+
+        # Bootstrap from sandbox if not in DB (source of truth is sandbox files)
+        bot_dir = bot.directory or f"bots/{bot_id[:8]}"
+        from modules.tools.implementations.code_execution import read_sandbox_file
+        if not strategy_md:
+            try:
+                raw = await read_sandbox_file(user_id, f"{bot_dir}/STRATEGY.md")
+                if raw:
+                    strategy_md = raw.decode("utf-8", errors="replace").strip()
+            except Exception:
+                pass
+        if not memory_md:
+            try:
+                raw = await read_sandbox_file(user_id, f"{bot_dir}/MEMORY.md")
+                if raw:
+                    memory_md = raw.decode("utf-8", errors="replace").strip()
+            except Exception:
+                pass
 
         # Load positions
         open_positions = await get_open_positions(db, bot_id)
@@ -416,7 +479,8 @@ class ChatService:
         return {
             "bot_name": bot.name,
             "bot_id": bot_id,
-            "mandate": mandate,
+            "bot_directory": bot.directory or f"bots/{bot_id[:8]}",
+            "strategy_md": strategy_md,
             "memory_md": memory_md,
             "positions_json": positions_json,
             "recent_ticks_summary": recent_ticks,

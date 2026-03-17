@@ -165,15 +165,15 @@ class Settings(BaseSettings):
             'replace_in_chat_file',
             # Domain tools
             'build_custom_etf',
-            # Memory
-            'memory_search',
-            'memory_get',
-            'memory_write',
             # Bot Management (only functional in bot chats)
             'configure_bot',
             'approve_bot',
             'run_bot',
-            'close_position',
+            'place_trade',
+            'list_trades',
+            'schedule_wakeup',
+            'list_wakeups',
+            'cancel_wakeup',
         ],
         description="All agent tools"
     )

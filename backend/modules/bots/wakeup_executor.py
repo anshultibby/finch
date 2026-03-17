@@ -3,7 +3,7 @@ Wakeup Executor — runs a bot wakeup as a full agent chat.
 
 When a scheduled wakeup fires:
   1. Creates a bot-scoped chat thread
-  2. Builds bot context (mandate, positions, memory, etc.)
+  2. Builds bot context (strategy, positions, operational memory, etc.)
   3. Injects wakeup reason into the system prompt
   4. Runs the full LLM agent loop (same as user chat)
   5. All messages are saved to the chat (visible in UI)
@@ -35,8 +35,8 @@ async def execute_wakeup(db: AsyncSession, wakeup: BotWakeup) -> str:
     from modules.chat_service import ChatService
     from modules.agent.agent_config import create_agent
     from modules.agent.context import AgentContext, generate_agent_id, register_context, unregister_context
-    from models.chat_history import ChatHistory
-    from config import Config
+    from schemas.chat_history import ChatHistory
+    from core.config import Config
 
     bot = await get_bot(db, wakeup.bot_id, wakeup.user_id)
     if not bot:

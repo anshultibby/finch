@@ -1,4 +1,4 @@
-"""Polygon.io - See servers/polygon_io/AGENTS.md for documentation."""
+"""Polygon.io - See servers/polygon_io/MEMORY.md for documentation."""
 
 from .api import polygon
 

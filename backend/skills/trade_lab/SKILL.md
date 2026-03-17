@@ -1,6 +1,6 @@
 ---
 name: trade_lab
-description: Playbook for developing prediction market trading strategies. Each bot maintains a strategy.md that defines its thesis, signal, and rules — and evolves it based on trade outcomes. Use when a user brings a trade idea, wants to backtest, or when reviewing bot performance.
+description: Playbook for developing prediction market trading strategies. Each bot maintains a STRATEGY.md (its financial soul) and an MEMORY.md (its operational memory). Use when a user brings a trade idea, wants to backtest, or when reviewing bot performance.
 metadata:
   emoji: "🧪"
   category: trading
@@ -12,18 +12,22 @@ metadata:
 
 Each bot has **one strategy**. One thesis, one edge, one focused approach.
 
-The strategy lives in `strategy.md` — a file the bot creates, follows, and evolves
-based on what it learns from real trades.
+The bot has two core documents:
+- **STRATEGY.md** — the bot's financial soul. Stored via `configure_bot(mandate=...)`.
+  Defines thesis, signal, risk rules, and learnings. Evolves during brainstorming,
+  backtesting, and trade reviews.
+- **MEMORY.md** — the bot's operational memory. Stored via `memory_write(durable=True)`.
+  Captures learned behaviors, user preferences, and operating rules.
 
 If a user tries to add a second unrelated idea to a bot, suggest they create a new bot
 for it. Each bot should be a clean experiment around a single thesis.
 
 ---
 
-## strategy.md
+## STRATEGY.md
 
-Every bot should create and maintain a `strategy.md` file. This is the bot's brain —
-it reads this before every tick and updates it as it learns.
+Every bot's strategy is stored in its mandate (via `configure_bot(mandate=...)`).
+This is the bot's financial soul — it reads this before every tick and evolves it continuously.
 
 ### Template
 
@@ -56,15 +60,16 @@ it reads this before every tick and updates it as it learns.
 - Adjustment: [specific change made to Signal or Risk Rules above]
 ```
 
-### How it evolves
+### When STRATEGY.md evolves
 
-The strategy.md is a **versioned, living document**:
+STRATEGY.md is a **living document that evolves continuously** — not just after trades:
 
-1. **v1**: Bot creates it during setup based on user's idea + backtest results
-2. **After first 20 trades**: Bot reviews outcomes, adds first Learnings entry,
-   may adjust Signal or Risk Rules
-3. **Ongoing**: Every ~20 trades, bot adds another Learnings entry and refines
-   the strategy based on patterns
+1. **During brainstorming** — as the user discusses ideas, refine the thesis and signal
+2. **After research** — when you discover new data or market patterns, sharpen the signal
+3. **After backtesting** — update with concrete parameters that worked (edge thresholds, filters)
+4. **During paper trading** — adjust based on live execution observations
+5. **After every ~20 live trades** — structured review: add Learnings entry, tighten rules
+6. **When the user gives feedback** — incorporate their input into the strategy
 
 The Signal section should get more specific over time. Start with a rough thesis,
 then tighten it as data shows what actually works.
@@ -89,13 +94,13 @@ Turn vague ideas into specific claims. "Sports underdogs are undervalued" become
 Test the thesis against resolved markets using the Kalshi historical API.
 
 ```python
-from kalshi_trading.scripts.kalshi import get_historical_markets
+from kalshi_trading.scripts.kalshi import get as kalshi_get
 
 # Fetch resolved markets
 all_markets = []
 cursor = None
 for _ in range(5):
-    r = get_historical_markets(limit=100, series_ticker="KXNHLGAME", cursor=cursor)
+    r = kalshi_get("/historical/markets", {"limit": 100, "series_ticker": "KXNHLGAME", "cursor": cursor} if cursor else {"limit": 100, "series_ticker": "KXNHLGAME"})
     all_markets.extend(r.get("markets", []))
     cursor = r.get("cursor")
     if not cursor:
@@ -132,20 +137,22 @@ print(f"{wins}W/{losses}L  Win rate: {wins/(wins+losses):.0%}  P&L: ${total_pnl:
 
 **If backtest fails:** Drop it. Don't tweak until you find a lucky fit. Go back to step 1.
 
-### 3. Write strategy.md
+### 3. Write STRATEGY.md
 
-If the backtest looks good, create the strategy.md with:
+If the backtest looks good, save the strategy via `configure_bot(mandate=...)` with:
 - The thesis (what you tested)
 - The signal (the specific rules from the backtest that worked)
 - Risk rules (conservative — start small)
 - Backtest results as the first Learnings entry
+
+Also save setup decisions to MEMORY.md via `memory_write(durable=True)`.
 
 ### 4. Paper Trade
 
 Run the bot with paper positions. Validate for 20-30 trades that:
 - The signal works on live data, not just historical
 - Execution is realistic (spreads, liquidity)
-- The bot correctly follows strategy.md
+- The bot correctly follows STRATEGY.md
 
 ### 5. Go Live
 
@@ -173,12 +180,14 @@ Compare last 20 trades vs backtest baseline:
 - Drawdown exceeding backtest max? Regime change.
 - Profit factor < 1? Stop and investigate.
 
-**d) Update strategy.md:**
+**d) Update STRATEGY.md:**
 Add a new Learnings entry. If patterns are clear, update the Signal or Risk Rules
-sections directly. The strategy.md should get sharper with every review cycle.
+sections directly via `configure_bot(mandate=...)`. The strategy should get sharper
+with every review cycle.
 
-**e) Save to memory:**
-Write a brief summary to MEMORY.md so it persists across sessions.
+**e) Update MEMORY.md:**
+Save operational learnings via `memory_write(durable=True)` — behavioral rules,
+things to avoid, patterns discovered. This persists across sessions.
 
 ### The Loop
 
@@ -187,7 +196,8 @@ Trade 20 times
     ↓
 Review: calibration + loss autopsy + drift check
     ↓
-Update strategy.md (tighten signal, adjust rules)
+Update STRATEGY.md (tighten signal, adjust rules)
+Update MEMORY.md (operational learnings)
     ↓
 Trade 20 more times with updated rules
     ↓
@@ -196,7 +206,7 @@ Review again: did the adjustments help?
 Repeat — each cycle the strategy gets sharper
 ```
 
-The bot should **read past Learnings before every tick**. The whole point is to
+The bot should **read MEMORY.md before every tick**. The whole point is to
 not repeat mistakes. If "thin edge" was identified as a problem and the fix was
 "raise threshold to 8%", the bot must actually apply that going forward.
 

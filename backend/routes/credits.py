@@ -68,7 +68,7 @@ async def get_credit_balance(user_id: str):
     try:
         async with get_db_session() as db:
             from sqlalchemy import select
-            from models.db import SnapTradeUser
+            from models.user import SnapTradeUser
             
             result = await db.execute(
                 select(SnapTradeUser.credits, SnapTradeUser.total_credits_used)

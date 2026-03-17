@@ -28,9 +28,9 @@ _MEMORY_FLUSH_SYSTEM = (
     "Your job is to write any durable facts, decisions, or results to memory BEFORE context is lost."
 )
 _MEMORY_FLUSH_PROMPT = (
-    "Before this session is compacted, write any lasting notes:\n"
-    "- Key decisions, backtest results, strategy outcomes → memory_write with durable=True\n"
-    "- Today's analysis notes → memory_write with durable=False\n\n"
+    "Before this session is compacted, save any lasting notes using bash:\n"
+    "- Brief operational rules → append to MEMORY.md: echo \"- rule\" >> /home/user/MEMORY.md\n"
+    "- Today's analysis notes → echo \"- note\" >> /home/user/memory/$(date +%%Y-%%m-%%d).md\n\n"
     "If there is nothing new worth persisting, call idle immediately. "
     "Do NOT reply to the user — this is a silent background operation."
 )
@@ -64,7 +64,7 @@ async def _run_memory_flush(chat_id: str, user_id: str, skill_ids: list, db) -> 
     The user never sees this turn — we consume the stream and discard events.
     """
     from crud import chat_async
-    from models.chat_history import ChatHistory
+    from schemas.chat_history import ChatHistory
     from modules.agent.agent_config import create_agent
     from modules.agent.context import AgentContext, generate_agent_id
 
@@ -119,7 +119,7 @@ async def maybe_compact(
         return False
 
     from crud import chat_async
-    from models.chat_history import ChatHistory
+    from schemas.chat_history import ChatHistory
 
     db_messages = await chat_async.get_chat_messages(db, chat_id)
     if not db_messages:

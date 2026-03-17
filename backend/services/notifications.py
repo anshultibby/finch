@@ -42,7 +42,6 @@ async def send_trade_confirmation_sms(
     quantity: int,
     price: float,
     cost_usd: float,
-    dry_run: bool = False,
 ) -> bool:
     """Send SMS asking user to approve/reject a trade. Returns True if sent."""
     phone = os.getenv("NOTIFICATION_PHONE")
@@ -58,9 +57,8 @@ async def send_trade_confirmation_sms(
     approve_url = f"{APP_BASE_URL}/api/trades/approve/{token}"
     reject_url = f"{APP_BASE_URL}/api/trades/reject/{token}"
 
-    prefix = "[PAPER] " if dry_run else ""
     body = (
-        f"{prefix}{bot_name} wants to {action.upper()}:\n"
+        f"{bot_name} wants to {action.upper()}:\n"
         f"{market}\n"
         f"Side: {side} | Qty: {quantity} | Price: {price}c\n"
         f"Cost: ${cost_usd:.2f}\n\n"
@@ -90,7 +88,6 @@ async def send_trade_confirmation_email(
     quantity: int,
     price: float,
     cost_usd: float,
-    dry_run: bool = False,
 ) -> bool:
     """Send email asking user to approve/reject a trade. Returns True if sent."""
     to_email = os.getenv("NOTIFICATION_EMAIL")
@@ -111,10 +108,9 @@ async def send_trade_confirmation_email(
     approve_url = f"{APP_BASE_URL}/api/trades/approve/{token}"
     reject_url = f"{APP_BASE_URL}/api/trades/reject/{token}"
 
-    prefix = "[PAPER] " if dry_run else ""
-    subject = f"{prefix}{bot_name}: Confirm {action.upper()} {market}"
+    subject = f"{bot_name}: Confirm {action.upper()} {market}"
     html = f"""
-    <h2>{prefix}{bot_name} wants to {action.upper()}</h2>
+    <h2>{bot_name} wants to {action.upper()}</h2>
     <table style="border-collapse:collapse;">
       <tr><td style="padding:4px 12px;font-weight:bold;">Market</td><td style="padding:4px 12px;">{market}</td></tr>
       <tr><td style="padding:4px 12px;font-weight:bold;">Side</td><td style="padding:4px 12px;">{side}</td></tr>
@@ -150,7 +146,6 @@ async def send_trade_notification(
     quantity: int,
     price: float,
     cost_usd: float,
-    dry_run: bool = False,
 ) -> str:
     """Try SMS first, fall back to email. Returns the method used or 'none'."""
     kwargs = dict(
@@ -162,7 +157,6 @@ async def send_trade_notification(
         quantity=quantity,
         price=price,
         cost_usd=cost_usd,
-        dry_run=dry_run,
     )
     if await send_trade_confirmation_sms(**kwargs):
         return "sms"

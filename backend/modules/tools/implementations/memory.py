@@ -3,7 +3,7 @@ Memory Tools Implementation
 
 Provides agent-facing tools for reading and searching persistent memory files
 stored in the user's E2B sandbox at:
-  /home/user/MEMORY.md          - durable long-term memory
+  /home/user/MEMORY.md            - durable operational memory (learned behaviors, decisions, preferences)
   /home/user/memory/YYYY-MM-DD.md - daily append-only logs
 
 memory_get  — targeted read of a specific memory file (or line range)
@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 
 WORKSPACE_DIR = "/home/user"
 MEMORY_FILE = f"{WORKSPACE_DIR}/MEMORY.md"
+STRATEGY_FILE = f"{WORKSPACE_DIR}/STRATEGY.md"
 MEMORY_DIR = f"{WORKSPACE_DIR}/memory"
 
 # ---------------------------------------------------------------------------
@@ -37,7 +38,7 @@ MEMORY_DIR = f"{WORKSPACE_DIR}/memory"
 class MemoryGetParams(BaseModel):
     path: str = Field(
         description=(
-            "Memory file to read. Either 'MEMORY.md' for long-term memory "
+            "Memory file to read. Either 'MEMORY.md' for durable operational memory "
             "or 'memory/YYYY-MM-DD.md' for a daily log. "
             "Defaults to 'MEMORY.md'."
         ),
@@ -73,7 +74,7 @@ class MemoryWriteParams(BaseModel):
     durable: bool = Field(
         default=False,
         description=(
-            "If True, write to MEMORY.md (durable long-term facts, preferences, key decisions). "
+            "If True, write to MEMORY.md (durable operational memory — learned behaviors, decisions, preferences). "
             "If False (default), write to today's daily log memory/YYYY-MM-DD.md."
         ),
     )
@@ -176,6 +177,7 @@ from collections import defaultdict
 
 WORKSPACE = "/home/user"
 MEMORY_FILE = f"{WORKSPACE}/MEMORY.md"
+STRATEGY_FILE = f"{WORKSPACE}/STRATEGY.md"
 MEMORY_DIR  = f"{WORKSPACE}/memory"
 CHUNK_TOKENS = 400
 OVERLAP      = 80
@@ -195,6 +197,8 @@ def chunk_text(text, source):
 
 def collect_chunks():
     chunks = []
+    if os.path.exists(STRATEGY_FILE):
+        chunks += chunk_text(Path(STRATEGY_FILE).read_text(errors="replace"), "STRATEGY.md")
     if os.path.exists(MEMORY_FILE):
         chunks += chunk_text(Path(MEMORY_FILE).read_text(errors="replace"), "MEMORY.md")
     if os.path.exists(MEMORY_DIR):
@@ -368,8 +372,97 @@ print(target)
             return {"success": False, "error": (result.stderr or "")[:300]}
 
         target = (result.stdout or "").strip()
+
+        # Sync memory to bot_files DB so it appears in system prompt & frontend
+        bot_id = (context.data or {}).get("bot_id")
+        if bot_id:
+            try:
+                from core.database import get_db_session
+                from crud.bots import upsert_bot_file
+
+                if params.durable:
+                    # Sync MEMORY.md (durable operational memory)
+                    full_content = await sbx.files.read(MEMORY_FILE, format="text")
+                    if full_content:
+                        async with get_db_session() as db:
+                            await upsert_bot_file(
+                                db, bot_id, "MEMORY.md",
+                                content=full_content, file_type="memory",
+                            )
+                        logger.debug(f"Synced MEMORY.md to bot_files for bot {bot_id}")
+                else:
+                    # Sync daily log to bot_files (file_type="log")
+                    from datetime import datetime
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    log_filename = f"{today}.md"
+                    log_path = f"{MEMORY_DIR}/{log_filename}"
+                    full_content = await sbx.files.read(log_path, format="text")
+                    if full_content:
+                        async with get_db_session() as db:
+                            await upsert_bot_file(
+                                db, bot_id, log_filename,
+                                content=full_content, file_type="log",
+                            )
+                        logger.debug(f"Synced {log_filename} to bot_files for bot {bot_id}")
+            except Exception as e:
+                logger.debug(f"Memory sync to bot_files failed (non-fatal): {e}")
+
         return {"success": True, "target": target or ("MEMORY.md" if params.durable else "memory/<today>.md")}
 
     except Exception as exc:
         logger.warning(f"memory_write failed for user {context.user_id}: {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Pydantic params for strategy_write
+# ---------------------------------------------------------------------------
+
+class StrategyWriteParams(BaseModel):
+    content: str = Field(
+        description="The full STRATEGY.md content to write. This REPLACES the entire file — always pass the complete strategy."
+    )
+
+
+# ---------------------------------------------------------------------------
+# strategy_write implementation
+# ---------------------------------------------------------------------------
+
+async def strategy_write_impl(
+    params: StrategyWriteParams,
+    context: AgentContext,
+) -> Dict[str, Any]:
+    """Write the full STRATEGY.md to the sandbox and sync to bot_files."""
+    from modules.tools.implementations.code_execution import (
+        get_or_create_sandbox,
+        _build_sandbox_env,
+    )
+
+    try:
+        envs = await _build_sandbox_env(context)
+        entry = await get_or_create_sandbox(context.user_id, envs)
+        sbx = entry.sbx
+
+        # Write the full file (replace, not append)
+        await sbx.files.write(STRATEGY_FILE, params.content)
+
+        # Sync to bot_files DB
+        bot_id = (context.data or {}).get("bot_id")
+        if bot_id:
+            try:
+                from core.database import get_db_session
+                from crud.bots import upsert_bot_file
+                async with get_db_session() as db:
+                    await upsert_bot_file(
+                        db, bot_id, "STRATEGY.md",
+                        content=params.content, file_type="strategy",
+                    )
+                logger.debug(f"Synced STRATEGY.md to bot_files for bot {bot_id}")
+            except Exception as e:
+                logger.debug(f"STRATEGY.md sync to bot_files failed (non-fatal): {e}")
+
+        return {"success": True, "target": "STRATEGY.md", "length": len(params.content)}
+
+    except Exception as exc:
+        logger.warning(f"strategy_write failed for user {context.user_id}: {exc}")
         return {"success": False, "error": str(exc)}
