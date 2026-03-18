@@ -2,7 +2,7 @@
 CRUD operations for Trading Bots.
 """
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import uuid
 import logging
 import re
@@ -74,7 +74,6 @@ async def create_bot(
         icon=request.icon,
         directory=directory,
         enabled=False,
-        approved=False,
         config=config,
         stats=BotStats().model_dump(mode="json"),
     )
@@ -150,26 +149,6 @@ async def update_bot(
     await db.commit()
     await db.refresh(bot)
     logger.info(f"Updated bot {bot_id}")
-    return bot
-
-
-async def approve_bot(
-    db: AsyncSession,
-    bot_id: str,
-    user_id: str,
-) -> Optional[TradingBot]:
-    bot = await get_bot(db, bot_id, user_id)
-    if not bot:
-        return None
-
-    bot.approved = True
-    config = dict(bot.config or {})
-    config["approved_at"] = datetime.now(timezone.utc).isoformat()
-    bot.config = config
-
-    await db.commit()
-    await db.refresh(bot)
-    logger.info(f"Approved bot {bot_id}")
     return bot
 
 
@@ -382,15 +361,6 @@ async def get_execution(
         query = query.where(BotExecution.user_id == user_id)
     result = await db.execute(query)
     return result.scalars().first()
-
-
-async def get_due_bots(db: AsyncSession) -> List[TradingBot]:
-    """Return all enabled+approved bots (scheduler handles timing)."""
-    query = select(TradingBot).where(
-        and_(TradingBot.enabled == True, TradingBot.approved == True)
-    )
-    result = await db.execute(query)
-    return list(result.scalars().all())
 
 
 # ============================================================================
@@ -764,8 +734,18 @@ async def create_wakeup(
     reason: str,
     trigger_type: str = "custom",
     context: Optional[dict] = None,
+    recurrence: Optional[str] = None,
+    message: Optional[str] = None,
 ) -> BotWakeup:
-    """Schedule a future wakeup for a bot."""
+    """Schedule a future wakeup for a bot.
+
+    Args:
+        recurrence: Cron-like interval (e.g. "every_30m", "every_1h", "every_4h",
+                    "daily_9am"). When set, the scheduler auto-creates the next
+                    occurrence after each trigger.
+        message: Custom message/instruction sent to the bot when the wakeup fires.
+                 If not set, defaults to "Wakeup triggered. Proceed."
+    """
     wakeup = BotWakeup(
         bot_id=bot_id,
         user_id=user_id,
@@ -774,12 +754,53 @@ async def create_wakeup(
         reason=reason,
         context=context or {},
         status="pending",
+        recurrence=recurrence,
+        message=message,
     )
     db.add(wakeup)
     await db.commit()
     await db.refresh(wakeup)
-    logger.info(f"Scheduled wakeup for bot {bot_id} at {trigger_at}: {reason[:80]}")
+    logger.info(f"Scheduled wakeup for bot {bot_id} at {trigger_at}: {reason[:80]}"
+                + (f" (recurrence={recurrence})" if recurrence else ""))
     return wakeup
+
+
+def compute_next_trigger(recurrence: str, from_time: datetime) -> Optional[datetime]:
+    """Compute the next trigger time from a recurrence pattern.
+
+    Supported patterns:
+      every_Nm  — every N minutes (e.g. every_30m)
+      every_Nh  — every N hours   (e.g. every_4h)
+      daily_HAM/PM — daily at a specific hour (e.g. daily_9am, daily_2pm)
+    """
+    if not recurrence:
+        return None
+
+    # every_Nm
+    m = re.match(r"every_(\d+)m$", recurrence)
+    if m:
+        return from_time + timedelta(minutes=int(m.group(1)))
+
+    # every_Nh
+    m = re.match(r"every_(\d+)h$", recurrence)
+    if m:
+        return from_time + timedelta(hours=int(m.group(1)))
+
+    # daily_Ham or daily_Hpm (e.g. daily_9am, daily_2pm)
+    m = re.match(r"daily_(\d{1,2})(am|pm)$", recurrence)
+    if m:
+        hour = int(m.group(1))
+        if m.group(2) == "pm" and hour != 12:
+            hour += 12
+        elif m.group(2) == "am" and hour == 12:
+            hour = 0
+        next_time = from_time.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if next_time <= from_time:
+            next_time += timedelta(days=1)
+        return next_time
+
+    logger.warning(f"Unknown recurrence pattern: {recurrence}")
+    return None
 
 
 async def get_due_wakeups(db: AsyncSession) -> List[BotWakeup]:

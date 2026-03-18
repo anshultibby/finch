@@ -1,5 +1,5 @@
 """
-Bot management tool implementations — configure_bot, approve_bot, run_bot, close_position.
+Bot management tool implementations — configure_bot, schedule_wakeup, place_trade, etc.
 
 These tools are only functional when the agent is running in a bot-scoped chat
 (i.e. context.data["bot_id"] is set). They call the CRUD layer directly.
@@ -65,71 +65,28 @@ async def configure_bot_impl(
         }
 
 
-async def approve_bot_impl(context: AgentContext) -> Dict[str, Any]:
-    """Mark bot as approved for live trading."""
-    from core.database import get_db_session
-    from crud.bots import get_bot, update_bot
-
-    bot_id = _get_bot_id(context)
-    user_id = context.user_id
-
-    async with get_db_session() as db:
-        bot = await get_bot(db, bot_id, user_id)
-        if not bot:
-            return {"success": False, "error": "Bot not found"}
-        if bot.approved:
-            return {"success": True, "message": "Bot is already approved"}
-
-        bot = await update_bot(db, bot_id, user_id, {"approved": True, "enabled": True})
-        return {
-            "success": True,
-            "message": f"Bot '{bot.name}' approved and enabled for live trading.",
-        }
-
-
-async def run_bot_impl(context: AgentContext) -> Dict[str, Any]:
-    """Trigger an immediate bot tick."""
-    from core.database import get_db_session
-    from crud.bots import get_bot
-    from modules.bots.executor import execute_bot_tick
-
-    bot_id = _get_bot_id(context)
-    user_id = context.user_id
-
-    async with get_db_session() as db:
-        bot = await get_bot(db, bot_id, user_id)
-        if not bot:
-            return {"success": False, "error": "Bot not found"}
-
-        execution = await execute_bot_tick(db, bot, trigger="manual")
-        data = execution.data or {}
-        return {
-            "success": execution.status == "success",
-            "execution_id": str(execution.id),
-            "status": execution.status,
-            "summary": data.get("summary"),
-            "actions_count": len(data.get("actions", [])),
-            "error": data.get("error"),
-        }
-
-
 async def schedule_wakeup_impl(
     context: AgentContext,
     trigger_at: str,
     reason: str,
     trigger_type: str = "custom",
     position_id: Optional[str] = None,
+    recurrence: Optional[str] = None,
+    message: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Schedule a future wakeup for this bot."""
+    """Schedule a future wakeup for this bot, optionally recurring."""
     from core.database import get_db_session
-    from crud.bots import create_wakeup
+    from crud.bots import create_wakeup, compute_next_trigger
     from datetime import datetime, timezone
 
     bot_id = _get_bot_id(context)
     user_id = context.user_id
 
+    # Validate recurrence pattern by checking if compute_next_trigger can parse it
+    if recurrence and compute_next_trigger(recurrence, datetime.now(timezone.utc)) is None:
+        return {"success": False, "error": f"Invalid recurrence '{recurrence}'. Use: every_30m, every_1h, every_4h, daily_9am, daily_2pm, etc."}
+
     try:
-        # Parse ISO datetime
         dt = datetime.fromisoformat(trigger_at.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -152,14 +109,24 @@ async def schedule_wakeup_impl(
             reason=reason,
             trigger_type=trigger_type,
             context=wakeup_context,
+            recurrence=recurrence,
+            message=message,
         )
-        return {
+        summary = f"Wake-up scheduled for {dt.strftime('%B %d, %Y at %H:%M UTC')}"
+        if recurrence:
+            summary += f" (recurring: {recurrence})"
+        result = {
             "success": True,
             "wakeup_id": str(wakeup.id),
             "trigger_at": dt.isoformat(),
             "reason": reason,
-            "message": f"Wake-up scheduled for {dt.strftime('%B %d, %Y at %H:%M UTC')}",
+            "summary": summary,
         }
+        if recurrence:
+            result["recurrence"] = recurrence
+        if message:
+            result["message"] = message
+        return result
 
 
 async def list_wakeups_impl(context: AgentContext) -> Dict[str, Any]:
@@ -181,6 +148,8 @@ async def list_wakeups_impl(context: AgentContext) -> Dict[str, Any]:
                     "trigger_type": w.trigger_type,
                     "reason": w.reason,
                     "context": w.context,
+                    "recurrence": w.recurrence,
+                    "message": w.message,
                 }
                 for w in wakeups
             ],
@@ -293,7 +262,7 @@ async def _execute_buy(
     capital = config.get("capital") or {}
 
     # --- Get market data (for title/event_ticker only) ---
-    client = await _get_platform_client(db, user_id, platform)
+    client = await get_platform_client(db, user_id, platform)
     if not client and not is_paper:
         return {"success": False, "error": f"No {platform} credentials configured."}
 
@@ -301,7 +270,7 @@ async def _execute_buy(
     event_ticker = ""
     if client:
         try:
-            mkt_data = await _fetch_market_data(client, platform, market)
+            mkt_data = await fetch_market_data(client, platform, market)
             market_title = mkt_data.get("title", "")
             event_ticker = mkt_data.get("event_ticker", "")
         except Exception as e:
@@ -394,7 +363,7 @@ async def _execute_sell(
         return {"success": False, "error": "Position is already closed"}
 
     # --- Get exit price ---
-    client = await _get_platform_client(db, user_id, platform)
+    client = await get_platform_client(db, user_id, platform)
     if price is not None:
         exit_price = price
     elif client:
@@ -499,7 +468,7 @@ async def list_trades_impl(context: AgentContext, limit: int = 20) -> Dict[str, 
 # Currently only Kalshi is supported. To add Polymarket/Alpaca, add elif branches.
 # ---------------------------------------------------------------------------
 
-async def _get_platform_client(db, user_id: str, platform: str):
+async def get_platform_client(db, user_id: str, platform: str):
     """Get an authenticated client for the given platform."""
     if platform == "kalshi":
         return await _get_kalshi_client(db, user_id)
@@ -508,7 +477,7 @@ async def _get_platform_client(db, user_id: str, platform: str):
     return None
 
 
-async def _fetch_market_data(client, platform: str, market: str) -> dict:
+async def fetch_market_data(client, platform: str, market: str) -> dict:
     """Fetch market data (price, title, etc.) from the platform."""
     if platform == "kalshi":
         return await _fetch_kalshi_market(client, market)

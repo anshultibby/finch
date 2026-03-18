@@ -86,6 +86,10 @@ class Settings(BaseSettings):
         default=None,
         description="Reddit app client secret"
     )
+    ODDS_API_KEY: Optional[str] = Field(
+        default=None,
+        description="The Odds API key for live sports odds data"
+    )
     E2B_API_KEY: Optional[str] = Field(
         default=None,
         description="E2B API key for sandboxed code execution"
@@ -167,8 +171,6 @@ class Settings(BaseSettings):
             'build_custom_etf',
             # Bot Management (only functional in bot chats)
             'configure_bot',
-            'approve_bot',
-            'run_bot',
             'place_trade',
             'list_trades',
             'schedule_wakeup',

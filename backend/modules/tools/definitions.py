@@ -190,12 +190,6 @@ CONFIGURE_BOT_DESC = """Update this bot's settings. All parameters are optional 
 Use this to set your name, capital, and position limits.
 Only available in bot chats."""
 
-APPROVE_BOT_DESC = """Approve this bot for live trading. The bot must be approved before it can trade real money.
-Only available in bot chats."""
-
-RUN_BOT_DESC = """Trigger an immediate autonomous tick. Places live orders.
-Only available in bot chats."""
-
 PLACE_TRADE_DESC = """Place a trade (buy or sell) with full tracking. This is the ONLY way you should place trades.
 
 **IMPORTANT:** Do NOT use bash/code to place orders directly (e.g. kalshi.post("/portfolio/orders")).
@@ -222,7 +216,6 @@ What it does automatically:
 - Creates/closes a tracked position
 - Manages capital balance (deduct on buy, credit on sell)
 
-If the bot is not yet approved, trades run in paper (dry-run) mode.
 Use bash for research only (checking markets, prices, events).
 Only available in bot chats."""
 
@@ -244,26 +237,6 @@ async def configure_bot(
         context, name=name,
         capital_usd=capital_usd, max_positions=max_positions,
     )
-
-
-@tool(
-    name="approve_bot",
-    description=APPROVE_BOT_DESC,
-    category="bot_management",
-)
-async def approve_bot(*, context: AgentContext):
-    """Approve bot for live trading."""
-    return await bots_impl.approve_bot_impl(context)
-
-
-@tool(
-    name="run_bot",
-    description=RUN_BOT_DESC,
-    category="bot_management",
-)
-async def run_bot(*, context: AgentContext):
-    """Trigger an immediate bot tick."""
-    return await bots_impl.run_bot_impl(context)
 
 
 @tool(
@@ -316,6 +289,14 @@ Parameters:
 - reason: Why you're waking up — this appears in your system prompt when triggered
 - trigger_type: Category — "resolution_check", "periodic_review", or "custom" (default: "custom")
 - position_id: Optional — link to a specific position this wakeup is about
+- recurrence: Optional — set a recurring schedule. Supported patterns:
+    "every_30m", "every_1h", "every_4h" — interval-based
+    "daily_9am", "daily_2pm" — daily at a specific hour (UTC)
+  When set, the bot will be automatically re-woken at each interval.
+- message: Optional — custom instruction/prompt sent to the bot when this wakeup fires.
+  Use this to tell your future self exactly what to do (e.g. "Scan weather markets and
+  look for mispriced contracts expiring this week"). If not set, defaults to
+  "Wakeup triggered. Proceed."
 
 Only available in bot chats."""
 
@@ -336,12 +317,15 @@ async def schedule_wakeup(
     reason: str,
     trigger_type: str = "custom",
     position_id: Optional[str] = None,
+    recurrence: Optional[str] = None,
+    message: Optional[str] = None,
     context: AgentContext,
 ):
     """Schedule a future wakeup."""
     return await bots_impl.schedule_wakeup_impl(
         context, trigger_at=trigger_at, reason=reason,
         trigger_type=trigger_type, position_id=position_id,
+        recurrence=recurrence, message=message,
     )
 
 
@@ -382,8 +366,6 @@ __all__ = [
     'web_search_tool', 'news_search', 'scrape_url',
     # Bot Management
     'configure_bot',
-    'approve_bot',
-    'run_bot',
     'place_trade',
     'list_trades',
     'schedule_wakeup',

@@ -36,7 +36,7 @@ from crud.bots import (
     create_trade_log,
     update_trade_log_status,
 )
-from .prompts import build_tick_system_prompt
+from .prompts import build_bot_system_prompt
 
 logger = logging.getLogger(__name__)
 

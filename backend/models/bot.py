@@ -20,7 +20,6 @@ class TradingBot(Base):
     icon = Column(String(10), nullable=True)
     directory = Column(String, nullable=True)
     enabled = Column(Boolean, nullable=False, default=False, index=True)
-    approved = Column(Boolean, nullable=False, default=False)
     config = Column(JSONB, nullable=False, default=dict)
     stats = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -116,6 +115,8 @@ class BotWakeup(Base):
     status = Column(String, nullable=False, default="pending", index=True)
     chat_id = Column(String, nullable=True)
     triggered_at = Column(DateTime(timezone=True), nullable=True)
+    recurrence = Column(String, nullable=True)
+    message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):

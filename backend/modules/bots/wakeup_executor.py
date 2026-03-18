@@ -31,7 +31,7 @@ async def execute_wakeup(db: AsyncSession, wakeup: BotWakeup) -> str:
     Returns the chat_id of the created chat thread.
     """
     from crud import chat_async
-    from crud.bots import get_bot, mark_wakeup_triggered
+    from crud.bots import get_bot, mark_wakeup_triggered, create_wakeup, compute_next_trigger
     from modules.chat_service import ChatService
     from modules.agent.agent_config import create_agent
     from modules.agent.context import AgentContext, generate_agent_id, register_context, unregister_context
@@ -93,10 +93,8 @@ async def execute_wakeup(db: AsyncSession, wakeup: BotWakeup) -> str:
     # 5. Build initial message context and history
     history = ChatHistory.from_db_messages([], chat_id, wakeup.user_id)
 
-    # The wakeup reason is in the system prompt (via bot_context).
-    # We need a minimal user message to start the Anthropic conversation
-    # (API requires user message first), but keep it simple and honest.
-    trigger_message = "Wakeup triggered. Proceed."
+    # Use the wakeup's custom message if set, otherwise default
+    trigger_message = wakeup.message or "Wakeup triggered. Proceed."
 
     current_sequence = 0
     await chat_async.create_message(db, chat_id, "user", trigger_message, current_sequence)
@@ -182,6 +180,29 @@ async def execute_wakeup(db: AsyncSession, wakeup: BotWakeup) -> str:
     finally:
         unregister_context(chat_id, agent_context)
         await chat_async.set_chat_processing(db, chat_id, is_processing=False)
+
+    # Auto-schedule next occurrence for recurring wakeups
+    if wakeup.recurrence and bot.enabled:
+        now = datetime.now(timezone.utc)
+        next_trigger = compute_next_trigger(wakeup.recurrence, now)
+        if next_trigger:
+            try:
+                next_wakeup = await create_wakeup(
+                    db=db,
+                    bot_id=wakeup.bot_id,
+                    user_id=wakeup.user_id,
+                    trigger_at=next_trigger,
+                    reason=wakeup.reason,
+                    trigger_type=wakeup.trigger_type,
+                    context=wakeup.context,
+                    recurrence=wakeup.recurrence,
+                    message=wakeup.message,
+                )
+                logger.info(
+                    f"Wakeup {wakeup.id}: scheduled next recurrence {next_wakeup.id} at {next_trigger}"
+                )
+            except Exception as e:
+                logger.error(f"Wakeup {wakeup.id}: failed to schedule next recurrence: {e}")
 
     logger.info(f"Wakeup {wakeup.id}: complete, chat_id={chat_id}")
     return chat_id

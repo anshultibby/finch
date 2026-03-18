@@ -13,24 +13,25 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
 
     If bot_context is provided, builds a bot-specific system prompt instead
     of the generic Finch agent prompt. bot_context should contain keys like:
-      bot_name, bot_id, strategy_md, agents_md, positions_json,
+      bot_name, bot_id, strategy_md, memory_md, positions_json,
       recent_ticks_summary, platform, connections
     """
     from .base_agent import BaseAgent
 
     if bot_context:
-        from modules.bots.prompts import build_chat_system_prompt
+        from modules.bots.prompts import build_bot_system_prompt
         from .prompts import build_skills_prompt
 
         skills_section = build_skills_prompt(skill_ids or [])
-        system_prompt = build_chat_system_prompt(
+        system_prompt = build_bot_system_prompt(
             bot_name=bot_context.get("bot_name", "Trading Bot"),
             bot_id=bot_context.get("bot_id", ""),
             bot_directory=bot_context.get("bot_directory", ""),
             strategy_md=bot_context.get("strategy_md", ""),
-            agents_md=bot_context.get("agents_md", ""),
+            memory_md=bot_context.get("memory_md", ""),
             positions_json=bot_context.get("positions_json", "None"),
             recent_ticks_summary=bot_context.get("recent_ticks_summary", ""),
+            closed_positions_json=bot_context.get("closed_positions_json", ""),
             platform=bot_context.get("platform", "kalshi"),
             connections=bot_context.get("connections"),
             skills_prompt=skills_section,

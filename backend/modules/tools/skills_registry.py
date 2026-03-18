@@ -24,6 +24,7 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     "FMP_API_KEY":            ("FMP",      "system"),
     "POLYGON_API_KEY":        ("POLYGON",  "system"),
     "SERPER_API_KEY":         ("SERPER",   "system"),
+    "ODDS_API_KEY":           ("ODDS",     "system"),
     "REDDIT_CLIENT_ID":       ("REDDIT",   "system"),
     "REDDIT_CLIENT_SECRET":   ("REDDIT",   "system"),
     "SNAPTRADE_CLIENT_ID":    ("SNAPTRADE","system"),

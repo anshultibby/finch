@@ -10,6 +10,7 @@ import BotDocViewer from './BotDocViewer';
 import BotJournalViewer from './BotJournalViewer';
 import BotPositionsPanel from './BotPositionsPanel';
 import BotTradesPanel from './BotTradesPanel';
+import BotFilesPanel from './BotFilesPanel';
 import ChatView from '@/components/chat/ChatView';
 import { ApiKeysModal } from '@/components';
 
@@ -192,7 +193,7 @@ export default function BotView({ botId }: BotViewProps) {
     );
   }
 
-  const renderCenterPanel = () => {
+  const renderOverlayPanel = () => {
     switch (activePanel) {
       case 'strategy':
         return (
@@ -239,26 +240,16 @@ export default function BotView({ botId }: BotViewProps) {
             onBack={() => setActivePanel('chat')}
           />
         );
-      case 'chat':
-      default:
-        return activeChatId ? (
-          <ChatView
-            externalChatId={activeChatId}
-            onChatIdChange={setActiveChatId}
-            onCreatingChatChange={() => {}}
-            onLoadingChange={() => {}}
-            onHistoryRefresh={() => {
-              setChatHistoryRefresh((p) => p + 1);
-              fetchChats();
-              fetchBot();
-            }}
+      case 'files':
+        return (
+          <BotFilesPanel
+            userId={user.id}
             botId={botId}
+            onBack={() => setActivePanel('chat')}
           />
-        ) : (
-          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-            {chatsLoading ? 'Loading...' : 'Select or create a chat'}
-          </div>
         );
+      default:
+        return null;
     }
   };
 
@@ -322,9 +313,35 @@ export default function BotView({ botId }: BotViewProps) {
           />
         </div>
 
-        {/* Center: Chat or doc viewer */}
-        <div className="flex-1 min-w-0">
-          {renderCenterPanel()}
+        {/* Center: Chat always mounted; other panels overlay on top */}
+        <div className="flex-1 min-w-0 relative">
+          {/* ChatView stays mounted so streams survive tab switches */}
+          <div className={activePanel !== 'chat' ? 'absolute inset-0 invisible' : 'h-full'}>
+            {activeChatId ? (
+              <ChatView
+                externalChatId={activeChatId}
+                onChatIdChange={setActiveChatId}
+                onCreatingChatChange={() => {}}
+                onLoadingChange={() => {}}
+                onHistoryRefresh={() => {
+                  setChatHistoryRefresh((p) => p + 1);
+                  fetchChats();
+                  fetchBot();
+                }}
+                botId={botId}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                {chatsLoading ? 'Loading...' : 'Select or create a chat'}
+              </div>
+            )}
+          </div>
+          {/* Overlay panel (strategy, memory, etc.) */}
+          {activePanel !== 'chat' && (
+            <div className="absolute inset-0 z-10 bg-white">
+              {renderOverlayPanel()}
+            </div>
+          )}
         </div>
       </div>
       {showApiKeys && (

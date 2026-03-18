@@ -214,7 +214,7 @@ def _python_type_to_json_type(annotation) -> str:
     """Convert Python type annotation to JSON schema type"""
     if annotation == inspect.Parameter.empty or annotation is None:
         return "string"
-    
+
     # Check if it's a Pydantic model
     try:
         from pydantic import BaseModel
@@ -222,15 +222,22 @@ def _python_type_to_json_type(annotation) -> str:
             return "object"
     except:
         pass
-    
+
     # Handle typing module types
     origin = get_origin(annotation)
-    
+
     if origin is list:
         return "array"
     if origin is dict:
         return "object"
-    
+
+    # Handle Optional[X] (Union[X, None]) — unwrap to X's type
+    if origin is Union:
+        args = get_args(annotation)
+        non_none_args = [a for a in args if a is not type(None)]
+        if len(non_none_args) == 1:
+            return _python_type_to_json_type(non_none_args[0])
+
     # Handle basic types
     type_map = {
         str: "string",
@@ -240,7 +247,7 @@ def _python_type_to_json_type(annotation) -> str:
         list: "array",
         dict: "object"
     }
-    
+
     return type_map.get(annotation, "string")
 
 

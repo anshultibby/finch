@@ -4,6 +4,7 @@ API routes for Trading Bots.
 import time as _time_module
 from typing import Optional, List, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,8 +23,6 @@ from schemas.bots import (
     BotPositionResponse,
     ExecutionResponse,
     ExecutionDetailResponse,
-    RunBotRequest,
-    RunBotResponse,
     BotStats,
     CapitalConfig,
     RiskLimits,
@@ -50,7 +49,6 @@ def _bot_to_response(bot, open_positions_count: int = 0) -> BotResponse:
         icon=bot.icon,
         platform=config.get("platform", "kalshi"),
         enabled=bot.enabled,
-        approved=bot.approved,
         schedule_description=config.get("schedule_description"),
         total_runs=stats.get("total_runs", 0),
         last_run_at=stats.get("last_run_at"),
@@ -105,7 +103,6 @@ async def _bot_to_detail_response(bot, db: AsyncSession) -> BotDetailResponse:
         icon=bot.icon,
         platform=config.get("platform", "kalshi"),
         enabled=bot.enabled,
-        approved=bot.approved,
         schedule_description=config.get("schedule_description"),
         total_runs=stats_dict.get("total_runs", 0),
         last_run_at=stats_dict.get("last_run_at"),
@@ -140,16 +137,16 @@ async def _refresh_position_prices(db: AsyncSession, bot, positions) -> None:
     """
     import asyncio
     from datetime import datetime, timezone
-    from modules.tools.implementations.bots import _get_platform_client, _fetch_market_data
+    from modules.tools.implementations.bots import get_platform_client, fetch_market_data
 
     platform = (bot.config or {}).get("platform", "kalshi")
-    client = await _get_platform_client(db, bot.user_id, platform)
+    client = await get_platform_client(db, bot.user_id, platform)
     if not client:
         return
 
     for pos in positions:
         try:
-            mkt = await _fetch_market_data(client, platform, pos.market)
+            mkt = await fetch_market_data(client, platform, pos.market)
 
             # Compute mid price
             if pos.side == "yes":
@@ -326,18 +323,6 @@ async def delete_bot(
     return {"success": True}
 
 
-@router.post("/{bot_id}/approve", response_model=BotDetailResponse)
-async def approve_bot(
-    bot_id: str,
-    user_id: str = Depends(_get_user_id),
-    db: AsyncSession = Depends(get_async_db),
-):
-    bot = await crud.approve_bot(db, bot_id, user_id)
-    if not bot:
-        raise HTTPException(status_code=404, detail="Bot not found")
-    return await _bot_to_detail_response(bot, db)
-
-
 # ============================================================================
 # Capital Management
 # ============================================================================
@@ -365,38 +350,6 @@ async def adjust_bot_capital(
 # ============================================================================
 # Bot Execution
 # ============================================================================
-
-@router.post("/{bot_id}/run", response_model=RunBotResponse)
-async def run_bot(
-    bot_id: str,
-    request: RunBotRequest = RunBotRequest(),
-    user_id: str = Depends(_get_user_id),
-    db: AsyncSession = Depends(get_async_db),
-):
-    """Manually trigger a bot tick."""
-    bot = await crud.get_bot(db, bot_id, user_id)
-    if not bot:
-        raise HTTPException(status_code=404, detail="Bot not found")
-
-    from modules.bots.executor import execute_bot_tick
-
-    execution = await execute_bot_tick(
-        db=db,
-        bot=bot,
-        trigger="manual",
-    )
-
-    data = execution.data or {}
-    actions = [ExecutionAction(**a) for a in data.get("actions", [])]
-
-    return RunBotResponse(
-        execution_id=str(execution.id),
-        status=execution.status,
-        summary=data.get("summary"),
-        actions=actions,
-        error=data.get("error"),
-    )
-
 
 @router.get("/{bot_id}/executions", response_model=List[ExecutionResponse])
 async def list_bot_executions(
@@ -727,6 +680,8 @@ async def list_bot_wakeups(
             status=w.status,
             chat_id=w.chat_id,
             triggered_at=w.triggered_at,
+            recurrence=w.recurrence,
+            message=w.message,
             created_at=w.created_at,
         )
         for w in wakeups
@@ -773,6 +728,229 @@ def _trade_log_to_response(log, bot_name: str = "", bot_icon: str = "") -> Trade
         expires_at=log.expires_at,
         error=log.error,
         created_at=log.created_at,
+    )
+
+
+# ============================================================================
+# Sandbox File Browser
+# ============================================================================
+
+@router.get("/{bot_id}/sandbox/files")
+async def list_sandbox_files(
+    bot_id: str,
+    path: str = "",
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List files in the bot's sandbox directory. Path is relative to bot home."""
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox, get_or_create_sandbox
+
+    # Try lightweight reconnect first, fall back to full create
+    sbx = await _get_or_reconnect_sandbox(user_id)
+    if not sbx:
+        try:
+            entry = await get_or_create_sandbox(user_id, {})
+            sbx = entry.sbx
+        except Exception as e:
+            return {"files": [], "error": f"Sandbox not available: {e}"}
+
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+    base = f"/home/user/{bot_dir}"
+    target = f"{base}/{path}" if path else base
+
+    try:
+        # Use ls -la which is universally available; parse its output
+        result = await sbx.commands.run(
+            f'ls -la "{target}" 2>&1',
+            timeout=10,
+        )
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+
+        # If directory doesn't exist, return empty
+        if result.exit_code != 0:
+            return {"files": [], "base": bot_dir, "debug": stderr or stdout}
+
+        files = []
+        for line in stdout.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("total "):
+                continue
+            parts = line.split()
+            if len(parts) < 9:
+                continue
+            perms = parts[0]
+            size = int(parts[4]) if parts[4].isdigit() else 0
+            name = " ".join(parts[8:])
+            if name in (".", ".."):
+                continue
+            is_dir = perms.startswith("d")
+            files.append({
+                "name": name,
+                "type": "directory" if is_dir else "file",
+                "size": size if not is_dir else None,
+                "path": f"{path}/{name}" if path else name,
+            })
+        # Sort: dirs first, then by name
+        files.sort(key=lambda f: (0 if f["type"] == "directory" else 1, f["name"]))
+        return {"files": files, "base": bot_dir}
+    except Exception as e:
+        return {"files": [], "error": str(e)}
+
+
+@router.get("/{bot_id}/sandbox/files/read")
+async def read_sandbox_file_endpoint(
+    bot_id: str,
+    path: str,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Read a file from the bot's sandbox. Path is relative to bot home."""
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    from modules.tools.implementations.code_execution import read_sandbox_file
+
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+    full_path = f"{bot_dir}/{path}"
+
+    content = await read_sandbox_file(user_id, full_path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Return base64 for image files
+    import base64
+    IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico')
+    lower_path = path.lower()
+    if any(lower_path.endswith(ext) for ext in IMAGE_EXTS):
+        b64 = base64.b64encode(content).decode("ascii")
+        ext = lower_path.rsplit('.', 1)[-1]
+        mime = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+                'gif': 'image/gif', 'webp': 'image/webp', 'bmp': 'image/bmp',
+                'ico': 'image/x-icon'}.get(ext, 'application/octet-stream')
+        return {"content": b64, "path": path, "binary": True, "mime": mime, "encoding": "base64"}
+
+    try:
+        text = content.decode("utf-8", errors="replace")
+        return {"content": text, "path": path, "binary": False}
+    except Exception:
+        return {"content": None, "path": path, "binary": True, "size": len(content)}
+
+
+HIDDEN_FILE_PATTERNS = {'.env', '.secret', '.credentials', '.aws', '.ssh', '.netrc', '.pgpass'}
+
+
+def _is_hidden_or_sensitive(filepath: str) -> bool:
+    """Return True if a path component starts with '.' or matches sensitive patterns."""
+    parts = filepath.replace("\\", "/").split("/")
+    for part in parts:
+        if part.startswith('.'):
+            return True
+        if part.lower() in HIDDEN_FILE_PATTERNS:
+            return True
+    return False
+
+
+@router.get("/{bot_id}/sandbox/files/download")
+async def download_sandbox_file(
+    bot_id: str,
+    path: str,
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Download a single file from the bot's sandbox."""
+    if _is_hidden_or_sensitive(path):
+        raise HTTPException(status_code=403, detail="Cannot download hidden or sensitive files")
+
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    from modules.tools.implementations.code_execution import read_sandbox_file
+
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+    full_path = f"{bot_dir}/{path}"
+    content = await read_sandbox_file(user_id, full_path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    filename = path.split("/")[-1]
+    import mimetypes
+    mime, _ = mimetypes.guess_type(filename)
+    mime = mime or "application/octet-stream"
+
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{bot_id}/sandbox/files/download-all")
+async def download_all_sandbox_files(
+    bot_id: str,
+    path: str = "",
+    user_id: str = Depends(_get_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Download the entire sandbox directory (or subdirectory) as a zip, excluding hidden files."""
+    bot = await crud.get_bot(db, bot_id, user_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox, get_or_create_sandbox
+
+    sbx = await _get_or_reconnect_sandbox(user_id)
+    if not sbx:
+        try:
+            entry = await get_or_create_sandbox(user_id, {})
+            sbx = entry.sbx
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Sandbox not available: {e}")
+
+    bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+    base = f"/home/user/{bot_dir}"
+    target = f"{base}/{path}" if path else base
+
+    # Collect all files recursively, excluding hidden/sensitive
+    result = await sbx.commands.run(
+        f'find "{target}" -type f 2>/dev/null',
+    )
+    if not result.stdout or not result.stdout.strip():
+        raise HTTPException(status_code=404, detail="No files found")
+
+    all_files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+
+    import io
+    import zipfile
+    from modules.tools.implementations.code_execution import read_sandbox_file
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for abs_path in all_files:
+            # Get relative path from the bot base
+            rel = abs_path.replace(base + "/", "", 1) if abs_path.startswith(base + "/") else abs_path.replace(base, "", 1).lstrip("/")
+            if _is_hidden_or_sensitive(rel):
+                continue
+            content = await read_sandbox_file(user_id, f"{bot_dir}/{rel}")
+            if content is not None:
+                zf.writestr(rel, content)
+
+    buf.seek(0)
+    zip_name = f"bot-{str(bot.id)[:8]}-files.zip"
+    if path:
+        folder_name = path.replace("/", "-").strip("-")
+        zip_name = f"bot-{str(bot.id)[:8]}-{folder_name}.zip"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
     )
 
 

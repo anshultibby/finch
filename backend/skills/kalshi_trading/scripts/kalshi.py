@@ -1,11 +1,8 @@
 """
 Kalshi Trading — authenticated HTTP client for the Kalshi REST API.
 
-Handles RSA-PS256 signing automatically. Call get/post/delete with any
+Handles RSA-PS256 signing automatically. Call get/get_all/post/delete with any
 Kalshi API path and get raw JSON responses.
-
-Higher-level helpers:
-  get_all() — auto-paginating GET for any list endpoint
 
 Credentials from env vars:
   KALSHI_API_KEY_ID  — your Kalshi API key ID
@@ -60,16 +57,26 @@ def get_all(path: str, params: dict = None, collection_key: str = None, max_page
 
     # Auto-detect collection key from path
     if collection_key is None:
-        if "/events" in path:
+        if "/multivariate_event_collections" in path:
+            collection_key = "multivariate_contracts"
+        elif "/events" in path:
             collection_key = "events"
+        elif "/markets/trades" in path:
+            collection_key = "trades"
         elif "/markets" in path:
             collection_key = "markets"
         elif "/positions" in path:
             collection_key = "market_positions"
+        elif "/settlements" in path:
+            collection_key = "settlements"
         elif "/orders" in path:
             collection_key = "orders"
         elif "/fills" in path:
             collection_key = "fills"
+        elif "/milestones" in path:
+            collection_key = "milestones"
+        elif "/series" in path:
+            collection_key = "series"
         else:
             collection_key = "items"
 

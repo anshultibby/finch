@@ -51,8 +51,6 @@ class BotConfig(BaseModel):
     capital: Optional[CapitalConfig] = Field(None, description="Capital allocation config")
     risk_limits: Optional[RiskLimits] = Field(None, description="Risk limits for execution")
     model: str = Field(default="claude-sonnet-4-20250514", description="LLM model for bot reasoning")
-    approved_at: Optional[datetime] = Field(None, description="When bot was approved for live trading")
-    paper_mode: bool = Field(default=True, description="If True, ticks use dry_run (no real orders)")
 
     class Config:
         extra = "allow"
@@ -184,7 +182,6 @@ class BotResponse(BaseModel):
     icon: Optional[str] = None
     platform: str
     enabled: bool
-    approved: bool
     schedule_description: Optional[str] = None
 
     # Stats
@@ -224,18 +221,6 @@ class BotDetailResponse(BotResponse):
     closed_positions: List[BotPositionResponse] = Field(default_factory=list)
 
 
-class RunBotRequest(BaseModel):
-    pass
-
-
-class RunBotResponse(BaseModel):
-    execution_id: str
-    status: str
-    summary: Optional[str] = None
-    actions: List[ExecutionAction] = []
-    error: Optional[str] = None
-
-
 # ============================================================================
 # Trade Log models
 # ============================================================================
@@ -251,6 +236,8 @@ class WakeupResponse(BaseModel):
     status: str
     chat_id: Optional[str] = None
     triggered_at: Optional[datetime] = None
+    recurrence: Optional[str] = None
+    message: Optional[str] = None
     created_at: datetime
 
     class Config:

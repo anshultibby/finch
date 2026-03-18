@@ -656,25 +656,6 @@ export const botsApi = {
     return response.json();
   },
 
-  async approveBot(userId: string, botId: string) {
-    const response = await fetch(`${API_BASE_URL}/bots/${botId}/approve`, {
-      method: 'POST',
-      headers: { 'X-User-ID': userId },
-    });
-    if (!response.ok) throw new Error('Failed to approve bot');
-    return response.json();
-  },
-
-  async runBot(userId: string, botId: string, dryRun: boolean = true) {
-    const response = await fetch(`${API_BASE_URL}/bots/${botId}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
-      body: JSON.stringify({ dry_run: dryRun }),
-    });
-    if (!response.ok) throw new Error('Failed to run bot');
-    return response.json();
-  },
-
   async listExecutions(userId: string, botId: string, limit: number = 20) {
     const response = await fetch(`${API_BASE_URL}/bots/${botId}/executions?limit=${limit}`, {
       method: 'GET',
@@ -713,6 +694,34 @@ export const botsApi = {
     });
     if (!response.ok) throw new Error('Failed to delete bot files');
     return response.json();
+  },
+
+  async listSandboxFiles(userId: string, botId: string, path: string = '') {
+    const params = path ? `?path=${encodeURIComponent(path)}` : '';
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/sandbox/files${params}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return { files: [] };
+    return response.json();
+  },
+
+  async readSandboxFile(userId: string, botId: string, path: string) {
+    const response = await fetch(`${API_BASE_URL}/bots/${botId}/sandbox/files/read?path=${encodeURIComponent(path)}`, {
+      method: 'GET',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) return null;
+    return response.json();
+  },
+
+  downloadSandboxFileUrl(userId: string, botId: string, path: string) {
+    return `${API_BASE_URL}/bots/${botId}/sandbox/files/download?path=${encodeURIComponent(path)}`;
+  },
+
+  downloadAllSandboxFilesUrl(userId: string, botId: string, path: string = '') {
+    const params = path ? `?path=${encodeURIComponent(path)}` : '';
+    return `${API_BASE_URL}/bots/${botId}/sandbox/files/download-all${params}`;
   },
 
   async listBotChats(userId: string, botId: string) {

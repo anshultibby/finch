@@ -70,37 +70,20 @@ Credit packs:
 
 ### Critical Gaps to Fix (Pre-Launch)
 
-#### 1. Bot Tick Execution Loop (BLOCKER)
-**Current state**: Bot tick scans 10 markets and returns — the multi-turn LLM reasoning loop is stubbed.
-**Required**: Wire up actual agent reasoning: scan markets → evaluate against strategy → decide to trade or pass → execute → log reasoning.
-**How**: Port the `agent.process_message_stream()` pattern from `wakeup_executor.py` into `executor.py`.
+#### 1. Wakeup-Based Execution (DONE)
+Bots run entirely via the wakeup system. No separate "tick executor." Each wakeup:
+- Creates a chat thread with the bot
+- Sends a preprogrammed message (custom instruction)
+- Bot reasons with full tool access (bash, web_search, place_trade, etc.)
+- Bot can schedule its own future wakeups (including recurring ones)
 
-#### 2. Onboarding & Strategy Templates
-**Current state**: Blank STRATEGY.md, no guidance.
-**Required**:
-- 3-5 strategy templates users can pick from: "Weather Bot", "Politics Bot", "Sports Moneyline", "News Catalyst", "Arbitrage Hunter"
-- Each template pre-fills STRATEGY.md with thesis, signals, risk rules, and example markets
-- Guided bot creation wizard: name → platform → pick template → set capital → set risk limits
+**Recurring wakeups**: `every_30m`, `every_1h`, `every_4h`, `daily_9am`, etc. Auto-reschedules after each trigger.
 
-#### 3. Market Discovery UI
-**Current state**: Users must code/bash to find markets.
-**Required**: Searchable market browser in the bot chat or as a standalone panel. Filter by category (politics, weather, sports, economics), sort by volume/expiry.
+**Removed**: `executor.py` tick system, `approved` concept, `approve_bot` tool/route, `run_bot` tool/route.
 
-#### 4. Risk Configuration UI
-**Current state**: Defaults to no limits.
-**Required**: Settings modal with: max order size, max daily spend, max open positions, auto-pause on drawdown threshold. Sensible defaults for each template.
-
-#### 5. Paper Trading UX
-**Current state**: Binary (unapproved = paper, approved = live).
-**Required**: Explicit paper/live toggle. Paper trading dashboard showing simulated P&L. Clear "graduation" path: "Your bot made X% over 2 weeks on paper — ready to go live?"
-
-#### 6. Approval Guardrails
-**Current state**: Instant approve with no validation.
-**Required**: Before going live, verify: (a) API key is set and valid, (b) capital > $0, (c) strategy is not empty, (d) risk limits are configured. Confirmation modal with clear warnings.
-
-#### 7. Credit Deduction Integration
+#### 2. Credit Deduction Integration
 **Current state**: Credit system exists but not wired to bot actions.
-**Required**: Deduct credits per tick, per trade, per wakeup. Show credit balance prominently. Low-balance warnings. Purchase flow.
+**Required**: Deduct credits per wakeup, per trade. Show credit balance prominently. Low-balance warnings. Purchase flow.
 
 ### Phase 2 (Post-Launch, Weeks 4-6)
 

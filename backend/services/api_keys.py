@@ -29,29 +29,16 @@ class ApiKeyService:
     All keys are returned as SecureKey wrappers for safe handling.
     """
 
-    # service_name → callable returning the raw key value from global config.
-    # Services with multiple env vars (e.g. Reddit) expose each var individually
-    # via get_env_var(); get_key() returns the primary credential for simple checks.
-    _GLOBAL_KEYS: Dict[str, callable] = {
-        "FMP":       lambda: Config.FMP_API_KEY,
-        "POLYGON":   lambda: Config.POLYGON_API_KEY,
-        "SERPER":    lambda: Config.SERPER_API_KEY,
-        # Reddit — primary key is CLIENT_ID (secret fetched separately)
-        "REDDIT":    lambda: Config.REDDIT_CLIENT_ID,
-        # Snaptrade — primary key is CLIENT_ID (consumer key fetched separately)
-        "SNAPTRADE": lambda: Config.SNAPTRADE_CLIENT_ID,
-    }
-
-    # Env-var-level mapping: env_var_name → callable returning value from config.
-    # Used by _build_sandbox_env to resolve each env var individually.
-    _GLOBAL_ENV_VARS: Dict[str, callable] = {
-        "FMP_API_KEY":            lambda: Config.FMP_API_KEY,
-        "POLYGON_API_KEY":        lambda: Config.POLYGON_API_KEY,
-        "SERPER_API_KEY":         lambda: Config.SERPER_API_KEY,
-        "REDDIT_CLIENT_ID":       lambda: Config.REDDIT_CLIENT_ID,
-        "REDDIT_CLIENT_SECRET":   lambda: Config.REDDIT_CLIENT_SECRET,
-        "SNAPTRADE_CLIENT_ID":    lambda: Config.SNAPTRADE_CLIENT_ID,
-        "SNAPTRADE_CONSUMER_KEY": lambda: Config.SNAPTRADE_CONSUMER_KEY,
+    # service_name → primary env var name for get_key() lookups.
+    # Multi-var services (Reddit, Snaptrade) use the primary credential here;
+    # individual env vars are resolved dynamically via get_env_var().
+    _SERVICE_PRIMARY_VAR: Dict[str, str] = {
+        "FMP":       "FMP_API_KEY",
+        "POLYGON":   "POLYGON_API_KEY",
+        "SERPER":    "SERPER_API_KEY",
+        "REDDIT":    "REDDIT_CLIENT_ID",
+        "SNAPTRADE": "SNAPTRADE_CLIENT_ID",
+        "ODDS":      "ODDS_API_KEY",
     }
     
     def __init__(self, db: Optional[AsyncSession] = None, user_id: Optional[str] = None):
@@ -199,17 +186,15 @@ class ApiKeyService:
         Get the value for a specific environment variable name from global config.
 
         Used by _build_sandbox_env to resolve each env var from SKILL_ENV_KEYS.
-        Only works for system-owned (global) env vars; user-owned vars like
-        KALSHI_API_KEY_ID must be fetched via get_kalshi_credentials().
+        Resolves directly from Config via attribute lookup — no manual registry needed.
+        User-owned vars like KALSHI_API_KEY_ID must be fetched via get_kalshi_credentials().
         """
-        getter = self._GLOBAL_ENV_VARS.get(env_var)
-        if not getter:
-            return None
-        return secure_key_or_none(getter())
+        val = getattr(Config, env_var, None)
+        return secure_key_or_none(val) if val is not None else None
 
     def _get_global_key(self, service: str) -> Optional[SecureKey]:
         """Get global API key from config"""
-        key_getter = self._GLOBAL_KEYS.get(service)
-        if not key_getter:
+        env_var = self._SERVICE_PRIMARY_VAR.get(service)
+        if not env_var:
             return None
-        return secure_key_or_none(key_getter())
+        return self.get_env_var(env_var)

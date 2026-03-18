@@ -490,7 +490,6 @@ export interface Bot {
   icon?: string;
   platform: string;
   enabled: boolean;
-  approved: boolean;
   schedule_description?: string;
   total_runs: number;
   last_run_at?: string;
@@ -510,7 +509,6 @@ export interface BotDetail extends Bot {
   schedule?: string;
   risk_limits?: RiskLimits;
   capital?: CapitalConfig;
-  paper_mode: boolean;
   model?: string;
   directory?: string;
   stats?: BotStats;
@@ -557,6 +555,8 @@ export interface BotWakeup {
   status: string;
   chat_id?: string;
   triggered_at?: string;
+  recurrence?: string;
+  message?: string;
   created_at: string;
 }
 
