@@ -63,6 +63,7 @@ class BaseAgent:
         # Agent doesn't own history - it just tracks new messages for this turn
         self._new_messages: List[HistoryChatMessage] = []
         self._tool_calls_info: List[Dict[str, Any]] = []
+        self._needs_early_compaction: bool = False
         self._agent_tracer = AgentTracer(
             agent_name=self.__class__.__name__,
             user_id=context.user_id,
@@ -194,7 +195,10 @@ class BaseAgent:
 
                     # Prune old tool results from in-memory context before each LLM call.
                     # This is transient — the database and chat_history are not affected.
-                    messages_for_llm = prune_messages(messages)
+                    # needs_compaction signals the caller to trigger early compaction.
+                    messages_for_llm, needs_compaction = prune_messages(messages)
+                    if needs_compaction:
+                        self._needs_early_compaction = True
 
                     # Step 1: Call LLM and stream response (yields SSE events directly)
                     content = ""

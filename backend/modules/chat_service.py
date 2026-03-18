@@ -219,6 +219,15 @@ class ChatService:
                             
                             if not pending_assistant_msg and tool_messages:
                                 logger.error(f"🚨 BUG: tools_end has {len(tool_messages)} tool results but no pending_assistant_msg!")
+
+                            # Storage-time hard cap: prevent oversized tool results
+                            # from bloating the DB and consuming the entire context
+                            # window on subsequent loads.
+                            max_chars = Config.STORAGE_MAX_TOOL_RESULT_CHARS
+                            for tm in tool_messages:
+                                tc = tm.get("content", "")
+                                if isinstance(tc, str) and len(tc) > max_chars:
+                                    tm["content"] = tc[:max_chars] + f"\n... [truncated at {max_chars:,} chars, {len(tc):,} total]"
                             
                             if Config.DEBUG_CHAT_LOGS:
                                 llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="agent")
@@ -345,11 +354,14 @@ class ChatService:
                     except Exception as e:
                         logger.debug(f"Bot doc sync failed (non-fatal): {e}")
 
-                # Run compaction if the history has grown too large.
-                # This persists a summary row to the DB so future turns start lean.
+                # Run compaction if the history has grown too large, or if the
+                # session pruner signaled overflow (early compaction cascade).
                 from .agent.compactor import maybe_compact
+                force_compact = getattr(agent, '_needs_early_compaction', False)
                 try:
-                    await maybe_compact(chat_id, user_id, db, skill_ids=skill_ids)
+                    if force_compact:
+                        logger.info(f"Early compaction triggered by session pruner overflow for chat {chat_id}")
+                    await maybe_compact(chat_id, user_id, db, skill_ids=skill_ids, force=force_compact)
                 except Exception as e:
                     logger.warning(f"Compaction check failed (non-fatal): {e}")
                 

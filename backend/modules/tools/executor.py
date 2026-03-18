@@ -583,8 +583,7 @@ class ToolExecutor:
             # Get a brief summary of the result to show the user
             result_summary = None
             if result.success:
-                # Show first 500 chars of the llm_content as a preview
-                result_summary = result.llm_content[:500] if len(result.llm_content) > 500 else result.llm_content
+                result_summary = result.llm_content
             
             # Extract code output if this is the bash tool
             code_output = None

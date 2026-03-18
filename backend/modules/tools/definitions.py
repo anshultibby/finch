@@ -209,14 +209,41 @@ Always use this tool — it automatically handles tracking, capital, and risk li
 - price: Price in cents (1-99). Optional for sells — if omitted, uses current market bid.
 - reason: Why you're exiting
 
+**Fill behavior:** This places a LIMIT order. If your price doesn't cross the spread, the order
+will rest on the book unfilled and return success=false with status "resting". Only filled
+(or partially filled) orders create positions.
+
+**Strategies for getting filled:**
+1. **Aggressive (immediate fill):** Set your buy price at or above the current ask price
+   (or sell price at or below the current bid). This crosses the spread and fills instantly.
+   Costs more but guarantees execution.
+2. **Iterative (price improvement):** Place a limit order at your desired price. If it comes
+   back as "resting", cancel it with cancel_order, then retry at a slightly better price.
+   Repeat until filled. This can get better prices but takes multiple steps.
+3. **Patient (passive):** Place at your price and leave it. The order sits on the book and
+   may fill later if the market moves to you.
+
+**Tip:** Always check the market's bid/ask spread first. For thin markets, the spread can be
+wide (10-20¢). Pricing at the mid-point often won't fill — you may need to cross to the ask.
+
 What it does automatically:
 - Checks capital balance and risk limits
 - Places a limit order at your specified price
-- Creates a trade log entry
-- Creates/closes a tracked position
-- Manages capital balance (deduct on buy, credit on sell)
+- Checks fill status from the exchange response
+- Creates a trade log entry (status: executed, partial, resting, or failed)
+- Creates/closes a tracked position (only for filled contracts)
+- Manages capital balance (deduct on buy, credit on sell, refund if unfilled)
 
 Use bash for research only (checking markets, prices, events).
+Only available in bot chats."""
+
+CANCEL_ORDER_DESC = """Cancel a resting (unfilled) order on the exchange by its order ID.
+
+Use this when a limit order didn't fill (place_trade returned status "resting") and you want to:
+- Retry at a different price
+- Abandon the trade entirely
+
+The order_id is returned by place_trade when the order rests unfilled.
 Only available in bot chats."""
 
 
@@ -276,6 +303,16 @@ Only available in bot chats."""
 async def list_trades(*, limit: int = 20, context: AgentContext):
     """List recent trades for this bot."""
     return await bots_impl.list_trades_impl(context, limit=limit)
+
+
+@tool(
+    name="cancel_order",
+    description=CANCEL_ORDER_DESC,
+    category="bot_management",
+)
+async def cancel_order(*, order_id: str, context: AgentContext):
+    """Cancel a resting order on the exchange."""
+    return await bots_impl.cancel_order_impl(context, order_id=order_id)
 
 
 SCHEDULE_WAKEUP_DESC = """Schedule a future wake-up for this bot. When the time comes, a new chat thread
@@ -367,6 +404,7 @@ __all__ = [
     # Bot Management
     'configure_bot',
     'place_trade',
+    'cancel_order',
     'list_trades',
     'schedule_wakeup',
     'list_wakeups_tool',

@@ -636,17 +636,9 @@ async def bash_impl(
             "success": exit_code == 0,
         })
 
-        MAX_OUTPUT_SIZE = 30000
-        if len(stdout_text) > MAX_OUTPUT_SIZE:
-            head = stdout_text[:MAX_OUTPUT_SIZE // 2]
-            tail = stdout_text[-(MAX_OUTPUT_SIZE // 2):]
-            stdout_truncated = (
-                f"{head}\n\n... [OUTPUT TRUNCATED — {len(stdout_text)} chars total] ...\n\n{tail}"
-            )
-        else:
-            stdout_truncated = stdout_text
-        stderr_truncated = stderr_text[:MAX_OUTPUT_SIZE] + "\n... [STDERR TRUNCATED]" if len(stderr_text) > MAX_OUTPUT_SIZE else stderr_text
-        truncation_note = " (output truncated)" if len(stdout_text) > MAX_OUTPUT_SIZE else ""
+        stdout_truncated = stdout_text
+        stderr_truncated = stderr_text
+        truncation_note = ""
 
         if exit_code != 0:
             error_msg = f"Command exited with code {exit_code}\n\n"

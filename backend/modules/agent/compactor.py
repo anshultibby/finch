@@ -4,9 +4,9 @@ database when the total history exceeds the configured token threshold.
 
 How it works:
 - After each chat turn, ChatService calls maybe_compact().
-- If total estimated tokens across all DB messages exceeds COMPACTION_THRESHOLD_TOKENS,
-  a pre-compaction memory flush is triggered: a silent agent turn that writes durable
-  memories to the sandbox before context is lost.
+- If total estimated tokens across all DB messages exceeds COMPACTION_THRESHOLD_RATIO
+  of the context window, a pre-compaction memory flush is triggered: a silent agent
+  turn that writes durable memories to the sandbox before context is lost.
 - Then a compaction LLM call summarizes everything up to the most recent messages.
 - The summary is stored as a special "compaction" role message in the DB.
 - ChatHistory.from_db_messages already handles compaction rows by truncating everything
@@ -35,24 +35,31 @@ _MEMORY_FLUSH_PROMPT = (
     "Do NOT reply to the user — this is a silent background operation."
 )
 
-_COMPACTION_SYSTEM_PROMPT = """You are summarizing a conversation between a user and an AI financial assistant called Finch.
+_COMPACTION_SYSTEM_PROMPT = """\
+You are summarizing a conversation between a user and an AI financial assistant called Finch.
 Produce a dense, structured summary that preserves ALL of the following without loss:
-- Every specific data point: numbers, percentages, dates, ticker symbols, dollar amounts
-- File names and paths that were created or referenced
+- Every specific data point: numbers, percentages, dates, dollar amounts
+- All opaque identifiers EXACTLY as they appear — never paraphrase, abbreviate, or
+  reformat: ticker symbols, file paths, function names, variable names, API keys,
+  account IDs, order IDs, URLs, model names, branch names, config keys
 - Strategy names, parameters, and results
 - Key decisions made and their rationale
 - User preferences and instructions given
 - Any errors encountered and how they were resolved
 - Open questions or next steps mentioned
+- Position details: entry/exit prices, quantities, P&L figures
 
-Format the summary as structured markdown. Use headers and bullet points. Be thorough — context lost here cannot be recovered.
+Format the summary as structured markdown. Use headers and bullet points.
+Be thorough — context lost here cannot be recovered.\
 """
 
-_COMPACTION_USER_PROMPT = """Summarize this conversation history. Preserve every specific fact, number, filename, and decision.
+_COMPACTION_USER_PROMPT = """\
+Summarize this conversation history. Preserve every specific fact, number, identifier, and decision.
 
 {history_text}
 
-Write a comprehensive structured summary that a future session can use as complete context."""
+Write a comprehensive structured summary that a future session can use as complete context.\
+"""
 
 
 async def _run_memory_flush(chat_id: str, user_id: str, skill_ids: list, db) -> None:
@@ -101,17 +108,26 @@ async def _run_memory_flush(chat_id: str, user_id: str, skill_ids: list, db) -> 
         logger.warning(f"Memory flush failed (non-fatal) for chat {chat_id}: {exc}")
 
 
+def _compaction_threshold_tokens() -> int:
+    """Derive absolute compaction threshold from context window and ratio."""
+    return int(Config.CONTEXT_WINDOW_TOKENS * Config.COMPACTION_THRESHOLD_RATIO)
+
+
 async def maybe_compact(
     chat_id: str,
     user_id: str,
     db,
     skill_ids: Optional[list] = None,
+    force: bool = False,
 ) -> bool:
     """
     Check if the chat history needs compaction and run it if so.
 
     Before compacting, runs a silent memory flush turn so the agent can write
     durable facts to the sandbox before the context window is truncated.
+
+    Args:
+        force: If True, skip the threshold check (used by overflow cascade).
 
     Returns True if compaction was performed, False otherwise.
     """
@@ -128,13 +144,15 @@ async def maybe_compact(
     history = ChatHistory.from_db_messages(db_messages, chat_id, user_id)
     stats = history.get_statistics()
     estimated_tokens = stats["estimated_tokens"]
+    threshold = _compaction_threshold_tokens()
 
-    if estimated_tokens < Config.COMPACTION_THRESHOLD_TOKENS:
+    if not force and estimated_tokens < threshold:
         return False
 
     logger.info(
         f"Compaction triggered for chat {chat_id}: "
-        f"~{estimated_tokens:,} tokens (threshold: {Config.COMPACTION_THRESHOLD_TOKENS:,})"
+        f"~{estimated_tokens:,} tokens (threshold: {threshold:,}, "
+        f"{Config.COMPACTION_THRESHOLD_RATIO:.0%} of {Config.CONTEXT_WINDOW_TOKENS:,})"
     )
 
     # Fire memory flush before losing context — agent writes lasting facts to sandbox
@@ -183,7 +201,7 @@ async def _run_compaction(history) -> Optional[str]:
             model=Config.COMPACTION_MODEL,
             messages=messages,
             stream=False,
-            max_tokens=4096,
+            max_tokens=Config.COMPACTION_SUMMARY_MAX_TOKENS,
         )
         return response.choices[0].message.content
     except Exception as e:

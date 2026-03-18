@@ -28,7 +28,8 @@ async def configure_bot_impl(
 ) -> Dict[str, Any]:
     """Update bot settings. Only provided fields are changed."""
     from core.database import get_db_session
-    from crud.bots import get_bot, update_bot
+    from crud.bots import get_bot
+    from sqlalchemy.orm.attributes import flag_modified
 
     bot_id = _get_bot_id(context)
     user_id = context.user_id
@@ -38,29 +39,40 @@ async def configure_bot_impl(
         if not bot:
             return {"success": False, "error": "Bot not found"}
 
-        updates: Dict[str, Any] = {}
+        updated_fields = []
+
         if name is not None:
-            updates["name"] = name
+            bot.name = name
+            updated_fields.append("name")
 
         # Capital fields go into config.capital
         if capital_usd is not None or max_positions is not None:
             config = dict(bot.config or {})
             capital = dict(config.get("capital", {}) or {})
             if capital_usd is not None:
+                old_amount = capital.get("amount_usd") or 0.0
                 capital["amount_usd"] = capital_usd
-                # Initialize balance if not set
-                if capital.get("balance_usd") is None:
+                # Adjust balance by the difference so available capital actually changes
+                old_balance = capital.get("balance_usd")
+                if old_balance is None:
                     capital["balance_usd"] = capital_usd
+                else:
+                    capital["balance_usd"] = old_balance + (capital_usd - old_amount)
+                updated_fields.append("capital_usd")
             if max_positions is not None:
                 capital["max_positions"] = max_positions
-            updates["capital"] = capital
+                updated_fields.append("max_positions")
+            config["capital"] = capital
+            bot.config = config
+            flag_modified(bot, "config")
 
-        bot = await update_bot(db, bot_id, user_id, updates)
+        await db.commit()
+        await db.refresh(bot)
 
         return {
             "success": True,
             "message": "Bot updated successfully",
-            "updated_fields": list(updates.keys()),
+            "updated_fields": updated_fields,
             "bot_name": bot.name,
         }
 
@@ -289,11 +301,11 @@ async def _execute_buy(
             balance = capital.get("balance_usd", 0)
             return {"success": False, "error": f"Insufficient capital. Need ${cost_usd:.2f}, have ${balance:.2f}"}
 
-    # --- Create trade log (pending) ---
+    # --- Create trade log (pending until we know fill status) ---
     trade_log = await create_trade_log(
         db=db, bot=bot, action="buy", market=market, side=side,
         price=price, quantity=count, cost_usd=cost_usd,
-        status="executed",
+        status="pending",
         market_title=market_title,
     )
 
@@ -303,33 +315,82 @@ async def _execute_buy(
         order_response = await _place_order(
             client, platform, market, side, "buy", count, price=price,
         )
-        await update_trade_log_status(db, trade_log, "executed",
-                                      order_response=order_response)
     except Exception as e:
         logger.error(f"{platform} order failed for {market}: {e}")
         await credit_capital_for_close(db, bot, cost_usd, 0)
         await update_trade_log_status(db, trade_log, "failed", error=str(e))
         return {"success": False, "error": f"Order failed: {e}"}
 
-    # --- Create position ---
+    # --- Check fill status from exchange response ---
+    fill_status = _parse_fill_status(order_response, count)
+
+    if fill_status["status"] == "resting":
+        # Order is on the book but nothing filled — refund capital and warn
+        await credit_capital_for_close(db, bot, cost_usd, 0)
+        await update_trade_log_status(db, trade_log, "resting",
+                                      order_response=order_response)
+        return {
+            "success": False,
+            "error": (
+                f"Limit order resting (unfilled) — your price of {price}c "
+                f"didn't match any sellers. The order is on the book but no "
+                f"contracts were bought. Consider raising your price closer "
+                f"to the ask, or use a price you saw from get_market_price."
+            ),
+            "order_id": fill_status.get("order_id"),
+        }
+
+    if fill_status["status"] == "partial":
+        filled = fill_status["filled_count"]
+        filled_cost = (filled * price) / 100
+        unfilled_cost = cost_usd - filled_cost
+        await credit_capital_for_close(db, bot, unfilled_cost, 0)
+        status = "partial"
+        qty, pos_cost = filled, filled_cost
+    else:
+        status = "executed"
+        qty, pos_cost = count, cost_usd
+
+    # --- Create position for filled contracts ---
+    position_id = None
     try:
         position = await create_position(
             db=db, bot=bot, market=market, side=side,
-            entry_price=price, quantity=count, cost_usd=cost_usd,
+            entry_price=price, quantity=qty, cost_usd=pos_cost,
             exit_config=ExitConfig(), paper=False,
             market_title=market_title, event_ticker=event_ticker,
         )
-        await update_trade_log_status(db, trade_log, trade_log.status,
-                                      position_id=str(position.id))
+        position_id = str(position.id)
     except Exception as e:
         logger.error(f"Failed to create position for {market}: {e}")
-        await credit_capital_for_close(db, bot, cost_usd, 0)
+        await credit_capital_for_close(db, bot, pos_cost, 0)
+
+    await update_trade_log_status(db, trade_log, status,
+                                  order_response=order_response,
+                                  position_id=position_id)
+
+    if status == "partial":
+        return {
+            "success": True,
+            "message": (
+                f"Partially filled: {filled}/{count} contracts of "
+                f"{side.upper()} on {market_title or market} "
+                f"(limit @ {price}c, ${filled_cost:.2f}). "
+                f"Remaining {count - filled} contracts are resting on the book."
+            ),
+            "trade": {
+                "action": "buy", "market": market, "market_title": market_title,
+                "side": side, "count": filled, "requested_count": count,
+                "price_cents": price, "cost_usd": round(filled_cost, 2),
+                "paper": False, "reason": reason, "fill_status": "partial",
+            },
+        }
 
     return {
         "success": True,
         "message": (
             f"Bought {count}x {side.upper()} on "
-            f"{market_title or market} (limit @ {price}c, ${cost_usd:.2f})"
+            f"{market_title or market} (filled @ {price}c, ${cost_usd:.2f})"
         ),
         "trade": {
             "action": "buy",
@@ -341,6 +402,7 @@ async def _execute_buy(
             "cost_usd": round(cost_usd, 2),
             "paper": False,
             "reason": reason,
+            "fill_status": "filled",
         },
     }
 
@@ -376,15 +438,67 @@ async def _execute_sell(
 
     # --- Place sell order on exchange (live only) ---
     order_response = None
+    sell_qty = int(pos.quantity)
     if not pos.paper and client:
         try:
             order_response = await _place_order(
-                client, platform, pos.market, pos.side, "sell", int(pos.quantity),
+                client, platform, pos.market, pos.side, "sell", sell_qty,
                 price=exit_price,
             )
         except Exception as e:
             logger.error(f"Sell order failed for position {position_id}: {e}")
             return {"success": False, "error": f"Sell order failed: {e}"}
+
+        # --- Check fill status ---
+        fill_status = _parse_fill_status(order_response, sell_qty)
+
+        if fill_status["status"] == "resting":
+            return {
+                "success": False,
+                "error": (
+                    f"Sell order resting (unfilled) — your price of {exit_price}c "
+                    f"didn't match any buyers. The order is on the book but no "
+                    f"contracts were sold. Consider lowering your price closer "
+                    f"to the bid."
+                ),
+                "order_id": fill_status.get("order_id"),
+            }
+
+        if fill_status["status"] == "partial":
+            filled = fill_status["filled_count"]
+            filled_cost = round((filled / sell_qty) * pos.cost_usd, 2)
+            # Reduce position quantity and credit capital for the sold portion
+            remaining_qty = sell_qty - filled
+            pos.quantity = remaining_qty
+            pos.cost_usd = round(pos.cost_usd - filled_cost, 2)
+            realized_pnl = round((filled * (100 - exit_price) / 100) - filled_cost, 2) if pos.side == "no" else round((filled * exit_price / 100) - filled_cost, 2)
+            await credit_capital_for_close(db, bot, filled_cost, realized_pnl)
+            await db.commit()
+            trade_log = await create_trade_log(
+                db=db, bot=bot, action="sell", market=pos.market, side=pos.side,
+                price=exit_price, quantity=filled, cost_usd=filled_cost,
+                status="partial",
+                market_title=pos.market_title,
+                realized_pnl_usd=realized_pnl,
+            )
+            await update_trade_log_status(db, trade_log, "partial",
+                                          order_response=order_response,
+                                          position_id=str(pos.id))
+            return {
+                "success": True,
+                "message": (
+                    f"Partially sold {filled}/{sell_qty} contracts on "
+                    f"{pos.market_title or pos.market} (P&L: ${realized_pnl:.2f}). "
+                    f"Position reduced to {remaining_qty} contracts."
+                ),
+                "trade": {
+                    "action": "sell", "market": pos.market,
+                    "market_title": pos.market_title, "side": pos.side,
+                    "count": filled, "requested_count": sell_qty,
+                    "exit_price_cents": exit_price, "realized_pnl_usd": realized_pnl,
+                    "paper": False, "reason": reason, "fill_status": "partial",
+                },
+            }
 
     # --- Close position (computes realized_pnl_usd correctly) ---
     close_reason = reason or "manual"
@@ -395,7 +509,7 @@ async def _execute_sell(
     # --- Log the trade with realized P&L ---
     trade_log = await create_trade_log(
         db=db, bot=bot, action="sell", market=pos.market, side=pos.side,
-        price=exit_price, quantity=int(pos.quantity), cost_usd=pos.cost_usd,
+        price=exit_price, quantity=sell_qty, cost_usd=pos.cost_usd,
         status="executed",
         market_title=pos.market_title,
         realized_pnl_usd=realized_pnl,
@@ -416,11 +530,12 @@ async def _execute_sell(
             "market": pos.market,
             "market_title": pos.market_title,
             "side": pos.side,
-            "count": int(pos.quantity),
+            "count": sell_qty,
             "exit_price_cents": exit_price,
             "realized_pnl_usd": round(realized_pnl, 2),
             "paper": False,
             "reason": reason,
+            "fill_status": "filled",
         },
     }
 
@@ -462,6 +577,93 @@ async def list_trades_impl(context: AgentContext, limit: int = 20) -> Dict[str, 
 
 
 # ---------------------------------------------------------------------------
+# cancel_order — cancel a resting (unfilled) order on the exchange
+# ---------------------------------------------------------------------------
+
+async def cancel_order_impl(context: AgentContext, order_id: str) -> Dict[str, Any]:
+    """Cancel a resting order on the exchange."""
+    from core.database import get_db_session
+    from crud.bots import get_bot, update_trade_log_by_order_id
+
+    bot_id = _get_bot_id(context)
+    user_id = context.user_id
+
+    async with get_db_session() as db:
+        bot = await get_bot(db, bot_id, user_id)
+        if not bot:
+            return {"success": False, "error": "Bot not found"}
+
+        config = bot.config or {}
+        platform = config.get("platform", "kalshi")
+
+        client = await get_platform_client(db, user_id, platform)
+        if not client:
+            return {"success": False, "error": f"No {platform} credentials configured."}
+
+        try:
+            result = await _cancel_order(client, platform, order_id)
+        except Exception as e:
+            logger.error(f"Failed to cancel order {order_id}: {e}")
+            return {"success": False, "error": f"Cancel failed: {e}"}
+
+        # Update the associated trade log to reflect cancellation
+        await update_trade_log_by_order_id(db, order_id, "cancelled")
+
+        return {
+            "success": True,
+            "message": f"Order {order_id} cancelled.",
+            "order_id": order_id,
+            "cancel_response": result,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Fill status parsing
+# ---------------------------------------------------------------------------
+
+def _parse_fill_status(order_response: dict, requested_count: int) -> dict:
+    """
+    Parse exchange order response to determine fill status.
+
+    Kalshi POST /portfolio/orders returns an "order" object with:
+      - status: "resting" | "executed" | "canceled" | ...
+      - remaining_count: contracts still unfilled
+      - order_id: unique order identifier
+    """
+    if not order_response:
+        # No response (e.g. paper trade) — assume filled
+        return {"status": "filled", "filled_count": requested_count}
+
+    order = order_response.get("order", order_response)
+    order_status = order.get("status", "")
+    order_id = order.get("order_id")
+
+    logger.info(f"Order response — status: {order_status}, order_id: {order_id}")
+    logger.debug(f"Full order response: {order_response}")
+
+    # Default remaining to requested_count (assume unfilled) so that missing
+    # fields don't accidentally count as filled
+    remaining = order.get("remaining_count", requested_count)
+    filled_count = requested_count - remaining
+
+    # Trust the status field first — "executed" means fully filled on Kalshi
+    if order_status == "executed":
+        return {"status": "filled", "filled_count": requested_count, "order_id": order_id}
+    elif order_status == "resting":
+        if filled_count > 0:
+            return {"status": "partial", "filled_count": filled_count, "order_id": order_id}
+        return {"status": "resting", "filled_count": 0, "order_id": order_id}
+    else:
+        # Unknown status — check remaining_count if present, otherwise assume resting
+        if "remaining_count" in order and remaining == 0:
+            return {"status": "filled", "filled_count": requested_count, "order_id": order_id}
+        elif filled_count > 0:
+            return {"status": "partial", "filled_count": filled_count, "order_id": order_id}
+        else:
+            return {"status": "resting", "filled_count": 0, "order_id": order_id}
+
+
+# ---------------------------------------------------------------------------
 # Platform-agnostic dispatch layer
 #
 # Each platform implements: _get_client, _fetch_market, _get_mid_price, _place_order
@@ -498,6 +700,13 @@ async def _place_order(
     """Place a limit order on the platform at the specified price."""
     if platform == "kalshi":
         return await _place_kalshi_order(client, market, side, action, count, price)
+    raise RuntimeError(f"Unsupported platform: {platform}")
+
+
+async def _cancel_order(client, platform: str, order_id: str) -> dict:
+    """Cancel a resting order on the platform."""
+    if platform == "kalshi":
+        return await _cancel_kalshi_order(client, order_id)
     raise RuntimeError(f"Unsupported platform: {platform}")
 
 
@@ -565,5 +774,16 @@ async def _place_kalshi_order(
     result = await asyncio.get_event_loop().run_in_executor(
         None,
         lambda: kalshi_client.post("/portfolio/orders", body=body),
+    )
+    return result
+
+
+async def _cancel_kalshi_order(kalshi_client, order_id: str) -> dict:
+    """Cancel a resting order on Kalshi via DELETE /portfolio/orders/{order_id}."""
+    import asyncio
+
+    result = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: kalshi_client.delete(f"/portfolio/orders/{order_id}"),
     )
     return result

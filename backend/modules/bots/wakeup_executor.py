@@ -40,7 +40,8 @@ async def execute_wakeup(db: AsyncSession, wakeup: BotWakeup) -> str:
 
     bot = await get_bot(db, wakeup.bot_id, wakeup.user_id)
     if not bot:
-        logger.error(f"Wakeup {wakeup.id}: bot {wakeup.bot_id} not found")
+        logger.error(f"Wakeup {wakeup.id}: bot {wakeup.bot_id} not found, marking as triggered")
+        await mark_wakeup_triggered(db, wakeup, chat_id=None)
         return ""
 
     # 1. Create a bot-scoped chat

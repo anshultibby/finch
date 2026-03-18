@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { botsApi } from '@/lib/api';
-import type { BotDetail, BotChat } from '@/lib/types';
+import type { BotDetail, BotChat, BotWakeup } from '@/lib/types';
 import BotChatList, { type BotPanel } from './BotChatList';
 import BotDocViewer from './BotDocViewer';
 import BotJournalViewer from './BotJournalViewer';
@@ -34,6 +34,7 @@ export default function BotView({ botId }: BotViewProps) {
   const router = useRouter();
   const [bot, setBot] = useState<BotDetail | null>(null);
   const [chats, setChats] = useState<BotChat[]>([]);
+  const [wakeups, setWakeups] = useState<BotWakeup[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activePanel, setActivePanel] = useState<BotPanel>('chat');
   const [botLoading, setBotLoading] = useState(true);
@@ -69,11 +70,22 @@ export default function BotView({ botId }: BotViewProps) {
     }
   }, [user, botId]);
 
+  const fetchWakeups = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await botsApi.listWakeups(user.id, botId);
+      setWakeups(data);
+    } catch (e) {
+      console.error('Failed to fetch wakeups:', e);
+    }
+  }, [user, botId]);
+
   // Parallel initial load
   useEffect(() => {
     fetchBot();
     fetchChats();
-  }, [fetchBot, fetchChats]);
+    fetchWakeups();
+  }, [fetchBot, fetchChats, fetchWakeups]);
 
   // Auto-refresh bot data (positions, stats) periodically
   useEffect(() => {
@@ -310,6 +322,7 @@ export default function BotView({ botId }: BotViewProps) {
             hasJournal={journalEntries.length > 0}
             hasPositions={(bot.positions?.length ?? 0) > 0}
             hasTrades={true}
+            wakeups={wakeups}
           />
         </div>
 

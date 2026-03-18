@@ -183,33 +183,49 @@ class Settings(BaseSettings):
     # =========================================================================
     # Context Management
     # =========================================================================
+    CONTEXT_WINDOW_TOKENS: int = Field(
+        default=200000,
+        description="Context window size of the primary model in tokens"
+    )
     CONTEXT_PRUNE_ENABLED: bool = Field(
         default=True,
-        description="Trim old tool results from in-memory context before each LLM call"
+        description="Evict old tool results from in-memory context before each LLM call"
     )
     CONTEXT_PRUNE_KEEP_LAST_ASSISTANTS: int = Field(
         default=3,
-        description="Number of recent assistant messages whose tool results are protected from pruning"
+        description="Number of recent assistant messages whose tool results are protected from eviction"
     )
-    CONTEXT_SOFT_TRIM_MAX_CHARS: int = Field(
-        default=4000,
-        description="Soft-trim tool results larger than this to head+tail with ellipsis"
+    CONTEXT_BUDGET_RATIO: float = Field(
+        default=0.75,
+        description="Fraction of context window allocated to total content (tool results evicted oldest-first beyond this)"
     )
-    CONTEXT_HARD_CLEAR_RATIO: float = Field(
-        default=0.5,
-        description="If a tool result exceeds this fraction of CONTEXT_SOFT_TRIM_MAX_CHARS * 10, hard-clear it"
+    CONTEXT_SINGLE_TOOL_RESULT_RATIO: float = Field(
+        default=0.30,
+        description="Max fraction of context window any single tool result may occupy"
+    )
+    CONTEXT_OVERFLOW_RATIO: float = Field(
+        default=0.90,
+        description="If estimated tokens exceed this ratio after pruning, force early compaction"
+    )
+    STORAGE_MAX_TOOL_RESULT_CHARS: int = Field(
+        default=400000,
+        description="Hard cap on tool result size at persistence time (chars)"
     )
     COMPACTION_ENABLED: bool = Field(
         default=True,
         description="Summarize old history into a persistent compaction message when context is large"
     )
-    COMPACTION_THRESHOLD_TOKENS: int = Field(
-        default=150000,
-        description="Estimated token count at which compaction is triggered"
+    COMPACTION_THRESHOLD_RATIO: float = Field(
+        default=0.80,
+        description="Fraction of context window at which compaction is triggered"
     )
     COMPACTION_MODEL: str = Field(
         default=Models.CLAUDE_SONNET_4_5,
         description="Model used for compaction summarization (prefer a cheap/fast model)"
+    )
+    COMPACTION_SUMMARY_MAX_TOKENS: int = Field(
+        default=8192,
+        description="Max tokens for compaction summary output"
     )
 
     # =========================================================================

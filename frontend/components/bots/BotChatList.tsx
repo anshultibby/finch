@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { BotChat } from '@/lib/types';
+import type { BotChat, BotWakeup } from '@/lib/types';
 
 export type BotPanel = 'chat' | 'strategy' | 'memory' | 'journal' | 'positions' | 'trades' | 'files';
 
@@ -18,6 +18,7 @@ interface BotChatListProps {
   hasJournal?: boolean;
   hasPositions?: boolean;
   hasTrades?: boolean;
+  wakeups?: BotWakeup[];
 }
 
 const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
@@ -78,7 +79,7 @@ const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
 ];
 
 export default function BotChatList({
-  chats, activeChatId, activePanel, onSelectChat, onNewChat, onSelectPanel, loading, hasStrategy, hasMemory, hasJournal, hasPositions, hasTrades,
+  chats, activeChatId, activePanel, onSelectChat, onNewChat, onSelectPanel, loading, hasStrategy, hasMemory, hasJournal, hasPositions, hasTrades, wakeups = [],
 }: BotChatListProps) {
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -125,6 +126,52 @@ export default function BotChatList({
       </div>
 
       <div className="mx-3 my-2 border-t border-gray-200" />
+
+      {/* Scheduled wakeups */}
+      {wakeups.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="text-[11px] font-medium text-gray-400 uppercase tracking-wide px-1 mb-1.5">
+            Scheduled ({wakeups.length})
+          </div>
+          <div className="space-y-1 max-h-36 overflow-y-auto">
+            {wakeups.map((w) => {
+              const t = new Date(w.trigger_at);
+              const now = new Date();
+              const diffMs = t.getTime() - now.getTime();
+              const diffMins = Math.round(diffMs / 60000);
+              let timeLabel: string;
+              if (diffMins < 0) {
+                timeLabel = 'overdue';
+              } else if (diffMins < 60) {
+                timeLabel = `in ${diffMins}m`;
+              } else if (diffMins < 1440) {
+                timeLabel = `in ${Math.round(diffMins / 60)}h`;
+              } else {
+                timeLabel = t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }
+              return (
+                <div
+                  key={w.id}
+                  className="flex items-start gap-2 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-100"
+                >
+                  <svg className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  </svg>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] text-gray-700 leading-tight truncate">
+                      {w.reason || w.trigger_type}
+                    </div>
+                    <div className="text-[11px] text-amber-600 font-medium mt-0.5">
+                      {timeLabel}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mx-1 my-2 border-t border-gray-200" />
+        </div>
+      )}
 
       {/* New Chat button */}
       <div className="px-3 pb-2">

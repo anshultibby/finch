@@ -9,6 +9,7 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, case
+from sqlalchemy.orm.attributes import flag_modified
 
 from models.bot import TradingBot, BotExecution, BotFile, BotPosition, TradeLog, BotWakeup
 from schemas.bots import (
@@ -145,6 +146,7 @@ async def update_bot(
     if request.model is not None:
         config["model"] = request.model
     bot.config = config
+    flag_modified(bot, "config")
 
     await db.commit()
     await db.refresh(bot)
@@ -161,20 +163,8 @@ async def delete_bot(
     if not bot:
         return False
 
-    # Delete related records
-    await db.execute(
-        BotFile.__table__.delete().where(BotFile.bot_id == bot_id)
-    )
-    await db.execute(
-        BotPosition.__table__.delete().where(BotPosition.bot_id == bot_id)
-    )
-    await db.execute(
-        BotExecution.__table__.delete().where(BotExecution.bot_id == bot_id)
-    )
-    await db.execute(
-        TradeLog.__table__.delete().where(TradeLog.bot_id == bot_id)
-    )
-
+    # Child records (files, executions, positions, wakeups, trade_logs)
+    # are deleted automatically via ON DELETE CASCADE
     await db.delete(bot)
     await db.commit()
     logger.info(f"Deleted bot {bot_id}")
@@ -549,6 +539,7 @@ async def adjust_capital(
     capital["balance_usd"] = new_balance
     config["capital"] = capital
     bot.config = config
+    flag_modified(bot, "config")
     await db.commit()
     await db.refresh(bot)
     logger.info(f"Capital {reason}: bot {bot_id} {'+' if delta >= 0 else ''}{delta:.2f} -> ${new_balance:.2f}")
@@ -565,6 +556,7 @@ async def deduct_capital_for_position(db: AsyncSession, bot: TradingBot, cost_us
     capital["balance_usd"] = current - cost_usd
     config["capital"] = capital
     bot.config = config
+    flag_modified(bot, "config")
     await db.commit()
     return True
 
@@ -576,6 +568,7 @@ async def credit_capital_for_close(db: AsyncSession, bot: TradingBot, cost_usd: 
     capital["balance_usd"] = current + cost_usd + realized_pnl
     config["capital"] = capital
     bot.config = config
+    flag_modified(bot, "config")
     await db.commit()
 
 
@@ -648,6 +641,25 @@ async def update_trade_log_status(
         trade_log.approved_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(trade_log)
+    return trade_log
+
+
+async def update_trade_log_by_order_id(
+    db: AsyncSession,
+    order_id: str,
+    status: str,
+) -> Optional[TradeLog]:
+    """Find a trade log by the order_id in its order_response JSON and update its status."""
+    result = await db.execute(
+        select(TradeLog).where(
+            TradeLog.order_response["order"]["order_id"].astext == order_id
+        )
+    )
+    trade_log = result.scalars().first()
+    if trade_log:
+        trade_log.status = status
+        await db.commit()
+        await db.refresh(trade_log)
     return trade_log
 
 

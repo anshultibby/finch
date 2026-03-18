@@ -33,10 +33,12 @@ Do NOT use this tool if:
 # ============================================================================
 
 # Build EXECUTE_CODE_DESC dynamically with skills README content
-_EXECUTE_CODE_BASE = """Run bash in a persistent sandboxed VM (60s timeout). Full Linux — python3, pip, curl, jq, cat, tee, heredoc, whatever you need.
+_EXECUTE_CODE_BASE = """Run bash in a persistent sandboxed VM (60s timeout). 
+Full Linux — python3, pip, curl, jq, cat, tee, heredoc, whatever you need.
 
 The filesystem persists across calls. Write files, read them back, run scripts — it's just a shell.
-
+When you wanna run code that you are not sure about it is best to write a file and then run it.
+this way the iteration and debugging process is much easier.
 **Style:**
 - Concise. No verbose comments or progress prints.
 - Use python3 for data work, bash for everything else.

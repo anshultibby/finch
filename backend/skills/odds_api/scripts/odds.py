@@ -208,3 +208,132 @@ def get_participants(sport: str) -> List[Dict]:
     Cost: 1 credit.
     """
     return _request(f"/sports/{sport}/participants")
+
+
+# ── Historical ─────────────────────────────────────────────────────────
+
+def get_historical_odds(
+    sport: str,
+    date: str,
+    regions: str = "us",
+    markets: str = "h2h",
+    odds_format: str = "american",
+    bookmakers: Optional[str] = None,
+    event_ids: Optional[str] = None,
+    commence_time_from: Optional[str] = None,
+    commence_time_to: Optional[str] = None,
+) -> Dict:
+    """
+    Get a snapshot of odds at a historical timestamp.
+
+    Data available from June 6, 2020. Snapshots at 10-min intervals
+    (5-min from Sep 2022). Paid plans only.
+
+    Args:
+        sport: Sport key (e.g. "basketball_nba").
+        date: ISO 8601 timestamp for the snapshot (e.g. "2024-01-15T18:00:00Z").
+              Returns the closest snapshot equal to or earlier than this time.
+        regions: Comma-separated regions: us, us2, uk, au, eu.
+        markets: Comma-separated markets: h2h, spreads, totals, outrights.
+        odds_format: "american" or "decimal".
+        bookmakers: Optional comma-separated bookmaker keys.
+        event_ids: Optional comma-separated event IDs to filter.
+        commence_time_from: ISO 8601 start filter.
+        commence_time_to: ISO 8601 end filter.
+
+    Cost: 10 credits per region × market combo.
+
+    Returns dict with:
+        timestamp: actual snapshot time
+        previous_timestamp: preceding snapshot
+        next_timestamp: next snapshot
+        data: list of events with bookmaker odds
+    """
+    params = {
+        "regions": regions,
+        "markets": markets,
+        "oddsFormat": odds_format,
+        "date": date,
+    }
+    if bookmakers:
+        params["bookmakers"] = bookmakers
+    if event_ids:
+        params["eventIds"] = event_ids
+    if commence_time_from:
+        params["commenceTimeFrom"] = commence_time_from
+    if commence_time_to:
+        params["commenceTimeTo"] = commence_time_to
+    return _request(f"/historical/sports/{sport}/odds", params)
+
+
+def get_historical_events(
+    sport: str,
+    date: str,
+    event_ids: Optional[str] = None,
+    commence_time_from: Optional[str] = None,
+    commence_time_to: Optional[str] = None,
+) -> Dict:
+    """
+    Get a list of events as they appeared at a historical timestamp.
+
+    Useful for finding event IDs to use with get_historical_event_odds().
+    Paid plans only.
+
+    Args:
+        sport: Sport key.
+        date: ISO 8601 timestamp for the snapshot.
+        event_ids: Optional comma-separated event IDs to filter.
+        commence_time_from: ISO 8601 start filter.
+        commence_time_to: ISO 8601 end filter.
+
+    Cost: 1 credit (free if no events found).
+
+    Returns dict with:
+        timestamp, previous_timestamp, next_timestamp, data (list of events)
+    """
+    params = {"date": date}
+    if event_ids:
+        params["eventIds"] = event_ids
+    if commence_time_from:
+        params["commenceTimeFrom"] = commence_time_from
+    if commence_time_to:
+        params["commenceTimeTo"] = commence_time_to
+    return _request(f"/historical/sports/{sport}/events", params)
+
+
+def get_historical_event_odds(
+    sport: str,
+    event_id: str,
+    date: str,
+    regions: str = "us",
+    markets: str = "h2h,spreads,totals",
+    odds_format: str = "american",
+) -> Dict:
+    """
+    Get historical odds for a single event at a specific timestamp.
+
+    Additional markets (player props, alternates, period markets) available
+    after 2023-05-03. Paid plans only.
+
+    Args:
+        sport: Sport key.
+        event_id: Event ID from get_historical_events().
+        date: ISO 8601 timestamp for the snapshot.
+        regions: Bookmaker regions.
+        markets: Markets to fetch.
+        odds_format: "american" or "decimal".
+
+    Cost: 1 credit per request.
+
+    Returns dict with:
+        timestamp, previous_timestamp, next_timestamp, data (event with odds)
+    """
+    params = {
+        "regions": regions,
+        "markets": markets,
+        "oddsFormat": odds_format,
+        "date": date,
+    }
+    return _request(
+        f"/historical/sports/{sport}/events/{event_id}/odds", params
+    )

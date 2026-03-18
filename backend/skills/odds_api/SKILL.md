@@ -1,6 +1,6 @@
 ---
 name: odds_api
-description: Live sports odds, scores, and events from The Odds API. Covers NFL, NBA, NHL, MLB, soccer, tennis, MMA, and 70+ sports with odds from 40+ bookmakers.
+description: Live and historical sports odds, scores, and events from The Odds API. Covers NFL, NBA, NHL, MLB, soccer, tennis, MMA, and 70+ sports with odds from 40+ bookmakers. Historical snapshots from June 2020.
 homepage: https://the-odds-api.com
 metadata:
   emoji: "🏈"
@@ -23,7 +23,10 @@ from skills.odds_api.scripts.odds import (
     get_sports, get_odds, get_event_odds,
     get_scores, get_events, get_event_markets,
     get_participants, get_quota,
+    # Historical data (paid plans only)
+    get_historical_odds, get_historical_events, get_historical_event_odds,
 )
+from skills.odds_api.scripts.api_docs import lookup, schema
 ```
 
 ## List Available Sports
@@ -218,6 +221,161 @@ for e in events:
     print(f"[{status}] {e['away_team']} @ {e['home_team']}")
 ```
 
+## API Docs Lookup
+
+**Use `lookup()` and `schema()` to check endpoint details before writing code.** These query the live Swagger spec.
+
+```python
+from skills.odds_api.scripts.api_docs import lookup, schema
+
+# Look up an endpoint — shows params, response schema
+lookup("GET /v4/sports/{sport}/odds")
+lookup("/v4/historical/sports/{sport}/odds")  # all methods for a path
+
+# Search by keyword
+lookup("historical")     # finds all historical endpoints
+lookup("participants")   # finds participant endpoints
+
+# Look up response schemas
+schema("OddsResponse")
+
+# List all endpoints or schemas
+from skills.odds_api.scripts.api_docs import list_endpoints, list_schemas
+list_endpoints()
+list_schemas()
+```
+
+---
+
+## Historical Data (Paid Plans Only)
+
+Historical odds snapshots are available from **June 6, 2020**. Snapshots at 10-minute intervals (5-minute from September 2022).
+
+### Get Historical Events
+
+Find what events existed at a past timestamp. Use this to get event IDs for historical odds lookups.
+
+```python
+from skills.odds_api.scripts.odds import get_historical_events
+
+# What NBA games were listed on Jan 15, 2024?
+result = get_historical_events(
+    "basketball_nba",
+    date="2024-01-15T18:00:00Z",
+)
+# result has: timestamp, previous_timestamp, next_timestamp, data (list of events)
+for event in result["data"]:
+    print(f"{event['id']}: {event['away_team']} @ {event['home_team']} — {event['commence_time']}")
+
+# Filter by game time window
+result = get_historical_events(
+    "americanfootball_nfl",
+    date="2024-01-14T12:00:00Z",
+    commence_time_from="2024-01-14T00:00:00Z",
+    commence_time_to="2024-01-15T00:00:00Z",
+)
+```
+
+**Cost:** 1 credit (free if no events found).
+
+### Get Historical Odds (All Events)
+
+Snapshot of odds across all events for a sport at a past timestamp.
+
+```python
+from skills.odds_api.scripts.odds import get_historical_odds
+
+# NFL odds on a specific date
+result = get_historical_odds(
+    "americanfootball_nfl",
+    date="2024-01-14T18:00:00Z",
+    regions="us",
+    markets="h2h,spreads,totals",
+)
+print(f"Snapshot at: {result['timestamp']}")
+print(f"Next snapshot: {result['next_timestamp']}")
+for event in result["data"]:
+    print(f"\n{event['away_team']} @ {event['home_team']}")
+    for bk in event.get("bookmakers", []):
+        for market in bk["markets"]:
+            for outcome in market["outcomes"]:
+                print(f"  {bk['title']}: {outcome['name']} {outcome['price']}")
+
+# Navigate between snapshots using previous/next timestamps
+next_snap = get_historical_odds(
+    "americanfootball_nfl",
+    date=result["next_timestamp"],
+    regions="us",
+    markets="h2h",
+)
+```
+
+**Cost:** 10 credits per region × market combo (e.g. 3 markets × 1 region = 30 credits).
+
+### Get Historical Event Odds (Single Event)
+
+Odds for a specific event at a past timestamp. Supports any available market including player props (after May 2023).
+
+```python
+from skills.odds_api.scripts.odds import get_historical_event_odds
+
+# Get odds for a specific game at a specific time
+result = get_historical_event_odds(
+    "basketball_nba",
+    event_id="abc123def456",  # from get_historical_events()
+    date="2024-01-15T19:00:00Z",
+    markets="h2h,spreads,totals,player_points",
+)
+```
+
+**Cost:** 1 credit per request.
+
+### Historical Data Workflow
+
+```python
+from skills.odds_api.scripts.odds import (
+    get_historical_events, get_historical_odds, get_historical_event_odds,
+)
+
+# Step 1: Find events on a date
+events = get_historical_events("basketball_nba", date="2024-03-01T12:00:00Z")
+
+# Step 2: Get bulk odds snapshot
+odds = get_historical_odds(
+    "basketball_nba",
+    date="2024-03-01T18:00:00Z",
+    regions="us",
+    markets="h2h,spreads",
+)
+
+# Step 3: Deep dive into a specific game
+event_id = events["data"][0]["id"]
+detail = get_historical_event_odds(
+    "basketball_nba",
+    event_id=event_id,
+    date="2024-03-01T18:00:00Z",
+    markets="h2h,spreads,totals,player_points",
+)
+
+# Step 4: Track line movement — walk through snapshots
+timestamps = ["2024-03-01T12:00:00Z", "2024-03-01T15:00:00Z", "2024-03-01T18:00:00Z"]
+for ts in timestamps:
+    snap = get_historical_event_odds(
+        "basketball_nba", event_id=event_id, date=ts, markets="spreads",
+    )
+    print(f"{snap['timestamp']}: {snap['data']}")
+```
+
+### Historical Cost Reference
+
+| Endpoint | Cost |
+|---|---|
+| `get_historical_events()` | 1 credit (free if empty) |
+| `get_historical_odds()` | 10 × regions × markets |
+| `get_historical_event_odds()` | 1 credit |
+
+---
+
 ## Error Handling
 
 ```python
@@ -232,4 +390,5 @@ if isinstance(result, dict) and "error" in result:
 - User wants to compare lines across bookmakers
 - User needs live scores or game schedules
 - User wants to find value bets or odds discrepancies
+- User wants historical odds data for backtesting or line movement analysis
 - Bot needs sports odds data for prediction market decisions (combine with Kalshi skill)

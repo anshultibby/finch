@@ -1,17 +1,21 @@
 """
-Session Pruner - trims old tool results from the in-memory message list
-before each LLM call to keep the context window lean.
+Session Pruner - evicts old tool results from the in-memory message list
+before each LLM call to keep the context window under budget.
 
 This is transient: it only affects what is sent to the model for that request.
 It never modifies the database or the ChatHistory object.
 
-Strategy (mirrors OpenClaw's approach):
-- Protect the last KEEP_LAST_ASSISTANTS assistant messages and their tool results.
-- For older tool results, soft-trim large ones (keep head + tail with an ellipsis)
-  or hard-clear very large ones (replace with a placeholder).
-- User messages and assistant text are never modified.
+Strategy (adapted from OpenClaw's layered approach):
+1. Cap any single tool result to CONTEXT_SINGLE_TOOL_RESULT_RATIO of the context window.
+2. Protect the last KEEP_LAST_ASSISTANTS assistant messages and their tool results.
+3. If total estimated tokens exceed CONTEXT_BUDGET_RATIO of the context window,
+   evict old tool results oldest-first (replace with a placeholder) until under budget.
+4. If still over CONTEXT_OVERFLOW_RATIO after eviction, signal that early compaction
+   is needed.
+
+No soft-trimming (head+tail) — tool results are either kept in full or evicted entirely.
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import copy
 
 from core.config import Config
@@ -19,9 +23,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_HARD_CLEAR_PLACEHOLDER = "[Old tool result cleared to save context]"
-_SOFT_TRIM_HEAD = 1500
-_SOFT_TRIM_TAIL = 1500
+_EVICTED_PLACEHOLDER = "[tool output removed to free context]"
 
 
 def _estimate_tokens(messages: List[Dict[str, Any]]) -> int:
@@ -34,7 +36,6 @@ def _estimate_tokens(messages: List[Dict[str, Any]]) -> int:
             for block in content:
                 if isinstance(block, dict):
                     total_chars += len(block.get("text", ""))
-        # Count tool call arguments too
         for tc in msg.get("tool_calls") or []:
             args = tc.get("function", {}).get("arguments", "")
             total_chars += len(args) if isinstance(args, str) else 0
@@ -51,19 +52,10 @@ def _content_chars(content) -> int:
     return 0
 
 
-def _soft_trim(content: str, max_chars: int) -> str:
-    if len(content) <= max_chars:
-        return content
-    head = content[:_SOFT_TRIM_HEAD]
-    tail = content[-_SOFT_TRIM_TAIL:]
-    omitted = len(content) - _SOFT_TRIM_HEAD - _SOFT_TRIM_TAIL
-    return f"{head}\n... [{omitted:,} chars omitted] ...\n{tail}"
-
-
 def _find_protected_tool_call_ids(messages: List[Dict[str, Any]], keep_last: int) -> set:
     """
     Return tool_call_ids belonging to the last `keep_last` assistant messages
-    that have tool calls. Results for these IDs are protected from pruning.
+    that have tool calls. Results for these IDs are protected from eviction.
     """
     assistant_indices = [
         i for i, m in enumerate(messages)
@@ -80,63 +72,79 @@ def _find_protected_tool_call_ids(messages: List[Dict[str, Any]], keep_last: int
     return protected_ids
 
 
-def prune_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], bool]:
     """
-    Return a pruned copy of `messages` suitable for sending to the LLM.
+    Return a pruned copy of `messages` suitable for sending to the LLM,
+    plus a boolean indicating whether early compaction should be triggered.
 
     The original list is not modified.
     """
     if not Config.CONTEXT_PRUNE_ENABLED:
-        return messages
+        return messages, False
 
-    estimated = _estimate_tokens(messages)
-    # Only prune if we're using a meaningful amount of context
-    # Threshold: 50k tokens (~200k chars) before we start trimming
-    if estimated < 50000:
-        return messages
-
-    soft_max = Config.CONTEXT_SOFT_TRIM_MAX_CHARS
-    hard_threshold = int(soft_max * 10 * Config.CONTEXT_HARD_CLEAR_RATIO)
+    ctx_window = Config.CONTEXT_WINDOW_TOKENS
     keep_last = Config.CONTEXT_PRUNE_KEEP_LAST_ASSISTANTS
+    single_cap_chars = int(ctx_window * Config.CONTEXT_SINGLE_TOOL_RESULT_RATIO * 4)
+    budget_tokens = int(ctx_window * Config.CONTEXT_BUDGET_RATIO)
+    overflow_tokens = int(ctx_window * Config.CONTEXT_OVERFLOW_RATIO)
 
     protected_ids = _find_protected_tool_call_ids(messages, keep_last)
 
-    pruned = []
-    trimmed_count = 0
-    cleared_count = 0
-
+    # --- Phase 1: Cap oversized individual tool results ---
+    phase1: List[Dict[str, Any]] = []
+    capped_count = 0
     for msg in messages:
-        if msg.get("role") != "tool":
-            pruned.append(msg)
-            continue
+        if msg.get("role") == "tool":
+            chars = _content_chars(msg.get("content"))
+            if chars > single_cap_chars and msg.get("tool_call_id") not in protected_ids:
+                msg_copy = copy.copy(msg)
+                msg_copy["content"] = _EVICTED_PLACEHOLDER
+                phase1.append(msg_copy)
+                capped_count += 1
+                continue
+        phase1.append(msg)
 
-        tool_call_id = msg.get("tool_call_id")
-        if tool_call_id in protected_ids:
-            pruned.append(msg)
-            continue
+    # --- Phase 2: Oldest-first eviction if over budget ---
+    estimated = _estimate_tokens(phase1)
+    evicted_count = 0
 
-        content = msg.get("content") or ""
-        chars = _content_chars(content)
+    if estimated > budget_tokens:
+        # Collect indices of evictable tool results (oldest first, unprotected)
+        evictable: List[int] = []
+        for i, msg in enumerate(phase1):
+            if (
+                msg.get("role") == "tool"
+                and msg.get("tool_call_id") not in protected_ids
+                and msg.get("content") != _EVICTED_PLACEHOLDER
+            ):
+                evictable.append(i)
 
-        if chars <= soft_max:
-            pruned.append(msg)
-            continue
+        # Evict oldest first until under budget
+        phase1 = list(phase1)  # ensure we can mutate
+        for idx in evictable:
+            if _estimate_tokens(phase1) <= budget_tokens:
+                break
+            original_content = phase1[idx].get("content") or ""
+            chars_freed = _content_chars(original_content)
+            phase1[idx] = copy.copy(phase1[idx])
+            phase1[idx]["content"] = _EVICTED_PLACEHOLDER
+            evicted_count += 1
 
-        msg_copy = copy.copy(msg)
-        if chars > hard_threshold:
-            msg_copy["content"] = _HARD_CLEAR_PLACEHOLDER
-            cleared_count += 1
-        else:
-            if isinstance(content, str):
-                msg_copy["content"] = _soft_trim(content, soft_max)
-            trimmed_count += 1
+        estimated = _estimate_tokens(phase1)
 
-        pruned.append(msg_copy)
-
-    if trimmed_count or cleared_count:
+    if capped_count or evicted_count:
         logger.debug(
-            f"Session pruner: soft-trimmed {trimmed_count}, hard-cleared {cleared_count} tool results "
-            f"(est. tokens before: {estimated:,})"
+            f"Session pruner: capped {capped_count}, evicted {evicted_count} tool results "
+            f"(est. tokens after: {estimated:,}, budget: {budget_tokens:,})"
         )
 
-    return pruned
+    # --- Phase 3: Check overflow → signal early compaction ---
+    needs_compaction = estimated > overflow_tokens
+
+    if needs_compaction:
+        logger.warning(
+            f"Session pruner: still over overflow threshold after eviction "
+            f"({estimated:,} > {overflow_tokens:,}) — requesting early compaction"
+        )
+
+    return phase1, needs_compaction

@@ -197,7 +197,36 @@ nhl = get_all("/events", {"series_ticker": "KXNHLGAME", "status": "open", "with_
 
 Championship/futures series (e.g. `KXNBA`, `KXMLB`) are DIFFERENT — they have "who will win the title" markets, not individual game markets.
 
-### 5. Status values differ between queries and responses
+### 5. `with_nested_markets` is REQUIRED to get markets from /events
+
+**Without `with_nested_markets=True`, `/events` returns events with an EMPTY markets array.** This is the #1 cause of "0 markets found" bugs.
+
+```python
+# WRONG — returns events but markets=[] for each one:
+events = get_all("/events", {"series_ticker": "KXNBAGAME", "status": "open"})
+# events[0]["markets"] → []  ← EMPTY!
+
+# RIGHT — option A: events with nested markets:
+events = get_all("/events", {"series_ticker": "KXNBAGAME", "status": "open", "with_nested_markets": True})
+# events[0]["markets"] → [{ticker, yes_bid_dollars, ...}, ...]  ← HAS DATA
+
+# RIGHT — option B: fetch markets directly (no nesting needed):
+markets = get_all("/markets", {"series_ticker": "KXNBAGAME", "status": "open"})
+# returns market objects directly — simpler if you don't need event grouping
+```
+
+**The same applies to single-event lookups:**
+```python
+# WRONG:
+r = get(f"/events/{event_ticker}")
+r["event"]["markets"]  # → []
+
+# RIGHT:
+r = get(f"/events/{event_ticker}", {"with_nested_markets": True})
+r["event"]["markets"]  # → [{...}, ...]
+```
+
+### 6. Status values differ between queries and responses (was 5)
 
 - **Query filter** (`status` param): `unopened`, `open`, `paused`, `closed`, `settled`
 - **Response field** (`status` in objects): `initialized`, `inactive`, `active`, `closed`, `determined`, `finalized`
