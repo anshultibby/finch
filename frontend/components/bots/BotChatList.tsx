@@ -13,9 +13,6 @@ interface BotChatListProps {
   onNewChat: () => void;
   onSelectPanel: (panel: BotPanel) => void;
   loading?: boolean;
-  hasStrategy?: boolean;
-  hasMemory?: boolean;
-  hasJournal?: boolean;
   hasPositions?: boolean;
   hasTrades?: boolean;
   wakeups?: BotWakeup[];
@@ -23,27 +20,9 @@ interface BotChatListProps {
 
 const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
   {
-    panel: 'strategy',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-      </svg>
-    ),
-    label: 'Strategy',
-  },
-  {
-    panel: 'memory',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-      </svg>
-    ),
-    label: 'Memory',
-  },
-  {
     panel: 'positions',
     icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
       </svg>
     ),
@@ -52,25 +31,16 @@ const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
   {
     panel: 'trades',
     icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5" />
       </svg>
     ),
     label: 'Trades',
   },
   {
-    panel: 'journal',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-      </svg>
-    ),
-    label: 'Journal',
-  },
-  {
     panel: 'files',
     icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
       </svg>
     ),
@@ -79,7 +49,7 @@ const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
 ];
 
 export default function BotChatList({
-  chats, activeChatId, activePanel, onSelectChat, onNewChat, onSelectPanel, loading, hasStrategy, hasMemory, hasJournal, hasPositions, hasTrades, wakeups = [],
+  chats, activeChatId, activePanel, onSelectChat, onNewChat, onSelectPanel, loading, wakeups = [],
 }: BotChatListProps) {
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -93,47 +63,46 @@ export default function BotChatList({
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const hasDot = (panel: BotPanel) => {
-    if (panel === 'strategy') return hasStrategy;
-    if (panel === 'memory') return hasMemory;
-    if (panel === 'journal') return hasJournal;
-    if (panel === 'positions') return hasPositions;
-    if (panel === 'trades') return hasTrades;
-    return false;
-  };
-
   return (
-    <div className="flex flex-col h-full bg-gray-50 border-r border-gray-200">
+    <div className="h-full overflow-y-auto bg-gray-50 border-r border-gray-200">
+      {/* New Chat */}
+      <div className="px-2 pt-3 pb-1">
+        <button
+          onClick={() => { onNewChat(); onSelectPanel('chat'); }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+          </svg>
+          New chat
+        </button>
+      </div>
+
       {/* Nav items */}
-      <div className="px-3 pt-3 pb-1 space-y-0.5">
+      <div className="px-2 py-1">
         {NAV_ITEMS.map(({ panel, icon, label }) => (
           <button
             key={panel}
             onClick={() => onSelectPanel(panel)}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] rounded-lg transition-colors ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg transition-colors ${
               activePanel === panel
-                ? 'bg-white text-gray-900 font-medium shadow-sm border border-gray-100'
-                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                ? 'bg-gray-200/70 text-gray-900 font-medium'
+                : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
             <span className={activePanel === panel ? 'text-gray-700' : 'text-gray-400'}>{icon}</span>
             {label}
-            {hasDot(panel) && (
-              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400" />
-            )}
           </button>
         ))}
       </div>
 
-      <div className="mx-3 my-2 border-t border-gray-200" />
-
       {/* Scheduled wakeups */}
       {wakeups.length > 0 && (
-        <div className="px-3 pb-2">
-          <div className="text-[11px] font-medium text-gray-400 uppercase tracking-wide px-1 mb-1.5">
-            Scheduled ({wakeups.length})
+        <div className="px-2 pt-3 pb-1">
+          <div className="text-xs font-medium text-gray-400 px-3 mb-1">
+            Scheduled
           </div>
-          <div className="space-y-1 max-h-36 overflow-y-auto">
+          <div className="space-y-0.5">
             {wakeups.map((w) => {
               const t = new Date(w.trigger_at);
               const now = new Date();
@@ -152,16 +121,16 @@ export default function BotChatList({
               return (
                 <div
                   key={w.id}
-                  className="flex items-start gap-2 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-100"
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg bg-amber-50/80"
                 >
-                  <svg className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <svg className="w-5 h-5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                   </svg>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12px] text-gray-700 leading-tight truncate">
+                    <div className="text-sm text-gray-700 truncate">
                       {w.reason || w.trigger_type}
                     </div>
-                    <div className="text-[11px] text-amber-600 font-medium mt-0.5">
+                    <div className="text-xs text-amber-600 font-medium">
                       {timeLabel}
                     </div>
                   </div>
@@ -169,48 +138,33 @@ export default function BotChatList({
               );
             })}
           </div>
-          <div className="mx-1 my-2 border-t border-gray-200" />
         </div>
       )}
 
-      {/* New Chat button */}
-      <div className="px-3 pb-2">
-        <button
-          onClick={() => { onNewChat(); onSelectPanel('chat'); }}
-          className={`w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-            activePanel === 'chat'
-              ? 'text-gray-600 bg-white border-gray-200 hover:bg-gray-50'
-              : 'text-gray-500 bg-transparent border-transparent hover:bg-gray-100'
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          New Chat
-        </button>
-      </div>
-
-      {/* Chat list */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Chats */}
+      <div className="px-2 pt-4 pb-1">
+        <div className="text-xs font-medium text-gray-400 px-3 mb-1">
+          Chats
+        </div>
         {loading ? (
-          <div className="p-4 flex justify-center">
+          <div className="py-4 flex justify-center">
             <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
           </div>
         ) : chats.length === 0 ? (
-          <p className="p-4 text-xs text-gray-400 text-center">No chats yet</p>
+          <p className="px-3 py-3 text-sm text-gray-400">No chats yet</p>
         ) : (
-          <div className="py-1">
+          <div className="space-y-0.5">
             {chats.map((chat) => (
               <button
                 key={chat.chat_id}
                 onClick={() => { onSelectChat(chat.chat_id); onSelectPanel('chat'); }}
-                className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                className={`w-full text-left px-3 py-2.5 text-sm rounded-lg transition-colors ${
                   activePanel === 'chat' && activeChatId === chat.chat_id
-                    ? 'bg-white border-r-2 border-blue-500 text-gray-900'
+                    ? 'bg-gray-200/70 text-gray-900'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <div className="truncate font-medium">
+                <div className="truncate">
                   {chat.title || 'Untitled chat'}
                 </div>
                 <div className="text-xs text-gray-400 mt-0.5">

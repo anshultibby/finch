@@ -465,11 +465,31 @@ class LLMHandler:
             # Log cache growth
             if cache_creation > 0:
                 logger.info(f"  📈 Cache grew by {cache_creation:,} tokens this turn")
-            
+
             # Explain why new_input != cache_creation (helpful for understanding)
             if new_input_tokens > cache_creation:
                 uncached_sent = new_input_tokens - cache_creation
                 logger.debug(f"  ℹ️  {uncached_sent:,} new tokens sent but not cached (no cache_control breakpoint)")
+
+            # Warn if cache hit rate is unexpectedly low.
+            # On turn 2+ of a session the system prompt + tools + prior messages
+            # should be cached. If cache_read is near zero on a large request,
+            # something likely invalidated the prefix (system prompt changed,
+            # tool definitions mutated, etc.).
+            if total_input_tokens > 5000 and cache_read == 0 and tracker.llm_call_count > 1:
+                logger.warning(
+                    f"⚠️  CACHE MISS: 0 cache-read tokens on call #{tracker.llm_call_count} "
+                    f"with {total_input_tokens:,} input tokens. "
+                    "Likely cause: system prompt or tool definitions changed between turns, "
+                    "invalidating the cached prefix."
+                )
+            elif total_input_tokens > 5000 and cache_percentage < 30 and tracker.llm_call_count > 1:
+                logger.warning(
+                    f"⚠️  LOW CACHE HIT: only {cache_percentage:.1f}% cache read on call "
+                    f"#{tracker.llm_call_count} ({cache_read:,}/{total_input_tokens:,} tokens). "
+                    "Expected >50% on subsequent turns. Check if system prompt or tools are "
+                    "being rebuilt between calls."
+                )
     
     def _log_chat_turn_non_streaming(self, kwargs: Dict[str, Any], response: Any):
         """Log non-streaming chat turn"""

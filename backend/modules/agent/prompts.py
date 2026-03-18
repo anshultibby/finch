@@ -1,7 +1,6 @@
 """
 System prompts for the AI agent
 """
-from datetime import datetime
 from typing import Optional
 
 
@@ -249,19 +248,16 @@ Bad examples: multi-paragraph analysis, full trade recaps, verbose explanations.
 
 
 def _get_finch_system_prompt() -> str:
-    """Get the Finch system prompt with the current date dynamically inserted."""
-    now = datetime.now()
-    current_date = now.strftime("%A, %B %d, %Y")
-    current_year = now.year
+    """Get the Finch system prompt (static for prompt cache stability).
 
-    return FINCH_SYSTEM_PROMPT + f"""
-
-**Current Date:** {current_date}
-**Current Year:** {current_year}
+    The current date/time is injected into each user message by ChatService
+    (see chat_service.py) so the model always knows the time without
+    invalidating the cached system prompt prefix on every turn.
+    """
+    return FINCH_SYSTEM_PROMPT + """
 
 CRITICAL: When writing code that uses dates:
 - Use `datetime.now()` or `datetime.today()` to get the current date - NEVER hardcode dates
-- The current year is {current_year}, NOT 2024 or any other year
 - For "last 3 months", calculate: `end_date = datetime.now()` then `start_date = end_date - timedelta(days=90)`
 - Any backtesting should use the current date as the end date unless the user specifies otherwise"""
 

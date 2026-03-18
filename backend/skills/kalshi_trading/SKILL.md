@@ -226,13 +226,13 @@ r = get(f"/events/{event_ticker}", {"with_nested_markets": True})
 r["event"]["markets"]  # → [{...}, ...]
 ```
 
-### 6. Status values differ between queries and responses (was 5)
+### 6. Status values differ between queries and responses
 
 - **Query filter** (`status` param): `unopened`, `open`, `paused`, `closed`, `settled`
 - **Response field** (`status` in objects): `initialized`, `inactive`, `active`, `closed`, `determined`, `finalized`
 - **Common mistake:** `status=active` in a query → 400 error. Use `status=open`.
 
-### 6. Candlesticks: live vs historical, and period_interval is in MINUTES
+### 7. Candlesticks: live vs historical, and period_interval is in MINUTES
 
 **`period_interval` is in MINUTES, not seconds.** Only three values are valid: `1` (1 min), `60` (1 hour), `1440` (1 day).
 
@@ -305,6 +305,126 @@ get_all("/historical/markets", {"series_ticker": "SOME_SERIES"})
 ```
 
 For any endpoint not listed here, use `lookup()` to find it.
+
+---
+
+## Kalshi vs Vegas Odds Comparison (Value Bet Discovery)
+
+Use this workflow to find divergences between Kalshi prediction market prices and Vegas sportsbook odds. When Kalshi implied probability diverges >4% from Vegas consensus, there may be a value bet.
+
+### Step-by-step workflow
+
+```python
+from skills.kalshi_trading.scripts.kalshi import get, get_all
+from skills.odds_api.scripts.odds import get_odds, get_events
+from datetime import datetime, timezone, timedelta
+
+# ── Step 1: Get Kalshi markets with prices ──
+# MUST use with_nested_markets=True or you get 0 markets!
+# For NBA use KXNBAGAME, for NHL use KXNHLGAME, etc.
+events = get_all("/events", {
+    "series_ticker": "KXNBAGAME",
+    "status": "open",
+    "with_nested_markets": True,
+})
+
+# Alternative: fetch markets directly (simpler, no event grouping)
+# markets = get_all("/markets", {"series_ticker": "KXNBAGAME", "status": "open"})
+
+# ── Step 2: Get Vegas odds ──
+# Odds API uses American odds format by default: +150 means $150 profit on $100 bet
+# Use decimal format for easier implied probability math
+now = datetime.now(timezone.utc)
+tomorrow_end = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0).isoformat()
+vegas = get_odds(
+    "basketball_nba",
+    regions="us",
+    markets="h2h",
+    odds_format="decimal",  # decimal is easier: implied_prob = 1/decimal_odds
+    commence_time_to=tomorrow_end,
+)
+
+# ── Step 3: Match teams between Kalshi and Vegas ──
+# Kalshi ticker format: KXNBAGAME-26MAR18LALHOU-LAL (3-letter team abbrevs)
+# Vegas uses full names: "Los Angeles Lakers", "Houston Rockets"
+# Build a lookup by matching home_team/away_team to Kalshi event titles
+#
+# Kalshi event title format: "Los Angeles L at Houston" (abbreviated)
+# Vegas: home_team="Houston Rockets", away_team="Los Angeles Lakers"
+#
+# Best approach: normalize both to lowercase, match on city/team substrings
+
+def kalshi_implied_prob(market):
+    """Convert Kalshi yes_bid/yes_ask to midpoint implied probability."""
+    bid = float(market.get("yes_bid_dollars") or "0")
+    ask = float(market.get("yes_ask_dollars") or "0")
+    if bid == 0 and ask == 0:
+        return None
+    return (bid + ask) / 2  # midpoint as probability (already 0-1)
+
+def vegas_implied_prob(decimal_odds):
+    """Convert decimal odds to implied probability."""
+    return 1.0 / decimal_odds if decimal_odds > 0 else None
+
+# ── Step 4: Compare and find divergences ──
+for vegas_game in vegas:
+    home = vegas_game["home_team"]
+    away = vegas_game["away_team"]
+
+    # Find matching Kalshi event by checking title contains team names
+    for kalshi_event in events:
+        title = kalshi_event.get("title", "").lower()
+        # Match if both team city names appear in the Kalshi event title
+        home_city = home.split()[0].lower()  # rough match on first word
+        away_city = away.split()[0].lower()
+        if home_city not in title and away_city not in title:
+            continue
+
+        # Get Vegas consensus odds (average across bookmakers)
+        vegas_probs = {}
+        for bk in vegas_game.get("bookmakers", []):
+            for mkt in bk["markets"]:
+                if mkt["key"] == "h2h":
+                    for outcome in mkt["outcomes"]:
+                        name = outcome["name"]
+                        prob = vegas_implied_prob(outcome["price"])
+                        if prob:
+                            vegas_probs.setdefault(name, []).append(prob)
+
+        # Average Vegas implied probs
+        vegas_avg = {team: sum(ps)/len(ps) for team, ps in vegas_probs.items()}
+
+        # Compare with Kalshi markets
+        for km in kalshi_event.get("markets", []):
+            kalshi_prob = kalshi_implied_prob(km)
+            if kalshi_prob is None:
+                continue
+            ticker = km["ticker"]
+            # Match Kalshi market to Vegas team (ticker ends with team abbrev)
+            for vegas_team, vp in vegas_avg.items():
+                # Check if Vegas team name relates to this Kalshi market
+                # e.g., ticker "...-HOU" and vegas_team "Houston Rockets"
+                divergence = kalshi_prob - vp
+                if abs(divergence) > 0.04:  # >4% divergence
+                    direction = "OVERPRICED on Kalshi" if divergence > 0 else "UNDERPRICED on Kalshi"
+                    print(f"  {ticker}: Kalshi={kalshi_prob:.1%} Vegas={vp:.1%} ({divergence:+.1%}) → {direction}")
+```
+
+### Key field reference for comparison
+
+| Source | Price field | Format | To implied probability |
+|---|---|---|---|
+| Kalshi | `yes_bid_dollars`, `yes_ask_dollars` | String `"0.56"` (= 56% prob) | `float(field)` directly |
+| Vegas (decimal) | `outcome["price"]` | Float `1.78` | `1 / price` |
+| Vegas (american) | `outcome["price"]` | Int `+150` or `-200` | `100/(price+100)` if +, `abs(price)/(abs(price)+100)` if - |
+
+### Common mistakes in this workflow
+
+1. **Forgetting `with_nested_markets=True`** → events have 0 markets (see Rule 5)
+2. **Using deprecated Kalshi fields** (`yes_bid` returns 0) → use `yes_bid_dollars` (string)
+3. **Mixing up odds formats** — Odds API defaults to American, Kalshi prices are already probabilities
+4. **Not filtering by date** — without `commence_time_to`, Vegas API returns games weeks out
+5. **Team name matching** — Kalshi uses abbreviations ("Los Angeles L"), Vegas uses full names ("Los Angeles Lakers"). Match on city names or build a mapping table.
 
 ---
 

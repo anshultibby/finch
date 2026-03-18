@@ -1,6 +1,7 @@
 """
-Session Pruner - evicts old tool results from the in-memory message list
-before each LLM call to keep the context window under budget.
+Session Pruner - evicts old tool results AND tool call arguments from the
+in-memory message list before each LLM call to keep the context window
+under budget.
 
 This is transient: it only affects what is sent to the model for that request.
 It never modifies the database or the ChatHistory object.
@@ -10,12 +11,14 @@ Strategy (adapted from OpenClaw's layered approach):
 2. Protect the last KEEP_LAST_ASSISTANTS assistant messages and their tool results.
 3. If total estimated tokens exceed CONTEXT_BUDGET_RATIO of the context window,
    evict old tool results oldest-first (replace with a placeholder) until under budget.
+   When a tool result is evicted, the matching tool call arguments in the assistant
+   message are also cleared to reclaim that space.
 4. If still over CONTEXT_OVERFLOW_RATIO after eviction, signal that early compaction
    is needed.
 
 No soft-trimming (head+tail) — tool results are either kept in full or evicted entirely.
 """
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Set
 import copy
 
 from core.config import Config
@@ -24,6 +27,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 _EVICTED_PLACEHOLDER = "[tool output removed to free context]"
+_CLEARED_ARGS = "{}"
 
 
 def _estimate_tokens(messages: List[Dict[str, Any]]) -> int:
@@ -72,6 +76,28 @@ def _find_protected_tool_call_ids(messages: List[Dict[str, Any]], keep_last: int
     return protected_ids
 
 
+def _clear_tool_call_args(messages: List[Dict[str, Any]], evicted_ids: Set[str]) -> None:
+    """
+    Clear the arguments of tool calls whose results were evicted.
+
+    Mutates messages in place — caller must ensure they are copies.
+    The tool call structure is preserved (name + id) so the API sequence
+    stays valid, but the arguments are replaced with '{}' to free tokens.
+    """
+    if not evicted_ids:
+        return
+
+    for msg in messages:
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            continue
+        for tc in msg["tool_calls"]:
+            if tc.get("id") in evicted_ids:
+                tc["function"] = {
+                    "name": tc["function"]["name"],
+                    "arguments": _CLEARED_ARGS,
+                }
+
+
 def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], bool]:
     """
     Return a pruned copy of `messages` suitable for sending to the LLM,
@@ -89,6 +115,7 @@ def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]]
     overflow_tokens = int(ctx_window * Config.CONTEXT_OVERFLOW_RATIO)
 
     protected_ids = _find_protected_tool_call_ids(messages, keep_last)
+    evicted_ids: Set[str] = set()
 
     # --- Phase 1: Cap oversized individual tool results ---
     phase1: List[Dict[str, Any]] = []
@@ -96,11 +123,14 @@ def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]]
     for msg in messages:
         if msg.get("role") == "tool":
             chars = _content_chars(msg.get("content"))
-            if chars > single_cap_chars and msg.get("tool_call_id") not in protected_ids:
+            tc_id = msg.get("tool_call_id")
+            if chars > single_cap_chars and tc_id not in protected_ids:
                 msg_copy = copy.copy(msg)
                 msg_copy["content"] = _EVICTED_PLACEHOLDER
                 phase1.append(msg_copy)
                 capped_count += 1
+                if tc_id:
+                    evicted_ids.add(tc_id)
                 continue
         phase1.append(msg)
 
@@ -124,21 +154,37 @@ def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]]
         for idx in evictable:
             if _estimate_tokens(phase1) <= budget_tokens:
                 break
-            original_content = phase1[idx].get("content") or ""
-            chars_freed = _content_chars(original_content)
+            tc_id = phase1[idx].get("tool_call_id")
             phase1[idx] = copy.copy(phase1[idx])
             phase1[idx]["content"] = _EVICTED_PLACEHOLDER
             evicted_count += 1
+            if tc_id:
+                evicted_ids.add(tc_id)
 
         estimated = _estimate_tokens(phase1)
 
+    # --- Phase 2b: Clear tool call arguments for evicted results ---
+    if evicted_ids:
+        # Deep-copy assistant messages that have evicted tool calls so we
+        # don't mutate the originals, then clear their arguments.
+        for i, msg in enumerate(phase1):
+            if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+                continue
+            has_evicted = any(tc.get("id") in evicted_ids for tc in msg["tool_calls"])
+            if has_evicted:
+                phase1[i] = copy.deepcopy(msg)
+        _clear_tool_call_args(phase1, evicted_ids)
+
     if capped_count or evicted_count:
         logger.debug(
-            f"Session pruner: capped {capped_count}, evicted {evicted_count} tool results "
+            f"Session pruner: capped {capped_count}, evicted {evicted_count} tool results, "
+            f"cleared {len(evicted_ids)} tool call args "
             f"(est. tokens after: {estimated:,}, budget: {budget_tokens:,})"
         )
 
     # --- Phase 3: Check overflow → signal early compaction ---
+    # Re-estimate after clearing args
+    estimated = _estimate_tokens(phase1)
     needs_compaction = estimated > overflow_tokens
 
     if needs_compaction:

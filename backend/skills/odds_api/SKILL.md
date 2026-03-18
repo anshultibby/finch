@@ -384,6 +384,35 @@ if isinstance(result, dict) and "error" in result:
     print(result["error"])  # API key missing, rate limited, etc.
 ```
 
+## Comparing Vegas Odds to Kalshi Prediction Markets
+
+When combining with the Kalshi skill to find value bets, use **decimal odds** (`odds_format="decimal"`) for easier probability math:
+
+```python
+from skills.odds_api.scripts.odds import get_odds
+from skills.kalshi_trading.scripts.kalshi import get_all
+
+# Vegas odds in decimal format (implied_prob = 1/decimal_odds)
+vegas = get_odds("basketball_nba", regions="us", markets="h2h", odds_format="decimal")
+
+# Kalshi markets (MUST include with_nested_markets=True!)
+kalshi = get_all("/events", {
+    "series_ticker": "KXNBAGAME", "status": "open", "with_nested_markets": True,
+})
+# Or: get_all("/markets", {"series_ticker": "KXNBAGAME", "status": "open"})
+```
+
+**Key differences between the two APIs:**
+| | Odds API | Kalshi |
+|---|---|---|
+| Team names | Full: `"Houston Rockets"` | Abbreviated in title: `"Los Angeles L at Houston"`, 3-letter in ticker: `HOU` |
+| Price format | American (`-150`) or decimal (`1.67`) | Probability as string: `"0.60"` (= 60%) |
+| To probability | Decimal: `1/price`. American: `100/(price+100)` if +, `abs(p)/(abs(p)+100)` if - | `float(yes_bid_dollars)` directly |
+
+See the Kalshi SKILL.md "Kalshi vs Vegas Odds Comparison" section for the full workflow.
+
+---
+
 ## When to Use This Skill
 
 - User asks about odds for an upcoming game

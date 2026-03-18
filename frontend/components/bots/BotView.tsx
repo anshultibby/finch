@@ -44,6 +44,7 @@ export default function BotView({ botId }: BotViewProps) {
   const [showCapitalModal, setShowCapitalModal] = useState(false);
   const [capitalInput, setCapitalInput] = useState('');
   const [capitalAdjusting, setCapitalAdjusting] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const autoCreatingRef = useRef(false);
 
   const fetchBot = useCallback(async () => {
@@ -296,6 +297,16 @@ export default function BotView({ botId }: BotViewProps) {
           </button>
         )}
         <div className="flex-1" />
+        {/* Sidebar toggle */}
+        <button
+          onClick={() => setSidebarOpen((v) => !v)}
+          className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
+          </svg>
+        </button>
         {/* Settings button */}
         <button onClick={() => setShowApiKeys(true)} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -308,7 +319,7 @@ export default function BotView({ botId }: BotViewProps) {
       {/* 2-column layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Chat list + nav */}
-        <div className="w-56 shrink-0">
+        <div className={`shrink-0 transition-all duration-200 overflow-hidden ${sidebarOpen ? 'w-56' : 'w-0'}`}>
           <BotChatList
             chats={chats}
             activeChatId={activeChatId}
@@ -317,9 +328,6 @@ export default function BotView({ botId }: BotViewProps) {
             onNewChat={handleNewChat}
             onSelectPanel={setActivePanel}
             loading={chatsLoading}
-            hasStrategy={!!strategyContent}
-            hasMemory={!!memoryContent}
-            hasJournal={journalEntries.length > 0}
             hasPositions={(bot.positions?.length ?? 0) > 0}
             hasTrades={true}
             wakeups={wakeups}

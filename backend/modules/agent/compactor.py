@@ -49,12 +49,20 @@ Produce a dense, structured summary that preserves ALL of the following without 
 - Open questions or next steps mentioned
 - Position details: entry/exit prices, quantities, P&L figures
 
-Format the summary as structured markdown. Use headers and bullet points.
+If the conversation begins with a PRIOR SUMMARY from an earlier compaction, you MUST
+consolidate it with the new messages into ONE unified summary — do NOT simply append.
+Condense older material to make room for recent detail. Weight recent messages more
+heavily: the end of the transcript is the active context.
+
+Keep each section under 500 words. The total summary must fit within the token budget.
+Format as structured markdown with headers and bullet points.
 Be thorough — context lost here cannot be recovered.\
 """
 
 _COMPACTION_USER_PROMPT = """\
-Summarize this conversation history. Preserve every specific fact, number, identifier, and decision.
+Summarize this conversation history into a single consolidated summary.
+Preserve every specific fact, number, identifier, and decision.
+If there is a prior summary at the start, merge it with the newer messages — do not stack summaries.
 
 {history_text}
 
