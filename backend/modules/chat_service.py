@@ -153,6 +153,7 @@ class ChatService:
                         if agent_context.data is None:
                             agent_context.data = {}
                         agent_context.data["bot_id"] = str(db_chat.bot_id)
+                        agent_context.data["bot_directory"] = bot_context.get("bot_directory", "") if bot_context else ""
                     except Exception as e:
                         logger.warning(f"Failed to build bot context: {e}")
 
@@ -210,7 +211,11 @@ class ChatService:
                                     logger.info(f"💾 Saved final assistant message (seq={seq})")
                                 except Exception as e:
                                     logger.error(f"Failed to save final assistant message: {e}")
-                        
+                                    try:
+                                        await db.rollback()
+                                    except Exception:
+                                        pass
+
                         elif event.event == "tools_end":
                             tool_messages = event.data.get("tool_messages", [])
                             execution_results = event.data.get("execution_results", [])
@@ -292,7 +297,11 @@ class ChatService:
                                         logger.info(f"💾 Saved {len(tool_messages)} tool result messages")
                                 except Exception as e:
                                     logger.error(f"Failed to save tools_end batch: {e}")
-                            
+                                    try:
+                                        await db.rollback()
+                                    except Exception:
+                                        pass
+
                             pending_assistant_msg = None
                 
                 # Log session usage summary (token counts and costs)
@@ -499,6 +508,7 @@ class ChatService:
             "platform": config.get("platform", "kalshi"),
             "connections": connections,
             "capital_balance": capital_balance,
+            "starting_capital": capital.get("amount_usd"),
             "per_position_usd": per_position_usd,
             "max_positions": max_positions,
         }

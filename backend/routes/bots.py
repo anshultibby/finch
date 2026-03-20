@@ -58,6 +58,7 @@ def _bot_to_response(bot, open_positions_count: int = 0) -> BotResponse:
         total_profit_usd=float(stats.get("total_profit_usd", 0.0)),
         open_unrealized_pnl=float(stats.get("open_unrealized_pnl", 0.0)),
         capital_balance=capital.get("balance_usd"),
+        starting_capital=capital.get("amount_usd"),
         created_at=bot.created_at,
         updated_at=bot.updated_at,
     )
@@ -109,6 +110,7 @@ async def _bot_to_detail_response(bot, db: AsyncSession) -> BotDetailResponse:
         last_run_status=stats_dict.get("last_run_status"),
         last_run_summary=stats_dict.get("last_run_summary"),
         capital_balance=capital_dict.get("balance_usd"),
+        starting_capital=capital_dict.get("amount_usd"),
         created_at=bot.created_at,
         updated_at=bot.updated_at,
         mandate=next((f.content for f in files if f.file_type == "strategy" or f.filename == "STRATEGY.md"), config.get("mandate", "")),
@@ -167,7 +169,7 @@ async def _refresh_position_prices(db: AsyncSession, bot, positions) -> None:
 
             now = datetime.now(timezone.utc)
             pos.current_price = price
-            pos.unrealized_pnl_usd = (price - pos.entry_price) / 100 * pos.quantity
+            pos.unrealized_pnl_usd = crud._compute_pnl(pos.side, pos.entry_price, price, pos.quantity)
             pos.last_priced_at = now
 
             # Backfill title/event_ticker if missing
@@ -661,14 +663,17 @@ async def create_bot_chat(
 async def list_bot_wakeups(
     bot_id: str,
     status: Optional[str] = "pending",
+    limit: int = 20,
+    offset: int = 0,
     user_id: str = Depends(_get_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """List wakeups for a bot. Defaults to pending only."""
+    """List wakeups for a bot. Use status=pending (default), triggered, failed, cancelled, or all."""
     bot = await crud.get_bot(db, bot_id, user_id)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
-    wakeups = await crud.list_wakeups(db, bot_id, status=status)
+    filter_status = None if status == "all" else status
+    wakeups = await crud.list_wakeups(db, bot_id, status=filter_status, limit=limit, offset=offset)
     return [
         WakeupResponse(
             id=str(w.id),
@@ -682,6 +687,8 @@ async def list_bot_wakeups(
             triggered_at=w.triggered_at,
             recurrence=w.recurrence,
             message=w.message,
+            retry_count=w.retry_count or 0,
+            error=w.error,
             created_at=w.created_at,
         )
         for w in wakeups

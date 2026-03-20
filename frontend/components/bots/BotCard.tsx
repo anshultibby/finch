@@ -128,14 +128,14 @@ export default function BotCard({ bot, onClick, onDelete }: BotCardProps) {
         </span>
       )}
 
-      {/* P&L */}
+      {/* P&L + Capital */}
       <div className="mt-2 flex items-baseline gap-2">
         <span className={`text-lg font-bold tabular-nums tracking-tight ${totalPnl > 0 ? 'text-emerald-600' : totalPnl < 0 ? 'text-red-500' : 'text-gray-300'}`}>
           {totalPnl !== 0 ? formatPnl(totalPnl) : '$0.00'}
         </span>
-        {bot.capital_balance != null && (
+        {bot.starting_capital != null && (
           <span className="text-[11px] text-gray-400 tabular-nums">
-            / ${bot.capital_balance.toFixed(0)}
+            / ${bot.starting_capital.toFixed(0)}
           </span>
         )}
       </div>

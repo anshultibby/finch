@@ -216,6 +216,7 @@ async def place_trade_impl(
         get_bot, create_trade_log, update_trade_log_status,
         create_position, deduct_capital_for_position,
         get_position, close_position, credit_capital_for_close,
+        recompute_bot_pnl,
     )
     from schemas.bots import ExitConfig
 
@@ -267,6 +268,7 @@ async def _execute_buy(
         create_trade_log, update_trade_log_status,
         create_position, deduct_capital_for_position,
         credit_capital_for_close,
+        recompute_bot_pnl,
     )
     from schemas.bots import ExitConfig
 
@@ -369,6 +371,9 @@ async def _execute_buy(
                                   order_response=order_response,
                                   position_id=position_id)
 
+    # Recompute P&L stats after trade
+    await recompute_bot_pnl(db, bot.id)
+
     if status == "partial":
         return {
             "success": True,
@@ -383,6 +388,7 @@ async def _execute_buy(
                 "side": side, "count": filled, "requested_count": count,
                 "price_cents": price, "cost_usd": round(filled_cost, 2),
                 "paper": False, "reason": reason, "fill_status": "partial",
+                "position_id": position_id,
             },
         }
 
@@ -403,6 +409,7 @@ async def _execute_buy(
             "paper": False,
             "reason": reason,
             "fill_status": "filled",
+            "position_id": position_id,
         },
     }
 
@@ -416,6 +423,7 @@ async def _execute_sell(
     from crud.bots import (
         get_position, close_position, credit_capital_for_close,
         create_trade_log, update_trade_log_status,
+        recompute_bot_pnl,
     )
 
     pos = await get_position(db, position_id)
@@ -519,6 +527,9 @@ async def _execute_sell(
                                       order_response=order_response,
                                       position_id=str(pos.id))
 
+    # Recompute P&L stats after trade
+    await recompute_bot_pnl(db, bot.id)
+
     return {
         "success": True,
         "message": (
@@ -567,6 +578,7 @@ async def list_trades_impl(context: AgentContext, limit: int = 20) -> Dict[str, 
                     "price": t.price,
                     "quantity": t.quantity,
                     "cost_usd": t.cost_usd,
+                    "realized_pnl_usd": t.realized_pnl_usd,
                     "status": t.status,
                     "created_at": t.created_at.isoformat() if t.created_at else None,
                     "error": t.error,

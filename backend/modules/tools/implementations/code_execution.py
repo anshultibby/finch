@@ -10,6 +10,7 @@ One sandbox persists per user (not per-chat), surviving server restarts:
 - API keys re-injected on reconnect since env vars don't survive pause/resume
 - Clearing a chat does NOT destroy the sandbox; reset_sandbox does
 """
+from e2b.sandbox.commands.command_handle import CommandExitException
 from modules.agent.context import AgentContext
 from schemas.sse import SSEEvent
 from typing import Optional, Dict, Any, AsyncGenerator, List
@@ -598,24 +599,26 @@ async def bash_impl(
         stdout_lines: List[str] = []
         stderr_lines: List[str] = []
 
-        run_result = await sbx.commands.run(
-            cmd,
-            cwd=WORKSPACE_DIR,
-            timeout=EXECUTION_TIMEOUT,
-            envs=entry.envs,
-            on_stdout=lambda msg: stdout_lines.append(msg.line if hasattr(msg, 'line') else str(msg)),
-            on_stderr=lambda msg: (
-                stderr_lines.append(msg.line if hasattr(msg, 'line') else str(msg)),
-                logger.warning(f"STDERR: {msg.line if hasattr(msg, 'line') else str(msg)}")
-            ),
-        )
+        try:
+            run_result = await sbx.commands.run(
+                cmd,
+                cwd=WORKSPACE_DIR,
+                timeout=EXECUTION_TIMEOUT,
+                envs=entry.envs,
+                on_stdout=lambda msg: stdout_lines.append(msg.line if hasattr(msg, 'line') else str(msg)),
+                on_stderr=lambda msg: (
+                    stderr_lines.append(msg.line if hasattr(msg, 'line') else str(msg)),
+                    logger.warning(f"STDERR: {msg.line if hasattr(msg, 'line') else str(msg)}")
+                ),
+            )
+            exit_code = run_result.exit_code
+        except CommandExitException as e:
+            exit_code = e.exit_code if hasattr(e, 'exit_code') else 1
 
         for line in stdout_lines:
             yield SSEEvent(event="code_output", data={"stream": "stdout", "content": line.rstrip()})
         for line in stderr_lines:
             yield SSEEvent(event="code_output", data={"stream": "stderr", "content": line.rstrip()})
-
-        exit_code = run_result.exit_code
         stdout_text = "\n".join(stdout_lines)
         stderr_text = "\n".join(stderr_lines)
 

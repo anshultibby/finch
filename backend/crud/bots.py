@@ -816,12 +816,15 @@ def compute_next_trigger(recurrence: str, from_time: datetime) -> Optional[datet
 
 
 async def get_due_wakeups(db: AsyncSession) -> List[BotWakeup]:
-    """Get all pending wakeups whose trigger_at has passed."""
+    """Get all pending wakeups whose trigger_at has passed, only for enabled bots."""
     now = datetime.now(timezone.utc)
     result = await db.execute(
-        select(BotWakeup).where(
+        select(BotWakeup)
+        .join(TradingBot, BotWakeup.bot_id == TradingBot.id)
+        .where(
             BotWakeup.status == "pending",
             BotWakeup.trigger_at <= now,
+            TradingBot.enabled == True,
         ).order_by(BotWakeup.trigger_at.asc())
     )
     return list(result.scalars().all())
@@ -832,16 +835,18 @@ async def list_wakeups(
     bot_id: str,
     status: Optional[str] = "pending",
     limit: int = 20,
+    offset: int = 0,
 ) -> List[BotWakeup]:
-    """List wakeups for a bot."""
-    query = (
-        select(BotWakeup)
-        .where(BotWakeup.bot_id == bot_id)
-        .order_by(BotWakeup.trigger_at.asc())
-        .limit(limit)
-    )
+    """List wakeups for a bot. Pass status=None for all statuses."""
+    query = select(BotWakeup).where(BotWakeup.bot_id == bot_id)
     if status:
         query = query.where(BotWakeup.status == status)
+    # Pending wakeups sort by trigger_at ascending; triggered/failed sort descending
+    if status == "pending":
+        query = query.order_by(BotWakeup.trigger_at.asc())
+    else:
+        query = query.order_by(BotWakeup.trigger_at.desc())
+    query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -868,7 +873,7 @@ async def cancel_wakeup(
 async def mark_wakeup_triggered(
     db: AsyncSession,
     wakeup: BotWakeup,
-    chat_id: str,
+    chat_id: Optional[str] = None,
 ) -> BotWakeup:
     """Mark a wakeup as triggered and link it to the chat it created."""
     wakeup.status = "triggered"
@@ -876,4 +881,35 @@ async def mark_wakeup_triggered(
     wakeup.chat_id = chat_id
     await db.commit()
     await db.refresh(wakeup)
+    return wakeup
+
+
+async def mark_wakeup_retrying(
+    db: AsyncSession,
+    wakeup: BotWakeup,
+    error: Optional[str] = None,
+) -> BotWakeup:
+    """Increment retry count on a wakeup. Status stays pending for scheduler re-pickup."""
+    wakeup.retry_count = (wakeup.retry_count or 0) + 1
+    if error:
+        wakeup.error = error
+    await db.commit()
+    await db.refresh(wakeup)
+    logger.warning(f"Wakeup {wakeup.id} retry {wakeup.retry_count}: {error}")
+    return wakeup
+
+
+async def mark_wakeup_failed(
+    db: AsyncSession,
+    wakeup: BotWakeup,
+    error: Optional[str] = None,
+) -> BotWakeup:
+    """Mark a wakeup as failed after exhausting retries."""
+    wakeup.status = "failed"
+    wakeup.triggered_at = datetime.now(timezone.utc)
+    if error:
+        wakeup.error = error
+    await db.commit()
+    await db.refresh(wakeup)
+    logger.warning(f"Wakeup {wakeup.id} marked as failed: {error}")
     return wakeup

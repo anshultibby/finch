@@ -259,7 +259,17 @@ def _get_finch_system_prompt() -> str:
 CRITICAL: When writing code that uses dates:
 - Use `datetime.now()` or `datetime.today()` to get the current date - NEVER hardcode dates
 - For "last 3 months", calculate: `end_date = datetime.now()` then `start_date = end_date - timedelta(days=90)`
-- Any backtesting should use the current date as the end date unless the user specifies otherwise"""
+- Any backtesting should use the current date as the end date unless the user specifies otherwise
+
+CRITICAL: NEVER use raw requests.get() for Kalshi or Odds API calls. Always use skill imports:
+- Kalshi: `from skills.kalshi_trading.scripts.kalshi import get, get_all, post, delete`
+- Odds API: `from skills.odds_api.scripts.odds import get_odds, get_scores, get_events`
+The skill modules handle authentication, API keys, and pagination automatically. Raw requests will fail.
+
+CRITICAL: Kalshi API pitfalls (these cause silent bugs):
+- MUST pass `with_nested_markets=True` when fetching events, or markets array is EMPTY
+- MUST use `_dollars` fields (yes_bid_dollars, yes_ask_dollars, last_price_dollars) — deprecated integer fields (yes_bid, yes_ask) return 0
+- NEVER hardcode API keys — skill imports handle them via environment variables"""
 
 
 async def get_agent_system_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:

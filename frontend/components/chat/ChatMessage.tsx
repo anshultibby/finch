@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ToolCall from './ToolCall';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
-import type { ToolCallStatus, Resource } from '@/lib/types';
+import type { ToolCallStatus } from '@/lib/types';
 
 export interface MessageAction {
   icon: React.ReactNode;
@@ -20,8 +20,7 @@ interface ChatMessageProps {
   toolCalls?: ToolCallStatus[];
   chatId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
-  resources?: Resource[];
-  onFileClick?: (resource: Resource) => void;
+  onFileClick?: (filename: string) => void;
   actions?: MessageAction[];
   isLastAssistantMessage?: boolean;
 }
@@ -32,16 +31,14 @@ const getChatFileUrl = (chatId: string | undefined, filename: string): string =>
 };
 
 // Inline CSV Preview Component
-function CsvPreview({ 
-  filename, 
-  chatId, 
-  onOpen,
-  resources
-}: { 
-  filename: string; 
+function CsvPreview({
+  filename,
+  chatId,
+  onOpen
+}: {
+  filename: string;
   chatId: string | undefined;
   onOpen?: () => void;
-  resources?: Resource[];
 }) {
   const [csvData, setCsvData] = useState<{ headers: string[]; rows: string[][]; totalRows: number } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -295,34 +292,10 @@ function HtmlPreview({
   );
 }
 
-// Helper to find resource by filename
-const findResourceByFilename = (resources: Resource[] | undefined, filename: string): Resource | null => {
-  if (!resources) return null;
-  return resources.find(r => 
-    r.resource_type === 'file' && r.data?.filename === filename
-  ) || null;
-};
-
-// Create a pseudo-resource for files not in resources list
-const createPseudoResource = (filename: string, chatId: string): Resource => ({
-  id: `pseudo-${filename}`,
-  chat_id: chatId,
-  user_id: '',
-  tool_name: 'file_reference',
-  resource_type: 'file',
-  title: filename,
-  data: {
-    filename,
-    file_type: filename.split('.').pop() || 'text'
-  },
-  created_at: new Date().toISOString()
-});
-
 const parseFileReferences = (
-  content: string, 
+  content: string,
   chatId: string | undefined,
-  resources?: Resource[],
-  onFileClick?: (resource: Resource) => void
+  onFileClick?: (filename: string) => void
 ): React.ReactNode[] => {
   const parts: React.ReactNode[] = [];
   const filePattern = /\[file:([^\]]+)\]/g;
@@ -347,53 +320,31 @@ const parseFileReferences = (
         </div>
       );
     } else if (isCsvFile(filename)) {
-      // Render inline CSV preview
-      const handleOpen = () => {
-        if (!onFileClick || !chatId) return;
-        const resource = findResourceByFilename(resources, filename) || createPseudoResource(filename, chatId);
-        onFileClick(resource);
-      };
-      
       parts.push(
         <CsvPreview
           key={`csv-${match.index}`}
           filename={filename}
           chatId={chatId}
-          onOpen={handleOpen}
-          resources={resources}
+          onOpen={() => onFileClick?.(filename)}
         />
       );
     } else if (isHtmlFile(filename)) {
-      // Render inline HTML preview (TradingView charts, etc.)
-      const handleOpen = () => {
-        if (!onFileClick || !chatId) return;
-        const resource = findResourceByFilename(resources, filename) || createPseudoResource(filename, chatId);
-        onFileClick(resource);
-      };
-      
       parts.push(
         <HtmlPreview
           key={`html-${match.index}`}
           filename={filename}
           chatId={chatId}
-          onOpen={handleOpen}
+          onOpen={() => onFileClick?.(filename)}
         />
       );
     } else {
-      // Other files - show clickable badge that opens in viewer
-      const handleClick = () => {
-        if (!onFileClick || !chatId) return;
-        const resource = findResourceByFilename(resources, filename) || createPseudoResource(filename, chatId);
-        onFileClick(resource);
-      };
-      
       parts.push(
         <button
           key={`file-${match.index}`}
-          onClick={handleClick}
+          onClick={() => onFileClick?.(filename)}
           className="inline-flex items-center gap-1 px-2 py-1 mx-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-sm border border-blue-200 transition-colors cursor-pointer"
         >
-          📄 {filename}
+          {filename}
         </button>
       );
     }
@@ -453,10 +404,10 @@ function MessageActions({ actions }: { actions: MessageAction[] }) {
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, chatId, onSelectTool, resources, onFileClick, actions, isLastAssistantMessage }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, chatId, onSelectTool, onFileClick, actions, isLastAssistantMessage }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[file:[^\]]+\]/.test(content);
-  const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, resources, onFileClick) : null;
+  const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick) : null;
 
   if (isUser) {
     return (

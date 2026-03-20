@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import FileTree, { FileItem } from './FileTree';
 import type { SearchResults, SearchResult, ScrapedContent } from '@/lib/types';
 
 type PanelMode = 'terminal' | 'file' | 'search' | 'scrape';
@@ -14,10 +13,7 @@ interface ComputerPanelProps {
   filename?: string;
   fileContent?: string;
   fileType?: string;
-  chatId?: string; // For loading file tree
-  onFileSelect?: (filename: string) => void; // Callback when user selects a different file
-  cachedFiles?: FileItem[]; // Cached file list for instant display
-  onFilesLoaded?: (files: FileItem[]) => void; // Callback when files are loaded
+  chatId?: string;
   // Search mode props
   searchResults?: SearchResults;
   // Scrape mode props
@@ -360,9 +356,6 @@ export default function ComputerPanel({
   fileContent = '',
   fileType,
   chatId,
-  onFileSelect,
-  cachedFiles,
-  onFilesLoaded,
   searchResults,
   scrapedContent,
   isEditOperation = false,
@@ -796,21 +789,6 @@ export default function ComputerPanel({
       
       {/* Content */}
       <div className="flex-1 overflow-hidden relative bg-white flex">
-        {/* File tree sidebar - only show in file mode with chatId */}
-        {mode === 'file' && chatId && (
-          <FileTree
-            chatId={chatId}
-            selectedFile={filename}
-            onFileSelect={(selectedFilename) => {
-              if (onFileSelect && selectedFilename !== filename) {
-                onFileSelect(selectedFilename);
-              }
-            }}
-            cachedFiles={cachedFiles}
-            onFilesLoaded={onFilesLoaded}
-          />
-        )}
-        
         {/* Main content area */}
         <div className="flex-1 overflow-hidden relative flex flex-col">
           {/* File tab header - only for file mode */}

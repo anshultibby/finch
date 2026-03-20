@@ -6,19 +6,17 @@ import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import NewChatWelcome from './NewChatWelcome';
 import ChatDebugPanel from './ChatDebugPanel';
-import ResourceViewer from '../ResourceViewer';
+import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
-import { FileItem } from '../FileTree';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
-import { chatApi, snaptradeApi, resourcesApi } from '@/lib/api';
+import { chatApi, snaptradeApi } from '@/lib/api';
 import { getApiBaseUrl } from '@/lib/utils';
 import { useChatStream, ChatStreamState } from '@/hooks/useChatStream';
 import type { AppSidebarRef } from '@/components/layout/AppSidebar';
 import type {
   Message,
   ToolCallStatus,
-  Resource,
   SSEOptionsEvent,
   OptionButton,
   ImageAttachment,
@@ -103,12 +101,11 @@ export default function ChatView({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [chatFiles, setChatFiles] = useState<FileItem[]>([]);
+
 
   // UI state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -126,8 +123,6 @@ export default function ChatView({
     setIsLoading(state.isLoading);
     setError(state.error);
     setPendingOptions(state.pendingOptions);
-    setResources(state.resources);
-    setChatFiles(state.chatFiles);
 
     // Notify parent of loading state changes
     if (state.isLoading !== prevIsLoadingRef.current) {
@@ -143,8 +138,6 @@ export default function ChatView({
     setIsLoading(false);
     setError(null);
     setPendingOptions(null);
-    setResources([]);
-    setChatFiles([]);
   }, []);
 
   // Sync external chat id changes (e.g. sidebar selection)
@@ -249,10 +242,7 @@ export default function ChatView({
 
       // Load from backend only if no messages cached
       try {
-        const [displayData, chatResources] = await Promise.all([
-          chatApi.getChatHistoryForDisplay(currentChatId),
-          resourcesApi.getChatResources(currentChatId),
-        ]);
+        const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
 
         const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
           role: msg.role,
@@ -261,7 +251,7 @@ export default function ChatView({
           toolCalls: msg.tool_calls,
         }));
 
-        updateChatState(currentChatId, { messages: loadedMessages, resources: chatResources }, syncDisplay);
+        updateChatState(currentChatId, { messages: loadedMessages }, syncDisplay);
       } catch {
         // Silently fail — user can retry
       }
@@ -296,20 +286,11 @@ export default function ChatView({
           return;
         }
 
-        const [chatResources, chatFilesResponse] = await Promise.all([
-          resourcesApi.getChatResources(currentChatId),
-          fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}`)
-            .then(r => r.ok ? r.json() : [])
-            .catch(() => []),
-        ]);
-
         updateChatState(currentChatId, {
           streamingText: '',
           streamingTools: [],
           isLoading: status.is_processing,
           stream: null,
-          resources: chatResources,
-          chatFiles: chatFilesResponse,
           wasStreamingBeforeHidden: false,
         }, syncDisplay);
 
@@ -318,16 +299,8 @@ export default function ChatView({
             const current = await chatApi.checkChatStatus(currentChatId);
             if (!current.is_processing) {
               clearInterval(pollInterval);
-              const [finalResources, finalFiles] = await Promise.all([
-                resourcesApi.getChatResources(currentChatId),
-                fetch(`${getApiBaseUrl()}/api/chat-files/${currentChatId}`)
-                  .then(r => r.ok ? r.json() : [])
-                  .catch(() => []),
-              ]);
               updateChatState(currentChatId, {
                 isLoading: false,
-                resources: finalResources,
-                chatFiles: finalFiles,
               }, syncDisplay);
             }
           }, 2000);
@@ -510,12 +483,6 @@ export default function ChatView({
     }
   };
 
-  const handleFilesLoaded = useCallback((files: FileItem[]) => {
-    if (currentChatId) {
-      updateChatState(currentChatId, { chatFiles: files });
-    }
-  }, [currentChatId, updateChatState]);
-
   const handleExportPdf = async () => {
     if (!currentChatId || isExporting || messages.length === 0) return;
     setIsExporting(true);
@@ -640,8 +607,7 @@ export default function ChatView({
                       toolCalls={msg.toolCalls}
                       chatId={currentChatId || undefined}
                       onSelectTool={handleSelectTool}
-                      resources={resources}
-                      onFileClick={(resource) => setSelectedResource(resource)}
+                      onFileClick={(filename) => setSelectedFile(filename)}
                       actions={messageActions}
                       isLastAssistantMessage={isLastAssistant}
                     />
@@ -655,8 +621,7 @@ export default function ChatView({
                     toolCalls={streamingTools}
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
-                    resources={resources}
-                    onFileClick={(resource) => setSelectedResource(resource)}
+                    onFileClick={(filename) => setSelectedFile(filename)}
                   />
                 )}
 
@@ -665,8 +630,7 @@ export default function ChatView({
                     role="assistant"
                     content={streamingText}
                     chatId={currentChatId || undefined}
-                    resources={resources}
-                    onFileClick={(resource) => setSelectedResource(resource)}
+                    onFileClick={(filename) => setSelectedFile(filename)}
                   />
                 )}
 
@@ -754,29 +718,9 @@ export default function ChatView({
             fileContent={selectedTool.file_content?.content}
             fileType={selectedTool.file_content?.file_type}
             chatId={currentChatId || undefined}
-            cachedFiles={chatFiles}
-            onFilesLoaded={handleFilesLoaded}
             isEditOperation={selectedTool.tool_name === 'replace_in_chat_file'}
             oldStr={selectedTool.arguments?.old_str}
             newStr={selectedTool.arguments?.new_str}
-            onFileSelect={async (filename) => {
-              if (!currentChatId) return;
-              try {
-                const url = `${getApiBaseUrl()}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`;
-                const content = await loadFileContent(url, filename);
-                setSelectedTool(prev => prev ? {
-                  ...prev,
-                  file_content: {
-                    filename,
-                    content,
-                    file_type: filename.split('.').pop()?.toLowerCase() || 'text',
-                    is_complete: true,
-                  },
-                } : null);
-              } catch {
-                // Silently fail — file may not exist
-              }
-            }}
             searchResults={selectedTool.search_results}
             scrapedContent={selectedTool.scraped_content}
             isStreaming={selectedTool.status === 'calling'}
@@ -785,10 +729,11 @@ export default function ChatView({
         </div>
       )}
 
-      <ResourceViewer
-        resource={selectedResource}
-        isOpen={!!selectedResource}
-        onClose={() => setSelectedResource(null)}
+      <FileViewer
+        filename={selectedFile}
+        chatId={currentChatId}
+        isOpen={!!selectedFile}
+        onClose={() => setSelectedFile(null)}
       />
 
       <ChatDebugPanel

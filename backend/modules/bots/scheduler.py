@@ -14,6 +14,18 @@ from .wakeup_executor import execute_wakeup
 
 logger = logging.getLogger(__name__)
 
+# Per-bot locks to prevent concurrent wakeup/chat execution on the same bot
+_bot_locks: dict[str, asyncio.Lock] = {}
+
+MAX_CONCURRENT_WAKEUPS = 10
+
+
+def get_bot_lock(bot_id: str) -> asyncio.Lock:
+    """Get or create a per-bot asyncio lock."""
+    if bot_id not in _bot_locks:
+        _bot_locks[bot_id] = asyncio.Lock()
+    return _bot_locks[bot_id]
+
 
 class BotScheduler:
     """Background scheduler that checks for and executes due bot wakeups."""
@@ -22,6 +34,7 @@ class BotScheduler:
         self.check_interval = check_interval_seconds
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_WAKEUPS)
 
     async def start(self) -> None:
         if self._running:
@@ -46,6 +59,9 @@ class BotScheduler:
 
         Each wakeup runs in its own DB session (via execute_wakeup)
         so the scheduler session is only held for the brief query.
+
+        Uses per-bot locks to prevent concurrent execution on the same bot,
+        and a global semaphore to cap total concurrent wakeups.
         """
         async with get_db_session() as db:
             wakeups = await get_due_wakeups(db)
@@ -53,19 +69,22 @@ class BotScheduler:
                 return
             logger.info("Found %d due wakeup(s)", len(wakeups))
 
-        # Execute wakeups concurrently, each with its own DB session.
-        # Don't hold the scheduler's session during long agent loops.
         async def _run_one(wakeup):
-            try:
-                async with get_db_session() as db:
-                    chat_id = await execute_wakeup(db, wakeup)
-                if chat_id:
-                    logger.info(
-                        "Wakeup %s executed → chat %s (bot=%s, reason=%s)",
-                        wakeup.id, chat_id, wakeup.bot_id, wakeup.reason[:60],
-                    )
-            except Exception as e:
-                logger.exception("Failed to execute wakeup %s: %s", wakeup.id, e)
+            bot_lock = get_bot_lock(wakeup.bot_id)
+
+            async with self._semaphore:
+                async with bot_lock:
+                    try:
+                        async with get_db_session() as db:
+                            wakeup_merged = await db.merge(wakeup)
+                            chat_id = await execute_wakeup(db, wakeup_merged)
+                        if chat_id:
+                            logger.info(
+                                "Wakeup %s executed → chat %s (bot=%s, reason=%s)",
+                                wakeup.id, chat_id, wakeup.bot_id, wakeup.reason[:60],
+                            )
+                    except Exception as e:
+                        logger.exception("Failed to execute wakeup %s: %s", wakeup.id, e)
 
         await asyncio.gather(*[_run_one(w) for w in wakeups])
 

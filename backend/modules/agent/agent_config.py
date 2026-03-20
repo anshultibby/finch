@@ -36,6 +36,7 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
             connections=bot_context.get("connections"),
             skills_prompt=skills_section,
             capital_balance=bot_context.get("capital_balance"),
+            starting_capital=bot_context.get("starting_capital"),
             per_position_usd=bot_context.get("per_position_usd"),
             max_positions=bot_context.get("max_positions"),
             wakeup_reason=bot_context.get("wakeup_reason"),

@@ -94,10 +94,11 @@ export default function BotView({ botId }: BotViewProps) {
     return () => clearInterval(interval);
   }, [fetchBot]);
 
-  // Select first chat when chats load and none is active
+  // Select first non-wakeup chat when chats load and none is active
   useEffect(() => {
     if (!activeChatId && chats.length > 0) {
-      setActiveChatId(chats[0].chat_id);
+      const firstUserChat = chats.find((c) => !c.title?.startsWith('Wakeup:'));
+      if (firstUserChat) setActiveChatId(firstUserChat.chat_id);
     }
   }, [chats, activeChatId]);
 
@@ -291,6 +292,11 @@ export default function BotView({ botId }: BotViewProps) {
             <span className="text-[12px] font-semibold text-gray-700 tabular-nums">
               ${bot.capital_balance.toFixed(2)}
             </span>
+            {bot.starting_capital != null && (
+              <span className="text-[11px] text-gray-400 tabular-nums">
+                / ${bot.starting_capital.toFixed(0)}
+              </span>
+            )}
             <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
             </svg>
@@ -379,16 +385,34 @@ export default function BotView({ botId }: BotViewProps) {
                 </svg>
               </button>
             </div>
-            <div className="mb-4">
-              <div className="text-2xl font-bold text-gray-900 tabular-nums">
-                ${(bot.capital_balance ?? 0).toFixed(2)}
+            <div className="mb-4 space-y-2">
+              {bot.starting_capital != null && (
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-gray-400">Capital</span>
+                  <span className="text-sm font-semibold text-gray-700 tabular-nums">${bot.starting_capital.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-gray-400">Cash</span>
+                <span className="text-lg font-bold text-gray-900 tabular-nums">${(bot.capital_balance ?? 0).toFixed(2)}</span>
               </div>
-              <div className="text-xs text-gray-400">Available balance</div>
               {(() => {
                 const deployed = (bot.positions || []).reduce((s, p) => s + (p.cost_usd || 0), 0);
                 return deployed > 0 ? (
-                  <div className="mt-2 text-xs text-gray-500">
-                    <span className="text-gray-400">In positions:</span> ${deployed.toFixed(2)}
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-gray-400">In positions</span>
+                    <span className="text-sm font-medium text-gray-600 tabular-nums">${deployed.toFixed(2)}</span>
+                  </div>
+                ) : null;
+              })()}
+              {(() => {
+                const totalPnl = (bot.total_profit_usd || 0) + (bot.open_unrealized_pnl || 0);
+                return totalPnl !== 0 ? (
+                  <div className="flex items-baseline justify-between pt-1 border-t border-gray-100">
+                    <span className="text-xs text-gray-400">P&L</span>
+                    <span className={`text-sm font-bold tabular-nums ${totalPnl > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {totalPnl >= 0 ? '+' : ''}${Math.abs(totalPnl).toFixed(2)}
+                    </span>
                   </div>
                 ) : null;
               })()}

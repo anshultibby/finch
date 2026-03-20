@@ -141,7 +141,7 @@ export default function BotChatList({
         </div>
       )}
 
-      {/* Chats */}
+      {/* Chats — exclude auto-generated wakeup chats */}
       <div className="px-2 pt-4 pb-1">
         <div className="text-xs font-medium text-gray-400 px-3 mb-1">
           Chats
@@ -150,11 +150,11 @@ export default function BotChatList({
           <div className="py-4 flex justify-center">
             <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
           </div>
-        ) : chats.length === 0 ? (
+        ) : chats.filter((c) => !c.title?.startsWith('Wakeup:')).length === 0 ? (
           <p className="px-3 py-3 text-sm text-gray-400">No chats yet</p>
         ) : (
           <div className="space-y-0.5">
-            {chats.map((chat) => (
+            {chats.filter((c) => !c.title?.startsWith('Wakeup:')).map((chat) => (
               <button
                 key={chat.chat_id}
                 onClick={() => { onSelectChat(chat.chat_id); onSelectPanel('chat'); }}

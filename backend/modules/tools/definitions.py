@@ -85,7 +85,7 @@ async def write_chat_file(*, context: AgentContext, filename: str, file_content:
     description=READ_CHAT_FILE_DESC,
     category="files"
 )
-def read_chat_file(
+async def read_chat_file(
     *,
     context: AgentContext,
     filename: str,
@@ -94,7 +94,7 @@ def read_chat_file(
     peek: bool = False,
 ):
     """Read file from chat directory, optionally by line range. Set peek=True to read first ~100 lines (like Cursor)."""
-    return file_management.read_chat_file_impl(context, filename, start_line, end_line, peek)
+    return await file_management.read_chat_file_impl(context, filename, start_line, end_line, peek)
 
 
 @tool(

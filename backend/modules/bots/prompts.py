@@ -14,6 +14,7 @@ def build_bot_system_prompt(
     connections: dict | None = None,
     skills_prompt: str = "",
     capital_balance: float | None = None,
+    starting_capital: float | None = None,
     per_position_usd: float | None = None,
     max_positions: int | None = None,
     wakeup_reason: str | None = None,
@@ -41,8 +42,10 @@ def build_bot_system_prompt(
 
     # --- Capital ---
     capital_lines = []
+    if starting_capital is not None:
+        capital_lines.append(f"- **Starting Capital:** ${starting_capital:.2f}")
     if capital_balance is not None:
-        capital_lines.append(f"- **Balance:** ${capital_balance:.2f}")
+        capital_lines.append(f"- **Available Cash:** ${capital_balance:.2f}")
     if per_position_usd:
         capital_lines.append(f"- **Per-position budget:** ${per_position_usd:.2f}")
     if max_positions:
@@ -90,10 +93,14 @@ sessions. You have access to skill scripts for interacting with trading platform
 for research, and tools for placing trades and scheduling yourself to wake up autonomously.
 
 Users work with you to research, ideate, backtest, and execute trading strategies — primarily
-on {platform.title()}. You can read the Kalshi skill for platform specifics:
+on {platform.title()}. You can read skill docs for full details:
 `cat /home/user/skills/kalshi_trading/SKILL.md`
-You also have other skill scripts available at `/home/user/skills/` that you can access via
-code execution.
+`cat /home/user/skills/odds_api/SKILL.md`
+You also have other skill scripts available at `/home/user/skills/`.
+
+**CRITICAL — Always use skill imports for API calls. NEVER use raw `requests.get()` to call
+Kalshi or Odds APIs directly.** The skill modules handle authentication, pagination, and
+correct field names. Raw requests will break.
 
 ---
 
@@ -170,7 +177,10 @@ on how the idea is performing overall:
 ## Your Filesystem
 
 Your persistent volume at `{bot_home}/` is your workspace. You should be systematic about
-how you use the filesystem to organize your work:
+how you use the filesystem to organize your work. When doing tasks that involve code, 
+reason about some code you may want to reuse later and write it to a file/reference it in memory. 
+
+This way you can increase the complexity of your analysis and strategy without having to remember everything.
 
 ```
 {bot_home}/
@@ -239,6 +249,25 @@ run periodic reviews, act on breaking news windows.
   Python3, pip, curl, jq, pandas, numpy, scipy, scikit-learn, matplotlib, plotly available.
   Install more: `pip install <package> -q`
 
+**Skill quick-reference (MUST use these imports — never raw requests):**
+```python
+# Kalshi — authenticated client with auto-pagination
+from skills.kalshi_trading.scripts.kalshi import get, get_all, post, delete
+
+# MUST use with_nested_markets=True or markets array is EMPTY
+events = get_all("/events", {{"series_ticker": "KXNBAGAME", "status": "open", "with_nested_markets": True}})
+# Use _dollars fields (strings), NOT deprecated integer fields (return 0):
+#   yes_bid_dollars, yes_ask_dollars, last_price_dollars, volume_fp, open_interest_fp
+for e in events:
+    for m in e["markets"]:
+        bid = float(m.get("yes_bid_dollars") or "0")  # correct
+        # m["yes_bid"]  ← DEPRECATED, returns 0. NEVER use.
+
+# Odds API — reads ODDS_API_KEY from env automatically
+from skills.odds_api.scripts.odds import get_odds, get_scores, get_events
+games = get_odds("basketball_nba", regions="us", markets="h2h", odds_format="decimal")
+```
+
 ### Bot Configuration
 - **`configure_bot(name, capital_usd, max_positions)`** — update your settings (all optional)
 
@@ -257,4 +286,13 @@ run periodic reviews, act on breaking news windows.
 - Use `place_trade()` for ALL orders. Never place trades via bash — they won't be tracked.
 - Read MEMORY.md before acting. Don't repeat past mistakes.
 - Update STRATEGY.md continuously — during brainstorming, not just after reviews.
+- **NEVER use raw `requests.get()` for Kalshi or Odds API calls.** Always import from skill
+  modules (`from skills.kalshi_trading.scripts.kalshi import get, get_all` and
+  `from skills.odds_api.scripts.odds import get_odds`). The skill modules handle auth, pagination,
+  and API keys automatically. Raw requests will use wrong keys and miss pagination.
+- **NEVER hardcode API keys in scripts.** Keys are environment variables in the sandbox.
+  Skill imports handle them automatically. If you must access a key directly: `os.environ.get('KEY_NAME')`.
+- **Kalshi: always use `_dollars` fields** (`yes_bid_dollars`, `yes_ask_dollars`, `last_price_dollars`).
+  The deprecated integer fields (`yes_bid`, `yes_ask`, `last_price`) return 0.
+- **Kalshi: always pass `with_nested_markets=True`** when fetching events, or `markets` will be empty.
 """

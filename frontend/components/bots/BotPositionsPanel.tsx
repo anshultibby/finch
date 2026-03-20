@@ -89,6 +89,7 @@ export default function BotPositionsPanel({ bot, onBack, onClosePosition }: BotP
           const stats = bot.stats || {};
           const totalPnl = (bot.total_profit_usd || 0) + (bot.open_unrealized_pnl || 0);
           const pnlColor = totalPnl > 0 ? 'text-emerald-600' : totalPnl < 0 ? 'text-red-500' : 'text-gray-400';
+          const deployed = positions.reduce((s, p) => s + (p.cost_usd || 0), 0);
           return (
             <div className="px-6 py-4 border-b border-gray-100 grid grid-cols-3 gap-4">
               <div>
@@ -98,12 +99,16 @@ export default function BotPositionsPanel({ bot, onBack, onClosePosition }: BotP
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Runs</div>
-                <div className="text-base font-bold text-gray-700">{stats.total_runs ?? 0}</div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Cash</div>
+                <div className="text-base font-bold text-gray-700 tabular-nums">
+                  {bot.capital_balance != null ? `$${bot.capital_balance.toFixed(2)}` : '—'}
+                </div>
               </div>
               <div>
-                <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Open</div>
-                <div className="text-base font-bold text-gray-700">{positions.length}</div>
+                <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Deployed</div>
+                <div className="text-base font-bold text-gray-700 tabular-nums">
+                  {deployed > 0 ? `$${deployed.toFixed(2)}` : '—'}
+                </div>
               </div>
               {stats.last_run_summary && (
                 <div className="col-span-3 pt-1 border-t border-gray-100 text-[11px] text-gray-500 leading-relaxed">

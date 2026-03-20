@@ -185,29 +185,47 @@ export const chatApi = {
       }
     };
 
-    // Parse and process SSE lines from buffer
-    const parseAndProcessEvents = (data: string): string => {
-      const lines = data.split('\n\n');
-      const remainingBuffer = lines.pop() || '';
+    // Events that need a React render yield so intermediate UI states are visible
+    const YIELD_AFTER_EVENTS = new Set([
+      'tool_call_start', 'tool_call_complete', 'tools_end', 'message_end', 'done'
+    ]);
 
-      for (const line of lines) {
-        if (!line.trim() || isClosed) continue;
+    // Parse and process SSE events from buffer one at a time.
+    // Yields to the event loop after tool-related events so React can render
+    // intermediate states (e.g., tool "calling" spinner) before the next event.
+    const parseAndProcessEvents = async (data: string): Promise<string> => {
+      let buffer = data;
 
-        const eventMatch = line.match(/event:\s*(\w+)/);
-        const dataMatch = line.match(/data:\s*([\s\S]+)/);
+      while (!isClosed) {
+        const eventEnd = buffer.indexOf('\n\n');
+        if (eventEnd === -1) break;
+
+        const eventStr = buffer.substring(0, eventEnd);
+        buffer = buffer.substring(eventEnd + 2);
+
+        if (!eventStr.trim()) continue;
+
+        const eventMatch = eventStr.match(/event:\s*(\w+)/);
+        const dataMatch = eventStr.match(/data:\s*([\s\S]+)/);
 
         if (eventMatch && dataMatch) {
           try {
             const eventType = eventMatch[1];
             const eventData = JSON.parse(dataMatch[1]);
             processEvent(eventType, eventData);
+
+            // Yield to the event loop after significant events so React
+            // can render the updated state before we process the next event.
+            if (YIELD_AFTER_EVENTS.has(eventType)) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
           } catch (e) {
             console.error('Error parsing SSE event:', e);
           }
         }
       }
 
-      return remainingBuffer;
+      return buffer;
     };
 
     // Main fetch stream handler
@@ -241,14 +259,10 @@ export const chatApi = {
                 if (done || isClosed) break;
 
                 buffer += decoder.decode(value, { stream: true });
-                
-                // Process all complete events in the buffer
-                // This handles cases where multiple events arrive at once
-                buffer = parseAndProcessEvents(buffer);
-                
-                // Yield to the event loop to allow UI updates
-                // This prevents blocking when processing many buffered events
-                await new Promise(resolve => setTimeout(resolve, 0));
+
+                // Process events one at a time, yielding to React between
+                // tool-related events so intermediate UI states are visible
+                buffer = await parseAndProcessEvents(buffer);
               }
             } catch (error) {
               if (!isClosed && (error as Error).name !== 'AbortError') {

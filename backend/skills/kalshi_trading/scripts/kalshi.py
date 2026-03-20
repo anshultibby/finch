@@ -80,6 +80,12 @@ def get_all(path: str, params: dict = None, collection_key: str = None, max_page
         else:
             collection_key = "items"
 
+    # Exclude multivariate/combo markets by default on /markets
+    # (MVE markets have near-zero liquidity and confuse game lookups)
+    if "/markets" in path and "/multivariate" not in path:
+        if "mve_filter" not in params:
+            params["mve_filter"] = "exclude"
+
     # Set sensible default limit if not provided
     if "limit" not in params:
         params["limit"] = 1000 if "/markets" in path else 200

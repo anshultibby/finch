@@ -199,6 +199,7 @@ class BotResponse(BaseModel):
 
     # Capital
     capital_balance: Optional[float] = None
+    starting_capital: Optional[float] = None
 
     created_at: datetime
     updated_at: datetime
@@ -238,6 +239,8 @@ class WakeupResponse(BaseModel):
     triggered_at: Optional[datetime] = None
     recurrence: Optional[str] = None
     message: Optional[str] = None
+    retry_count: int = 0
+    error: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -261,6 +264,7 @@ class TradeLogResponse(BaseModel):
     price: Optional[float] = None
     quantity: Optional[int] = None
     cost_usd: Optional[float] = None
+    realized_pnl_usd: Optional[float] = None
 
     status: str           # executed, dry_run, failed, pending_approval, approved, rejected, expired
     approval_method: Optional[str] = None

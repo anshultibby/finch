@@ -137,7 +137,7 @@ series_ticker = market["series_ticker"]  # go to parent series
 ```
 
 ### Multivariate events (combos/parlays)
-Combine legs from multiple events into a single bet. `/events` excludes them by default. Use `mve_filter=exclude` on `/markets` to filter them out, `mve_filter=only` to get only combos. Use `/events/multivariate` or `/multivariate_event_collections` to browse them.
+Combine legs from multiple events into a single bet. **`get_all()` auto-excludes MVE markets by default** — you don't need to do anything special. If you specifically WANT combos, pass `mve_filter=only`. Use `/events/multivariate` or `/multivariate_event_collections` to browse combo events.
 
 ---
 
@@ -310,121 +310,108 @@ For any endpoint not listed here, use `lookup()` to find it.
 
 ## Kalshi vs Vegas Odds Comparison (Value Bet Discovery)
 
-Use this workflow to find divergences between Kalshi prediction market prices and Vegas sportsbook odds. When Kalshi implied probability diverges >4% from Vegas consensus, there may be a value bet.
+Find divergences between Kalshi prices and Vegas sportsbook odds. When Kalshi implied probability diverges >4% from Vegas consensus (after removing vig), there may be a value bet.
 
 ### Step-by-step workflow
 
 ```python
 from skills.kalshi_trading.scripts.kalshi import get, get_all
-from skills.odds_api.scripts.odds import get_odds, get_events
+from skills.odds_api.scripts.odds import get_odds
 from datetime import datetime, timezone, timedelta
 
-# ── Step 1: Get Kalshi markets with prices ──
-# MUST use with_nested_markets=True or you get 0 markets!
-# For NBA use KXNBAGAME, for NHL use KXNHLGAME, etc.
-events = get_all("/events", {
-    "series_ticker": "KXNBAGAME",
-    "status": "open",
-    "with_nested_markets": True,
-})
+# ── CONFIG ──
+SPORT = "basketball_nba"          # odds API sport key
+SERIES = "KXNBAGAME"              # kalshi series ticker
+THRESHOLD = 0.04                  # minimum divergence to flag
 
-# Alternative: fetch markets directly (simpler, no event grouping)
-# markets = get_all("/markets", {"series_ticker": "KXNBAGAME", "status": "open"})
+# ── Step 1: Fetch Kalshi markets directly (simpler than events) ──
+# get_all auto-excludes multivariate/combo markets
+kalshi_markets = get_all("/markets", {"series_ticker": SERIES, "status": "open"})
 
-# ── Step 2: Get Vegas odds ──
-# Odds API uses American odds format by default: +150 means $150 profit on $100 bet
-# Use decimal format for easier implied probability math
+# Build lookup: ticker suffix (team abbrev) → market data
+# Ticker format: KXNBAGAME-26MAR18LALHOU-LAL → suffix is "LAL"
+kalshi_by_abbrev = {}
+for m in kalshi_markets:
+    bid = float(m.get("yes_bid_dollars") or "0")
+    ask = float(m.get("yes_ask_dollars") or "0")
+    if bid == 0 and ask == 0:
+        continue  # no liquidity, skip
+    abbrev = m["ticker"].rsplit("-", 1)[-1]  # last segment = team abbrev
+    kalshi_by_abbrev[abbrev] = {
+        "ticker": m["ticker"],
+        "prob": (bid + ask) / 2,  # midpoint implied probability
+        "bid": bid, "ask": ask,
+        "title": m.get("subtitle") or m.get("title", ""),
+    }
+
+# ── Step 2: Fetch Vegas odds ──
 now = datetime.now(timezone.utc)
-tomorrow_end = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0).isoformat()
 vegas = get_odds(
-    "basketball_nba",
+    SPORT,
     regions="us",
     markets="h2h",
-    odds_format="decimal",  # decimal is easier: implied_prob = 1/decimal_odds
-    commence_time_to=tomorrow_end,
+    odds_format="decimal",  # easier math: implied_prob = 1/odds
+    commence_time_to=(now + timedelta(days=2)).isoformat(),
 )
 
-# ── Step 3: Match teams between Kalshi and Vegas ──
-# Kalshi ticker format: KXNBAGAME-26MAR18LALHOU-LAL (3-letter team abbrevs)
-# Vegas uses full names: "Los Angeles Lakers", "Houston Rockets"
-# Build a lookup by matching home_team/away_team to Kalshi event titles
-#
-# Kalshi event title format: "Los Angeles L at Houston" (abbreviated)
-# Vegas: home_team="Houston Rockets", away_team="Los Angeles Lakers"
-#
-# Best approach: normalize both to lowercase, match on city/team substrings
+# ── Step 3: Build team abbreviation mapping ──
+# Vegas uses full names ("Houston Rockets"), Kalshi uses 3-letter abbrevs ("HOU")
+# Map full team names → abbreviations used in Kalshi tickers
+# Check actual Kalshi tickers to see which abbrevs are in use:
+print("Kalshi abbrevs available:", sorted(kalshi_by_abbrev.keys()))
 
-def kalshi_implied_prob(market):
-    """Convert Kalshi yes_bid/yes_ask to midpoint implied probability."""
-    bid = float(market.get("yes_bid_dollars") or "0")
-    ask = float(market.get("yes_ask_dollars") or "0")
-    if bid == 0 and ask == 0:
-        return None
-    return (bid + ask) / 2  # midpoint as probability (already 0-1)
-
-def vegas_implied_prob(decimal_odds):
-    """Convert decimal odds to implied probability."""
-    return 1.0 / decimal_odds if decimal_odds > 0 else None
+# Standard NBA abbreviations (extend as needed for other sports)
+NBA_ABBREVS = {
+    "Atlanta Hawks": "ATL", "Boston Celtics": "BOS", "Brooklyn Nets": "BKN",
+    "Charlotte Hornets": "CHA", "Chicago Bulls": "CHI", "Cleveland Cavaliers": "CLE",
+    "Dallas Mavericks": "DAL", "Denver Nuggets": "DEN", "Detroit Pistons": "DET",
+    "Golden State Warriors": "GSW", "Houston Rockets": "HOU", "Indiana Pacers": "IND",
+    "Los Angeles Clippers": "LAC", "Los Angeles Lakers": "LAL", "Memphis Grizzlies": "MEM",
+    "Miami Heat": "MIA", "Milwaukee Bucks": "MIL", "Minnesota Timberwolves": "MIN",
+    "New Orleans Pelicans": "NOP", "New York Knicks": "NYK", "Oklahoma City Thunder": "OKC",
+    "Orlando Magic": "ORL", "Philadelphia 76ers": "PHI", "Phoenix Suns": "PHX",
+    "Portland Trail Blazers": "POR", "Sacramento Kings": "SAC", "San Antonio Spurs": "SAS",
+    "Toronto Raptors": "TOR", "Utah Jazz": "UTA", "Washington Wizards": "WAS",
+}
 
 # ── Step 4: Compare and find divergences ──
-for vegas_game in vegas:
-    home = vegas_game["home_team"]
-    away = vegas_game["away_team"]
-
-    # Find matching Kalshi event by checking title contains team names
-    for kalshi_event in events:
-        title = kalshi_event.get("title", "").lower()
-        # Match if both team city names appear in the Kalshi event title
-        home_city = home.split()[0].lower()  # rough match on first word
-        away_city = away.split()[0].lower()
-        if home_city not in title and away_city not in title:
-            continue
-
-        # Get Vegas consensus odds (average across bookmakers)
-        vegas_probs = {}
-        for bk in vegas_game.get("bookmakers", []):
-            for mkt in bk["markets"]:
-                if mkt["key"] == "h2h":
-                    for outcome in mkt["outcomes"]:
-                        name = outcome["name"]
-                        prob = vegas_implied_prob(outcome["price"])
-                        if prob:
-                            vegas_probs.setdefault(name, []).append(prob)
-
-        # Average Vegas implied probs
-        vegas_avg = {team: sum(ps)/len(ps) for team, ps in vegas_probs.items()}
-
-        # Compare with Kalshi markets
-        for km in kalshi_event.get("markets", []):
-            kalshi_prob = kalshi_implied_prob(km)
-            if kalshi_prob is None:
+for game in vegas:
+    for bk in game.get("bookmakers", []):
+        for mkt in bk["markets"]:
+            if mkt["key"] != "h2h":
                 continue
-            ticker = km["ticker"]
-            # Match Kalshi market to Vegas team (ticker ends with team abbrev)
-            for vegas_team, vp in vegas_avg.items():
-                # Check if Vegas team name relates to this Kalshi market
-                # e.g., ticker "...-HOU" and vegas_team "Houston Rockets"
-                divergence = kalshi_prob - vp
-                if abs(divergence) > 0.04:  # >4% divergence
-                    direction = "OVERPRICED on Kalshi" if divergence > 0 else "UNDERPRICED on Kalshi"
-                    print(f"  {ticker}: Kalshi={kalshi_prob:.1%} Vegas={vp:.1%} ({divergence:+.1%}) → {direction}")
+            # Average Vegas probs across all outcomes (removes vig)
+            raw_probs = {o["name"]: 1/o["price"] for o in mkt["outcomes"] if o["price"] > 0}
+            vig = sum(raw_probs.values())  # total > 1.0 due to vig
+            fair_probs = {t: p/vig for t, p in raw_probs.items()}  # normalize to remove vig
+
+            for team, vegas_prob in fair_probs.items():
+                abbrev = NBA_ABBREVS.get(team)
+                if not abbrev or abbrev not in kalshi_by_abbrev:
+                    continue
+                km = kalshi_by_abbrev[abbrev]
+                div = km["prob"] - vegas_prob
+                if abs(div) > THRESHOLD:
+                    direction = "OVERPRICED" if div > 0 else "UNDERPRICED"
+                    print(f"{km['ticker']}: Kalshi={km['prob']:.1%} Vegas={vegas_prob:.1%} "
+                          f"({div:+.1%}) → {direction} on Kalshi")
 ```
 
-### Key field reference for comparison
+### Key differences from naive approach
+
+1. **Fetch markets directly** (`/markets` with `series_ticker`) instead of events — simpler, no `with_nested_markets` needed
+2. **MVE auto-excluded** — `get_all` now defaults `mve_filter=exclude` so combo/parlay markets never appear
+3. **Use abbreviation table** for team matching — don't try to fuzzy-match city names
+4. **Remove vig** before comparing — raw Vegas implied probs sum to >100%, normalize them first
+5. **Skip zero-liquidity markets** — if bid and ask are both 0, the market isn't actively trading
+
+### Key field reference
 
 | Source | Price field | Format | To implied probability |
 |---|---|---|---|
 | Kalshi | `yes_bid_dollars`, `yes_ask_dollars` | String `"0.56"` (= 56% prob) | `float(field)` directly |
-| Vegas (decimal) | `outcome["price"]` | Float `1.78` | `1 / price` |
+| Vegas (decimal) | `outcome["price"]` | Float `1.78` | `1 / price` (then normalize to remove vig) |
 | Vegas (american) | `outcome["price"]` | Int `+150` or `-200` | `100/(price+100)` if +, `abs(price)/(abs(price)+100)` if - |
-
-### Common mistakes in this workflow
-
-1. **Forgetting `with_nested_markets=True`** → events have 0 markets (see Rule 5)
-2. **Using deprecated Kalshi fields** (`yes_bid` returns 0) → use `yes_bid_dollars` (string)
-3. **Mixing up odds formats** — Odds API defaults to American, Kalshi prices are already probabilities
-4. **Not filtering by date** — without `commence_time_to`, Vegas API returns games weeks out
-5. **Team name matching** — Kalshi uses abbreviations ("Los Angeles L"), Vegas uses full names ("Los Angeles Lakers"). Match on city names or build a mapping table.
 
 ---
 

@@ -1,14 +1,10 @@
 """
-Chat Files Routes - API endpoints for file management
+Chat Files Routes — Files served from the bot's sandbox root directory when available,
+otherwise from /home/user/chat_files/.
 """
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from core.database import get_db
-from crud.chat_files import (
-    list_chat_files,
-    get_chat_file,
-    delete_chat_file as delete_file_crud
-)
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -18,17 +14,57 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat-files", tags=["chat-files"])
 
+FALLBACK_FILES_DIR = "/home/user/chat_files"
+
 
 class ChatFileResponse(BaseModel):
     """Chat file metadata"""
-    id: str
     filename: str
     file_type: str
     size_bytes: int
-    description: Optional[str]
-    image_url: Optional[str] = None  # Public URL for images (if using storage)
-    created_at: str
-    updated_at: str
+
+
+def _detect_file_type(filename: str) -> str:
+    ext_map = {
+        '.py': 'python', '.md': 'markdown', '.csv': 'csv',
+        '.json': 'json', '.html': 'html',
+        '.png': 'image', '.jpg': 'image', '.jpeg': 'image',
+        '.gif': 'image', '.webp': 'image', '.svg': 'image',
+    }
+    for ext, ftype in ext_map.items():
+        if filename.lower().endswith(ext):
+            return ftype
+    return "text"
+
+
+async def _get_chat_info(chat_id: str, db: Session) -> tuple:
+    """Look up the user_id and files root directory for this chat.
+    Returns (user_id, files_dir)."""
+    from models.chat_models import Chat
+    from sqlalchemy import select as sa_select
+
+    result = db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
+    chat = result.scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    files_dir = FALLBACK_FILES_DIR
+
+    # If chat belongs to a bot, use the bot's root directory
+    if chat.bot_id:
+        try:
+            from models.bot import TradingBot
+            bot_result = db.execute(
+                sa_select(TradingBot).where(TradingBot.id == chat.bot_id)
+            )
+            bot = bot_result.scalar_one_or_none()
+            if bot:
+                bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
+                files_dir = f"/home/user/{bot_dir}"
+        except Exception as e:
+            logger.warning(f"Could not resolve bot directory for chat {chat_id}: {e}")
+
+    return chat.user_id, files_dir
 
 
 @router.get("/{chat_id}", response_model=List[ChatFileResponse])
@@ -36,119 +72,70 @@ async def get_chat_files(
     chat_id: str,
     db: Session = Depends(get_db)
 ):
-    """
-    Get all files for a chat
-    
-    Returns list of file metadata (not content - use download endpoint)
-    """
+    """List all files in the bot's root directory on the sandbox."""
+    user_id, files_dir = await _get_chat_info(chat_id, db)
+
     try:
-        files = list_chat_files(db=db, chat_id=chat_id)
-        
-        return [
-            ChatFileResponse(
-                id=f.id,
-                filename=f.filename,
-                file_type=f.file_type,
-                size_bytes=f.size_bytes,
-                description=f.description,
-                image_url=f.image_url,
-                created_at=f.created_at.isoformat(),
-                updated_at=f.updated_at.isoformat()
-            )
-            for f in files
-        ]
-    
+        from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if not sbx:
+            return []
+
+        try:
+            entries = await sbx.files.list(files_dir, depth=5)
+        except Exception:
+            return []
+
+        files = []
+        for entry in entries:
+            if entry.type == "dir":
+                continue
+            files.append(ChatFileResponse(
+                filename=entry.name,
+                file_type=_detect_file_type(entry.name),
+                size_bytes=entry.size or 0,
+            ))
+        return files
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error getting chat files: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error listing chat files: {e}", exc_info=True)
+        return []
 
 
-@router.get("/{chat_id}/download/{filename}")
+@router.get("/{chat_id}/download/{filename:path}")
 async def download_chat_file(
     chat_id: str,
     filename: str,
     db: Session = Depends(get_db)
 ):
-    """
-    Download a specific file from chat
-    
-    For images with storage URLs: redirects to the public URL
-    For images in database: serves the base64-decoded content
-    For text files: returns the text content
-    """
+    """Download a file from the sandbox."""
+    user_id, files_dir = await _get_chat_info(chat_id, db)
+
     try:
-        logger.info(f"Attempting to download file: {filename} from chat: {chat_id}")
-        file_obj = get_chat_file(db=db, chat_id=chat_id, filename=filename)
-        
-        if not file_obj:
-            # Log all available files in this chat for debugging
-            from crud.chat_files import list_chat_files as crud_list_chat_files
-            all_files = crud_list_chat_files(db=db, chat_id=chat_id)
-            logger.warning(f"File '{filename}' not found in chat {chat_id}. Available files: {[f.filename for f in all_files]}")
+        from modules.tools.implementations.code_execution import read_sandbox_file
+        path = f"{files_dir}/{filename}"
+        data = await read_sandbox_file(user_id, path)
+
+        if data is None:
             raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
-        
-        # If image has a storage URL, redirect to it (faster and cheaper)
-        if file_obj.image_url:
-            from fastapi.responses import RedirectResponse
-            logger.info(f"Redirecting to storage URL for {filename}: {file_obj.image_url}")
-            return RedirectResponse(url=file_obj.image_url, status_code=302)
-        
-        # Set Content-Type based on file type
-        content_type_map = {
-            "python": "text/x-python",
-            "markdown": "text/markdown",
-            "text": "text/plain",
-            "csv": "text/csv",
-            "json": "application/json",
-            "image": "image/png"  # Generic image type, will be refined below
-        }
-        
-        # Determine if this is an image file
-        is_image = file_obj.file_type == "image"
-        
-        # For images, determine specific content type from filename extension
-        if is_image:
-            if filename.lower().endswith('.png'):
-                content_type = "image/png"
-            elif filename.lower().endswith(('.jpg', '.jpeg')):
-                content_type = "image/jpeg"
-            elif filename.lower().endswith('.gif'):
-                content_type = "image/gif"
-            elif filename.lower().endswith('.svg'):
-                content_type = "image/svg+xml"
-            elif filename.lower().endswith('.webp'):
-                content_type = "image/webp"
-            else:
-                content_type = "image/png"  # Default to PNG
-            disposition = "inline"
-        else:
-            content_type = content_type_map.get(file_obj.file_type, "text/plain")
-            disposition = "attachment"
-        
-        # Decode base64 content for binary files (images stored in DB as fallback)
-        content = file_obj.content
-        if is_image and content:
-            import base64
-            try:
-                # Images are stored as base64-encoded strings in the database (fallback mode)
-                content = base64.b64decode(content)
-                logger.info(f"Decoded base64 image from DB: {filename} ({len(content)} bytes)")
-            except Exception as e:
-                logger.error(f"Failed to decode base64 image {filename}: {str(e)}")
-                # If decode fails, try returning as-is (might be raw bytes already)
-        
+
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        disposition = "inline" if content_type.startswith("image/") or content_type in (
+            "text/html", "text/csv", "application/json"
+        ) else "attachment"
+
         return Response(
-            content=content,
+            content=data,
             media_type=content_type,
-            headers={
-                "Content-Disposition": f'{disposition}; filename="{filename}"'
-            }
+            headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error downloading file: {str(e)}", exc_info=True)
+        logger.error(f"Error downloading file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -161,26 +148,28 @@ async def get_sandbox_file(
     """
     Proxy a file directly from the user's live sandbox by absolute path.
     Used when the agent references a file by its VM path (e.g. /home/user/subdir/chart.png).
-    Falls back to 404 if the sandbox is not live.
     """
     from models.chat_models import Chat
     from sqlalchemy import select as sa_select
 
-    try:
-        result = db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
-        chat = result.scalar_one_or_none()
-        if not chat:
-            raise HTTPException(status_code=404, detail="Chat not found")
+    result = db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
+    chat = result.scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    user_id = chat.user_id
 
+    try:
         from modules.tools.implementations.code_execution import read_sandbox_file
         basename = path.split("/")[-1] if "/" in path else path
-        data = await read_sandbox_file(chat.user_id, path)
+        data = await read_sandbox_file(user_id, path)
 
         if data is None:
             raise HTTPException(status_code=404, detail=f"File not found in sandbox: {path}")
 
         content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
-        disposition = "inline" if content_type.startswith("image/") or content_type in ("text/html", "text/csv", "application/json") else "attachment"
+        disposition = "inline" if content_type.startswith("image/") or content_type in (
+            "text/html", "text/csv", "application/json"
+        ) else "attachment"
 
         return Response(
             content=data,
@@ -195,24 +184,27 @@ async def get_sandbox_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{chat_id}/{filename}")
+@router.delete("/{chat_id}/{filename:path}")
 async def delete_chat_file(
     chat_id: str,
     filename: str,
     db: Session = Depends(get_db)
 ):
-    """Delete a file from chat"""
+    """Delete a file from the sandbox."""
+    user_id, files_dir = await _get_chat_info(chat_id, db)
+
     try:
-        success = delete_file_crud(db=db, chat_id=chat_id, filename=filename)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
-        
+        from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if not sbx:
+            raise HTTPException(status_code=404, detail="Sandbox not available")
+
+        path = f"{files_dir}/{filename}"
+        await sbx.commands.run(f"rm -f {path}")
         return {"success": True, "message": f"Deleted {filename}"}
-    
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting file: {str(e)}", exc_info=True)
+        logger.error(f"Error deleting file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

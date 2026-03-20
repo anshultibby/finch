@@ -3,12 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 export interface FileItem {
-  id: string;
   filename: string;
   file_type: string;
   size_bytes: number;
-  created_at: string;
-  updated_at: string;
 }
 
 interface FileTreeProps {
@@ -219,7 +216,7 @@ export default function FileTree({ chatId, selectedFile, onFileSelect, cachedFil
           <div className="pl-4">
             {files.map((file) => (
               <button
-                key={file.id}
+                key={file.filename}
                 onClick={() => onFileSelect(file.filename)}
                 className={`w-full flex items-center gap-2 px-2 py-0.5 text-left transition-colors group ${
                   selectedFile === file.filename

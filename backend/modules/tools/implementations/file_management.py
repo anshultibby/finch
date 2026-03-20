@@ -1,16 +1,41 @@
 """
-File Management Implementation (Manus-inspired)
+File Management Implementation — Sandbox-backed
 
-File manipulation tools for chat sessions.
+Chat files live inside the bot's sandbox directory when a bot context is active,
+otherwise fall back to /home/user/chat_files/.
+No database storage for file content — only Resource entries for UI sidebar.
 """
 from modules.agent.context import AgentContext
-from schemas.sse import SSEEvent
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from utils.logger import get_logger
 import re
 
 logger = get_logger(__name__)
+
+FALLBACK_FILES_DIR = "/home/user/chat_files"
+
+
+def _files_dir(context: AgentContext) -> str:
+    """Return the file workspace — bot root dir if available, else /home/user/chat_files."""
+    bot_dir = (context.data or {}).get("bot_directory", "")
+    if bot_dir:
+        return f"/home/user/{bot_dir}"
+    return FALLBACK_FILES_DIR
+
+
+def _detect_file_type(filename: str) -> str:
+    """Detect file type from extension."""
+    ext_map = {
+        '.py': 'python', '.md': 'markdown', '.csv': 'csv',
+        '.json': 'json', '.html': 'html',
+        '.png': 'image', '.jpg': 'image', '.jpeg': 'image',
+        '.gif': 'image', '.webp': 'image', '.svg': 'image',
+    }
+    for ext, ftype in ext_map.items():
+        if filename.lower().endswith(ext):
+            return ftype
+    return "text"
 
 
 class EditItem(BaseModel):
@@ -44,7 +69,152 @@ class FindInFileParams(BaseModel):
     pattern: str = Field(..., description="Regular expression pattern to search for")
 
 
-# Basic file tools (read, write, list) plus advanced tools (replace, find)
+async def _get_sandbox(user_id: str):
+    """Get a sandbox entry for the user (creating if needed)."""
+    from modules.tools.implementations.code_execution import get_or_create_sandbox
+    return await get_or_create_sandbox(user_id, envs={})
+
+
+def _sandbox_path(filename: str, context: AgentContext) -> str:
+    """Build full sandbox path for a chat file."""
+    return f"{_files_dir(context)}/{filename}"
+
+
+async def _read_sandbox_text(user_id: str, filename: str, context: AgentContext) -> Optional[str]:
+    """Read a text file from the sandbox. Returns None if not found."""
+    from modules.tools.implementations.code_execution import read_sandbox_file
+    data = await read_sandbox_file(user_id, _sandbox_path(filename, context))
+    if data is None:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+
+
+# ============================================================================
+# Tool implementations
+# ============================================================================
+
+async def write_chat_file_impl(
+    context: AgentContext,
+    filename: str,
+    content: str
+):
+    """Write file to sandbox in the bot's chat_files directory."""
+    try:
+        entry = await _get_sandbox(context.user_id)
+        # Ensure the chat_files directory exists
+        chat_dir = _files_dir(context)
+        await entry.sbx.commands.run(f"mkdir -p {chat_dir}", timeout=5)
+        await entry.sbx.files.write(_sandbox_path(filename, context), content)
+
+        yield {
+            "success": True,
+            "filename": filename,
+            "sandbox_path": _sandbox_path(filename, context),
+            "message": f"Wrote {filename} (available at {_sandbox_path(filename, context)})"
+        }
+    except Exception as e:
+        logger.error(f"Error writing chat file: {str(e)}", exc_info=True)
+        yield {"success": False, "error": str(e)}
+
+
+async def read_chat_file_impl(
+    context: AgentContext,
+    filename: str,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    peek: bool = False,
+):
+    """Read file from sandbox."""
+    if peek:
+        start_line = 1
+        end_line = 100
+
+    if start_line is not None:
+        start_line = int(start_line)
+    if end_line is not None:
+        end_line = int(end_line)
+
+    try:
+        file_type = _detect_file_type(filename)
+
+        # For images, read as bytes and return base64
+        if file_type == "image":
+            from modules.tools.implementations.code_execution import read_sandbox_file
+            import base64
+            data = await read_sandbox_file(context.user_id, _sandbox_path(filename, context))
+            if data is None:
+                return {"success": False, "error": f"File '{filename}' not found"}
+
+            media_type = "image/png"
+            if filename.lower().endswith(('.jpg', '.jpeg')):
+                media_type = "image/jpeg"
+            elif filename.lower().endswith('.gif'):
+                media_type = "image/gif"
+            elif filename.lower().endswith('.webp'):
+                media_type = "image/webp"
+            elif filename.lower().endswith('.svg'):
+                media_type = "image/svg+xml"
+
+            return {
+                "success": True,
+                "filename": filename,
+                "file_type": "image",
+                "is_image": True,
+                "image": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64.b64encode(data).decode('utf-8')
+                },
+                "message": f"Image '{filename}' loaded."
+            }
+
+        # Text file — read from sandbox
+        content = await _read_sandbox_text(context.user_id, filename, context)
+        if content is None:
+            return {"success": False, "error": f"File '{filename}' not found"}
+
+        lines = content.split('\n')
+        total_lines = len(lines)
+
+        if start_line is not None or end_line is not None:
+            start_idx = (start_line or 1) - 1
+            end_idx = end_line or total_lines
+            start_idx = max(0, min(start_idx, total_lines - 1)) if total_lines > 0 else 0
+            end_idx = max(start_idx + 1, min(end_idx, total_lines))
+
+            selected_lines = lines[start_idx:end_idx]
+            content = '\n'.join(selected_lines)
+
+            nav_hints = []
+            if start_idx > 0:
+                nav_hints.append(f"lines 1-{start_idx} above")
+            if end_idx < total_lines:
+                nav_hints.append(f"lines {end_idx + 1}-{total_lines} below")
+
+            return {
+                "success": True,
+                "content": content,
+                "filename": filename,
+                "file_type": file_type,
+                "start_line": start_idx + 1,
+                "end_line": end_idx,
+                "total_lines": total_lines,
+                "navigation": f"({', '.join(nav_hints)})" if nav_hints else None
+            }
+
+        return {
+            "success": True,
+            "content": content,
+            "filename": filename,
+            "file_type": file_type,
+            "total_lines": total_lines
+        }
+    except Exception as e:
+        logger.error(f"Error reading chat file: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
 
 async def replace_in_chat_file_impl(
     old_str: Optional[str],
@@ -54,65 +224,40 @@ async def replace_in_chat_file_impl(
     replace_all: bool = False,
     edits: Optional[List[EditItem]] = None
 ):
-    """Replace text in file with streaming content to frontend.
-    
-    Supports two modes:
-    1. Single edit: old_str + new_str (legacy mode)
-    2. Multiple edits: edits list with multiple EditItem objects
-    """
-    from modules.resource_manager import resource_manager
-    
+    """Replace text in file on sandbox."""
     try:
-        # Build list of edits to apply
+        # Build edit list
         edit_list: List[EditItem] = []
-        
+
         if edits:
-            # Multiple edits mode - convert dicts to EditItem if needed
             for edit in edits:
                 if isinstance(edit, dict):
                     edit_list.append(EditItem(**edit))
                 elif isinstance(edit, EditItem):
                     edit_list.append(edit)
                 else:
-                    yield {
-                        "success": False,
-                        "error": f"Invalid edit item type: {type(edit).__name__}"
-                    }
+                    yield {"success": False, "error": f"Invalid edit item type: {type(edit).__name__}"}
                     return
         elif old_str is not None and new_str is not None:
-            # Single edit mode (backward compatible)
             edit_list = [EditItem(old_str=old_str, new_str=new_str, replace_all=replace_all)]
         else:
-            yield {
-                "success": False,
-                "error": "Must provide either (old_str + new_str) or edits list"
-            }
+            yield {"success": False, "error": "Must provide either (old_str + new_str) or edits list"}
             return
-        
-        # Read file
-        content = resource_manager.read_chat_file(
-            context.user_id,
-            context.chat_id,
-            filename
-        )
-        
+
+        # Read from sandbox
+        content = await _read_sandbox_text(context.user_id, filename, context)
         if content is None:
-            yield {
-                "success": False,
-                "error": f"File '{filename}' not found"
-            }
+            yield {"success": False, "error": f"File '{filename}' not found"}
             return
-        
-        # Apply each edit in sequence
+
+        # Apply edits
         total_replacements = 0
         edit_results = []
-        
+
         for i, edit in enumerate(edit_list):
-            # Count occurrences
             count = content.count(edit.old_str)
-            
+
             if count == 0:
-                # Truncate long strings in error message
                 display_str = f"'{edit.old_str[:100]}...'" if len(edit.old_str) > 100 else f"'{edit.old_str}'"
                 yield {
                     "success": False,
@@ -120,8 +265,7 @@ async def replace_in_chat_file_impl(
                     "partial_results": edit_results if edit_results else None
                 }
                 return
-            
-            # If not replace_all and multiple matches, fail for safety
+
             if count > 1 and not edit.replace_all:
                 yield {
                     "success": False,
@@ -131,63 +275,21 @@ async def replace_in_chat_file_impl(
                     "partial_results": edit_results if edit_results else None
                 }
                 return
-            
-            # Replace (single or all based on flag)
+
             if edit.replace_all:
                 content = content.replace(edit.old_str, edit.new_str)
                 actual_count = count
             else:
                 content = content.replace(edit.old_str, edit.new_str, 1)
                 actual_count = 1
-            
+
             total_replacements += actual_count
-            edit_results.append({
-                "edit_index": i + 1,
-                "replacements": actual_count
-            })
-        
-        # Determine file type
-        file_type = "text"
-        if filename.endswith('.py'):
-            file_type = "python"
-        elif filename.endswith('.md'):
-            file_type = "markdown"
-        elif filename.endswith('.csv'):
-            file_type = "csv"
-        elif filename.endswith('.json'):
-            file_type = "json"
-        elif filename.endswith('.html'):
-            file_type = "html"
-        
-        # NOTE: File content streaming is handled by llm_stream.py (FILE_STREAMING_TOOLS)
-        # The LLM streaming layer extracts file content from tool call arguments and
-        # streams it BEFORE tool execution. We don't need to stream it again here.
-        # This prevents double-display of file content in the UI.
-        
-        # Write back
-        file_id = resource_manager.write_chat_file(
-            context.user_id,
-            context.chat_id,
-            filename,
-            content
-        )
-        
-        # Emit SSE resource event so frontend updates the file in resources
-        yield SSEEvent(
-            event="resource",
-            data={
-                "resource_type": "file",
-                "tool_name": "replace_in_chat_file",
-                "title": filename,
-                "data": {
-                    "filename": filename,
-                    "file_type": file_type,
-                    "size_bytes": len(content.encode('utf-8')),
-                    "file_id": file_id
-                }
-            }
-        )
-        
+            edit_results.append({"edit_index": i + 1, "replacements": actual_count})
+
+        # Write back to sandbox
+        entry = await _get_sandbox(context.user_id)
+        await entry.sbx.files.write(_sandbox_path(filename, context), content)
+
         yield {
             "success": True,
             "filename": filename,
@@ -195,45 +297,30 @@ async def replace_in_chat_file_impl(
             "total_replacements": total_replacements,
             "message": f"Applied {len(edit_list)} edit(s) with {total_replacements} total replacement(s)"
         }
-    
+
     except Exception as e:
         logger.error(f"Error replacing in file: {str(e)}", exc_info=True)
         yield {"success": False, "error": str(e)}
 
 
-def find_in_chat_file_impl(
+async def find_in_chat_file_impl(
     pattern: str,
     filename: str,
     context: AgentContext
 ):
-    """Find pattern in file"""
-    from modules.resource_manager import resource_manager
-    
+    """Find pattern in file on sandbox."""
     try:
-        # Read file
-        content = resource_manager.read_chat_file(
-            context.user_id,
-            context.chat_id,
-            filename
-        )
-        
+        content = await _read_sandbox_text(context.user_id, filename, context)
         if content is None:
-            return {
-                "success": False,
-                "error": f"File '{filename}' not found"
-            }
-        
-        # Search
+            return {"success": False, "error": f"File '{filename}' not found"}
+
         lines = content.split('\n')
         matches = []
-        
+
         for i, line in enumerate(lines):
             if re.search(pattern, line):
-                matches.append({
-                    "line": i,
-                    "content": line.strip()
-                })
-        
+                matches.append({"line": i, "content": line.strip()})
+
         return {
             "success": True,
             "filename": filename,
@@ -241,95 +328,72 @@ def find_in_chat_file_impl(
             "matches": matches,
             "count": len(matches)
         }
-    
+
     except re.error as e:
-        return {
-            "success": False,
-            "error": f"Invalid regex pattern: {str(e)}"
-        }
+        return {"success": False, "error": f"Invalid regex pattern: {str(e)}"}
     except Exception as e:
         logger.error(f"Error searching file: {str(e)}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
-# Add basic file tools
-
-def list_chat_files_impl(
+async def list_chat_files_impl(
     context: AgentContext,
     directory: str = ""
 ):
-    """List files in chat directory (Cursor-style progressive exploration)"""
-    from modules.resource_manager import resource_manager
-    import os
-    
+    """List files on sandbox in the bot's chat_files directory."""
     try:
-        # Get all files from DB
-        all_files = resource_manager.list_chat_files(context.user_id, context.chat_id)
-        
-        # Normalize directory path
+        entry = await _get_sandbox(context.user_id)
+
+        base_dir = _files_dir(context)
+        target_dir = base_dir
         dir_path = directory.strip().strip('/')
-        
-        # Filter files in the specified directory
-        files_in_dir = []
-        subdirs = set()
-        
-        for file_obj in all_files:
-            filename = file_obj['name']
-            
-            # Check if file is in the specified directory
-            if dir_path:
-                # File must start with directory path
-                if not filename.startswith(dir_path + '/'):
-                    continue
-                # Get relative path from this directory
-                relative = filename[len(dir_path)+1:]
+        if dir_path:
+            target_dir = f"{base_dir}/{dir_path}"
+
+        try:
+            entries = await entry.sbx.files.list(target_dir, depth=1)
+        except Exception:
+            # Directory doesn't exist yet
+            entries = []
+
+        subdirs = []
+        files = []
+        for e in entries:
+            if e.type == "dir":
+                subdirs.append(e.name)
             else:
-                # Root directory
-                relative = filename
-            
-            # Check if this is a direct child or in a subdirectory
-            parts = relative.split('/')
-            
-            if len(parts) == 1:
-                # Direct file in this directory
-                files_in_dir.append({
-                    **file_obj,
-                    "relative_name": relative
+                files.append({
+                    "name": e.name,
+                    "type": _detect_file_type(e.name),
+                    "size": e.size or 0,
                 })
-            else:
-                # File in subdirectory - track the subdirectory
-                subdirs.add(parts[0])
-        
-        # Format output similar to Cursor's list_dir
-        result_lines = []
-        
+
+        # Format output
         current_path = f"/{dir_path}" if dir_path else "/"
-        result_lines.append(f"Contents of {current_path}:\n")
-        
-        # List subdirectories first
+        result_lines = [f"Contents of {current_path}:\n"]
+
         if subdirs:
-            result_lines.append("📁 Directories:")
-            for subdir in sorted(subdirs):
-                result_lines.append(f"  {subdir}/")
+            result_lines.append("Directories:")
+            for d in sorted(subdirs):
+                result_lines.append(f"  {d}/")
             result_lines.append("")
-        
-        # List files
-        if files_in_dir:
-            result_lines.append("📄 Files:")
-            for f in sorted(files_in_dir, key=lambda x: x['relative_name']):
-                size_kb = f['size'] / 1024 if f['size'] else 0
-                result_lines.append(f"  {f['relative_name']:40} ({size_kb:>8.1f} KB)  {f.get('type', 'unknown')}")
-        
-        if not subdirs and not files_in_dir:
+
+        if files:
+            result_lines.append("Files:")
+            for f in sorted(files, key=lambda x: x['name']):
+                size_kb = f['size'] / 1024
+                result_lines.append(f"  {f['name']:40} ({size_kb:>8.1f} KB)  {f['type']}")
+
+        if not subdirs and not files:
             result_lines.append("(empty directory)")
-        
-        result_lines.append(f"\n📊 Summary: {len(subdirs)} directories, {len(files_in_dir)} files")
-        
+
+        result_lines.append(f"\nSummary: {len(subdirs)} directories, {len(files)} files")
+
         return {
             "success": True,
             "directory": current_path,
-            "subdirectories": sorted(list(subdirs)),
-            "files": files_in_dir,
+            "subdirectories": sorted(subdirs),
+            "files": files,
             "summary": "\n".join(result_lines)
         }
     except Exception as e:
@@ -337,285 +401,51 @@ def list_chat_files_impl(
         return {"success": False, "error": str(e)}
 
 
-def show_filesystem_tree_impl(context: AgentContext):
-    """Show chat filesystem as a tree"""
-    from modules.resource_manager import resource_manager
-    import tempfile
-    import os
-    import shutil
-    
+async def show_filesystem_tree_impl(context: AgentContext):
+    """Show chat filesystem tree from sandbox."""
     try:
-        # Create temp directory to mount files
-        temp_dir = tempfile.mkdtemp(prefix='tree_view_')
-        
+        entry = await _get_sandbox(context.user_id)
+        base_dir = _files_dir(context)
+
         try:
-            # Get all chat files
-            chat_files = resource_manager.list_chat_files(
-                context.user_id,
-                context.chat_id,
-                pattern="*"
-            )
-            
-            # Mount files to temp directory
-            for file_info in chat_files:
-                filename = file_info['name']
-                
-                # Read file content from DB
-                content = resource_manager.read_chat_file(
-                    context.user_id,
-                    context.chat_id,
-                    filename
-                )
-                
-                if content is not None:
-                    file_path = os.path.join(temp_dir, filename)
-                    
-                    # Create subdirectories if needed
-                    file_dir = os.path.dirname(file_path)
-                    if file_dir:
-                        os.makedirs(file_dir, exist_ok=True)
-                    
-                    # Write file (just for tree visualization)
-                    try:
-                        with open(file_path, 'w', encoding='utf-8') as f:
-                            f.write(content)
-                    except:
-                        # If can't write as text, skip (binary files don't affect tree)
-                        pass
-            
-            # Generate tree visualization
-            tree_lines = ["# Chat Filesystem Tree\n"]
-            
-            # Build tree structure
-            def add_tree_lines(directory, prefix="", is_last=True):
-                """Recursively build tree lines"""
-                items = []
-                try:
-                    for item in sorted(os.listdir(directory)):
-                        if item.startswith('.') or item == '__pycache__':
-                            continue
-                        item_path = os.path.join(directory, item)
-                        items.append((item, item_path, os.path.isdir(item_path)))
-                except PermissionError:
-                    return
-                
-                for i, (name, path, is_dir) in enumerate(items):
-                    is_last_item = i == len(items) - 1
-                    connector = "└── " if is_last_item else "├── "
-                    tree_lines.append(f"{prefix}{connector}{name}{'/' if is_dir else ''}")
-                    
-                    if is_dir:
-                        extension = "    " if is_last_item else "│   "
-                        add_tree_lines(path, prefix + extension, is_last_item)
-            
-            tree_lines.append("\n```")
-            tree_lines.append(".")
-            add_tree_lines(temp_dir, "")
-            tree_lines.append("```\n")
-            
-            # Add statistics
-            file_count = len(chat_files)
-            total_size = sum(f.get('size', 0) for f in chat_files)
-            
-            tree_lines.append(f"\n**Statistics:**")
-            tree_lines.append(f"- Files: {file_count}")
-            tree_lines.append(f"- Total Size: {total_size:,} bytes ({total_size / 1024:.1f} KB)")
-            
-            tree = "\n".join(tree_lines)
-            
+            entries = await entry.sbx.files.list(base_dir, depth=10)
+        except Exception:
+            entries = []
+
+        if not entries:
             return {
                 "success": True,
-                "tree": tree,
-                "file_count": file_count,
-                "total_size": total_size
+                "tree": "# Chat Filesystem Tree\n\n(empty — no files yet)",
+                "file_count": 0,
+                "total_size": 0
             }
-        
-        finally:
-            # Clean up temp directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-    
+
+        # Build tree from flat entry list
+        tree_lines = ["# Chat Filesystem Tree\n", "```", "."]
+        file_count = 0
+        total_size = 0
+
+        for e in sorted(entries, key=lambda x: x.path):
+            rel_path = e.path.replace(base_dir + "/", "", 1)
+            depth = rel_path.count('/')
+            indent = "│   " * depth
+            name = e.name + ("/" if e.type == "dir" else "")
+            tree_lines.append(f"{indent}├── {name}")
+            if e.type != "dir":
+                file_count += 1
+                total_size += e.size or 0
+
+        tree_lines.append("```\n")
+        tree_lines.append(f"**Statistics:**")
+        tree_lines.append(f"- Files: {file_count}")
+        tree_lines.append(f"- Total Size: {total_size:,} bytes ({total_size / 1024:.1f} KB)")
+
+        return {
+            "success": True,
+            "tree": "\n".join(tree_lines),
+            "file_count": file_count,
+            "total_size": total_size
+        }
     except Exception as e:
         logger.error(f"Error generating filesystem tree: {str(e)}", exc_info=True)
         return {"success": False, "error": str(e)}
-
-
-async def write_chat_file_impl(
-    context: AgentContext,
-    filename: str,
-    content: str
-):
-    """Write file to chat directory with streaming content to frontend"""
-    from modules.resource_manager import resource_manager
-    
-    try:
-        # Determine file type first
-        file_type = "text"
-        if filename.endswith('.py'):
-            file_type = "python"
-        elif filename.endswith('.md'):
-            file_type = "markdown"
-        elif filename.endswith('.csv'):
-            file_type = "csv"
-        elif filename.endswith('.json'):
-            file_type = "json"
-        elif filename.endswith('.html'):
-            file_type = "html"
-        elif filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')):
-            file_type = "image"
-        
-        # NOTE: File content streaming is handled by llm_stream.py (FILE_STREAMING_TOOLS)
-        # The LLM streaming layer extracts file content from tool call arguments and
-        # streams it BEFORE tool execution. We don't need to stream it again here.
-        # This prevents double-display of file content in the UI.
-        
-        # Write to DB
-        file_id = resource_manager.write_chat_file(
-            context.user_id,
-            context.chat_id,
-            filename,
-            content
-        )
-        
-        # Emit SSE resource event so frontend shows the file in resources
-        yield SSEEvent(
-            event="resource",
-            data={
-                "resource_type": "file",
-                "tool_name": "write_chat_file",
-                "title": filename,
-                "data": {
-                    "filename": filename,
-                    "file_type": file_type,
-                    "size_bytes": len(content.encode('utf-8')),
-                    "file_id": file_id
-                }
-            }
-        )
-        
-        yield {
-            "success": True,
-            "file_id": file_id,
-            "filename": filename,
-            "message": f"Wrote {filename} to chat directory"
-        }
-    except Exception as e:
-        logger.error(f"Error writing chat file: {str(e)}", exc_info=True)
-        yield {"success": False, "error": str(e)}
-
-
-def read_chat_file_impl(
-    context: AgentContext,
-    filename: str,
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
-    peek: bool = False,
-):
-    """
-    Read file from chat directory with optional line range.
-
-    Note: from_skills is deprecated. Skill files now live at /home/user/skills/<name>/
-    on the sandbox filesystem. Use bash('cat /home/user/skills/<name>/SKILL.md') instead.
-    """
-    from modules.resource_manager import resource_manager
-    
-    # If peek is True, read first 100 lines (Cursor's default)
-    if peek:
-        start_line = 1
-        end_line = 100
-    
-    # Convert string arguments to int (LLM may pass strings)
-    if start_line is not None:
-        start_line = int(start_line)
-    if end_line is not None:
-        end_line = int(end_line)
-    
-    try:
-        # Read from chat files (user's workspace)
-        file_data = resource_manager.read_chat_file_with_metadata(
-            context.user_id,
-            context.chat_id,
-            filename
-        )
-        
-        if file_data is None:
-            return {"success": False, "error": f"File '{filename}' not found"}
-        
-        # For images, return image data for multimodal viewing
-        if file_data.get("is_image"):
-            if file_data.get("image_base64"):
-                return {
-                    "success": True,
-                    "filename": filename,
-                    "file_type": "image",
-                    "is_image": True,
-                    "image": {
-                        "type": "base64",
-                        "media_type": file_data.get("media_type", "image/png"),
-                        "data": file_data["image_base64"]
-                    },
-                    "message": f"Image '{filename}' loaded. I can now see the image content."
-                }
-            elif file_data.get("image_url"):
-                return {
-                    "success": True,
-                    "filename": filename,
-                    "file_type": "image",
-                    "is_image": True,
-                    "image_url": file_data["image_url"],
-                    "message": f"Image '{filename}' is available at URL but could not be loaded for viewing."
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": f"Image '{filename}' exists but has no accessible content"
-                }
-        
-        # For text files, return content (with optional line slicing)
-        content = file_data.get("content", "")
-        lines = content.split('\n')
-        total_lines = len(lines)
-        
-        # Apply line range if specified
-        if start_line is not None or end_line is not None:
-            # Convert to 0-indexed, handle defaults
-            start_idx = (start_line or 1) - 1
-            end_idx = end_line or total_lines
-            
-            # Clamp to valid range
-            start_idx = max(0, min(start_idx, total_lines - 1)) if total_lines > 0 else 0
-            end_idx = max(start_idx + 1, min(end_idx, total_lines))
-            
-            # Slice and rejoin
-            selected_lines = lines[start_idx:end_idx]
-            content = '\n'.join(selected_lines)
-            
-            # Build navigation hints
-            nav_hints = []
-            if start_idx > 0:
-                nav_hints.append(f"lines 1-{start_idx} above")
-            if end_idx < total_lines:
-                nav_hints.append(f"lines {end_idx + 1}-{total_lines} below")
-            
-            return {
-                "success": True,
-                "content": content,
-                "filename": filename,
-                "file_type": file_data.get("file_type", "text"),
-                "start_line": start_idx + 1,
-                "end_line": end_idx,
-                "total_lines": total_lines,
-                "navigation": f"({', '.join(nav_hints)})" if nav_hints else None
-            }
-        
-        # No line range - return full content
-        return {
-            "success": True,
-            "content": content,
-            "filename": filename,
-            "file_type": file_data.get("file_type", "text"),
-            "total_lines": total_lines
-        }
-    except Exception as e:
-        logger.error(f"Error reading chat file: {str(e)}", exc_info=True)
-        return {"success": False, "error": str(e)}
-

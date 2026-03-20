@@ -131,6 +131,8 @@ class BotWakeup(Base):
     triggered_at = Column(DateTime(timezone=True), nullable=True)
     recurrence = Column(String, nullable=True)
     message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0, server_default="0")
+    error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     bot = relationship("TradingBot", back_populates="wakeups")

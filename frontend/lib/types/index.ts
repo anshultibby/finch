@@ -413,6 +413,7 @@ export interface RiskLimits {
 
 export interface CapitalConfig {
   amount_usd?: number;
+  balance_usd?: number;
   total?: number;
   per_trade?: number;
   max_positions?: number;
@@ -499,6 +500,7 @@ export interface Bot {
   total_profit_usd: number;
   open_unrealized_pnl: number;
   capital_balance?: number;
+  starting_capital?: number;
   created_at: string;
   updated_at: string;
 }

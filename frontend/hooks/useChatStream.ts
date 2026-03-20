@@ -1,12 +1,11 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
-import { chatApi, resourcesApi } from '@/lib/api';
+import { chatApi } from '@/lib/api';
 import { getFileType, getApiBaseUrl } from '@/lib/utils';
 import type {
   Message,
   ToolCallStatus,
-  Resource,
   SSEOptionsEvent,
   SSEToolCallStartEvent,
   SSEToolCallCompleteEvent,
@@ -14,7 +13,6 @@ import type {
   SSEFileContentEvent,
   ImageAttachment,
 } from '@/lib/types';
-import { FileItem } from '@/components/FileTree';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Chat Stream State Management Hook
@@ -34,9 +32,7 @@ export interface ChatStreamState {
   isLoading: boolean;
   error: string | null;
   pendingOptions: SSEOptionsEvent | null;
-  resources: Resource[];
   stream: { close: () => void; reconnect?: () => void } | null;
-  chatFiles: FileItem[];
   toolInsertionCounter: number;
   wasStreamingBeforeHidden: boolean;
 }
@@ -62,9 +58,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     isLoading: false,
     error: null,
     pendingOptions: null,
-    resources: [],
     stream: null,
-    chatFiles: [],
     toolInsertionCounter: 0,
     wasStreamingBeforeHidden: false,
   });
@@ -406,27 +400,10 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       // Notify bot panels to refresh after tool calls complete
       window.dispatchEvent(new CustomEvent('bots:refresh'));
 
-      try {
-        const [chatResources, chatFilesResponse] = await Promise.all([
-          resourcesApi.getChatResources(chatId),
-          fetch(`${getApiBaseUrl()}/api/chat-files/${chatId}`)
-            .then(r => r.ok ? r.json() : [])
-            .catch(() => [])
-        ]);
-
-        updateChatState(chatId, {
-          isLoading: false,
-          stream: null,
-          resources: chatResources,
-          chatFiles: chatFilesResponse,
-        }, onStateChange);
-      } catch (err) {
-        console.error('Error reloading resources:', err);
-        updateChatState(chatId, {
-          isLoading: false,
-          stream: null,
-        }, onStateChange);
-      }
+      updateChatState(chatId, {
+        isLoading: false,
+        stream: null,
+      }, onStateChange);
 
       options.onHistoryRefresh?.();
     },
