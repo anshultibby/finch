@@ -5,7 +5,6 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import NewChatWelcome from './NewChatWelcome';
-import ChatDebugPanel from './ChatDebugPanel';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
 import { useAuth } from '@/contexts/AuthContext';
@@ -736,13 +735,6 @@ export default function ChatView({
         onClose={() => setSelectedFile(null)}
       />
 
-      <ChatDebugPanel
-        messages={messages}
-        streamingText={streamingText}
-        streamingTools={streamingTools}
-        isLoading={isLoading}
-        chatId={currentChatId}
-      />
     </div>
   );
 }
