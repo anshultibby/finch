@@ -38,6 +38,16 @@ Reference any file on the VM in your reply using `[file:/absolute/path]` — the
 - `[file:/home/user/report.md]` → clickable badge that opens in a viewer
 
 **Always use the full absolute path.** No extra steps needed — just reference the file and it appears.
+
+**Opening files in the side panel:**
+
+To open a file in the user's interactive side panel (e.g. a PDF form they can fill in), print this magic marker in your code:
+```python
+print("<<OPEN_FILE:/home/user/path/to/file.pdf>>")
+```
+This opens the file in a dedicated panel next to the chat. For PDFs, the user gets an interactive viewer where they can type into form fields. The marker is stripped from visible output — the user just sees the panel open.
+
+Use this whenever you want to **show** a document to the user, not just reference it.
 </workflow_guidelines>
 
 <bot_guidelines>

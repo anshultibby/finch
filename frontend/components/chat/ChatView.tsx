@@ -7,8 +7,8 @@ import ChatModeBanner from './ChatModeBanner';
 import NewChatWelcome from './NewChatWelcome';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
-import PdfCopilot from '../PdfCopilot';
-import FormCopilot from '../FormCopilot';
+import dynamic from 'next/dynamic';
+const PdfCopilot = dynamic(() => import('../PdfCopilot'), { ssr: false });
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { chatApi, snaptradeApi } from '@/lib/api';
@@ -104,12 +104,15 @@ export default function ChatView({
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
 
 
-  // UI state
+  // Side-panel state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [pdfFile, setPdfFile] = useState<string | null>(null);
-  const [showTaxForm, setShowTaxForm] = useState(false);
-  const [taxFormRefresh, setTaxFormRefresh] = useState(0);
+  const [openPdfs, setOpenPdfs] = useState<string[]>([]); // multiple open PDFs
+  const [activePdfIndex, setActivePdfIndex] = useState(0);
+  const [pdfRefresh, setPdfRefresh] = useState(0);
+  // 'tool' = ComputerPanel, 'pdf' = PdfCopilot. Both can coexist; activePanel picks which is visible.
+  const [activePanel, setActivePanel] = useState<'tool' | 'pdf' | null>(null);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -190,6 +193,21 @@ export default function ChatView({
         onHistoryRefresh?.();
       },
       onHistoryRefresh: () => onHistoryRefresh?.(),
+      onOpenFile: (path) => {
+        if (path.toLowerCase().endsWith('.pdf')) {
+          setOpenPdfs(prev => {
+            const existing = prev.indexOf(path);
+            if (existing >= 0) { setActivePdfIndex(existing); return prev; }
+            setActivePdfIndex(prev.length);
+            return [...prev, path];
+          });
+          setActivePanel('pdf');
+          setPanelCollapsed(false);
+          setPdfRefresh(n => n + 1);
+        } else {
+          setSelectedFile(path);
+        }
+      },
     });
 
   // Keep the hook's internal ref in sync when we switch chats
@@ -205,13 +223,14 @@ export default function ChatView({
     }
   }, [streamingTools, selectedTool?.tool_call_id]);
 
-  // Auto-open tax form / refresh PDF when agent completes code execution
+  // Refresh PDF copilot when agent fills a form via code execution
   const prevToolsRef = useRef<string>('');
   useEffect(() => {
     const key = streamingTools.map(t => `${t.tool_call_id}:${t.status}`).join(',');
     if (key === prevToolsRef.current) return;
     prevToolsRef.current = key;
 
+    if (openPdfs.length === 0) return;
     for (const tool of streamingTools) {
       if (tool.status !== 'completed') continue;
       const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'bash';
@@ -221,18 +240,11 @@ export default function ChatView({
       const code = tool.arguments?.code || tool.arguments?.cmd || '';
       const allText = output + code;
 
-      // Refresh PDF copilot when agent fills a form
-      if (pdfFile && (allText.includes('fill_form') || allText.includes('overlay_text'))) {
-        setTaxFormRefresh(n => n + 1);
-      }
-
-      // Auto-open form panel when agent saves progress or defines a form schema
-      if (allText.includes('save_progress') || allText.includes('progress.json') || allText.includes('form_schema')) {
-        setShowTaxForm(true);
-        setTaxFormRefresh(n => n + 1);
+      if (allText.includes('fill_form') || allText.includes('overlay_text')) {
+        setPdfRefresh(n => n + 1);
       }
     }
-  }, [streamingTools, pdfFile]);
+  }, [streamingTools, openPdfs]);
 
   // Initialize: load most recent chat or show new chat state
   // Skip when an external chat ID is provided (e.g. bot-scoped chats)
@@ -365,12 +377,7 @@ export default function ChatView({
   const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
 
-    // Auto-open tax form when user uploads tax documents
-    if (content.includes('/tax/uploads/') || content.toLowerCase().includes('[uploaded files]')) {
-      const hasTaxDoc = /\.(pdf|csv)/.test(content.toLowerCase()) &&
-        (/w-?2|1099|tax/i.test(content));
-      if (hasTaxDoc) setShowTaxForm(true);
-    }
+    // (Tax doc uploads don't auto-open PDF — agent will download the form first)
 
     const isFirst = isNewChat || !currentChatId;
     let creatingChatTimeout: NodeJS.Timeout | null = null;
@@ -442,7 +449,12 @@ export default function ChatView({
   }, [userId, clearDisplay, setCurrentChatId]);
 
   const handleSelectTool = async (tool: ToolCallStatus) => {
-    if (selectedTool?.tool_call_id === tool.tool_call_id) return;
+    if (selectedTool?.tool_call_id === tool.tool_call_id) {
+      // Toggle: clicking same tool switches to tool panel if on another tab
+      if (activePanel !== 'tool') setActivePanel('tool');
+      return;
+    }
+    setActivePanel('tool');
 
     const isFileTool = ['write_chat_file', 'read_chat_file', 'replace_in_chat_file'].includes(tool.tool_name);
     const isSearchTool = tool.tool_name === 'web_search' || tool.tool_name === 'news_search';
@@ -575,6 +587,21 @@ export default function ChatView({
     }
   };
 
+  const handleFileClick = useCallback((filename: string) => {
+    if (filename.toLowerCase().endsWith('.pdf')) {
+      setOpenPdfs(prev => {
+        const existing = prev.indexOf(filename);
+        if (existing >= 0) { setActivePdfIndex(existing); return prev; }
+        setActivePdfIndex(prev.length);
+        return [...prev, filename];
+      });
+      setActivePanel('pdf');
+      setPanelCollapsed(false);
+    } else {
+      setSelectedFile(filename);
+    }
+  }, []);
+
   if (!userId) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -583,27 +610,28 @@ export default function ChatView({
     );
   }
 
-  const showComputerPanel = selectedTool !== null;
-  const showPdfCopilot = pdfFile !== null;
-  const showSidePanel = showComputerPanel || showPdfCopilot || showTaxForm;
+  const hasTool = selectedTool !== null;
+  const hasPdf = openPdfs.length > 0;
+  const activePdf = openPdfs[activePdfIndex] || null;
+  const effectivePanel = activePanel || (hasTool ? 'tool' : hasPdf ? 'pdf' : null);
+  const hasAnyPanel = hasTool || hasPdf;
+  const COLLAPSED_WIDTH = 44;
+  const expandedWidth = effectivePanel === 'tool'
+    ? (selectedTool?.file_content ? 650 : 520)
+    : effectivePanel === 'pdf' ? 650 : 0;
+  const panelWidth = !hasAnyPanel ? 0 : panelCollapsed ? COLLAPSED_WIDTH : expandedWidth;
 
   return (
     <div className="flex h-full bg-white">
 
       <div
         className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300`}
-        style={showComputerPanel ? {
-          marginRight: selectedTool?.file_content
-            ? `${650 + rightOffset}px`
-            : `${520 + rightOffset}px`
-        } : (showPdfCopilot || showTaxForm) ? {
-          marginRight: `${420 + rightOffset}px`
-        } : undefined}
+        style={panelWidth > 0 ? { marginRight: `${panelWidth + rightOffset}px` } : undefined}
       >
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className={`py-3 sm:py-4 ${showSidePanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`py-3 sm:py-4 ${panelWidth > 0 ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
@@ -649,18 +677,10 @@ export default function ChatView({
                       role={msg.role}
                       content={msg.content}
                       toolCalls={msg.toolCalls}
+                      images={msg.images}
                       chatId={currentChatId || undefined}
                       onSelectTool={handleSelectTool}
-                      onFileClick={(filename) => {
-                        if (filename.includes('progress.json') || filename.includes('/tax/')) {
-                          setShowTaxForm(true);
-                          setTaxFormRefresh(n => n + 1);
-                        } else if (filename.toLowerCase().endsWith('.pdf')) {
-                          setPdfFile(filename);
-                        } else {
-                          setSelectedFile(filename);
-                        }
-                      }}
+                      onFileClick={handleFileClick}
                       actions={messageActions}
                       isLastAssistantMessage={isLastAssistant}
                     />
@@ -674,16 +694,7 @@ export default function ChatView({
                     toolCalls={streamingTools}
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
-                    onFileClick={(filename) => {
-                        if (filename.includes('progress.json') || filename.includes('/tax/')) {
-                          setShowTaxForm(true);
-                          setTaxFormRefresh(n => n + 1);
-                        } else if (filename.toLowerCase().endsWith('.pdf')) {
-                          setPdfFile(filename);
-                        } else {
-                          setSelectedFile(filename);
-                        }
-                      }}
+                    onFileClick={handleFileClick}
                   />
                 )}
 
@@ -692,16 +703,7 @@ export default function ChatView({
                     role="assistant"
                     content={streamingText}
                     chatId={currentChatId || undefined}
-                    onFileClick={(filename) => {
-                        if (filename.includes('progress.json') || filename.includes('/tax/')) {
-                          setShowTaxForm(true);
-                          setTaxFormRefresh(n => n + 1);
-                        } else if (filename.toLowerCase().endsWith('.pdf')) {
-                          setPdfFile(filename);
-                        } else {
-                          setSelectedFile(filename);
-                        }
-                      }}
+                    onFileClick={handleFileClick}
                   />
                 )}
 
@@ -742,7 +744,7 @@ export default function ChatView({
         </div>
 
         {error && (
-          <div className={`py-3 bg-red-50 border-t border-red-200 ${showSidePanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`py-3 bg-red-50 border-t border-red-200 ${panelWidth > 0 ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
             <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
           </div>
         )}
@@ -763,70 +765,176 @@ export default function ChatView({
         )}
       </div>
 
-      {showComputerPanel && selectedTool && (
+      {/* ── Side panel ── */}
+      {hasAnyPanel && (
         <div
-          className={`fixed top-0 h-full z-40 ${
-            selectedTool.file_content ? 'w-full md:w-[650px]' : 'w-full md:w-[520px]'
-          }`}
-          style={{ right: rightOffset }}
+          className="fixed bottom-0 z-40 flex flex-col bg-white border-l border-gray-200 shadow-xl transition-all duration-200"
+          style={{ right: rightOffset, width: `${panelWidth}px`, top: 0 }}
         >
-          <ComputerPanel
-            mode={
-              selectedTool.search_results ? 'search' :
-              selectedTool.scraped_content ? 'scrape' :
-              selectedTool.file_content ? 'file' :
-              'terminal'
-            }
-            command={selectedTool.tool_name.replace(/_/g, ' ')}
-            output={
-              selectedTool.code_output?.stdout ||
-              selectedTool.code_output?.stderr ||
-              selectedTool.result_summary ||
-              selectedTool.error ||
-              ''
-            }
-            isError={selectedTool.status === 'error' || !!selectedTool.error || !!selectedTool.code_output?.stderr}
-            filename={selectedTool.file_content?.filename}
-            fileContent={selectedTool.file_content?.content}
-            fileType={selectedTool.file_content?.file_type}
-            chatId={currentChatId || undefined}
-            isEditOperation={selectedTool.tool_name === 'replace_in_chat_file'}
-            oldStr={selectedTool.arguments?.old_str}
-            newStr={selectedTool.arguments?.new_str}
-            searchResults={selectedTool.search_results}
-            scrapedContent={selectedTool.scraped_content}
-            isStreaming={selectedTool.status === 'calling'}
-            onClose={() => setSelectedTool(null)}
-          />
-        </div>
-      )}
+          {/* Collapsed rail */}
+          {panelCollapsed ? (
+            <div className="flex flex-col items-center h-full bg-gray-50 py-3 gap-3">
+              <button
+                onClick={() => setPanelCollapsed(false)}
+                title="Expand panel"
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M15 3v18" />
+                </svg>
+              </button>
+              <div className="w-6 border-t border-gray-200" />
+              {openPdfs.map((pdf, i) => (
+                <button
+                  key={pdf}
+                  onClick={() => { setActivePdfIndex(i); setActivePanel('pdf'); setPanelCollapsed(false); }}
+                  title={pdf.split('/').pop() || 'PDF'}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-gray-200 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              ))}
+              {hasTool && (
+                <button
+                  onClick={() => { setActivePanel('tool'); setPanelCollapsed(false); }}
+                  title="Output"
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-gray-200 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Tab bar */}
+              <div className="flex items-center border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                {/* Collapse button — sidebar icon */}
+                <button
+                  onClick={() => setPanelCollapsed(true)}
+                  title="Collapse panel"
+                  className="p-2 ml-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg flex-shrink-0"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M15 3v18" />
+                  </svg>
+                </button>
+                <div className="flex flex-1 min-w-0 overflow-x-auto">
+                  {hasTool && (
+                    <button
+                      onClick={() => setActivePanel('tool')}
+                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                        effectivePanel === 'tool'
+                          ? 'border-blue-500 text-blue-600 bg-white'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Output
+                    </button>
+                  )}
+                  {openPdfs.map((pdf, i) => (
+                    <button
+                      key={pdf}
+                      onClick={() => { setActivePdfIndex(i); setActivePanel('pdf'); }}
+                      className={`group flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                        effectivePanel === 'pdf' && activePdfIndex === i
+                          ? 'border-blue-500 text-blue-600 bg-white'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <svg className="w-3.5 h-3.5 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                      </svg>
+                      <span className="truncate max-w-[100px]">{pdf.split('/').pop()}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenPdfs(prev => {
+                            const next = prev.filter((_, j) => j !== i);
+                            if (activePdfIndex >= next.length) setActivePdfIndex(Math.max(0, next.length - 1));
+                            if (next.length === 0 && !hasTool) setActivePanel(null);
+                            else if (next.length === 0) setActivePanel('tool');
+                            return next;
+                          });
+                        }}
+                        className="ml-1 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-      {showPdfCopilot && currentChatId && (
-        <div
-          className="fixed top-0 h-full z-40 w-full md:w-[650px]"
-          style={{ right: rightOffset }}
-        >
-          <PdfCopilot
-            pdfUrl={`${getApiBaseUrl()}/api/chat-files/${currentChatId}/sandbox-file?path=${encodeURIComponent(pdfFile!)}`}
-            filename={pdfFile!.split('/').pop() || pdfFile!}
-            chatId={currentChatId}
-            sandboxPath={pdfFile!}
-            refreshTrigger={taxFormRefresh}
-            onClose={() => setPdfFile(null)}
-          />
-        </div>
-      )}
+              {/* Panel content */}
+              <div className="flex-1 min-h-0">
+                {effectivePanel === 'tool' && selectedTool && (
+                  <ComputerPanel
+                    mode={
+                      selectedTool.search_results ? 'search' :
+                      selectedTool.scraped_content ? 'scrape' :
+                      selectedTool.file_content ? 'file' :
+                      'terminal'
+                    }
+                    command={selectedTool.tool_name.replace(/_/g, ' ')}
+                    output={
+                      selectedTool.code_output?.stdout ||
+                      selectedTool.code_output?.stderr ||
+                      selectedTool.result_summary ||
+                      selectedTool.error ||
+                      ''
+                    }
+                    isError={selectedTool.status === 'error' || !!selectedTool.error || !!selectedTool.code_output?.stderr}
+                    filename={selectedTool.file_content?.filename}
+                    fileContent={selectedTool.file_content?.content}
+                    fileType={selectedTool.file_content?.file_type}
+                    chatId={currentChatId || undefined}
+                    isEditOperation={selectedTool.tool_name === 'replace_in_chat_file'}
+                    oldStr={selectedTool.arguments?.old_str}
+                    newStr={selectedTool.arguments?.new_str}
+                    searchResults={selectedTool.search_results}
+                    scrapedContent={selectedTool.scraped_content}
+                    isStreaming={selectedTool.status === 'calling'}
+                    onClose={() => {
+                      setSelectedTool(null);
+                      if (hasPdf) setActivePanel('pdf');
+                      else setActivePanel(null);
+                    }}
+                  />
+                )}
 
-      {showTaxForm && currentChatId && (
-        <div
-          className="fixed top-0 h-full z-40 w-full md:w-[420px]"
-          style={{ right: rightOffset }}
-        >
-          <FormCopilot
-            chatId={currentChatId}
-            refreshTrigger={taxFormRefresh}
-            onClose={() => setShowTaxForm(false)}
-          />
+                {effectivePanel === 'pdf' && activePdf && currentChatId && (
+                  <PdfCopilot
+                    key={activePdf}
+                    pdfUrl={`${getApiBaseUrl()}/api/chat-files/${currentChatId}/sandbox-file?path=${encodeURIComponent(activePdf)}`}
+                    filename={activePdf.split('/').pop() || activePdf}
+                    chatId={currentChatId}
+                    sandboxPath={activePdf}
+                    refreshTrigger={pdfRefresh}
+                    onClose={() => {
+                      setOpenPdfs(prev => {
+                        const next = prev.filter((_, j) => j !== activePdfIndex);
+                        if (activePdfIndex >= next.length) setActivePdfIndex(Math.max(0, next.length - 1));
+                        if (next.length === 0 && !hasTool) setActivePanel(null);
+                        else if (next.length === 0) setActivePanel('tool');
+                        return next;
+                      });
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 

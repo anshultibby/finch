@@ -259,11 +259,11 @@ export function computeDerived(data: TaxFormData) {
 // Sandbox I/O
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PROGRESS_PATH = '/home/user/tax/data/progress.json';
+function progressPath(botDir: string) { return `${botDir}/tax/data/progress.json`; }
 
-export async function fetchTaxForm(chatId: string): Promise<TaxFormData | null> {
+export async function fetchTaxForm(chatId: string, botDir = '/home/user'): Promise<TaxFormData | null> {
   try {
-    const url = `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(PROGRESS_PATH)}`;
+    const url = `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(progressPath(botDir))}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
@@ -274,13 +274,13 @@ export async function fetchTaxForm(chatId: string): Promise<TaxFormData | null> 
   }
 }
 
-export async function saveTaxForm(chatId: string, data: TaxFormData): Promise<boolean> {
+export async function saveTaxForm(chatId: string, data: TaxFormData, botDir = '/home/user'): Promise<boolean> {
   try {
     const url = `${getApiBaseUrl()}/api/chat-files/${chatId}/write`;
     const res = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: PROGRESS_PATH, content: JSON.stringify(data, null, 2) }),
+      body: JSON.stringify({ path: progressPath(botDir), content: JSON.stringify(data, null, 2) }),
     });
     return res.ok;
   } catch {

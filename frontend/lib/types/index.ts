@@ -11,6 +11,7 @@ export interface Message {
   content: string;
   timestamp: string;
   toolCalls?: ToolCallStatus[];
+  images?: ImageAttachment[];
 }
 
 export interface ImageAttachment {
@@ -137,6 +138,11 @@ export interface SSEMessageEndEvent {
       arguments: string;
     };
   }>;
+}
+
+export interface SSEOpenFileEvent {
+  path: string;
+  timestamp: string;
 }
 
 export interface SSEDoneEvent {

@@ -17,6 +17,7 @@ pyyaml==6.0.2  # YAML parsing for skills
 croniter==2.0.1
 cryptography==43.0.3
 fastapi==0.115.0
+python-multipart==0.0.22
 greenlet==3.3.2  # Required for SQLAlchemy async
 httpx>=0.27.0
 kalshi_python_async

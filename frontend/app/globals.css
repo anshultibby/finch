@@ -124,26 +124,62 @@ body {
   background: #4b5563;
 }
 
-/* Interactive PDF form fields — make annotation layer inputs visually editable */
+/* ── Interactive PDF form fields ── */
+/* react-pdf annotation layer: make form inputs visible and editable */
+.pdf-fillable-container .annotationLayer {
+  pointer-events: auto !important;
+}
+
+.pdf-fillable-container .annotationLayer section {
+  pointer-events: auto !important;
+}
+
+/* Text inputs and textareas */
+.pdf-fillable-container .annotationLayer input[type="text"],
+.pdf-fillable-container .annotationLayer textarea,
+.pdf-fillable-container .annotationLayer input:not([type]),
 .pdf-fillable-container .react-pdf__Page__annotations input[type="text"],
 .pdf-fillable-container .react-pdf__Page__annotations textarea {
-  background: rgba(219, 234, 254, 0.3) !important;
-  border: 1px solid rgba(147, 197, 253, 0.5) !important;
-  border-radius: 2px !important;
+  opacity: 1 !important;
+  background: rgba(219, 234, 254, 0.25) !important;
+  border: 1px solid rgba(147, 197, 253, 0.4) !important;
+  border-radius: 1px !important;
   outline: none !important;
+  color: #1e293b !important;
+  cursor: text !important;
+  pointer-events: auto !important;
   transition: background 0.15s, border-color 0.15s;
 }
 
+.pdf-fillable-container .annotationLayer input[type="text"]:focus,
+.pdf-fillable-container .annotationLayer textarea:focus,
+.pdf-fillable-container .annotationLayer input:not([type]):focus,
 .pdf-fillable-container .react-pdf__Page__annotations input[type="text"]:focus,
 .pdf-fillable-container .react-pdf__Page__annotations textarea:focus {
-  background: rgba(219, 234, 254, 0.6) !important;
+  background: rgba(219, 234, 254, 0.5) !important;
   border-color: rgba(59, 130, 246, 0.7) !important;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15) !important;
 }
 
+/* Checkboxes and radio buttons */
+.pdf-fillable-container .annotationLayer input[type="checkbox"],
+.pdf-fillable-container .annotationLayer input[type="radio"],
 .pdf-fillable-container .react-pdf__Page__annotations input[type="checkbox"],
 .pdf-fillable-container .react-pdf__Page__annotations input[type="radio"] {
+  opacity: 1 !important;
   accent-color: #2563eb;
-  cursor: pointer;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+
+/* Select dropdowns */
+.pdf-fillable-container .annotationLayer select,
+.pdf-fillable-container .react-pdf__Page__annotations select {
+  opacity: 1 !important;
+  background: rgba(219, 234, 254, 0.25) !important;
+  border: 1px solid rgba(147, 197, 253, 0.4) !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  color: #1e293b !important;
 }
 

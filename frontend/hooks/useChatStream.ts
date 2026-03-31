@@ -41,6 +41,7 @@ interface UseChatStreamOptions {
   onChatCreated?: (chatId: string) => void;
   onTitleGenerated?: (chatId: string, title: string, icon: string) => void;
   onHistoryRefresh?: () => void;
+  onOpenFile?: (path: string) => void;
 }
 
 export function useChatStream(options: UseChatStreamOptions = {}) {
@@ -394,6 +395,10 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       updateChatState(chatId, { pendingOptions: event }, onStateChange);
     },
 
+    onOpenFile: (event: { path: string }) => {
+      options.onOpenFile?.(event.path);
+    },
+
     onDone: async () => {
       saveAccumulatedTools(chatId, onStateChange);
 
@@ -454,15 +459,11 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
 
     currentChatIdRef.current = targetChatId;
 
-    const displayContent = trimmedContent + 
-      (images && images.length > 0 
-        ? ` [${images.length} image${images.length > 1 ? 's' : ''} attached]` 
-        : '');
-
     const userMessage: Message = {
       role: 'user',
-      content: displayContent,
+      content: trimmedContent,
       timestamp: new Date().toISOString(),
+      images: images && images.length > 0 ? images : undefined,
     };
 
     const state = getChatState(targetChatId);

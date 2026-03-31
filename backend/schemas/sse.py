@@ -219,6 +219,12 @@ class ToolsEndEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
+class OpenFileEvent(BaseModel):
+    """Event sent when agent explicitly opens a file in the side panel"""
+    path: str  # Sandbox path, e.g. /home/user/tax/filled/f1040.pdf
+    timestamp: str = datetime.now().isoformat()
+
+
 class CancelledEvent(BaseModel):
     """Event sent when execution is cancelled due to user interruption"""
     reason: str = "User sent a new message"

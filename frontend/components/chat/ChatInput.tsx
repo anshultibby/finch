@@ -76,7 +76,10 @@ export default function ChatInput({
       };
       reader.readAsDataURL(file);
     } else if (DOCUMENT_TYPES.includes(file.type) || file.name.endsWith('.pdf') || file.name.endsWith('.csv')) {
-      if (!chatId) return;
+      if (!chatId) {
+        alert('Send a message first to start a chat, then attach files.');
+        return;
+      }
       setUploading(true);
       try {
         const attachment = await chatFilesApi.uploadFile(chatId, file);
@@ -115,7 +118,7 @@ export default function ChatInput({
 
   return (
     <div
-      className={`p-3 sm:p-4 safe-area-bottom transition-colors ${isDragging ? 'bg-primary-50' : ''}`}
+      className={`px-3 py-2 safe-area-bottom transition-colors ${isDragging ? 'bg-primary-50' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

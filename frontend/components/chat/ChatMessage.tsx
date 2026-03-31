@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ToolCall from './ToolCall';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
-import type { ToolCallStatus } from '@/lib/types';
+import type { ToolCallStatus, ImageAttachment } from '@/lib/types';
 
 export interface MessageAction {
   icon: React.ReactNode;
@@ -19,6 +19,7 @@ interface ChatMessageProps {
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
   chatId?: string;
+  images?: ImageAttachment[];
   onSelectTool?: (tool: ToolCallStatus) => void;
   onFileClick?: (filename: string) => void;
   actions?: MessageAction[];
@@ -404,7 +405,7 @@ function MessageActions({ actions }: { actions: MessageAction[] }) {
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, chatId, onSelectTool, onFileClick, actions, isLastAssistantMessage }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, chatId, images, onSelectTool, onFileClick, actions, isLastAssistantMessage }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[file:[^\]]+\]/.test(content);
   const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick) : null;
@@ -413,9 +414,23 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
     return (
       <div className="flex justify-end mb-3">
         <div className="max-w-2xl">
-          <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-none shadow-sm">
-            <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
-          </div>
+          {images && images.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 justify-end mb-1.5">
+              {images.map((img, idx) => (
+                <img
+                  key={idx}
+                  src={`data:${img.media_type};base64,${img.data}`}
+                  alt={`Attachment ${idx + 1}`}
+                  className="max-h-48 max-w-64 rounded-xl object-cover border border-white/20"
+                />
+              ))}
+            </div>
+          )}
+          {content && (
+            <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-none shadow-sm">
+              <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
+            </div>
+          )}
         </div>
       </div>
     );

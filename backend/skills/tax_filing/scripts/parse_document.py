@@ -4,7 +4,8 @@ import re
 import os
 from typing import Optional
 
-UPLOADS_DIR = "/home/user/tax/uploads"
+_BOT_DIR = os.environ.get("FINCH_BOT_DIR", "/home/user")
+UPLOADS_DIR = f"{_BOT_DIR}/tax/uploads"
 
 
 def _read_pdf_text(pdf_path: str) -> str:

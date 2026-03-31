@@ -127,7 +127,10 @@ async def list_catalog(user_id: str):
     enabled_map = {us.skill_name: us.enabled for us in user_skills}
 
     return [
-        CatalogSkill(**data, enabled=enabled_map.get(data["name"], False))
+        CatalogSkill(
+            **data,
+            enabled=enabled_map.get(data["name"], data.get("is_system", False)),
+        )
         for data in all_skills.values()
     ]
 

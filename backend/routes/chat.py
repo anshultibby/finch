@@ -65,15 +65,16 @@ async def send_chat_message_stream(chat_message: ChatMessage):
         if chat_message.images:
             images = [{"data": img.data, "media_type": img.media_type} for img in chat_message.images]
         
-        # Resolve active skill names. Skills are identified by their directory name
-        # (e.g. "dome", "polygon_io"). auto-on skills come from DB; manually selected
-        # ones are sent directly as skill names from the frontend.
-        from crud import skills as skills_crud
-        async with get_db_session() as db:
-            auto_names = await skills_crud.get_enabled_skill_names(db, chat_message.user_id)
-
-        selected_names = chat_message.skills or []  # skill names sent by the frontend
-        skill_ids = list(dict.fromkeys(auto_names + selected_names))  # de-dup, preserve order
+        # Include all skills from disk — every skill is always available
+        from pathlib import Path
+        _skills_dir = Path(__file__).parent.parent / "skills"
+        skill_ids = [
+            d.name for d in sorted(_skills_dir.iterdir())
+            if d.is_dir() and not d.name.startswith("_") and (d / "SKILL.md").exists()
+        ]
+        # Also include any manually selected skills from frontend
+        if chat_message.skills:
+            skill_ids = list(dict.fromkeys(skill_ids + chat_message.skills))
 
         # Create streaming generator with explicit flushing
         async def event_generator():

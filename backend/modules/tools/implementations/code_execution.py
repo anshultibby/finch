@@ -364,6 +364,15 @@ async def _upload_skills(sbx) -> str:
                 except Exception as e:
                     logger.warning(f"Could not read skill file {file_path}: {e}")
 
+        # Nuke stale skills dir (could have files where dirs should be)
+        try:
+            await sbx.commands.run(
+                f"rm -rf {SKILLS_DIR} && mkdir -p {SKILLS_DIR}",
+                timeout=5,
+            )
+        except Exception:
+            pass
+
         # Upload files sequentially in small batches to avoid E2B read timeouts
         BATCH_SIZE = 5
         for i in range(0, len(upload_tasks), BATCH_SIZE):
@@ -519,9 +528,12 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
     from modules.tools.skills_registry import SKILL_ENV_KEYS
     from core.database import get_db_session
 
+    bot_dir = (context.data or {}).get("bot_directory", "")
+
     env: Dict[str, str] = {
         "FINCH_USER_ID": context.user_id or "",
         "FINCH_CHAT_ID": context.chat_id or "",
+        "FINCH_BOT_DIR": f"/home/user/{bot_dir}" if bot_dir else "",
         "PYTHONWARNINGS": "ignore",
         "LOG_LEVEL": "ERROR",
         "CODE_SANDBOX": "true",
@@ -614,6 +626,17 @@ async def bash_impl(
             exit_code = run_result.exit_code
         except CommandExitException as e:
             exit_code = e.exit_code if hasattr(e, 'exit_code') else 1
+
+        # Parse <<OPEN_FILE:path>> markers from stdout — emit SSE events and strip them
+        import re
+        clean_stdout_lines = []
+        for line in stdout_lines:
+            m = re.match(r'^<<OPEN_FILE:(.+?)>>$', line.strip())
+            if m:
+                yield SSEEvent(event="open_file", data={"path": m.group(1)})
+            else:
+                clean_stdout_lines.append(line)
+        stdout_lines = clean_stdout_lines
 
         for line in stdout_lines:
             yield SSEEvent(event="code_output", data={"stream": "stdout", "content": line.rstrip()})

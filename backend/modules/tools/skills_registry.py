@@ -82,6 +82,23 @@ def get_skill_env_keys(skill_name: str) -> list[str]:
     return meta.get("env", [])
 
 
+def get_all_system_skill_names() -> list[str]:
+    """Return names of all skills with is_system: true in their SKILL.md."""
+    if not _SKILLS_DIR.exists():
+        return []
+    names: list[str] = []
+    for skill_dir in sorted(_SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith("_"):
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        meta = _parse_frontmatter(skill_md)
+        if meta.get("is_system") == "true":
+            names.append(meta.get("name") or skill_dir.name)
+    return names
+
+
 def get_all_skill_packages() -> list[str]:
     """
     Return a deduplicated list of all pip packages required by all skills.

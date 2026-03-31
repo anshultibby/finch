@@ -721,7 +721,7 @@ export default function ComputerPanel({
   };
 
   return (
-    <div className="h-full flex flex-col bg-white border-l border-gray-200 shadow-xl">
+    <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border-b border-gray-200 safe-area-top">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">

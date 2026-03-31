@@ -6,7 +6,8 @@ import urllib.request
 import urllib.error
 from typing import Optional
 
-TAX_DIR = "/home/user/tax"
+_BOT_DIR = os.environ.get("FINCH_BOT_DIR", "/home/user")
+TAX_DIR = f"{_BOT_DIR}/tax"
 FORMS_DIR = f"{TAX_DIR}/forms"
 INSTRUCTIONS_DIR = f"{TAX_DIR}/instructions"
 DATA_DIR = f"{TAX_DIR}/data"

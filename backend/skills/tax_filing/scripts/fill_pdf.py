@@ -2,9 +2,12 @@
 
 import os
 import json
+import subprocess
+import shutil
 from typing import Any, Optional
 
-TAX_DIR = "/home/user/tax"
+_BOT_DIR = os.environ.get("FINCH_BOT_DIR", "/home/user")
+TAX_DIR = f"{_BOT_DIR}/tax"
 FILLED_DIR = f"{TAX_DIR}/filled"
 
 
@@ -12,34 +15,60 @@ def _ensure_dirs():
     os.makedirs(FILLED_DIR, exist_ok=True)
 
 
-def list_fields(pdf_path: str) -> dict[str, dict]:
-    """List all fillable fields in a PDF form.
+def _ensure_pdftk():
+    """Install pdftk if not present."""
+    if shutil.which("pdftk"):
+        return
+    subprocess.run(
+        ["sudo", "apt-get", "update", "-qq"],
+        capture_output=True, timeout=60,
+    )
+    result = subprocess.run(
+        ["sudo", "apt-get", "install", "-y", "-qq", "pdftk-java"],
+        capture_output=True, timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to install pdftk: {result.stderr.decode()}")
 
-    Args:
-        pdf_path: Path to the PDF file.
 
-    Returns:
-        Dict mapping field name -> {type, value, options} for each field.
+def list_fields(pdf_path: str) -> str:
+    """List all fillable fields in a PDF form using pdftk.
+
+    Returns a formatted string showing each field's name, type, and current value.
+    Use these EXACT field names when calling fill_form().
     """
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        raise RuntimeError("pypdf not installed. Run: pip install pypdf")
+    _ensure_pdftk()
+    result = subprocess.run(
+        ["pdftk", pdf_path, "dump_data_fields_utf8"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"pdftk failed: {result.stderr}")
 
-    reader = PdfReader(pdf_path)
-    fields = reader.get_fields()
-    if not fields:
-        return {"_note": "No fillable form fields found. Use overlay_text() instead."}
+    # Parse pdftk output into structured format
+    fields = []
+    current: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if line == "---":
+            if current:
+                fields.append(current)
+            current = {}
+        elif ": " in line:
+            key, _, val = line.partition(": ")
+            current[key] = val
+    if current:
+        fields.append(current)
 
-    result = {}
-    for name, field in fields.items():
-        info: dict[str, Any] = {"type": str(field.get("/FT", "unknown"))}
-        if "/V" in field:
-            info["current_value"] = str(field["/V"])
-        if "/Opt" in field:
-            info["options"] = [str(o) for o in field["/Opt"]]
-        result[name] = info
-    return result
+    # Format as readable output
+    lines = []
+    for f in fields:
+        name = f.get("FieldName", "?")
+        ftype = f.get("FieldType", "?")
+        val = f.get("FieldValue", "")
+        tooltip = f.get("FieldNameAlt", "")
+        desc = f" ({tooltip})" if tooltip else ""
+        lines.append(f"  {name}  [{ftype}]{desc}  = {val!r}" if val else f"  {name}  [{ftype}]{desc}")
+    return f"{len(fields)} fields found:\n" + "\n".join(lines)
 
 
 def fill_form(
@@ -47,39 +76,93 @@ def fill_form(
     output_pdf: str,
     field_values: dict[str, str],
 ) -> str:
-    """Fill a PDF form's native fields and save the result.
+    """Fill a PDF form using pdftk — the most reliable method for IRS forms.
+
+    Use EXACT field names from list_fields() output. pdftk generates proper
+    field appearances so values display correctly in all PDF viewers.
 
     Args:
         input_pdf: Path to the blank form PDF.
         output_pdf: Path for the filled output PDF.
-        field_values: Dict mapping field name -> value to fill.
+        field_values: Dict mapping exact field name -> value.
 
     Returns:
         Path to the filled PDF.
     """
-    try:
-        from pypdf import PdfReader, PdfWriter
-    except ImportError:
-        raise RuntimeError("pypdf not installed. Run: pip install pypdf")
-
+    _ensure_pdftk()
     _ensure_dirs()
 
-    reader = PdfReader(input_pdf)
-    writer = PdfWriter()
-    writer.append(reader)
+    # Generate XFDF (XML Forms Data Format) — pdftk's preferred input
+    xfdf_path = output_pdf.replace(".pdf", ".xfdf")
+    xfdf = _generate_xfdf(input_pdf, field_values)
+    with open(xfdf_path, "w", encoding="utf-8") as f:
+        f.write(xfdf)
 
-    # Fill fields across all pages
-    for page_num in range(len(writer.pages)):
-        try:
-            writer.update_page_form_field_values(writer.pages[page_num], field_values)
-        except Exception:
-            # Some pages may not have form fields
-            pass
+    # Run pdftk to fill the form
+    result = subprocess.run(
+        ["pdftk", input_pdf, "fill_form", xfdf_path, "output", output_pdf, "flatten"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"pdftk fill_form failed: {result.stderr}")
 
-    with open(output_pdf, "wb") as f:
-        writer.write(f)
+    # Clean up XFDF
+    try:
+        os.remove(xfdf_path)
+    except OSError:
+        pass
 
+    print(f"Filled {len(field_values)} fields -> {output_pdf}")
     return output_pdf
+
+
+def fill_form_editable(
+    input_pdf: str,
+    output_pdf: str,
+    field_values: dict[str, str],
+) -> str:
+    """Fill a PDF form but keep fields editable (not flattened).
+
+    Same as fill_form() but the output PDF still has fillable fields,
+    so the user can continue editing in the PDF viewer.
+    """
+    _ensure_pdftk()
+    _ensure_dirs()
+
+    xfdf_path = output_pdf.replace(".pdf", ".xfdf")
+    xfdf = _generate_xfdf(input_pdf, field_values)
+    with open(xfdf_path, "w", encoding="utf-8") as f:
+        f.write(xfdf)
+
+    result = subprocess.run(
+        ["pdftk", input_pdf, "fill_form", xfdf_path, "output", output_pdf],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"pdftk fill_form failed: {result.stderr}")
+
+    try:
+        os.remove(xfdf_path)
+    except OSError:
+        pass
+
+    print(f"Filled {len(field_values)} fields (editable) -> {output_pdf}")
+    return output_pdf
+
+
+def _generate_xfdf(pdf_path: str, field_values: dict[str, str]) -> str:
+    """Generate an XFDF file from field name/value pairs."""
+    from xml.sax.saxutils import escape
+    fields_xml = ""
+    for name, value in field_values.items():
+        fields_xml += f'    <field name="{escape(name)}"><value>{escape(str(value))}</value></field>\n'
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <f href="{escape(pdf_path)}"/>
+  <fields>
+{fields_xml}  </fields>
+</xfdf>"""
 
 
 def overlay_text(
@@ -163,19 +246,21 @@ def preview_filled(pdf_path: str) -> dict:
     Returns:
         Dict mapping field name -> current value.
     """
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        raise RuntimeError("pypdf not installed. Run: pip install pypdf")
-
-    reader = PdfReader(pdf_path)
-    fields = reader.get_fields()
-    if not fields:
-        return {"_note": "No form fields found in this PDF."}
+    _ensure_pdftk()
+    result_proc = subprocess.run(
+        ["pdftk", pdf_path, "dump_data_fields_utf8"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result_proc.returncode != 0:
+        return {"_error": result_proc.stderr}
 
     result = {}
-    for name, field in fields.items():
-        val = field.get("/V")
-        if val is not None:
-            result[name] = str(val)
+    current_name = None
+    for line in result_proc.stdout.splitlines():
+        if line.startswith("FieldName: "):
+            current_name = line[11:]
+        elif line.startswith("FieldValue: ") and current_name:
+            val = line[12:]
+            if val:
+                result[current_name] = val
     return result

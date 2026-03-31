@@ -105,8 +105,8 @@ export function computeAllCalculations(schema: FormSchema, data: FormData): Reco
 // Sandbox I/O
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SCHEMA_PATH = '/home/user/tax/data/form_schema.json';
-const DATA_PATH = '/home/user/tax/data/progress.json';
+function schemaPath(botDir: string) { return `${botDir}/tax/data/form_schema.json`; }
+function dataPath(botDir: string) { return `${botDir}/tax/data/progress.json`; }
 
 async function fetchSandboxJson(chatId: string, path: string): Promise<any | null> {
   try {
@@ -133,16 +133,16 @@ async function writeSandboxJson(chatId: string, path: string, data: any): Promis
   }
 }
 
-export async function fetchFormSchema(chatId: string): Promise<FormSchema | null> {
-  return fetchSandboxJson(chatId, SCHEMA_PATH);
+export async function fetchFormSchema(chatId: string, botDir = '/home/user'): Promise<FormSchema | null> {
+  return fetchSandboxJson(chatId, schemaPath(botDir));
 }
 
-export async function fetchFormData(chatId: string): Promise<FormData | null> {
-  return fetchSandboxJson(chatId, DATA_PATH);
+export async function fetchFormData(chatId: string, botDir = '/home/user'): Promise<FormData | null> {
+  return fetchSandboxJson(chatId, dataPath(botDir));
 }
 
-export async function saveFormData(chatId: string, data: FormData): Promise<boolean> {
-  return writeSandboxJson(chatId, DATA_PATH, {
+export async function saveFormData(chatId: string, data: FormData, botDir = '/home/user'): Promise<boolean> {
+  return writeSandboxJson(chatId, dataPath(botDir), {
     ...data,
     metadata: { ...((data as any).metadata || {}), last_updated: new Date().toISOString() },
   });

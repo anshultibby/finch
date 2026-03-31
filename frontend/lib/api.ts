@@ -32,6 +32,7 @@ import type {
   SSEFileContentEvent,
   SSEToolCallStreamingEvent,
   SSEOptionsEvent,
+  SSEOpenFileEvent,
   SSEDoneEvent,
   SSEErrorEvent,
   ToolCallStatus,
@@ -84,6 +85,7 @@ export interface SSEEventHandlers {
   onFileContent?: (event: SSEFileContentEvent) => void;
   onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void;
   onOptions?: (event: SSEOptionsEvent) => void;
+  onOpenFile?: (event: SSEOpenFileEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
 }
@@ -173,6 +175,9 @@ export const chatApi = {
           break;
         case 'tool_options':
           handlers.onOptions?.(eventData as SSEOptionsEvent);
+          break;
+        case 'open_file':
+          handlers.onOpenFile?.(eventData as SSEOpenFileEvent);
           break;
         case 'done':
           handlers.onDone?.(eventData as SSEDoneEvent);
