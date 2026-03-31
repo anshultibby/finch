@@ -236,3 +236,34 @@ def load_progress(filename: str = "progress.json") -> Optional[dict]:
         return None
     with open(path, "r") as f:
         return json.load(f)
+
+
+def save_form_schema(schema: dict) -> str:
+    """Save a form schema definition that the interactive panel will render.
+
+    The schema defines sections, fields, and calculations. See SKILL.md for format.
+
+    Args:
+        schema: Dict with keys: name, subtitle, year, sections.
+
+    Returns:
+        Path to the saved schema file.
+    """
+    _ensure_dirs()
+    path = f"{DATA_DIR}/form_schema.json"
+    with open(path, "w") as f:
+        json.dump(schema, f, indent=2)
+    return path
+
+
+def load_form_schema() -> Optional[dict]:
+    """Load the current form schema.
+
+    Returns:
+        The schema dict, or None if not defined yet.
+    """
+    path = f"{DATA_DIR}/form_schema.json"
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        return json.load(f)

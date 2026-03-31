@@ -218,43 +218,105 @@ After filling each form:
 
 ## Interactive Form Panel
 
-The user has a live interactive form panel in the UI. When you call `save_progress()`, the panel auto-opens and shows all fields populated. The user can edit any field directly.
+The user has a live interactive form panel. To use it, write TWO files:
 
-**IMPORTANT:** Call `save_progress()` after EVERY interview section — not just at the end. Each call updates the panel in real-time so the user sees their form filling up as you talk.
+1. **`/home/user/tax/data/form_schema.json`** — defines the form structure (sections, fields, calculations)
+2. **`/home/user/tax/data/progress.json`** — stores the actual field values
 
-The `progress.json` schema the panel expects:
+When you write either file, the panel auto-opens. The user can edit any field directly, and calculations update live.
+
+**IMPORTANT:** Call `save_progress()` after EVERY interview section so the user sees fields populate in real-time.
+
+### Defining a form schema
+
+Write the schema ONCE at the start, then just update progress.json as you collect data:
+
+```python
+import json, os
+os.makedirs("/home/user/tax/data", exist_ok=True)
+
+schema = {
+    "name": "Form 1040",
+    "subtitle": "U.S. Individual Income Tax Return",
+    "year": 2025,
+    "sections": [
+        {
+            "title": "Filing Status",
+            "fields": [
+                {"key": "filing_status", "label": "Filing status", "type": "radio", "options": [
+                    {"value": "single", "label": "Single"},
+                    {"value": "married_jointly", "label": "Married Filing Jointly"},
+                    {"value": "married_separately", "label": "Married Filing Separately"},
+                    {"value": "head_of_household", "label": "Head of Household"},
+                ]}
+            ]
+        },
+        {
+            "title": "Personal Information",
+            "fields": [
+                {"key": "personal_info.first_name", "label": "First name", "type": "text", "width": "half"},
+                {"key": "personal_info.last_name", "label": "Last name", "type": "text", "width": "half"},
+                {"key": "personal_info.ssn", "label": "SSN", "type": "text", "placeholder": "XXX-XX-XXXX", "width": "half"},
+            ]
+        },
+        {
+            "title": "Income",
+            "fields": [
+                {"key": "income.w2_wages", "label": "Wages, salaries, tips (W-2)", "line": "1a", "type": "currency"},
+                {"key": "income.interest", "label": "Taxable interest", "line": "2b", "type": "currency"},
+                {"key": "income.dividends", "label": "Ordinary dividends", "line": "3b", "type": "currency"},
+                {"key": "income.capital_gains", "label": "Capital gain or (loss)", "line": "7", "type": "currency"},
+                {"key": "income.other_income", "label": "Other income", "line": "8", "type": "currency"},
+            ],
+            "calculations": [
+                {"key": "total_income", "label": "Total income", "line": "9",
+                 "formula": "income.w2_wages + income.interest + income.dividends + income.capital_gains + income.other_income"}
+            ]
+        },
+        # ... add more sections as needed for the specific form
+    ]
+}
+
+with open("/home/user/tax/data/form_schema.json", "w") as f:
+    json.dump(schema, f, indent=2)
+```
+
+### Field types
+
+| Type | Renders as | Value |
+|------|-----------|-------|
+| `text` | Text input | string |
+| `currency` | Dollar input with $ prefix | number |
+| `number` | Numeric input | number |
+| `select` | Dropdown (needs `options`) | string |
+| `radio` | Radio buttons (needs `options`) | string |
+| `checkbox` | Checkbox | boolean |
+
+### Calculations
+
+Calculations reference field keys and support `+`, `-`, `*`, `/`, parentheses:
+```json
+{"key": "agi", "label": "Adjusted Gross Income", "line": "11", "large": true,
+ "formula": "total_income - adjustments.educator - adjustments.hsa"}
+```
+Set `"large": true` for prominent display (e.g. AGI, refund).
+
+### Layout hints
+
+Fields support `"width": "full" | "half" | "third"` to control layout. Default is `full`.
+
+### Saving form data
 
 ```python
 save_progress({
-    "tax_year": 2025,
-    "filing_status": "single",  # single, married_jointly, married_separately, head_of_household, qualifying_widow
-    "personal_info": {
-        "first_name": "", "middle_initial": "", "last_name": "", "ssn": "",
-        "address": "", "city": "", "state": "", "zip": ""
-    },
-    "income": {
-        "w2_wages": 0, "interest": 0, "dividends": 0, "capital_gains": 0,
-        "ira_distributions": 0, "pensions": 0, "social_security": 0, "other_income": 0
-    },
-    "adjustments": {
-        "educator_expenses": 0, "hsa_deduction": 0, "student_loan_interest": 0,
-        "ira_deduction": 0, "self_employment_tax_deduction": 0
-    },
-    "deductions": {
-        "type": "standard",  # or "itemized"
-        "itemized": {"medical": 0, "state_local_taxes": 0, "mortgage_interest": 0, "charitable": 0, "other": 0}
-    },
-    "credits": {
-        "child_tax_credit": 0, "other_dependent_credit": 0, "education_credits": 0,
-        "earned_income_credit": 0, "other_credits": 0
-    },
-    "other_taxes": {"self_employment_tax": 0, "additional_medicare": 0, "other": 0},
-    "payments": {"federal_withholding": 0, "estimated_tax_paid": 0, "other_payments": 0},
-    "metadata": {"completed_sections": [], "last_updated": ""}
+    "filing_status": "single",
+    "personal_info": {"first_name": "John", "last_name": "Doe", "ssn": "123-45-6789"},
+    "income": {"w2_wages": 85000, "interest": 250},
+    # ... values matching the field keys in your schema
 })
 ```
 
-The panel auto-calculates: total income, AGI, taxable income, tax from brackets, credits, total tax, refund/amount owed. You do NOT need to compute these — just fill in the raw numbers.
+This works for ANY form — 1040, Schedule C, W-4, state forms. Define the schema, fill the data.
 
 When you fill IRS PDF forms with `fill_form()`, the user also sees an interactive PDF viewer where they can type directly into form fields. Reference filled PDFs with `[file:/home/user/tax/filled/f1040_filled.pdf]` to open them.
 

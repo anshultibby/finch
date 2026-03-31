@@ -8,7 +8,7 @@ import NewChatWelcome from './NewChatWelcome';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
 import PdfCopilot from '../PdfCopilot';
-import TaxFormCopilot from '../TaxFormCopilot';
+import FormCopilot from '../FormCopilot';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { chatApi, snaptradeApi } from '@/lib/api';
@@ -226,8 +226,8 @@ export default function ChatView({
         setTaxFormRefresh(n => n + 1);
       }
 
-      // Auto-open tax form when agent saves progress
-      if (allText.includes('save_progress') || allText.includes('progress.json')) {
+      // Auto-open form panel when agent saves progress or defines a form schema
+      if (allText.includes('save_progress') || allText.includes('progress.json') || allText.includes('form_schema')) {
         setShowTaxForm(true);
         setTaxFormRefresh(n => n + 1);
       }
@@ -822,7 +822,7 @@ export default function ChatView({
           className="fixed top-0 h-full z-40 w-full md:w-[420px]"
           style={{ right: rightOffset }}
         >
-          <TaxFormCopilot
+          <FormCopilot
             chatId={currentChatId}
             refreshTrigger={taxFormRefresh}
             onClose={() => setShowTaxForm(false)}
