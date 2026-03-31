@@ -7,6 +7,8 @@ import ChatModeBanner from './ChatModeBanner';
 import NewChatWelcome from './NewChatWelcome';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
+import PdfCopilot from '../PdfCopilot';
+import TaxFormCopilot from '../TaxFormCopilot';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { chatApi, snaptradeApi } from '@/lib/api';
@@ -105,6 +107,9 @@ export default function ChatView({
   // UI state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [pdfFile, setPdfFile] = useState<string | null>(null);
+  const [showTaxForm, setShowTaxForm] = useState(false);
+  const [taxFormRefresh, setTaxFormRefresh] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -199,6 +204,35 @@ export default function ChatView({
       if (updated) setSelectedTool(updated);
     }
   }, [streamingTools, selectedTool?.tool_call_id]);
+
+  // Auto-open tax form / refresh PDF when agent completes code execution
+  const prevToolsRef = useRef<string>('');
+  useEffect(() => {
+    const key = streamingTools.map(t => `${t.tool_call_id}:${t.status}`).join(',');
+    if (key === prevToolsRef.current) return;
+    prevToolsRef.current = key;
+
+    for (const tool of streamingTools) {
+      if (tool.status !== 'completed') continue;
+      const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'bash';
+      if (!isCodeTool) continue;
+
+      const output = tool.result_summary || '';
+      const code = tool.arguments?.code || tool.arguments?.cmd || '';
+      const allText = output + code;
+
+      // Refresh PDF copilot when agent fills a form
+      if (pdfFile && (allText.includes('fill_form') || allText.includes('overlay_text'))) {
+        setTaxFormRefresh(n => n + 1);
+      }
+
+      // Auto-open tax form when agent saves progress
+      if (allText.includes('save_progress') || allText.includes('progress.json')) {
+        setShowTaxForm(true);
+        setTaxFormRefresh(n => n + 1);
+      }
+    }
+  }, [streamingTools, pdfFile]);
 
   // Initialize: load most recent chat or show new chat state
   // Skip when an external chat ID is provided (e.g. bot-scoped chats)
@@ -330,6 +364,13 @@ export default function ChatView({
 
   const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
+
+    // Auto-open tax form when user uploads tax documents
+    if (content.includes('/tax/uploads/') || content.toLowerCase().includes('[uploaded files]')) {
+      const hasTaxDoc = /\.(pdf|csv)/.test(content.toLowerCase()) &&
+        (/w-?2|1099|tax/i.test(content));
+      if (hasTaxDoc) setShowTaxForm(true);
+    }
 
     const isFirst = isNewChat || !currentChatId;
     let creatingChatTimeout: NodeJS.Timeout | null = null;
@@ -543,6 +584,8 @@ export default function ChatView({
   }
 
   const showComputerPanel = selectedTool !== null;
+  const showPdfCopilot = pdfFile !== null;
+  const showSidePanel = showComputerPanel || showPdfCopilot || showTaxForm;
 
   return (
     <div className="flex h-full bg-white">
@@ -553,12 +596,14 @@ export default function ChatView({
           marginRight: selectedTool?.file_content
             ? `${650 + rightOffset}px`
             : `${520 + rightOffset}px`
+        } : (showPdfCopilot || showTaxForm) ? {
+          marginRight: `${420 + rightOffset}px`
         } : undefined}
       >
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className={`py-3 sm:py-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`py-3 sm:py-4 ${showSidePanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
@@ -606,7 +651,16 @@ export default function ChatView({
                       toolCalls={msg.toolCalls}
                       chatId={currentChatId || undefined}
                       onSelectTool={handleSelectTool}
-                      onFileClick={(filename) => setSelectedFile(filename)}
+                      onFileClick={(filename) => {
+                        if (filename.includes('progress.json') || filename.includes('/tax/')) {
+                          setShowTaxForm(true);
+                          setTaxFormRefresh(n => n + 1);
+                        } else if (filename.toLowerCase().endsWith('.pdf')) {
+                          setPdfFile(filename);
+                        } else {
+                          setSelectedFile(filename);
+                        }
+                      }}
                       actions={messageActions}
                       isLastAssistantMessage={isLastAssistant}
                     />
@@ -620,7 +674,16 @@ export default function ChatView({
                     toolCalls={streamingTools}
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
-                    onFileClick={(filename) => setSelectedFile(filename)}
+                    onFileClick={(filename) => {
+                        if (filename.includes('progress.json') || filename.includes('/tax/')) {
+                          setShowTaxForm(true);
+                          setTaxFormRefresh(n => n + 1);
+                        } else if (filename.toLowerCase().endsWith('.pdf')) {
+                          setPdfFile(filename);
+                        } else {
+                          setSelectedFile(filename);
+                        }
+                      }}
                   />
                 )}
 
@@ -629,7 +692,16 @@ export default function ChatView({
                     role="assistant"
                     content={streamingText}
                     chatId={currentChatId || undefined}
-                    onFileClick={(filename) => setSelectedFile(filename)}
+                    onFileClick={(filename) => {
+                        if (filename.includes('progress.json') || filename.includes('/tax/')) {
+                          setShowTaxForm(true);
+                          setTaxFormRefresh(n => n + 1);
+                        } else if (filename.toLowerCase().endsWith('.pdf')) {
+                          setPdfFile(filename);
+                        } else {
+                          setSelectedFile(filename);
+                        }
+                      }}
                   />
                 )}
 
@@ -670,7 +742,7 @@ export default function ChatView({
         </div>
 
         {error && (
-          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`py-3 bg-red-50 border-t border-red-200 ${showSidePanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
             <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
           </div>
         )}
@@ -725,6 +797,35 @@ export default function ChatView({
             scrapedContent={selectedTool.scraped_content}
             isStreaming={selectedTool.status === 'calling'}
             onClose={() => setSelectedTool(null)}
+          />
+        </div>
+      )}
+
+      {showPdfCopilot && currentChatId && (
+        <div
+          className="fixed top-0 h-full z-40 w-full md:w-[650px]"
+          style={{ right: rightOffset }}
+        >
+          <PdfCopilot
+            pdfUrl={`${getApiBaseUrl()}/api/chat-files/${currentChatId}/sandbox-file?path=${encodeURIComponent(pdfFile!)}`}
+            filename={pdfFile!.split('/').pop() || pdfFile!}
+            chatId={currentChatId}
+            sandboxPath={pdfFile!}
+            refreshTrigger={taxFormRefresh}
+            onClose={() => setPdfFile(null)}
+          />
+        </div>
+      )}
+
+      {showTaxForm && currentChatId && (
+        <div
+          className="fixed top-0 h-full z-40 w-full md:w-[420px]"
+          style={{ right: rightOffset }}
+        >
+          <TaxFormCopilot
+            chatId={currentChatId}
+            refreshTrigger={taxFormRefresh}
+            onClose={() => setShowTaxForm(false)}
           />
         </div>
       )}

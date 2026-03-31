@@ -124,3 +124,26 @@ body {
   background: #4b5563;
 }
 
+/* Interactive PDF form fields — make annotation layer inputs visually editable */
+.pdf-fillable-container .react-pdf__Page__annotations input[type="text"],
+.pdf-fillable-container .react-pdf__Page__annotations textarea {
+  background: rgba(219, 234, 254, 0.3) !important;
+  border: 1px solid rgba(147, 197, 253, 0.5) !important;
+  border-radius: 2px !important;
+  outline: none !important;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.pdf-fillable-container .react-pdf__Page__annotations input[type="text"]:focus,
+.pdf-fillable-container .react-pdf__Page__annotations textarea:focus {
+  background: rgba(219, 234, 254, 0.6) !important;
+  border-color: rgba(59, 130, 246, 0.7) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15) !important;
+}
+
+.pdf-fillable-container .react-pdf__Page__annotations input[type="checkbox"],
+.pdf-fillable-container .react-pdf__Page__annotations input[type="radio"] {
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+

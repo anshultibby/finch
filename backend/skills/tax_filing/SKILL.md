@@ -216,6 +216,48 @@ After filling each form:
 4. Walk through key numbers and ask the user to verify
 5. Offer to make corrections
 
+## Interactive Form Panel
+
+The user has a live interactive form panel in the UI. When you call `save_progress()`, the panel auto-opens and shows all fields populated. The user can edit any field directly.
+
+**IMPORTANT:** Call `save_progress()` after EVERY interview section — not just at the end. Each call updates the panel in real-time so the user sees their form filling up as you talk.
+
+The `progress.json` schema the panel expects:
+
+```python
+save_progress({
+    "tax_year": 2025,
+    "filing_status": "single",  # single, married_jointly, married_separately, head_of_household, qualifying_widow
+    "personal_info": {
+        "first_name": "", "middle_initial": "", "last_name": "", "ssn": "",
+        "address": "", "city": "", "state": "", "zip": ""
+    },
+    "income": {
+        "w2_wages": 0, "interest": 0, "dividends": 0, "capital_gains": 0,
+        "ira_distributions": 0, "pensions": 0, "social_security": 0, "other_income": 0
+    },
+    "adjustments": {
+        "educator_expenses": 0, "hsa_deduction": 0, "student_loan_interest": 0,
+        "ira_deduction": 0, "self_employment_tax_deduction": 0
+    },
+    "deductions": {
+        "type": "standard",  # or "itemized"
+        "itemized": {"medical": 0, "state_local_taxes": 0, "mortgage_interest": 0, "charitable": 0, "other": 0}
+    },
+    "credits": {
+        "child_tax_credit": 0, "other_dependent_credit": 0, "education_credits": 0,
+        "earned_income_credit": 0, "other_credits": 0
+    },
+    "other_taxes": {"self_employment_tax": 0, "additional_medicare": 0, "other": 0},
+    "payments": {"federal_withholding": 0, "estimated_tax_paid": 0, "other_payments": 0},
+    "metadata": {"completed_sections": [], "last_updated": ""}
+})
+```
+
+The panel auto-calculates: total income, AGI, taxable income, tax from brackets, credits, total tax, refund/amount owed. You do NOT need to compute these — just fill in the raw numbers.
+
+When you fill IRS PDF forms with `fill_form()`, the user also sees an interactive PDF viewer where they can type directly into form fields. Reference filled PDFs with `[file:/home/user/tax/filled/f1040_filled.pdf]` to open them.
+
 ## Important Guidelines
 
 - **NEVER guess tax numbers.** Always ask the user or calculate from data they provide.

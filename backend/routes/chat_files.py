@@ -247,3 +247,41 @@ async def upload_file_to_sandbox(
     except Exception as e:
         logger.error(f"Error uploading file to sandbox: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class WriteFileRequest(BaseModel):
+    path: str
+    content: str
+
+
+@router.put("/{chat_id}/write")
+async def write_file_to_sandbox(
+    chat_id: str,
+    body: WriteFileRequest,
+    db: Session = Depends(get_db),
+):
+    """Write text content to a file in the user's sandbox.
+
+    Used by the frontend to save user edits (e.g. tax form progress.json).
+    """
+    user_id, _ = await _get_chat_info(chat_id, db)
+
+    try:
+        from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if not sbx:
+            raise HTTPException(status_code=503, detail="Sandbox not available — start a chat first")
+
+        # Ensure parent directory exists
+        parent = "/".join(body.path.rsplit("/", 1)[:-1])
+        if parent:
+            await sbx.commands.run(f"mkdir -p {parent}", timeout=5)
+
+        await sbx.files.write(body.path, body.content, request_timeout=30)
+        return {"success": True, "path": body.path}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error writing file to sandbox: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
