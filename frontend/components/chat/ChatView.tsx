@@ -328,7 +328,7 @@ export default function ChatView({
     };
   }, [currentChatId, getChatState, updateChatState, syncDisplay]);
 
-  const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[]) => {
+  const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
 
     const isFirst = isNewChat || !currentChatId;
@@ -684,6 +684,7 @@ export default function ChatView({
                 disabled={isConnecting || !!pendingOptions}
                 isStreaming={isLoading}
                 placeholder={mode.type === 'general' ? 'Ask me anything about investing...' : `Ask about ${mode.type}...`}
+                chatId={currentChatId || undefined}
               />
             </div>
           </div>

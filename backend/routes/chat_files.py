@@ -2,7 +2,7 @@
 Chat Files Routes — Files served from the bot's sandbox root directory when available,
 otherwise from /home/user/chat_files/.
 """
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from core.database import get_db
 from pydantic import BaseModel
@@ -207,4 +207,43 @@ async def delete_chat_file(
         raise
     except Exception as e:
         logger.error(f"Error deleting file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{chat_id}/upload")
+async def upload_file_to_sandbox(
+    chat_id: str,
+    file: UploadFile = File(...),
+    dest_dir: str = Form("/home/user/tax/uploads"),
+    db: Session = Depends(get_db),
+):
+    """Upload a file (PDF, CSV, etc.) directly to the user's sandbox.
+
+    Returns the sandbox path so the frontend can reference it in the chat message.
+    """
+    user_id, _ = await _get_chat_info(chat_id, db)
+
+    try:
+        from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if not sbx:
+            raise HTTPException(status_code=503, detail="Sandbox not available — start a chat first")
+
+        content = await file.read()
+        await sbx.commands.run(f"mkdir -p {dest_dir}", timeout=5)
+
+        dest_path = f"{dest_dir}/{file.filename}"
+        await sbx.files.write(dest_path, content, request_timeout=60)
+
+        return {
+            "filename": file.filename,
+            "path": dest_path,
+            "size_bytes": len(content),
+            "media_type": file.content_type or mimetypes.guess_type(file.filename)[0],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading file to sandbox: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

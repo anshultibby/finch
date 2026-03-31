@@ -20,6 +20,7 @@ import type {
   PortfolioResponse,
   PortfolioPerformance,
   ImageAttachment,
+  FileAttachment,
   SSEAssistantMessageDeltaEvent,
   SSEMessageEndEvent,
   SSEToolCallStartEvent,
@@ -843,6 +844,25 @@ export const skillsApi = {
       }
     );
     return response.json();
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat Files API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const chatFilesApi = {
+  /** Upload a file to the user's sandbox. Returns {filename, path, size_bytes, media_type}. */
+  uploadFile: async (chatId: string, file: File, destDir?: string): Promise<FileAttachment> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (destDir) formData.append('dest_dir', destDir);
+
+    const response = await api.post(`/api/chat-files/${chatId}/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    const d = response.data;
+    return { name: d.filename, path: d.path, media_type: d.media_type };
   },
 };
 

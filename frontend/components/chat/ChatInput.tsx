@@ -1,13 +1,15 @@
 import React, { useState, useEffect, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
-import type { ImageAttachment } from '@/lib/types';
+import type { ImageAttachment, FileAttachment } from '@/lib/types';
+import { chatFilesApi } from '@/lib/api';
 
 interface ChatInputProps {
-  onSendMessage: (message: string, images?: ImageAttachment[], skills?: string[]) => void;
+  onSendMessage: (message: string, images?: ImageAttachment[], skills?: string[], files?: FileAttachment[]) => void;
   onStop?: () => void;
   disabled?: boolean;
   isStreaming?: boolean;
   placeholder?: string;
   prefillMessage?: string;
+  chatId?: string;
 }
 
 export default function ChatInput({
@@ -17,9 +19,12 @@ export default function ChatInput({
   isStreaming = false,
   placeholder = 'Ask me anything...',
   prefillMessage,
+  chatId,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [files, setFiles] = useState<FileAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (prefillMessage) {
@@ -32,13 +37,22 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {
-    if ((message.trim() || images.length > 0) && !disabled) {
+    if ((message.trim() || images.length > 0 || files.length > 0) && !disabled && !uploading) {
+      // If files are attached, prepend their sandbox paths so the agent knows about them
+      let fullMessage = message;
+      if (files.length > 0) {
+        const fileList = files.map(f => f.path).join('\n');
+        fullMessage = `[Uploaded files]\n${fileList}\n\n${message}`;
+      }
       onSendMessage(
-        message,
+        fullMessage,
         images.length > 0 ? images : undefined,
+        undefined,
+        files.length > 0 ? files : undefined,
       );
       setMessage('');
       setImages([]);
+      setFiles([]);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     }
   };
@@ -50,14 +64,29 @@ export default function ChatInput({
     }
   };
 
-  const processFile = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setImages(prev => [...prev, { data: result.split(',')[1], media_type: file.type }]);
-    };
-    reader.readAsDataURL(file);
+  const DOCUMENT_TYPES = ['application/pdf', 'text/csv', 'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+
+  const processFile = async (file: File) => {
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        setImages(prev => [...prev, { data: result.split(',')[1], media_type: file.type }]);
+      };
+      reader.readAsDataURL(file);
+    } else if (DOCUMENT_TYPES.includes(file.type) || file.name.endsWith('.pdf') || file.name.endsWith('.csv')) {
+      if (!chatId) return;
+      setUploading(true);
+      try {
+        const attachment = await chatFilesApi.uploadFile(chatId, file);
+        setFiles(prev => [...prev, attachment]);
+      } catch (e) {
+        console.error('File upload failed:', e);
+      } finally {
+        setUploading(false);
+      }
+    }
   };
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragging(true); };
@@ -65,7 +94,7 @@ export default function ChatInput({
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    Array.from(e.dataTransfer.files).forEach(processFile);
+    Array.from(e.dataTransfer.files).forEach(f => processFile(f));
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -78,11 +107,11 @@ export default function ChatInput({
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    Array.from(e.target.files || []).forEach(processFile);
+    Array.from(e.target.files || []).forEach(f => processFile(f));
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const canSend = (message.trim() || images.length > 0) && !disabled;
+  const canSend = (message.trim() || images.length > 0 || files.length > 0) && !disabled && !uploading;
 
   return (
     <div
@@ -94,7 +123,7 @@ export default function ChatInput({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,.csv,.xlsx,.xls"
         multiple
         onChange={handleFileSelect}
         className="hidden"
@@ -121,6 +150,37 @@ export default function ChatInput({
         </div>
       )}
 
+      {/* File attachment chips */}
+      {(files.length > 0 || uploading) && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {files.map((f, idx) => (
+            <div key={idx} className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1.5 text-sm text-gray-700">
+              <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+              </svg>
+              <span className="truncate max-w-[150px]">{f.name}</span>
+              <button
+                onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
+                className="text-gray-400 hover:text-gray-600 ml-0.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+          {uploading && (
+            <div className="flex items-center gap-1.5 bg-gray-50 rounded-lg px-2.5 py-1.5 text-sm text-gray-400">
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Uploading...
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Input container */}
       <div className={`rounded-2xl border transition-colors shadow-sm ${
         isDragging
@@ -132,7 +192,7 @@ export default function ChatInput({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
-            title="Attach image"
+            title="Attach file"
             className="flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors flex-shrink-0"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -147,7 +207,7 @@ export default function ChatInput({
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isDragging ? 'Drop image here...' : placeholder}
+            placeholder={isDragging ? 'Drop file here...' : placeholder}
             disabled={disabled}
             rows={1}
             className="flex-1 resize-none bg-transparent py-2 text-gray-900 placeholder-gray-400 focus:outline-none disabled:cursor-not-allowed"

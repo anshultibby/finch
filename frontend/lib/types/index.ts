@@ -18,6 +18,12 @@ export interface ImageAttachment {
   media_type: string;  // MIME type (image/png, image/jpeg, etc.)
 }
 
+export interface FileAttachment {
+  name: string;       // Original filename
+  path: string;       // Sandbox path after upload
+  media_type: string; // MIME type (application/pdf, text/csv, etc.)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool Types
 // ─────────────────────────────────────────────────────────────────────────────
