@@ -365,15 +365,17 @@ async def _upload_skills(sbx) -> str:
                     logger.warning(f"Could not read skill file {file_path}: {e}")
 
         # Nuke stale skills dir (could have files where dirs should be)
+        # and pre-create all subdirectories so parallel writes don't race on mkdir
+        subdirs = sorted({os.path.dirname(p) for p, _ in upload_tasks})
+        mkdir_cmd = f"rm -rf {SKILLS_DIR} && " + " && ".join(
+            f"mkdir -p {d}" for d in subdirs
+        )
         try:
-            await sbx.commands.run(
-                f"rm -rf {SKILLS_DIR} && mkdir -p {SKILLS_DIR}",
-                timeout=5,
-            )
+            await sbx.commands.run(mkdir_cmd, timeout=10)
         except Exception:
             pass
 
-        # Upload files sequentially in small batches to avoid E2B read timeouts
+        # Upload files in small batches to avoid E2B timeouts
         BATCH_SIZE = 5
         for i in range(0, len(upload_tasks), BATCH_SIZE):
             batch = upload_tasks[i:i + BATCH_SIZE]
@@ -627,15 +629,33 @@ async def bash_impl(
         except CommandExitException as e:
             exit_code = e.exit_code if hasattr(e, 'exit_code') else 1
 
-        # Parse <<OPEN_FILE:path>> markers from stdout — emit SSE events and strip them
+        # Parse special markers from stdout and strip them
         import re
+        import base64 as b64
         clean_stdout_lines = []
+        return_images = []  # collect <<RETURN_IMAGE:path>> images for multimodal tool result
         for line in stdout_lines:
             m = re.match(r'^<<OPEN_FILE:(.+?)>>$', line.strip())
             if m:
                 yield SSEEvent(event="open_file", data={"path": m.group(1)})
-            else:
-                clean_stdout_lines.append(line)
+                continue
+            m = re.match(r'^<<RETURN_IMAGE:(.+?)>>$', line.strip())
+            if m:
+                # Read image from sandbox and collect for multimodal result
+                img_path = m.group(1)
+                try:
+                    img_bytes = await sbx.files.read(img_path, format="bytes")
+                    ext = img_path.rsplit(".", 1)[-1].lower()
+                    media_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(ext, "image/png")
+                    return_images.append({
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": b64.b64encode(bytes(img_bytes)).decode(),
+                    })
+                except Exception as img_err:
+                    logger.warning(f"Failed to read return image {img_path}: {img_err}")
+                continue
+            clean_stdout_lines.append(line)
         stdout_lines = clean_stdout_lines
 
         for line in stdout_lines:
@@ -686,12 +706,15 @@ async def bash_impl(
             "message": f"Done{truncation_note}"
         })
 
-        yield {
+        result = {
             "success": True,
             "stdout": stdout_truncated,
             "stderr": stderr_truncated,
             "message": f"Done{truncation_note}",
         }
+        if return_images:
+            result["images"] = return_images
+        yield result
 
     except Exception as e:
         logger.error(f"bash error: {str(e)}", exc_info=True)

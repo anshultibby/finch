@@ -223,14 +223,13 @@ export default function ChatView({
     }
   }, [streamingTools, selectedTool?.tool_call_id]);
 
-  // Refresh PDF copilot when agent fills a form via code execution
+  // Auto-open or refresh PDF panel when agent fills a form via code execution
   const prevToolsRef = useRef<string>('');
   useEffect(() => {
     const key = streamingTools.map(t => `${t.tool_call_id}:${t.status}`).join(',');
     if (key === prevToolsRef.current) return;
     prevToolsRef.current = key;
 
-    if (openPdfs.length === 0) return;
     for (const tool of streamingTools) {
       if (tool.status !== 'completed') continue;
       const isCodeTool = tool.tool_name === 'execute_code' || tool.tool_name === 'bash';
@@ -240,8 +239,27 @@ export default function ChatView({
       const code = tool.arguments?.code || tool.arguments?.cmd || '';
       const allText = output + code;
 
-      if (allText.includes('fill_form') || allText.includes('overlay_text')) {
+      const isFillOp = allText.includes('fill_form') || allText.includes('fill_from_mapping') || allText.includes('overlay_text');
+      if (!isFillOp) continue;
+
+      if (openPdfs.length > 0) {
+        // PDF already open — just refresh it
         setPdfRefresh(n => n + 1);
+      } else {
+        // No PDF open yet — find the output_pdf path from the fill call
+        // Look for output_pdf="..." or output_pdf=f"..." with a full absolute path
+        const outputMatch = allText.match(/output_pdf\s*=\s*f?"([^"]+\.pdf)"/i)
+          || allText.match(/(\/home\/[^\s"']+\.pdf)/i);
+        if (outputMatch) {
+          const pdfPath = outputMatch[1];
+          if (pdfPath.startsWith('/home/')) {
+            setOpenPdfs([pdfPath]);
+            setActivePdfIndex(0);
+            setActivePanel('pdf');
+            setPanelCollapsed(false);
+            setPdfRefresh(n => n + 1);
+          }
+        }
       }
     }
   }, [streamingTools, openPdfs]);
