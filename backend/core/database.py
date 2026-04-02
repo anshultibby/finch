@@ -27,7 +27,7 @@ if Config.USE_POOLER:
     # With the refactored code using 1 connection per request (instead of 13+),
     # we can now safely handle many more concurrent requests
     pool_size = 10
-    max_overflow = 5
+    max_overflow = 10
     pool_recycle = 180  # Recycle connections every 3 minutes
     pool_timeout = 30  # Wait longer for connections (30s instead of 5s)
 

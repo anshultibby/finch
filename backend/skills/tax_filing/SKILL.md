@@ -9,6 +9,7 @@ metadata:
     bins:
       - pypdf
       - reportlab
+      - pymupdf
 ---
 
 # Tax Filing Skill
@@ -138,63 +139,76 @@ web_search("IRS 2025 standard deduction amounts")
 web_search("IRS Schedule C home office deduction rules 2025")
 ```
 
-### 5. Filling the PDF
+### 5. Filling the PDF (Vision-Guided Approach)
 
-Use the fill helper to populate form fields:
+PDF filling uses a **vision-guided** approach: annotated images let you see exactly which
+marker number sits on which form field, so you map fields with 100% accuracy.
+
+**Phase 1 — Generate field mapping (once per form):**
 
 ```python
-from skills.tax_filing.scripts.fill_pdf import fill_form, list_fields, preview_filled, FILLED_DIR
-from skills.tax_filing.scripts.forms import FORMS_DIR
-
-# STEP 1: Always inspect field names first — IRS uses long nested names
-fields = list_fields(f"{FORMS_DIR}/f1040.pdf")
-for name, info in fields.items():
-    print(f"  {info.get('short_name', '?'):12s} | {info.get('tooltip', '')} | {name}")
-
-# STEP 2: Fill using short names (auto-resolved to full names)
-# e.g. "f1_02" matches "topmostSubform[0].Page1[0].f1_02[0]"
-fill_form(
-    input_pdf=f"{FORMS_DIR}/f1040.pdf",
-    output_pdf=f"{FILLED_DIR}/f1040_filled.pdf",
-    field_values={
-        "f1_02": "John",           # First name
-        "f1_03": "Doe",            # Last name
-        "f1_04": "123-45-6789",    # SSN
-        # Use short_name from list_fields output — no need for full paths
-    }
+from skills.tax_filing.scripts.fill_pdf import (
+    render_annotated_form, save_field_mapping_from_markers, load_field_mapping
 )
 
-# STEP 3: Open the filled PDF in the side panel
-print(f"<<OPEN_FILE:{FILLED_DIR}/f1040_filled.pdf>>")
+# Check if we already have a cached mapping
+mapping = load_field_mapping("1040")
+if mapping:
+    print(f"Using cached mapping ({len(mapping)} fields)")
+else:
+    # Renders each page with red numbered markers on every fillable field.
+    # You will SEE the annotated images + a legend of marker→field_name.
+    result = render_annotated_form("/home/user/tax/forms/f1040.pdf")
+    print(result)
 
-# STEP 4: Verify what was filled
-filled = preview_filled(f"{FILLED_DIR}/f1040_filled.pdf")
-for name, val in filled.items():
-    if val:
-        print(f"  {name}: {val}")
+    # After seeing the annotated form, map semantic names to marker NUMBERS.
+    # Look at each red [N] marker and the form label next to it.
+    save_field_mapping_from_markers(
+        form_id="1040",
+        pdf_path="/home/user/tax/forms/f1040.pdf",
+        marker_mapping={
+            "first_name": 2,      # marker [2] is on the "First name" box
+            "last_name": 3,       # marker [3] is on the "Last name" box
+            "ssn": 4,             # marker [4] is on the SSN box
+            "filing_single": 5,   # marker [5] is the Single checkbox
+            "wages_1a": 30,       # marker [30] is on Line 1a
+            # ... map ALL fields you'll need
+        }
+    )
+```
+
+**Phase 2 — Fill using semantic keys (fast, no field discovery):**
+
+```python
+from skills.tax_filing.scripts.fill_pdf import fill_from_mapping
+
+# Fill with human-readable keys — the mapping handles translation
+fill_from_mapping(
+    form_id="1040",
+    input_pdf="/home/user/tax/forms/f1040.pdf",
+    output_pdf="/home/user/tax/filled/f1040_filled.pdf",
+    data={
+        "first_name": "John",
+        "last_name": "Doe",
+        "ssn": "123-45-6789",
+        "wages_1a": "85000",
+    }
+)
+# PDF automatically opens in the side panel
+```
+
+If something looks wrong, use `verify_filled()` to render the filled PDF as images for visual inspection:
+```python
+from skills.tax_filing.scripts.fill_pdf import verify_filled
+verify_filled("/home/user/tax/filled/f1040_filled.pdf")
 ```
 
 **IMPORTANT:**
-- Always `list_fields()` first to get exact field names
-- Use the EXACT `FieldName` from the output — no guessing, no abbreviations
-- `fill_form()` flattens the PDF (fields become static text) — use `fill_form_editable()` if the user wants to keep editing
-- Always `preview_filled()` after to verify values were written
-- Always `print("<<OPEN_FILE:...>>")` to show the result
-
-# For non-fillable PDFs, use text overlay
-```python
-from skills.tax_filing.scripts.fill_pdf import overlay_text, FILLED_DIR
-from skills.tax_filing.scripts.forms import FORMS_DIR
-
-overlay_text(
-    input_pdf=f"{FORMS_DIR}/f1040.pdf",
-    output_pdf=f"{FILLED_DIR}/f1040_filled.pdf",
-    placements=[
-        {"page": 0, "x": 180, "y": 705, "text": "John", "size": 10},
-        {"page": 0, "x": 340, "y": 705, "text": "Doe", "size": 10},
-    ]
-)
-```
+- Always check `load_field_mapping()` first — only render if no cached mapping exists
+- `render_annotated_form()` draws red `[N]` markers on each widget box — use these numbers
+- Map ALL fields you might need in one `save_field_mapping_from_markers()` call
+- Once mapped, `fill_from_mapping()` is extremely token-efficient — no field names in context
+- Filled PDFs stay **editable** so the user can tweak values in the side panel
 
 ### 6. Saving Progress
 
@@ -233,17 +247,10 @@ save_progress({
 ### 7. Presenting Results
 
 After filling each form:
-1. Save the filled PDF to `FILLED_DIR`
-2. Verify what was filled:
-   ```python
-   from skills.tax_filing.scripts.fill_pdf import preview_filled, FILLED_DIR
-   values = preview_filled(f"{FILLED_DIR}/f1040_filled.pdf")
-   for field, val in values.items():
-       print(f"  {field}: {val}")
-   ```
-3. Show it to the user: `[file:{FILLED_DIR}/f1040_filled.pdf]`
-4. Walk through key numbers and ask the user to verify
-5. Offer to make corrections
+1. Open the filled PDF in the side panel: `print("<<OPEN_FILE:/home/user/tax/filled/f1040_filled.pdf>>")`
+2. Walk through key numbers and ask the user to verify
+3. Offer to make corrections
+4. If the user reports values in wrong fields, use `verify_filled()` to visually inspect
 
 ## PDF Copilot (Interactive Side Panel)
 
@@ -251,48 +258,21 @@ The user has an interactive PDF viewer as a side panel. When you download or fil
 
 ### How it works
 
-1. **Download the blank form and open it in the panel:**
-   ```python
-   from skills.tax_filing.scripts.forms import download_form
+All PDF operations auto-open forms in the side panel — no manual `<<OPEN_FILE:>>` needed:
 
-   path = download_form("1040", tax_year=2025)
-   print(f"<<OPEN_FILE:{path}>>")  # Opens the PDF in the side panel
-   ```
+1. **`download_form()`** — blank form opens in panel immediately
+2. **`render_annotated_form()`** — form opens while you analyze the annotated images
+3. **`fill_from_mapping()`** — filled form opens/refreshes in panel
 
-2. **Fill fields and show the updated PDF:**
-   ```python
-   from skills.tax_filing.scripts.fill_pdf import fill_form, FILLED_DIR
-   from skills.tax_filing.scripts.forms import FORMS_DIR
-
-   fill_form(
-       input_pdf=f"{FORMS_DIR}/f1040.pdf",
-       output_pdf=f"{FILLED_DIR}/f1040_filled.pdf",
-       field_values={"f1_02[0]": "John", "f1_03[0]": "Doe"}
-   )
-   print(f"<<OPEN_FILE:{FILLED_DIR}/f1040_filled.pdf>>")
-   ```
-
-3. **Reference a PDF in your response** — use `[file:/path/to/form.pdf]` in text:
-   ```python
-   from skills.tax_filing.scripts.fill_pdf import FILLED_DIR
-   print(f"Here's your filled Form 1040: [file:{FILLED_DIR}/f1040_filled.pdf]")
-   ```
-
-**IMPORTANT:** Always `print("<<OPEN_FILE:path>>")` after downloading or filling a form so the user sees it immediately.
+Multiple forms can be open as tabs. The user can switch between them and edit fields directly.
 
 ### Collaborative filling
 
-- You fill fields via `fill_form()` as you collect data from the user
+- You fill fields via `fill_from_mapping()` as you collect data from the user
 - The user can also type directly into form fields in the PDF viewer
 - After each interview section, fill what you've learned so the user sees progress
-- The panel stays open — the user can switch between the PDF and code output tabs
-
-### Tips
-
-- Always `list_fields()` first to discover the exact field names in the PDF
+- The panel stays open — the user can switch between forms using tabs
 - Fill incrementally: after each conversation round, update the filled PDF
-- Reference the filled PDF with `[file:...]` so the user can always re-open it
-- The user can see both the chat and the PDF side by side
 
 ## Important Guidelines
 

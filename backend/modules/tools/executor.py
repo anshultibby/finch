@@ -709,8 +709,9 @@ class ToolExecutor:
             
             if result.raw_result and isinstance(result.raw_result, dict):
                 image_data = result.raw_result.get("image")
+                images_data = result.raw_result.get("images", [])
                 if image_data and isinstance(image_data, dict) and image_data.get("type") == "base64":
-                    # Multimodal content: image + text context
+                    # Single image (legacy path)
                     content_blocks.append({
                         "type": "text",
                         "text": f"Image file '{result.raw_result.get('filename', 'unknown')}' contents:"
@@ -723,6 +724,22 @@ class ToolExecutor:
                             "data": image_data.get("data", "")
                         }
                     })
+                elif images_data:
+                    # Multiple images (e.g. rendered PDF pages)
+                    content_blocks.append({
+                        "type": "text",
+                        "text": result.llm_content
+                    })
+                    for img in images_data:
+                        if isinstance(img, dict) and img.get("type") == "base64":
+                            content_blocks.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": img.get("media_type", "image/png"),
+                                    "data": img.get("data", "")
+                                }
+                            })
                 else:
                     # Text-only result - still use list format
                     content_blocks.append({

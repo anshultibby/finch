@@ -121,7 +121,10 @@ def download_form(form_name: str, tax_year: int = 2025) -> str:
     filename = FORM_CATALOG[key]["form"]
     url = _irs_url(filename, tax_year)
     dest = f"{FORMS_DIR}/{filename}.pdf"
-    return _download(url, dest)
+    path = _download(url, dest)
+    # Auto-open in the PDF side panel
+    print(f"<<OPEN_FILE:{path}>>")
+    return path
 
 
 def download_instructions(form_name: str, tax_year: int = 2025) -> str:

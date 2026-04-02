@@ -193,7 +193,7 @@ export const chatApi = {
 
     // Events that need a React render yield so intermediate UI states are visible
     const YIELD_AFTER_EVENTS = new Set([
-      'tool_call_start', 'tool_call_complete', 'tools_end', 'message_end', 'done'
+      'tool_call_start', 'tool_call_complete', 'tools_end', 'message_end', 'done', 'open_file'
     ]);
 
     // Parse and process SSE events from buffer one at a time.
