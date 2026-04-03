@@ -1,6 +1,6 @@
 """Get user's current portfolio holdings"""
 from typing import Dict, Any
-from servers.snaptrade._client import get_snaptrade_client
+from skills.snaptrade.scripts._client import get_snaptrade_client
 
 
 async def get_holdings(user_id: str) -> Dict[str, Any]:

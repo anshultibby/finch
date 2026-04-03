@@ -3,10 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 255, 255, 255;
-  --background-end-rgb: 255, 255, 255;
-  
+  --foreground-rgb: 15, 23, 42;
+  --background-start-rgb: 250, 250, 249;
+  --background-end-rgb: 245, 245, 244;
+
+  /* Brand palette */
+  --finch-bg: #fafaf9;
+  --finch-surface: #ffffff;
+  --finch-border: rgba(0, 0, 0, 0.06);
+  --finch-border-strong: rgba(0, 0, 0, 0.1);
+  --finch-shadow-color: 0 0% 0%;
+
+  /* Platform accent colors */
+  --platform-kalshi: 139 92% 63%;
+  --platform-alpaca: 160 84% 39%;
+  --platform-research: 217 91% 60%;
+
   /* Safe area insets for iPhone notch and home indicator */
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
@@ -16,12 +28,60 @@
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: var(--finch-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Finch design tokens ── */
+
+/* Elevated surface — cards, modals */
+.finch-surface {
+  background: var(--finch-surface);
+  border: 1px solid var(--finch-border);
+  box-shadow:
+    0 1px 2px hsl(var(--finch-shadow-color) / 0.04),
+    0 2px 8px hsl(var(--finch-shadow-color) / 0.02);
+}
+
+.finch-surface-hover {
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.finch-surface-hover:hover {
+  border-color: var(--finch-border-strong);
+  box-shadow:
+    0 2px 4px hsl(var(--finch-shadow-color) / 0.04),
+    0 8px 24px hsl(var(--finch-shadow-color) / 0.06);
+  transform: translateY(-1px);
+}
+
+/* Subtle noise texture overlay for depth */
+.finch-grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.015;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 128px;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+/* Platform accent strips */
+.platform-accent-kalshi { background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%); }
+.platform-accent-alpaca { background: linear-gradient(135deg, #34d399 0%, #059669 100%); }
+.platform-accent-research { background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%); }
+
+/* Stat card glow — subtle radial halo */
+.stat-glow-positive { background: radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, 0.06) 0%, transparent 70%); }
+.stat-glow-negative { background: radial-gradient(ellipse at 50% 0%, rgba(239, 68, 68, 0.06) 0%, transparent 70%); }
+.stat-glow-neutral  { background: radial-gradient(ellipse at 50% 0%, rgba(100, 116, 139, 0.04) 0%, transparent 70%); }
+
+/* Sidebar active indicator */
+.sidebar-active {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.08) 0%, rgba(15, 23, 42, 0.04) 100%);
+  box-shadow: inset 2px 0 0 #0f172a;
 }
 
 /* Safe area utilities for iPhone X+ */
@@ -68,21 +128,20 @@ body {
 
 /* Custom scrollbar for chat */
 .chat-scrollbar::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .chat-scrollbar::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 10px;
+  background: transparent;
 }
 
 .chat-scrollbar::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 99px;
 }
 
 .chat-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: rgba(0, 0, 0, 0.2);
 }
 
 /* Fade out animation for ephemeral messages */
@@ -122,5 +181,46 @@ body {
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: #4b5563;
+}
+
+/* ── Smooth global transitions ── */
+* {
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.2);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ── Pulsing dot (active bot indicator) ── */
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.5); }
+}
+.live-pulse {
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+/* ── Staggered card entrance ── */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-card-in {
+  animation: cardIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Shimmer for loading states ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, #f5f5f4 25%, #e7e5e4 50%, #f5f5f4 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 

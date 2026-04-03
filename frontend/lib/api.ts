@@ -436,6 +436,22 @@ export const snaptradeApi = {
     return response.data;
   },
 
+  getPortfolioHistory: async (userId: string, startDate?: string, endDate?: string, accountId?: string): Promise<{ success: boolean; equity_series: Array<{ date: string; value: number }>; message?: string }> => {
+    const params = new URLSearchParams();
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    if (accountId) params.set('account_id', accountId);
+    const response = await api.get(`/snaptrade/portfolio/${userId}/history?${params.toString()}`);
+    return response.data;
+  },
+
+  buildPortfolioHistory: async (userId: string, accountId?: string): Promise<{ success: boolean; equity_series?: Array<{ date: string; value: number }>; snapshots_saved?: number; message?: string }> => {
+    const params = new URLSearchParams();
+    if (accountId) params.set('account_id', accountId);
+    const response = await api.post(`/snaptrade/portfolio/${userId}/build-history?${params.toString()}`);
+    return response.data;
+  },
+
   toggleAccountVisibility: async (userId: string, accountId: string, isVisible: boolean): Promise<{ success: boolean; message: string }> => {
     const response = await api.patch<{ success: boolean; message: string }>(
       `/snaptrade/accounts/${userId}/${accountId}/visibility`,

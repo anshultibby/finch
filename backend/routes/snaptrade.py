@@ -281,3 +281,86 @@ async def get_portfolio_performance(user_id: str):
         "total_gain_loss_percent": round(gain_loss_percent, 2)
     }
 
+
+@router.get("/portfolio/{user_id}/history")
+async def get_portfolio_history(user_id: str, start_date: str = None, end_date: str = None, account_id: str = None):
+    """
+    Get historical portfolio value time series (daily equity values).
+    Returns data suitable for a Robinhood-style portfolio chart.
+    """
+    result = await snaptrade_tools.get_portfolio_history(
+        user_id, start_date=start_date, end_date=end_date, account_id=account_id
+    )
+    return result
+
+
+@router.post("/portfolio/{user_id}/build-history")
+async def build_portfolio_history_endpoint(user_id: str, account_id: str = None):
+    """
+    Backfill portfolio value history by replaying SnapTrade activities
+    and fetching historical prices from FMP. Saves to portfolio_snapshots.
+    This can take a while for accounts with lots of history.
+    """
+    import asyncio
+    from skills.snaptrade.scripts.portfolio.build_history import build_portfolio_history
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: build_portfolio_history(user_id, account_id=account_id)
+    )
+    return result
+
+
+@router.get("/test-endpoints/{user_id}/{account_id}")
+async def test_endpoints(user_id: str, account_id: str):
+    """Temporary: test which SnapTrade endpoints work for this account."""
+    import asyncio
+    session = snaptrade_tools._get_session(user_id)
+    if not session:
+        return {"error": "No session"}
+
+    client = snaptrade_tools.client
+    uid = session.snaptrade_user_id
+    secret = session.snaptrade_user_secret
+    results = {}
+
+    # Activities
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_account_activities(
+            user_id=uid, user_secret=secret, account_id=account_id, start_date="2025-01-01", end_date="2026-04-02"
+        ))
+        data = resp.body if hasattr(resp, "body") else resp
+        items = data if isinstance(data, list) else data.get("data", [])
+        results["activities"] = {"status": "OK", "count": len(items)}
+        if items:
+            first = items[0]
+            if isinstance(first, dict):
+                results["activities"]["sample_keys"] = list(first.keys())[:10]
+                results["activities"]["sample"] = {k: str(first[k])[:50] for k in list(first.keys())[:8]}
+            else:
+                attrs = {a: str(getattr(first, a, None))[:50] for a in ["type", "trade_date", "amount", "symbol", "units", "price", "settlement_date", "description"] if hasattr(first, a)}
+                results["activities"]["sample"] = attrs
+    except Exception as e:
+        results["activities"] = {"status": "FAILED", "error": str(e)[:200]}
+
+    # Balances
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_user_account_balance(
+            user_id=uid, user_secret=secret, account_id=account_id
+        ))
+        data = resp.body if hasattr(resp, "body") else resp
+        results["balances"] = {"status": "OK", "data": str(data)[:300]}
+    except Exception as e:
+        results["balances"] = {"status": "FAILED", "error": str(e)[:200]}
+
+    # Orders
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_user_account_orders(
+            user_id=uid, user_secret=secret, account_id=account_id, state="all"
+        ))
+        data = resp.body if hasattr(resp, "body") else resp
+        items = data if isinstance(data, list) else data.get("data", [])
+        results["orders"] = {"status": "OK", "count": len(items)}
+    except Exception as e:
+        results["orders"] = {"status": "FAILED", "error": str(e)[:200]}
+
+    return results
+

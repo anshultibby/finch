@@ -19,6 +19,39 @@ function getPlatformLabel(platform: string): string | null {
   }
 }
 
+function getPlatformAccent(platform: string) {
+  switch (platform) {
+    case 'kalshi': return {
+      gradient: 'from-violet-500 to-purple-600',
+      bg: 'bg-violet-50',
+      text: 'text-violet-600',
+      ring: 'ring-violet-200',
+      dot: 'bg-violet-400',
+    };
+    case 'alpaca': return {
+      gradient: 'from-emerald-400 to-teal-600',
+      bg: 'bg-emerald-50',
+      text: 'text-emerald-600',
+      ring: 'ring-emerald-200',
+      dot: 'bg-emerald-400',
+    };
+    case 'research': return {
+      gradient: 'from-blue-400 to-indigo-600',
+      bg: 'bg-blue-50',
+      text: 'text-blue-600',
+      ring: 'ring-blue-200',
+      dot: 'bg-blue-400',
+    };
+    default: return {
+      gradient: 'from-gray-400 to-slate-600',
+      bg: 'bg-gray-50',
+      text: 'text-gray-600',
+      ring: 'ring-gray-200',
+      dot: 'bg-gray-400',
+    };
+  }
+}
+
 function formatPnl(value: number): string {
   const sign = value >= 0 ? '+' : '';
   return `${sign}$${Math.abs(value).toFixed(2)}`;
@@ -39,18 +72,29 @@ export default function BotCard({ bot, onClick, onDelete }: BotCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const totalPnl = (bot.total_profit_usd || 0) + (bot.open_unrealized_pnl || 0);
+  const accent = getPlatformAccent(bot.platform);
 
   return (
     <button
       onClick={onClick}
-      className="group relative flex flex-col items-start p-5 rounded-2xl bg-white border border-gray-100 hover:border-gray-200 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-300 text-left w-full"
+      className="group relative flex flex-col items-start p-5 rounded-2xl bg-white border border-gray-100/80 hover:border-gray-200/80 transition-all duration-300 text-left w-full finch-surface-hover overflow-hidden"
     >
+      {/* Platform accent strip at top */}
+      <div className={`absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r ${accent.gradient} opacity-60 group-hover:opacity-100 transition-opacity duration-300`} />
+
       {/* Top row: icon + menu */}
       <div className="flex items-start justify-between w-full mb-3">
-        <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform duration-200">
+        <div className={`w-11 h-11 rounded-xl ${accent.bg} flex items-center justify-center text-2xl group-hover:scale-105 transition-transform duration-300 relative`}>
           {bot.icon || '🤖'}
         </div>
         <div className="flex items-center gap-2">
+          {/* Active indicator */}
+          {bot.enabled && (
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 live-pulse" />
+              Live
+            </span>
+          )}
           {onDelete && (
             <div className="relative">
               <span
@@ -123,14 +167,14 @@ export default function BotCard({ bot, onClick, onDelete }: BotCardProps) {
         {bot.name}
       </h3>
       {bot.platform && (
-        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mt-0.5">
+        <span className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${accent.text}`}>
           {bot.platform === 'alpaca' ? 'Brokerage' : bot.platform}
         </span>
       )}
 
       {/* P&L + Capital */}
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className={`text-lg font-bold tabular-nums tracking-tight ${totalPnl > 0 ? 'text-emerald-600' : totalPnl < 0 ? 'text-red-500' : 'text-gray-300'}`}>
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className={`text-xl font-bold tabular-nums tracking-tight ${totalPnl > 0 ? 'text-emerald-600' : totalPnl < 0 ? 'text-red-500' : 'text-gray-300'}`}>
           {totalPnl !== 0 ? formatPnl(totalPnl) : '$0.00'}
         </span>
         {bot.starting_capital != null && (
@@ -167,16 +211,16 @@ export function CreateBotCard({ onClick, disabled }: { onClick: () => void; disa
     <button
       onClick={onClick}
       disabled={disabled}
-      className="group flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-gray-200 hover:border-gray-300 bg-transparent hover:bg-white/60 transition-all duration-300 text-center w-full min-h-[140px] disabled:opacity-40 disabled:pointer-events-none"
+      className="group flex flex-col items-center justify-center p-5 rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-300 bg-transparent hover:bg-white/80 transition-all duration-300 text-center w-full min-h-[140px] disabled:opacity-40 disabled:pointer-events-none"
     >
-      <div className="w-10 h-10 rounded-xl bg-gray-100 group-hover:bg-gray-200/80 flex items-center justify-center mb-2.5 transition-colors duration-200">
+      <div className="w-10 h-10 rounded-xl bg-gray-100 group-hover:bg-gray-900 flex items-center justify-center mb-2.5 transition-all duration-300">
         {disabled ? (
           <Loader2 className="w-4.5 h-4.5 text-gray-400 animate-spin" />
         ) : (
-          <Plus className="w-4.5 h-4.5 text-gray-400 group-hover:text-gray-500 transition-colors" />
+          <Plus className="w-4.5 h-4.5 text-gray-400 group-hover:text-white transition-colors duration-300" />
         )}
       </div>
-      <span className="text-[13px] font-medium text-gray-400 group-hover:text-gray-500 transition-colors">
+      <span className="text-[13px] font-medium text-gray-400 group-hover:text-gray-600 transition-colors">
         {disabled ? 'Creating...' : 'New bot'}
       </span>
     </button>

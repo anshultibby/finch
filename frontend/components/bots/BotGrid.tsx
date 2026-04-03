@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { botsApi, apiKeysApi, snaptradeApi } from '@/lib/api';
 import type { Bot, ApiKeyInfo } from '@/lib/types';
 import BotCard, { CreateBotCard } from './BotCard';
+import BotVisualizationsPanel from './BotVisualizationsPanel';
 import {
   Bot as BotIcon,
   Link2,
@@ -24,13 +25,15 @@ import {
   ChevronUp,
   X,
   BarChart3,
+  Search,
+  Briefcase,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Tab = 'bots' | 'connections';
+type Tab = 'bots' | 'connections' | 'portfolio' | 'visualizations';
 
 interface ConnectionStatus {
   kalshi: { connected: boolean; masked?: string };
@@ -157,22 +160,29 @@ export default function BotGrid() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#fafaf9]">
+    <div className="min-h-screen bg-[#fafaf9] relative">
       <div className="max-w-3xl mx-auto px-5 sm:px-8">
         {/* ── Top bar ── */}
         <header className="flex items-center justify-between pt-8 pb-6">
-          <h1 className="text-[22px] font-bold text-gray-900 tracking-tight">Finch</h1>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-900 to-gray-700 flex items-center justify-center shadow-sm">
+              <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22" />
+              </svg>
+            </div>
+            <h1 className="text-[22px] font-bold text-gray-900 tracking-tight">Finch</h1>
+          </div>
 
           {/* Account */}
           <div className="relative">
             <button
               onClick={() => setShowAccountMenu(!showAccountMenu)}
-              className="flex items-center gap-2.5 py-1.5 pl-1.5 pr-3 rounded-full hover:bg-gray-100 transition-colors duration-150"
+              className="flex items-center gap-2.5 py-1.5 pl-1.5 pr-3 rounded-full hover:bg-gray-100 transition-colors duration-200"
             >
               {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover" />
+                <img src={avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover ring-2 ring-gray-100" />
               ) : (
-                <div className="w-7 h-7 rounded-full bg-gray-800 text-white flex items-center justify-center text-xs font-semibold">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-gray-800 to-gray-600 text-white flex items-center justify-center text-xs font-semibold ring-2 ring-gray-100">
                   {initials}
                 </div>
               )}
@@ -182,7 +192,7 @@ export default function BotGrid() {
             {showAccountMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowAccountMenu(false)} />
-                <div className="absolute right-0 mt-1.5 w-56 bg-white rounded-xl border border-gray-100 shadow-lg shadow-gray-200/60 z-50 py-1.5">
+                <div className="absolute right-0 mt-1.5 w-56 bg-white rounded-xl border border-gray-100 shadow-xl shadow-gray-200/40 z-50 py-1.5">
                   <div className="px-4 py-2.5 border-b border-gray-100">
                     <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
                     {user.email && (
@@ -210,7 +220,7 @@ export default function BotGrid() {
         </header>
 
         {/* ── Tabs ── */}
-        <nav className="flex gap-1 mb-8 border-b border-gray-200">
+        <nav className="flex gap-1 mb-8 border-b border-gray-200/80">
           <TabButton
             active={tab === 'bots'}
             onClick={() => setTab('bots')}
@@ -224,6 +234,18 @@ export default function BotGrid() {
             icon={<Link2 className="w-4 h-4" />}
             label="Connections"
             badge={connectedCount > 0 ? String(connectedCount) : undefined}
+          />
+          <TabButton
+            active={tab === 'portfolio'}
+            onClick={() => setTab('portfolio')}
+            icon={<Briefcase className="w-4 h-4" />}
+            label="Portfolio"
+          />
+          <TabButton
+            active={tab === 'visualizations'}
+            onClick={() => setTab('visualizations')}
+            icon={<BarChart3 className="w-4 h-4" />}
+            label="Visualizations"
           />
         </nav>
 
@@ -257,6 +279,16 @@ export default function BotGrid() {
             userId={user.id}
             onRefresh={fetchConnections}
           />
+        )}
+
+        {tab === 'portfolio' && (
+          <PortfolioTab userId={user.id} />
+        )}
+
+        {tab === 'visualizations' && (
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
+            <BotVisualizationsPanel />
+          </div>
         )}
 
         <div className="h-16" />
@@ -338,53 +370,52 @@ function BotsTab({
 
   return (
     <div>
-      {/* Summary strip */}
+      {/* Summary strip — stat cards with subtle glow */}
       {bots.length > 0 && (
-        <div className="flex items-center gap-5 mb-6 px-1">
-          <div>
+        <div className="flex items-stretch gap-3 mb-8">
+          <div className={`relative flex-1 rounded-xl px-4 py-3 bg-white border border-gray-100 overflow-hidden ${totalPnl >= 0 ? 'stat-glow-positive' : 'stat-glow-negative'}`}>
             <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Total P&L</p>
-            <p className={`text-lg font-bold tabular-nums tracking-tight ${totalPnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            <p className={`text-xl font-bold tabular-nums tracking-tight mt-0.5 ${totalPnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
               {totalPnl >= 0 ? '+' : ''}${Math.abs(totalPnl).toFixed(2)}
             </p>
           </div>
-          <div className="w-px h-8 bg-gray-200" />
-          <div>
+          <div className="relative flex-1 rounded-xl px-4 py-3 bg-white border border-gray-100 overflow-hidden stat-glow-neutral">
             <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Capital</p>
-            <p className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">
+            <p className="text-xl font-bold text-gray-900 tabular-nums tracking-tight mt-0.5">
               ${totalCapital.toFixed(0)}
             </p>
           </div>
-          <div className="w-px h-8 bg-gray-200" />
-          <div>
+          <div className="relative flex-1 rounded-xl px-4 py-3 bg-white border border-gray-100 overflow-hidden stat-glow-neutral">
             <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Active</p>
-            <p className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">
-              {activeBots}<span className="text-gray-300 font-normal">/{bots.length}</span>
+            <p className="text-xl font-bold text-gray-900 tabular-nums tracking-tight mt-0.5">
+              {activeBots}<span className="text-gray-300 font-normal text-base">/{bots.length}</span>
             </p>
           </div>
           {totalPositions > 0 && (
-            <>
-              <div className="w-px h-8 bg-gray-200" />
-              <div>
-                <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Positions</p>
-                <p className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">{totalPositions}</p>
-              </div>
-            </>
+            <div className="relative flex-1 rounded-xl px-4 py-3 bg-white border border-gray-100 overflow-hidden stat-glow-neutral">
+              <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Positions</p>
+              <p className="text-xl font-bold text-gray-900 tabular-nums tracking-tight mt-0.5">{totalPositions}</p>
+            </div>
           )}
         </div>
       )}
 
       {/* Grid */}
       {loading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-[148px] rounded-2xl bg-gray-100/70 animate-pulse" />
+            <div key={i} className="h-[160px] rounded-2xl animate-shimmer" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
-          <CreateBotCard onClick={onCreateBot} disabled={creating} />
-          {bots.map((bot) => (
-            <BotCard key={bot.id} bot={bot} onClick={() => onBotClick(bot.id)} onDelete={onDeleteBot} />
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="animate-card-in" style={{ animationDelay: '0ms' }}>
+            <CreateBotCard onClick={onCreateBot} disabled={creating} />
+          </div>
+          {bots.map((bot, i) => (
+            <div key={bot.id} className="animate-card-in" style={{ animationDelay: `${(i + 1) * 60}ms` }}>
+              <BotCard bot={bot} onClick={() => onBotClick(bot.id)} onDelete={onDeleteBot} />
+            </div>
           ))}
         </div>
       )}
@@ -785,9 +816,16 @@ function ConnectionsTab({
 // Create Bot Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-type PlatformChoice = 'kalshi' | 'alpaca' | null;
+type PlatformChoice = 'research' | 'kalshi' | 'alpaca' | null;
 
-const PLATFORMS: { key: PlatformChoice; label: string; description: string; icon: React.ReactNode; available: boolean }[] = [
+const PLATFORMS: { key: Exclude<PlatformChoice, null>; label: string; description: string; icon: React.ReactNode; available: boolean }[] = [
+  {
+    key: 'research',
+    label: 'Research',
+    description: 'Portfolio advisor',
+    icon: <Search className="w-5 h-5" />,
+    available: true,
+  },
   {
     key: 'kalshi',
     label: 'Kalshi',
@@ -818,11 +856,12 @@ function CreateBotModal({
   const [capital, setCapital] = useState('');
 
   const handleSubmit = () => {
+    if (!platform) return;
     const trimmedName = name.trim() || 'New Bot';
     const capitalAmount = parseFloat(capital);
     onCreate({
       name: trimmedName,
-      platform: platform ?? 'research',
+      platform,
       ...(capitalAmount > 0 ? { capital_amount: capitalAmount } : {}),
     });
   };
@@ -859,13 +898,12 @@ function CreateBotModal({
             />
           </div>
 
-          {/* Execution Platform (optional) */}
+          {/* Bot Type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Execution Platform
-              <span className="text-gray-400 font-normal ml-1">optional</span>
+              Type
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {PLATFORMS.map((p) => {
                 const selected = platform === p.key;
                 return (
@@ -873,7 +911,7 @@ function CreateBotModal({
                     key={p.key}
                     onClick={() => {
                       if (!p.available) return;
-                      setPlatform(selected ? null : p.key);
+                      setPlatform(p.key);
                     }}
                     disabled={!p.available}
                     className={`relative flex flex-col items-center gap-1.5 p-3.5 rounded-xl border-2 transition-all text-center ${
@@ -902,8 +940,8 @@ function CreateBotModal({
             </div>
           </div>
 
-          {/* Capital — only when a platform is selected */}
-          {platform && (
+          {/* Capital — only for trading platforms */}
+          {platform && platform !== 'research' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Starting Capital</label>
               <div className="relative">
@@ -928,7 +966,7 @@ function CreateBotModal({
           {/* Submit */}
           <button
             onClick={handleSubmit}
-            disabled={creating}
+            disabled={creating || !platform}
             className="w-full py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {creating ? (
@@ -941,6 +979,148 @@ function CreateBotModal({
             )}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Portfolio Tab — account cards → drill into holdings
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AccountInfo {
+  id: string;
+  name: string;
+  number: string;
+  institution: string;
+  type: string;
+  balance: number;
+}
+
+function PortfolioTab({ userId }: { userId: string }) {
+  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
+  const [totalValue, setTotalValue] = useState(0);
+  const [totalGainLoss, setTotalGainLoss] = useState(0);
+  const [totalGainLossPct, setTotalGainLossPct] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [selectedAccount, setSelectedAccount] = useState<string | null>(null); // null = "All" overview
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [acctRes, portfolio, performance] = await Promise.all([
+          snaptradeApi.getAccounts(userId),
+          snaptradeApi.getPortfolio(userId),
+          snaptradeApi.getPortfolioPerformance(userId).catch(() => null),
+        ]);
+        if (acctRes.success) {
+          setAccounts(acctRes.accounts.map((a: any) => ({
+            id: a.id || a.account_id,
+            name: a.name,
+            number: a.number || '',
+            institution: a.institution || a.broker_name || '',
+            type: a.type || '',
+            balance: a.balance || 0,
+          })));
+        }
+        if (portfolio.success) {
+          setTotalValue(portfolio.total_value || 0);
+        }
+        if (performance?.success) {
+          setTotalGainLoss(performance.total_gain_loss || 0);
+          setTotalGainLossPct(performance.total_gain_loss_percent || 0);
+        }
+      } catch (e) {
+        console.error('Failed to load portfolio accounts:', e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [userId]);
+
+  const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+  const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+
+  // Drill-down: show the holdings panel for a specific account or all
+  if (selectedAccount !== null) {
+    const acct = accounts.find(a => a.id === selectedAccount);
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
+        <BotVisualizationsPanel
+          onBack={() => setSelectedAccount(null)}
+          accountId={selectedAccount === 'all' ? undefined : selectedAccount}
+          accountName={selectedAccount === 'all' ? 'All Accounts' : acct?.name}
+        />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (accounts.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Briefcase className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+        <p className="text-sm text-gray-400 mb-1">No accounts connected</p>
+        <p className="text-xs text-gray-400">Go to Connections to link your brokerage</p>
+      </div>
+    );
+  }
+
+  const accountTypeLabel = (type: string) => {
+    return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  return (
+    <div>
+      {/* All Accounts overview card */}
+      <button
+        onClick={() => setSelectedAccount('all')}
+        className="w-full text-left mb-4 p-5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all group"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">All Accounts</div>
+            <div className="text-2xl font-bold text-gray-900 tabular-nums">{fmt(totalValue)}</div>
+            {totalGainLoss !== 0 && (
+              <div className={`text-sm font-medium tabular-nums mt-0.5 ${totalGainLoss >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                {totalGainLoss >= 0 ? '+' : ''}{fmt(totalGainLoss)} ({fmtPct(totalGainLossPct)})
+              </div>
+            )}
+          </div>
+          <div className="p-2 rounded-lg bg-gray-50 group-hover:bg-gray-100 transition-colors">
+            <TrendingUp className="w-5 h-5 text-gray-400" />
+          </div>
+        </div>
+        <div className="text-xs text-gray-400 mt-2">{accounts.length} account{accounts.length !== 1 ? 's' : ''} connected</div>
+      </button>
+
+      {/* Individual account cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {accounts.map(acct => (
+          <button
+            key={acct.id}
+            onClick={() => setSelectedAccount(acct.id)}
+            className="text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm transition-all group"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <Wallet className="w-4 h-4 text-gray-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-gray-900 truncate">{acct.name}</div>
+                <div className="text-[11px] text-gray-400">{acct.institution} · {accountTypeLabel(acct.type)}</div>
+              </div>
+            </div>
+            <div className="text-lg font-bold text-gray-900 tabular-nums">{fmt(acct.balance)}</div>
+          </button>
+        ))}
       </div>
     </div>
   );

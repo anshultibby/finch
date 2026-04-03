@@ -19,30 +19,48 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
     from .base_agent import BaseAgent
 
     if bot_context:
-        from modules.bots.prompts import build_bot_system_prompt
         from .prompts import build_skills_prompt
 
         skills_section = build_skills_prompt(skill_ids or [])
-        system_prompt = build_bot_system_prompt(
-            bot_name=bot_context.get("bot_name", "Trading Bot"),
-            bot_id=bot_context.get("bot_id", ""),
-            bot_directory=bot_context.get("bot_directory", ""),
-            strategy_md=bot_context.get("strategy_md", ""),
-            memory_md=bot_context.get("memory_md", ""),
-            positions_json=bot_context.get("positions_json", "None"),
-            recent_ticks_summary=bot_context.get("recent_ticks_summary", ""),
-            closed_positions_json=bot_context.get("closed_positions_json", ""),
-            platform=bot_context.get("platform", "kalshi"),
-            connections=bot_context.get("connections"),
-            skills_prompt=skills_section,
-            capital_balance=bot_context.get("capital_balance"),
-            starting_capital=bot_context.get("starting_capital"),
-            per_position_usd=bot_context.get("per_position_usd"),
-            max_positions=bot_context.get("max_positions"),
-            wakeup_reason=bot_context.get("wakeup_reason"),
-            wakeup_type=bot_context.get("wakeup_type"),
-            wakeup_context=bot_context.get("wakeup_context"),
-        )
+        platform = bot_context.get("platform", "kalshi")
+
+        if platform == "research":
+            from modules.bots.prompts import build_research_bot_system_prompt
+            system_prompt = build_research_bot_system_prompt(
+                bot_name=bot_context.get("bot_name", "Research Advisor"),
+                bot_id=bot_context.get("bot_id", ""),
+                bot_directory=bot_context.get("bot_directory", ""),
+                strategy_md=bot_context.get("strategy_md", ""),
+                memory_md=bot_context.get("memory_md", ""),
+                connections=bot_context.get("connections"),
+                skills_prompt=skills_section,
+                wakeup_reason=bot_context.get("wakeup_reason"),
+                wakeup_type=bot_context.get("wakeup_type"),
+                wakeup_context=bot_context.get("wakeup_context"),
+                portfolio_summary=bot_context.get("portfolio_summary", ""),
+            )
+        else:
+            from modules.bots.prompts import build_bot_system_prompt
+            system_prompt = build_bot_system_prompt(
+                bot_name=bot_context.get("bot_name", "Trading Bot"),
+                bot_id=bot_context.get("bot_id", ""),
+                bot_directory=bot_context.get("bot_directory", ""),
+                strategy_md=bot_context.get("strategy_md", ""),
+                memory_md=bot_context.get("memory_md", ""),
+                positions_json=bot_context.get("positions_json", "None"),
+                recent_ticks_summary=bot_context.get("recent_ticks_summary", ""),
+                closed_positions_json=bot_context.get("closed_positions_json", ""),
+                platform=platform,
+                connections=bot_context.get("connections"),
+                skills_prompt=skills_section,
+                capital_balance=bot_context.get("capital_balance"),
+                starting_capital=bot_context.get("starting_capital"),
+                per_position_usd=bot_context.get("per_position_usd"),
+                max_positions=bot_context.get("max_positions"),
+                wakeup_reason=bot_context.get("wakeup_reason"),
+                wakeup_type=bot_context.get("wakeup_type"),
+                wakeup_context=bot_context.get("wakeup_context"),
+            )
         # Bot prompts already include per-bot memory paths — don't append generic MEMORY_PROMPT
     else:
         system_prompt = await get_agent_system_prompt(user_id, skill_ids)

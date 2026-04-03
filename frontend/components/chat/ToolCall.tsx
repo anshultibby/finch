@@ -153,19 +153,19 @@ const getStatusStyles = (status: string, isError: boolean) => {
   }
   if (status === 'calling') {
     return {
-      container: 'bg-amber-50 border border-amber-200 hover:border-amber-300 hover:bg-amber-100',
+      container: 'bg-amber-50/70 border border-amber-200/60 hover:border-amber-300 hover:bg-amber-50',
       icon: 'text-amber-500',
       text: 'text-amber-700',
       muted: 'text-amber-600',
-      file: 'bg-amber-100 text-amber-700'
+      file: 'bg-amber-100/70 text-amber-700'
     };
   }
   return {
-    container: 'bg-gray-50 border border-gray-200 hover:border-gray-300 hover:bg-gray-100',
-    icon: 'text-gray-500',
-    text: 'text-gray-700',
-    muted: 'text-gray-500',
-    file: 'bg-gray-100 text-gray-600'
+    container: 'bg-gray-50/70 border border-gray-200/60 hover:border-gray-300 hover:bg-gray-50',
+    icon: 'text-gray-400',
+    text: 'text-gray-600',
+    muted: 'text-gray-400',
+    file: 'bg-gray-100/70 text-gray-500'
   };
 };
 

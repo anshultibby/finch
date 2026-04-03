@@ -848,6 +848,73 @@ class SnapTradeTools:
         print(f"🔍 has_active_connection({user_id}): {has_connection}", flush=True)
         return has_connection
     
+    async def get_portfolio_history(self, user_id: str, start_date: str = None, end_date: str = None, account_id: str = None) -> Dict[str, Any]:
+        """
+        Get historical portfolio value time series from our own daily snapshots.
+        Also records today's snapshot if one doesn't exist yet.
+        """
+        from datetime import date, timedelta
+        from models.brokerage import PortfolioSnapshot
+        from sqlalchemy import and_
+        import uuid
+
+        try:
+            # 1. Record today's snapshot if missing
+            today = date.today()
+            db = SessionLocal()
+            try:
+                existing = db.query(PortfolioSnapshot).filter(
+                    and_(PortfolioSnapshot.user_id == user_id, PortfolioSnapshot.snapshot_date == today)
+                ).first()
+
+                if not existing:
+                    # Fetch current portfolio value
+                    portfolio = await self.get_portfolio(user_id)
+                    if portfolio.get("success"):
+                        total_value = portfolio.get("total_value", 0)
+                        snapshot = PortfolioSnapshot(
+                            id=uuid.uuid4(),
+                            user_id=user_id,
+                            snapshot_date=today,
+                            data={"total_value": total_value, "account_count": portfolio.get("account_count", 0)}
+                        )
+                        db.add(snapshot)
+                        db.commit()
+                        print(f"📸 Saved portfolio snapshot: {user_id} = ${total_value:,.2f}", flush=True)
+
+                # 2. Query snapshots for the requested range
+                account_key = account_id or "all"
+                query = db.query(PortfolioSnapshot).filter(PortfolioSnapshot.user_id == user_id)
+                if start_date:
+                    query = query.filter(PortfolioSnapshot.snapshot_date >= start_date)
+                if end_date:
+                    query = query.filter(PortfolioSnapshot.snapshot_date <= end_date)
+                snapshots = query.order_by(PortfolioSnapshot.snapshot_date.asc()).all()
+
+                equity_series = []
+                for s in snapshots:
+                    if not isinstance(s.data, dict):
+                        continue
+                    # Filter by account_id in JSONB data
+                    snap_acct = s.data.get("account_id", "all")
+                    if snap_acct != account_key:
+                        continue
+                    val = s.data.get("total_value", 0)
+                    equity_series.append({"date": str(s.snapshot_date), "value": float(val)})
+
+            finally:
+                db.close()
+
+            return {
+                "success": True,
+                "equity_series": equity_series,
+                "start_date": start_date or "",
+                "end_date": end_date or "",
+            }
+        except Exception as e:
+            print(f"❌ Failed to get portfolio history: {str(e)}", flush=True)
+            return {"success": False, "message": f"Failed to get portfolio history: {str(e)}"}
+
     async def get_portfolio_streaming(self, user_id: str) -> AsyncGenerator[Union[SSEEvent, Dict[str, Any]], None]:
         """
         Streaming version of get_portfolio that yields SSE events

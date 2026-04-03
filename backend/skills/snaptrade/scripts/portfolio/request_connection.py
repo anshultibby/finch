@@ -1,6 +1,6 @@
 """Request user to connect their brokerage account"""
 from typing import Dict, Any
-from servers.snaptrade._client import get_snaptrade_client
+from skills.snaptrade.scripts._client import get_snaptrade_client
 
 
 def request_connection(user_id: str) -> Dict[str, Any]:

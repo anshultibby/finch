@@ -9,6 +9,7 @@ V4_ENDPOINT_PREFIXES = (
     '/house-trading',
     '/institutional-ownership',
     '/institutional-holders',
+    '/stock_peers',
 )
 
 

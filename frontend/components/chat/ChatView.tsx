@@ -663,7 +663,7 @@ export default function ChatView({
                 )}
 
                 <div ref={messagesEndRef} />
-                <div className="h-32" />
+                <div className="h-16" />
               </>
             )}
           </div>
@@ -676,8 +676,8 @@ export default function ChatView({
         )}
 
         {messages.length > 0 && (
-          <div className="border-t border-gray-200 bg-white">
-            <div className="max-w-4xl mx-auto">
+          <div className="absolute bottom-0 left-0 right-0 z-10">
+            <div className="max-w-2xl mx-auto px-4 relative z-10">
               <ChatInput
                 onSendMessage={handleSendMessage}
                 onStop={handleStopStream}
@@ -687,6 +687,7 @@ export default function ChatView({
                 chatId={currentChatId || undefined}
               />
             </div>
+            <div className="h-10 bg-white -mt-6" />
           </div>
         )}
       </div>

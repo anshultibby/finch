@@ -32,6 +32,8 @@ from skills.financial_modeling_prep.scripts.insider.senate_trading import get_se
 from skills.financial_modeling_prep.scripts.insider.house_trading import get_house_trading
 from skills.financial_modeling_prep.scripts.ownership.institutional_ownership import get_institutional_ownership
 from skills.financial_modeling_prep.scripts.analyst.price_target import get_price_targets, get_price_target_consensus
+from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_peers
+from skills.financial_modeling_prep.scripts.peers.stock_screener import screen_stocks
 from skills.financial_modeling_prep.scripts.search.search import search
 ```
 
@@ -165,6 +167,28 @@ for target in targets[:5]:
 consensus = get_price_target_consensus(symbol="AAPL")
 print(f"Consensus: ${consensus['targetHigh']} high, ${consensus['targetLow']} low")
 print(f"Mean: ${consensus['targetMean']}, Median: ${consensus['targetMedian']}")
+```
+
+## Stock Peers & Screener
+
+```python
+from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_peers
+from skills.financial_modeling_prep.scripts.peers.stock_screener import screen_stocks
+
+# Get peer companies (same exchange, sector, similar market cap)
+peers = get_stock_peers(symbol="AAPL")
+print(peers)  # ['MSFT', 'NVDA', 'ADBE', 'INTC', 'CSCO', 'AVGO', 'TXN', 'QCOM', 'AMAT']
+
+# Screen stocks by sector, industry, and market cap range
+# Useful for finding TLH replacement securities
+replacements = screen_stocks(
+    sector="Technology",
+    industry="Consumer Electronics",
+    market_cap_more_than=100_000_000_000,  # $100B+
+    limit=10,
+)
+for stock in replacements:
+    print(f"{stock['symbol']}: {stock['companyName']} (${stock['marketCap']:,.0f})")
 ```
 
 ## Stock Search

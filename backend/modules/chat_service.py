@@ -490,12 +490,31 @@ class ChatService:
             connections["polymarket"] = poly_creds is not None and bool(poly_creds.get("private_key"))
         except Exception:
             connections["polymarket"] = False
+        try:
+            from modules.tools.clients.snaptrade import snaptrade_tools
+            session = snaptrade_tools._get_session(user_id)
+            connections["brokerage"] = session is not None and session.is_connected
+        except Exception:
+            connections["brokerage"] = False
 
         # Capital info
         capital = config.get("capital", {}) or {}
         capital_balance = capital.get("balance_usd")
         per_position_usd = capital.get("per_trade") or capital.get("amount_usd")
         max_positions = capital.get("max_positions")
+
+        platform = config.get("platform", "kalshi")
+
+        # For research bots, pre-fetch portfolio summary
+        portfolio_summary = ""
+        if platform == "research":
+            try:
+                from skills.snaptrade.scripts.portfolio.get_holdings import get_holdings
+                holdings = await get_holdings(user_id)
+                if holdings.get("success"):
+                    portfolio_summary = holdings.get("data", {}).get("csv", "")
+            except Exception as e:
+                logger.debug(f"Portfolio pre-fetch failed (non-fatal): {e}")
 
         return {
             "bot_name": bot.name,
@@ -505,12 +524,13 @@ class ChatService:
             "memory_md": memory_md,
             "positions_json": positions_json,
             "recent_ticks_summary": recent_ticks,
-            "platform": config.get("platform", "kalshi"),
+            "platform": platform,
             "connections": connections,
             "capital_balance": capital_balance,
             "starting_capital": capital.get("amount_usd"),
             "per_position_usd": per_position_usd,
             "max_positions": max_positions,
+            "portfolio_summary": portfolio_summary,
         }
 
     async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:

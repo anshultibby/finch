@@ -3,7 +3,7 @@
 import React from 'react';
 import type { BotChat, BotWakeup } from '@/lib/types';
 
-export type BotPanel = 'chat' | 'strategy' | 'memory' | 'journal' | 'positions' | 'trades' | 'files';
+export type BotPanel = 'chat' | 'strategy' | 'memory' | 'journal' | 'positions' | 'trades' | 'files' | 'visualizations';
 
 interface BotChatListProps {
   chats: BotChat[];
@@ -46,6 +46,15 @@ const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
     ),
     label: 'Files',
   },
+  {
+    panel: 'visualizations',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+      </svg>
+    ),
+    label: 'Charts',
+  },
 ];
 
 export default function BotChatList({
@@ -64,14 +73,14 @@ export default function BotChatList({
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-50 border-r border-gray-200">
+    <div className="h-full overflow-y-auto bg-[#f8f8f7]">
       {/* New Chat */}
-      <div className="px-2 pt-3 pb-1">
+      <div className="px-2 pt-2.5 pb-0.5">
         <button
           onClick={() => { onNewChat(); onSelectPanel('chat'); }}
-          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 text-[13px] text-gray-600 rounded-lg hover:bg-white/80 transition-all duration-200 group"
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <svg className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
           </svg>
           New chat
@@ -79,27 +88,30 @@ export default function BotChatList({
       </div>
 
       {/* Nav items */}
-      <div className="px-2 py-1">
-        {NAV_ITEMS.map(({ panel, icon, label }) => (
-          <button
-            key={panel}
-            onClick={() => onSelectPanel(panel)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg transition-colors ${
-              activePanel === panel
-                ? 'bg-gray-200/70 text-gray-900 font-medium'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <span className={activePanel === panel ? 'text-gray-700' : 'text-gray-400'}>{icon}</span>
-            {label}
-          </button>
-        ))}
+      <div className="px-2 py-0.5">
+        {NAV_ITEMS.map(({ panel, icon, label }) => {
+          const isActive = activePanel === panel;
+          return (
+            <button
+              key={panel}
+              onClick={() => onSelectPanel(panel)}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-[13px] rounded-lg transition-all duration-200 ${
+                isActive
+                  ? 'bg-white text-gray-900 font-medium shadow-sm border border-gray-100/80'
+                  : 'text-gray-500 hover:bg-white/60 hover:text-gray-700'
+              }`}
+            >
+              <span className={`[&>svg]:w-4 [&>svg]:h-4 ${isActive ? 'text-gray-700' : 'text-gray-400'}`}>{icon}</span>
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Scheduled wakeups */}
       {wakeups.length > 0 && (
         <div className="px-2 pt-3 pb-1">
-          <div className="text-xs font-medium text-gray-400 px-3 mb-1">
+          <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-2.5 mb-1">
             Scheduled
           </div>
           <div className="space-y-0.5">
@@ -121,7 +133,7 @@ export default function BotChatList({
               return (
                 <div
                   key={w.id}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg bg-amber-50/80"
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg bg-amber-50/80 border border-amber-100/50"
                 >
                   <svg className="w-5 h-5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -142,36 +154,39 @@ export default function BotChatList({
       )}
 
       {/* Chats — exclude auto-generated wakeup chats */}
-      <div className="px-2 pt-4 pb-1">
-        <div className="text-xs font-medium text-gray-400 px-3 mb-1">
+      <div className="px-2 pt-3 pb-1">
+        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-2.5 mb-1">
           Chats
         </div>
         {loading ? (
           <div className="py-4 flex justify-center">
-            <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
           </div>
         ) : chats.filter((c) => !c.title?.startsWith('Wakeup:')).length === 0 ? (
-          <p className="px-3 py-3 text-sm text-gray-400">No chats yet</p>
+          <p className="px-2.5 py-3 text-[13px] text-gray-400">No chats yet</p>
         ) : (
           <div className="space-y-0.5">
-            {chats.filter((c) => !c.title?.startsWith('Wakeup:')).map((chat) => (
-              <button
-                key={chat.chat_id}
-                onClick={() => { onSelectChat(chat.chat_id); onSelectPanel('chat'); }}
-                className={`w-full text-left px-3 py-2.5 text-sm rounded-lg transition-colors ${
-                  activePanel === 'chat' && activeChatId === chat.chat_id
-                    ? 'bg-gray-200/70 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <div className="truncate">
-                  {chat.title || 'Untitled chat'}
-                </div>
-                <div className="text-xs text-gray-400 mt-0.5">
-                  {formatDate(chat.updated_at || chat.created_at)}
-                </div>
-              </button>
-            ))}
+            {chats.filter((c) => !c.title?.startsWith('Wakeup:')).map((chat) => {
+              const isActive = activePanel === 'chat' && activeChatId === chat.chat_id;
+              return (
+                <button
+                  key={chat.chat_id}
+                  onClick={() => { onSelectChat(chat.chat_id); onSelectPanel('chat'); }}
+                  className={`w-full text-left px-2.5 py-2 text-[13px] rounded-lg transition-all duration-200 ${
+                    isActive
+                      ? 'bg-white text-gray-900 shadow-sm border border-gray-100/80'
+                      : 'text-gray-500 hover:bg-white/60 hover:text-gray-700'
+                  }`}
+                >
+                  <div className="truncate font-medium">
+                    {chat.title || 'Untitled chat'}
+                  </div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">
+                    {formatDate(chat.updated_at || chat.created_at)}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

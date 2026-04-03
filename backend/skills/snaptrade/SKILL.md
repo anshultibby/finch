@@ -1,6 +1,6 @@
 ---
 name: snaptrade
-description: Connect and manage brokerage accounts via SnapTrade. View portfolio holdings, account balances, and trade history across 20+ brokers including Robinhood, Schwab, Fidelity.
+description: Connect and manage brokerage accounts via SnapTrade. View portfolio, trade stocks/options, manage orders, and access account data across 20+ brokers including Robinhood, Schwab, Fidelity.
 homepage: https://snaptrade.com
 metadata:
   emoji: "🏦"
@@ -19,13 +19,13 @@ Connect and manage brokerage accounts via SnapTrade. Supports 20+ brokers includ
 
 ## Authentication Flow
 
-SnapTrade requires OAuth user authorization:
-
 1. Call `request_connection()` to get OAuth link
 2. User authorizes through broker's OAuth flow
-3. Use `get_accounts()` and `get_holdings()` with returned user_id
+3. Use any function with the returned user_id
 
-## Import Pattern
+## Available Scripts
+
+### Portfolio (existing)
 
 ```python
 from skills.snaptrade.scripts.portfolio.request_connection import request_connection
@@ -33,231 +33,210 @@ from skills.snaptrade.scripts.portfolio.get_accounts import get_accounts
 from skills.snaptrade.scripts.portfolio.get_holdings import get_holdings
 ```
 
-## Request Connection
+### Account Information
+
+```python
+from skills.snaptrade.scripts.account.get_balances import get_balances
+from skills.snaptrade.scripts.account.get_positions import get_positions
+from skills.snaptrade.scripts.account.get_orders import get_orders
+from skills.snaptrade.scripts.account.get_activities import get_activities
+from skills.snaptrade.scripts.account.get_holdings_detail import get_holdings_detail
+from skills.snaptrade.scripts.account.get_option_holdings import get_option_holdings
+from skills.snaptrade.scripts.account.get_return_rates import get_return_rates
+```
+
+### Trading
+
+```python
+from skills.snaptrade.scripts.trading.get_quotes import get_quotes
+from skills.snaptrade.scripts.trading.place_order import place_order
+from skills.snaptrade.scripts.trading.preview_order import preview_order
+from skills.snaptrade.scripts.trading.cancel_order import cancel_order
+from skills.snaptrade.scripts.trading.place_option_order import place_option_order
+```
+
+### Connection Management
+
+```python
+from skills.snaptrade.scripts.connections.list_connections import list_connections
+from skills.snaptrade.scripts.connections.refresh_connection import refresh_connection
+from skills.snaptrade.scripts.connections.disconnect_account import disconnect_account
+from skills.snaptrade.scripts.connections.delete_connection import delete_connection
+```
+
+### Reference Data
+
+```python
+from skills.snaptrade.scripts.reference.search_symbols import search_symbols
+from skills.snaptrade.scripts.reference.list_brokerages import list_brokerages
+from skills.snaptrade.scripts.reference.get_symbol_detail import get_symbol_detail
+from skills.snaptrade.scripts.reference.list_currencies import list_currencies, get_exchange_rate
+from skills.snaptrade.scripts.reference.list_exchanges import list_exchanges
+```
+
+## Usage Examples
+
+### Connect Brokerage
 
 ```python
 from skills.snaptrade.scripts.portfolio.request_connection import request_connection
-
-# Generate OAuth connection link
 result = request_connection(user_id="user-123")
-
-if 'error' in result:
-    print(f"Error: {result['error']}")
-else:
-    print(f"Connect URL: {result['connect_url']}")
-    print(f"User ID: {result['user_id']}")
-    print(f"Session: {result['session_id']}")
+# result['connection_url'] -> send to user
 ```
 
-Send the `connect_url` to the user. After they authorize, their accounts are linked.
-
-## List Connected Accounts
-
-```python
-from skills.snaptrade.scripts.portfolio.get_accounts import get_accounts
-
-# Get all linked accounts (async - returns promise-like)
-accounts = await get_accounts(user_id="user-123")
-
-for account in accounts['accounts']:
-    print(f"Account: {account['name']} ({account['brokerage']['name']})")
-    print(f"  ID: {account['id']}")
-    print(f"  Number: {account['number']}")
-    print(f"  Type: {account.get('type', 'Unknown')}")
-```
-
-## Get Portfolio Holdings
+### Get Portfolio (async)
 
 ```python
 from skills.snaptrade.scripts.portfolio.get_holdings import get_holdings
-
-# Get all holdings across all linked accounts
 holdings = await get_holdings(user_id="user-123")
-
-for account in holdings['accounts']:
-    print(f"\n{account['account_name']} ({account['brokerage_name']})")
-    print(f"Cash: ${account['cash']['total']:.2f} {account['cash']['currency']}")
-    
-    print("Positions:")
-    for position in account['positions']:
-        symbol = position['symbol']['symbol']
-        qty = position['units']
-        price = position['price']
-        value = qty * price
-        
-        print(f"  {symbol}: {qty} shares @ ${price:.2f} = ${value:.2f}")
-    
-    total_value = sum(p['units'] * p['price'] for p in account['positions']) + account['cash']['total']
-    print(f"Total Value: ${total_value:.2f}")
 ```
 
-## Common Workflows
-
-### Complete Portfolio Overview
+### Get Account Balances
 
 ```python
-async def get_full_portfolio(user_id):
-    """Get comprehensive portfolio across all brokerages"""
-    
-    # Get accounts
-    accounts = await get_accounts(user_id=user_id)
-    if 'error' in accounts:
-        print(f"Error: {accounts['error']}")
-        return None
-    
-    # Get holdings
-    holdings = await get_holdings(user_id=user_id)
-    
-    portfolio = {
-        'accounts': [],
-        'total_value': 0,
-        'total_cash': 0,
-        'all_positions': []
-    }
-    
-    for account in holdings.get('accounts', []):
-        account_data = {
-            'name': account['account_name'],
-            'brokerage': account['brokerage_name'],
-            'cash': account['cash']['total'],
-            'currency': account['cash']['currency'],
-            'positions': []
-        }
-        
-        for position in account['positions']:
-            symbol = position['symbol']['symbol']
-            qty = position['units']
-            price = position['price']
-            value = qty * price
-            
-            pos_data = {
-                'symbol': symbol,
-                'quantity': qty,
-                'price': price,
-                'value': value
-            }
-            
-            account_data['positions'].append(pos_data)
-            portfolio['all_positions'].append({**pos_data, 'account': account['account_name']})
-        
-        account_value = sum(p['value'] for p in account_data['positions']) + account_data['cash']
-        account_data['total_value'] = account_value
-        
-        portfolio['accounts'].append(account_data)
-        portfolio['total_value'] += account_value
-        portfolio['total_cash'] += account_data['cash']
-    
-    return portfolio
-
-# Usage
-portfolio = await get_full_portfolio("user-123")
-print(f"Total Portfolio Value: ${portfolio['total_value']:,.2f}")
-print(f"Cash Allocation: {portfolio['total_cash']/portfolio['total_value']:.1%}")
+from skills.snaptrade.scripts.account.get_balances import get_balances
+result = get_balances('user-123', 'acct-456')
+# result['balances'] -> [{cash, buying_power, currency}, ...]
 ```
 
-### Find Overlapping Positions
+### Get Orders
 
 ```python
-def find_overlaps(holdings):
-    """Find same stock held across multiple accounts"""
-    
-    symbol_accounts = {}
-    
-    for account in holdings.get('accounts', []):
-        account_name = account['account_name']
-        
-        for position in account['positions']:
-            symbol = position['symbol']['symbol']
-            qty = position['units']
-            
-            if symbol not in symbol_accounts:
-                symbol_accounts[symbol] = []
-            
-            symbol_accounts[symbol].append({
-                'account': account_name,
-                'quantity': qty
-            })
-    
-    # Show overlaps
-    for symbol, accounts in symbol_accounts.items():
-        if len(accounts) > 1:
-            total = sum(a['quantity'] for a in accounts)
-            print(f"\n{symbol}: {total} total shares across {len(accounts)} accounts")
-            for a in accounts:
-                print(f"  - {a['account']}: {a['quantity']}")
+from skills.snaptrade.scripts.account.get_orders import get_orders
+result = get_orders('user-123', 'acct-456')
+result = get_orders('user-123', 'acct-456', state='Executed')  # filter
 ```
 
-### Calculate Asset Allocation
+### Get Transaction History
 
 ```python
-def calculate_allocation(holdings):
-    """Calculate allocation by asset type/sector"""
-    
-    total_value = 0
-    positions_by_type = {}
-    
-    for account in holdings.get('accounts', []):
-        for position in account['positions']:
-            symbol = position['symbol']['symbol']
-            qty = position['units']
-            price = position['price']
-            value = qty * price
-            
-            # Categorize (you'd need external data for real categories)
-            # For now, group by first letter as example
-            category = symbol[0]  # Simplified - use real categorization
-            
-            if category not in positions_by_type:
-                positions_by_type[category] = {'value': 0, 'symbols': []}
-            
-            positions_by_type[category]['value'] += value
-            positions_by_type[category]['symbols'].append(symbol)
-            total_value += value
-    
-    # Print allocation
-    print("Portfolio Allocation:")
-    for category, data in sorted(positions_by_type.items(), key=lambda x: x[1]['value'], reverse=True):
-        pct = data['value'] / total_value * 100
-        print(f"  {category}: {pct:.1f}% (${data['value']:,.2f}) - {len(data['symbols'])} positions")
+from skills.snaptrade.scripts.account.get_activities import get_activities
+result = get_activities('user-123', start_date='2025-01-01', end_date='2025-03-31')
+result = get_activities('user-123', activity_type='DIVIDEND')
+```
+
+### Get Option Positions
+
+```python
+from skills.snaptrade.scripts.account.get_option_holdings import get_option_holdings
+result = get_option_holdings('user-123', 'acct-456')
+```
+
+### Get Return Rates
+
+```python
+from skills.snaptrade.scripts.account.get_return_rates import get_return_rates
+result = get_return_rates('user-123', 'acct-456')
+```
+
+### Get Real-Time Quotes
+
+```python
+from skills.snaptrade.scripts.trading.get_quotes import get_quotes
+result = get_quotes('user-123', 'acct-456', ['AAPL', 'TSLA', 'MSFT'])
+```
+
+### Search for Symbols
+
+```python
+from skills.snaptrade.scripts.reference.search_symbols import search_symbols
+result = search_symbols('user-123', 'acct-456', 'Apple')
+# Use symbol ID from result for placing orders
+```
+
+### Preview a Trade
+
+```python
+from skills.snaptrade.scripts.trading.preview_order import preview_order
+result = preview_order('user-123', 'acct-456', 'BUY', 'symbol-id', 'Limit', 'Day', quantity=10, price=150.00)
+```
+
+### Place an Order
+
+```python
+from skills.snaptrade.scripts.trading.place_order import place_order
+result = place_order('user-123', 'acct-456', 'BUY', 'symbol-id', 'Limit', 'Day', quantity=10, price=150.00)
+```
+
+### Cancel an Order
+
+```python
+from skills.snaptrade.scripts.trading.cancel_order import cancel_order
+result = cancel_order('user-123', 'acct-456', 'order-id-789')
+```
+
+### Place Option Order
+
+```python
+from skills.snaptrade.scripts.trading.place_option_order import place_option_order
+legs = [
+    {"symbol": "opt-id-1", "action": "BUY_TO_OPEN", "quantity": 1},
+    {"symbol": "opt-id-2", "action": "SELL_TO_OPEN", "quantity": 1},
+]
+result = place_option_order('user-123', 'acct-456', 'Limit', 'Day', legs, price=2.50)
+```
+
+### Manage Connections
+
+```python
+from skills.snaptrade.scripts.connections.list_connections import list_connections
+from skills.snaptrade.scripts.connections.refresh_connection import refresh_connection
+
+conns = list_connections('user-123')
+refresh_connection('user-123', conns['connections'][0]['id'])
+```
+
+### Reference Data
+
+```python
+from skills.snaptrade.scripts.reference.list_brokerages import list_brokerages
+from skills.snaptrade.scripts.reference.get_symbol_detail import get_symbol_detail
+from skills.snaptrade.scripts.reference.list_currencies import list_currencies, get_exchange_rate
+from skills.snaptrade.scripts.reference.list_exchanges import list_exchanges
+
+brokerages = list_brokerages()
+detail = get_symbol_detail('AAPL')
+currencies = list_currencies()
+rate = get_exchange_rate('USDCAD')
+exchanges = list_exchanges()
+```
+
+## Common Trading Workflow
+
+```python
+# 1. Search for symbol to get universal symbol ID
+symbols = search_symbols('user-123', 'acct-456', 'AAPL')
+symbol_id = symbols['symbols'][0]['id']
+
+# 2. Get quote
+quotes = get_quotes('user-123', 'acct-456', ['AAPL'])
+
+# 3. Preview order
+impact = preview_order('user-123', 'acct-456', 'BUY', symbol_id, 'Limit', 'Day', quantity=10, price=150.00)
+
+# 4. Place order
+order = place_order('user-123', 'acct-456', 'BUY', symbol_id, 'Limit', 'Day', quantity=10, price=150.00)
+
+# 5. Check order status
+orders = get_orders('user-123', 'acct-456')
+
+# 6. Cancel if needed
+cancel_order('user-123', 'acct-456', order['order']['brokerage_order_id'])
 ```
 
 ## Error Handling
 
-All functions return dict with error key on failure:
-
-```python
-result = await get_accounts(user_id="invalid")
-if 'error' in result:
-    print(f"Error: {result['error']}")
-    if 'needs_reauth' in result:
-        print("User needs to reauthorize - generate new connect URL")
-```
-
-## Supported Brokerages
-
-- Alpaca
-- Charles Schwab
-- E*Trade
-- Fidelity
-- Interactive Brokers
-- Robinhood
-- TD Ameritrade
-- Tradier
-- Webull
-- And 15+ more
+All functions return `{"success": False, "error": "..."}` on failure.
+Check for `needs_auth: True` to know if the user needs to reconnect.
 
 ## Notes
 
-- All portfolio functions are async (require `await`)
+- `get_holdings` (portfolio) is async (requires `await`), all other functions are sync
 - User must authorize through OAuth before accessing data
-- Connections can expire and need reauthorization
-- Rate limits vary by brokerage
-- Some brokerages restrict certain data (e.g., options, crypto)
-
-## When to Use This Skill
-
-- User asks to see their brokerage portfolio, holdings, or account balance
-- User wants to connect a new brokerage account (Robinhood, Schwab, Fidelity, etc.)
-- User asks "what stocks do I own" or "what's my portfolio worth"
-- User wants to compare their holdings against market data
-- Do NOT use for trading — SnapTrade is read-only portfolio viewing
+- Use `search_symbols` to get universal symbol IDs needed for trading
+- Use `preview_order` before `place_order` to check impact
+- Connections can expire — use `refresh_connection` or reconnect
+- Activity types: BUY, SELL, DIVIDEND, INTEREST, TRANSFER, FEE
+- Order types: Market, Limit, StopLimit, StopLoss
+- Time in force: Day, GTC (good til cancelled), FOK (fill or kill)
+- Option actions: BUY_TO_OPEN, BUY_TO_CLOSE, SELL_TO_OPEN, SELL_TO_CLOSE

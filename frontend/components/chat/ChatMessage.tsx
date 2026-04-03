@@ -413,8 +413,8 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
     return (
       <div className="flex justify-end mb-3">
         <div className="max-w-2xl">
-          <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-none shadow-sm">
-            <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
+          <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-sm shadow-sm">
+            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{content}</p>
           </div>
         </div>
       </div>

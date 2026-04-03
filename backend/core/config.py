@@ -169,6 +169,10 @@ class Settings(BaseSettings):
             'replace_in_chat_file',
             # Domain tools
             'build_custom_etf',
+            # Brokerage / SnapTrade
+            'connect_brokerage',
+            'get_brokerage_status',
+            'get_portfolio',
             # Bot Management (only functional in bot chats)
             'configure_bot',
             'place_trade',
