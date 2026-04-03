@@ -115,14 +115,16 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     finally:
         await session.close()  # Always close to return connection to pool
 
-# Keep sync engine for migrations and initial setup
-# Force psycopg2 driver for sync engine (not asyncpg)
+# Keep sync engine for migrations and initial setup only.
+# Force psycopg2 driver for sync engine (not asyncpg).
+# Tiny pool — this shares the same Supabase pooler limit as the async engine.
+# All runtime DB work should use async sessions; sync is only for migrations.
 sync_database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://')
 engine = create_engine(
     sync_database_url,
     pool_pre_ping=True,
-    pool_size=pool_size,
-    max_overflow=max_overflow,
+    pool_size=2,
+    max_overflow=3,
     pool_recycle=pool_recycle,
     pool_timeout=pool_timeout
 )

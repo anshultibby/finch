@@ -44,10 +44,6 @@ def build_portfolio_history(
     """
     from skills.snaptrade.scripts._client import get_snaptrade_client
     from skills.financial_modeling_prep.scripts.api import fmp
-    from core.database import SessionLocal
-    from models.brokerage import PortfolioSnapshot
-    from sqlalchemy import and_
-    import uuid
 
     client = get_snaptrade_client()
     session = client._get_session(user_id)
@@ -132,14 +128,31 @@ def build_portfolio_history(
     if not all_activities:
         return {"success": False, "error": "No activities found."}
 
+    # Debug: show activity type breakdown and samples
+    from collections import Counter
+    type_counts = Counter(a["type"] for a in all_activities)
+    print(f"📊 Activity types: {dict(type_counts)}", flush=True)
+
+    # Show a few with empty symbols or zero units
+    empty_sym = [a for a in all_activities if not a["symbol"] and a["units"] != 0][:3]
+    if empty_sym:
+        print(f"⚠️ Activities with empty symbol but units: {empty_sym}", flush=True)
+
+    # Show some BUY samples
+    buys = [a for a in all_activities if a["type"] == "BUY"][:3]
+    print(f"📋 Sample BUYs: {buys}", flush=True)
+
+    # Show option exercises
+    opts = [a for a in all_activities if "OPTION" in a["type"]][:3]
+    if opts:
+        print(f"📋 Sample OPTIONS: {opts}", flush=True)
+
     # Sort by date
     all_activities.sort(key=lambda a: a["date"])
 
-    # ── Step 3: Replay transactions to build daily holdings ──
-    # holdings[symbol] = quantity on each day
+    # ── Step 3: Replay transactions to build daily holdings + cash ──
     holdings: Dict[str, float] = defaultdict(float)
     cash: float = 0.0
-    daily_holdings: Dict[str, Dict[str, float]] = {}  # date -> {symbol: qty}
 
     first_date = date.fromisoformat(all_activities[0]["date"])
     last_date = date.today()
@@ -149,43 +162,58 @@ def build_portfolio_history(
     for a in all_activities:
         activities_by_date[a["date"]].append(a)
 
-    # Walk through each day
+    # Option activities track contract counts, not shares
+    SKIP_UNITS_TYPES = {'OPTIONEXERCISE', 'OPTIONEXPIRATION', 'OPTIONASSIGNMENT', 'FEE', 'INTEREST', 'CONTRIBUTION', 'WITHDRAWAL'}
+
+    # Build per-day state: holdings snapshot + cash balance
+    # Only store on weekdays (market days)
+    daily_state: List[tuple] = []  # [(date_str, {symbol: qty}, cash), ...]
+    all_symbols: set = set()
+
     current = first_date
     while current <= last_date:
         d = current.isoformat()
+
         for a in activities_by_date.get(d, []):
             symbol = a.get("symbol")
             units = a.get("units", 0)
             amount = a.get("amount", 0)
+            atype = a.get("type", "")
 
-            if symbol and units:
+            if symbol and units and atype not in SKIP_UNITS_TYPES:
                 holdings[symbol] += units
-                # Clean up zero/tiny positions
                 if abs(holdings[symbol]) < 0.0001:
                     del holdings[symbol]
 
             cash += amount
 
-        # Save snapshot of holdings for this day (only on market days, skip weekends)
-        if current.weekday() < 5:  # Mon-Fri
-            daily_holdings[d] = dict(holdings)
+        if current.weekday() < 5:
+            all_symbols.update(holdings.keys())
+            daily_state.append((d, dict(holdings), cash))
 
         current += timedelta(days=1)
 
+    print(f"📊 {len(daily_state)} market days, {len(all_symbols)} unique symbols", flush=True)
+
     # ── Step 4: Fetch historical prices from FMP (parallel) ──
-    all_symbols = set()
-    for h in daily_holdings.values():
-        all_symbols.update(h.keys())
+    # Compute date ranges per symbol so we only fetch what's needed
+    symbol_ranges: Dict[str, tuple] = {}  # symbol -> (first_held, last_held)
+    for d, h, _ in daily_state:
+        for sym in h:
+            if sym not in symbol_ranges:
+                symbol_ranges[sym] = (d, d)
+            else:
+                symbol_ranges[sym] = (symbol_ranges[sym][0], d)
 
-    all_symbols = {s for s in all_symbols if s}  # remove empty
-    print(f"📊 Fetching prices for {len(all_symbols)} symbols (parallel)...", flush=True)
+    symbol_ranges = {s: r for s, r in symbol_ranges.items() if s}
+    print(f"📊 Fetching prices for {len(symbol_ranges)} symbols (20 parallel)...", flush=True)
 
-    # price_cache[symbol][date_str] = close_price
     price_cache: Dict[str, Dict[str, float]] = {}
 
-    def _fetch_one(symbol: str) -> tuple:
+    def _fetch_one(item: tuple) -> tuple:
+        symbol, (from_d, to_d) = item
         try:
-            data = fmp(f"/historical-price-full/{symbol}", {"from": first_date.isoformat(), "to": last_date.isoformat()})
+            data = fmp(f"/historical-price-full/{symbol}", {"from": from_d, "to": to_d})
             prices = {}
             if isinstance(data, dict) and "historical" in data:
                 for bar in data["historical"]:
@@ -200,68 +228,33 @@ def build_portfolio_history(
             return (symbol, {})
 
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        results = pool.map(_fetch_one, all_symbols)
-        for symbol, prices in results:
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        for symbol, prices in pool.map(_fetch_one, symbol_ranges.items()):
             if prices:
                 price_cache[symbol] = prices
 
     print(f"✅ Got prices for {len(price_cache)} symbols", flush=True)
 
-    # ── Step 5: Compute daily portfolio value ──
+    # ── Step 5: Compute daily portfolio value = stocks + cash ──
     equity_series = []
-    dates = sorted(daily_holdings.keys())
 
-    for d in dates:
-        h = daily_holdings[d]
-        total = 0.0
+    for d, h, day_cash in daily_state:
+        stock_value = 0.0
         for symbol, qty in h.items():
             if symbol in price_cache:
-                # Find closest price (exact date or most recent before)
                 price = _find_price(price_cache[symbol], d)
-                total += qty * price
-        # Include cash
-        # total += cash  # Cash is complex to track accurately, skip for now
+                stock_value += qty * price
 
+        total = stock_value + day_cash
         if total > 0:
             equity_series.append({"date": d, "value": round(total, 2)})
 
-    # ── Step 6: Save to portfolio_snapshots ──
-    # Use a composite key in JSONB: account_id stored in data so we can filter
-    snapshot_account_key = account_id or "all"
-    db = SessionLocal()
-    saved = 0
-    try:
-        # Get existing snapshot dates for this account to avoid duplicates
-        from sqlalchemy import cast, String
-        existing = db.query(PortfolioSnapshot.snapshot_date, PortfolioSnapshot.data).filter(
-            PortfolioSnapshot.user_id == user_id
-        ).all()
-        existing_dates = {str(s.snapshot_date) for s in existing if (s.data or {}).get("account_id", "all") == snapshot_account_key}
-
-        for point in equity_series:
-            if point["date"] not in existing_dates:
-                snapshot = PortfolioSnapshot(
-                    id=uuid.uuid4(),
-                    user_id=user_id,
-                    snapshot_date=date.fromisoformat(point["date"]),
-                    data={"total_value": point["value"], "account_id": snapshot_account_key}
-                )
-                db.add(snapshot)
-                saved += 1
-
-        if saved > 0:
-            db.commit()
-            print(f"💾 Saved {saved} new portfolio snapshots", flush=True)
-    finally:
-        db.close()
-
+    dates = [p["date"] for p in equity_series]
     return {
         "success": True,
         "equity_series": equity_series,
         "symbols_used": sorted(all_symbols),
         "activities_count": len(all_activities),
-        "snapshots_saved": saved,
         "date_range": {"from": dates[0] if dates else None, "to": dates[-1] if dates else None},
     }
 
@@ -329,6 +322,144 @@ def _parse_activity(item: Any, account_id: str) -> Optional[dict]:
             "amount": float(getattr(item, "amount", 0) or 0),
             "price": float(getattr(item, "price", 0) or 0),
         }
+
+
+def build_intraday_history(
+    user_id: str,
+    account_id: Optional[str] = None,
+    days_back: int = 7,
+) -> Dict[str, Any]:
+    """
+    Build hourly portfolio value for the last N days using FMP intraday prices
+    and current holdings from SnapTrade.
+
+    Args:
+        user_id: Supabase user ID
+        account_id: Optional - limit to one account
+        days_back: Number of days of hourly data (default 7)
+
+    Returns:
+        dict with equity_series: list of {date, value} with hourly timestamps
+    """
+    from skills.snaptrade.scripts._client import get_snaptrade_client
+    from skills.financial_modeling_prep.scripts.api import fmp
+    from concurrent.futures import ThreadPoolExecutor
+
+    client = get_snaptrade_client()
+    session = client._get_session(user_id)
+    if not session or not session.is_connected:
+        return {"success": False, "error": "Not connected."}
+
+    uid = session.snaptrade_user_id
+    secret = session.snaptrade_user_secret
+
+    # Get current holdings (positions) - these are what we value at each hour
+    try:
+        acct_resp = client.client.account_information.list_user_accounts(
+            user_id=uid, user_secret=secret
+        )
+        accounts_raw = acct_resp.body if hasattr(acct_resp, "body") else acct_resp
+        if not isinstance(accounts_raw, list):
+            accounts_raw = accounts_raw.get("data", []) if isinstance(accounts_raw, dict) else []
+
+        account_ids = []
+        for a in accounts_raw:
+            aid = None
+            if isinstance(a, dict):
+                aid = a.get("id") or a.get("account_id")
+            else:
+                aid = str(getattr(a, "id", "")) or str(getattr(a, "account_id", ""))
+            if aid and str(aid) != "None":
+                account_ids.append(str(aid))
+
+        if account_id:
+            account_ids = [a for a in account_ids if a == account_id]
+    except Exception as e:
+        return {"success": False, "error": f"Failed to list accounts: {e}"}
+
+    # Get positions for each account
+    holdings: Dict[str, float] = defaultdict(float)  # symbol -> total qty
+    for aid in account_ids:
+        try:
+            resp = client.client.account_information.get_user_account_positions(
+                user_id=uid, user_secret=secret, account_id=aid
+            )
+            positions = resp.body if hasattr(resp, "body") else resp
+            if not isinstance(positions, list):
+                positions = positions.get("data", []) if isinstance(positions, dict) else []
+
+            for pos in positions:
+                sym_obj = pos.get("symbol") if isinstance(pos, dict) else getattr(pos, "symbol", None)
+                ticker = _extract_ticker(sym_obj)
+                qty = float(pos.get("units", 0) if isinstance(pos, dict) else getattr(pos, "units", 0) or 0)
+                if ticker and qty > 0:
+                    holdings[ticker] += qty
+        except Exception as e:
+            print(f"⚠️ Failed to get positions for {aid}: {str(e)[:100]}", flush=True)
+
+    if not holdings:
+        return {"success": False, "error": "No positions found."}
+
+    symbols = list(holdings.keys())
+    print(f"📊 Fetching hourly prices for {len(symbols)} symbols...", flush=True)
+
+    # Fetch 1hour bars from FMP in parallel
+    hourly_prices: Dict[str, List[dict]] = {}  # symbol -> [{date, close}, ...]
+
+    def _fetch_hourly(symbol: str):
+        try:
+            data = fmp(f"/historical-chart/1hour/{symbol}")
+            if isinstance(data, list):
+                # FMP returns newest first, take last N days worth
+                cutoff = (date.today() - timedelta(days=days_back)).isoformat()
+                bars = [{"date": b["date"], "close": b.get("close", 0)} for b in data if b.get("date", "") >= cutoff]
+                return (symbol, bars)
+            return (symbol, [])
+        except Exception as e:
+            print(f"⚠️ Hourly fetch failed for {symbol}: {str(e)[:80]}", flush=True)
+            return (symbol, [])
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        for symbol, bars in pool.map(_fetch_hourly, symbols):
+            if bars:
+                hourly_prices[symbol] = bars
+
+    print(f"✅ Got hourly prices for {len(hourly_prices)}/{len(symbols)} symbols", flush=True)
+
+    # Build hourly equity series
+    # Collect all unique timestamps across all symbols
+    all_timestamps = set()
+    for bars in hourly_prices.values():
+        for b in bars:
+            all_timestamps.add(b["date"])
+
+    # For each timestamp, compute portfolio value
+    equity_series = []
+    for ts in sorted(all_timestamps):
+        total = 0.0
+        for symbol, qty in holdings.items():
+            if symbol in hourly_prices:
+                # Find the bar at or just before this timestamp
+                price = 0.0
+                for b in hourly_prices[symbol]:
+                    if b["date"] <= ts:
+                        price = b["close"]
+                    elif b["date"] > ts:
+                        break
+                if price == 0:
+                    # Use first available price
+                    if hourly_prices[symbol]:
+                        price = hourly_prices[symbol][0]["close"]
+                total += qty * price
+
+        if total > 0:
+            equity_series.append({"date": ts, "value": round(total, 2)})
+
+    return {
+        "success": True,
+        "equity_series": equity_series,
+        "symbols_count": len(symbols),
+    }
 
 
 def _find_price(prices: Dict[str, float], target_date: str) -> float:

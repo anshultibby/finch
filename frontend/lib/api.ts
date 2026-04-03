@@ -445,6 +445,13 @@ export const snaptradeApi = {
     return response.data;
   },
 
+  getPortfolioIntraday: async (userId: string, accountId?: string, days: number = 7): Promise<{ success: boolean; equity_series: Array<{ date: string; value: number }>; message?: string }> => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (accountId) params.set('account_id', accountId);
+    const response = await api.get(`/snaptrade/portfolio/${userId}/intraday?${params.toString()}`);
+    return response.data;
+  },
+
   buildPortfolioHistory: async (userId: string, accountId?: string): Promise<{ success: boolean; equity_series?: Array<{ date: string; value: number }>; snapshots_saved?: number; message?: string }> => {
     const params = new URLSearchParams();
     if (accountId) params.set('account_id', accountId);

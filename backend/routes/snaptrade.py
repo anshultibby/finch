@@ -302,11 +302,99 @@ async def build_portfolio_history_endpoint(user_id: str, account_id: str = None)
     This can take a while for accounts with lots of history.
     """
     import asyncio
+    import uuid
+    from datetime import date as date_type
     from skills.snaptrade.scripts.portfolio.build_history import build_portfolio_history
+    from core.database import get_db_session
+    from models.brokerage import PortfolioSnapshot
+
+    # Step 1: Heavy computation in thread (no DB needed)
     result = await asyncio.get_event_loop().run_in_executor(
         None, lambda: build_portfolio_history(user_id, account_id=account_id)
     )
+
+    if not result.get("success") or not result.get("equity_series"):
+        return result
+
+    # Step 2: Save snapshots using async session (no sync pool needed)
+    snapshot_account_key = account_id or "all"
+    equity_series = result["equity_series"]
+    saved = 0
+
+    async with get_db_session() as db:
+        # Delete old snapshots for this account
+        from sqlalchemy import select, delete
+        old_snaps = (await db.execute(
+            select(PortfolioSnapshot).where(PortfolioSnapshot.user_id == user_id)
+        )).scalars().all()
+
+        for s in old_snaps:
+            if isinstance(s.data, dict) and s.data.get("account_id", "all") == snapshot_account_key:
+                await db.delete(s)
+
+        # Insert new snapshots
+        for point in equity_series:
+            db.add(PortfolioSnapshot(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                snapshot_date=date_type.fromisoformat(point["date"]),
+                data={"total_value": point["value"], "account_id": snapshot_account_key},
+            ))
+            saved += 1
+
+    result["snapshots_saved"] = saved
     return result
+
+
+@router.get("/portfolio/{user_id}/intraday")
+async def get_portfolio_intraday(user_id: str, account_id: str = None, days: int = 7):
+    """
+    Get hourly portfolio value for the last N days.
+    Uses current holdings x FMP intraday prices.
+    """
+    import asyncio
+    from skills.snaptrade.scripts.portfolio.build_history import build_intraday_history
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: build_intraday_history(user_id, account_id=account_id, days_back=days)
+    )
+    return result
+
+
+@router.get("/debug-activities/{user_id}/{account_id}")
+async def debug_activities(user_id: str, account_id: str, limit: int = 5):
+    """Debug: dump raw activity objects to see structure."""
+    import asyncio
+    session = snaptrade_tools._get_session(user_id)
+    if not session:
+        return {"error": "No session"}
+    client = snaptrade_tools.client
+    resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_account_activities(
+        user_id=session.snaptrade_user_id, user_secret=session.snaptrade_user_secret,
+        account_id=account_id, start_date="2026-03-01", end_date="2026-04-02", limit=limit,
+    ))
+    data = resp.body if hasattr(resp, "body") else resp
+    items = data if isinstance(data, list) else data.get("data", [])
+    results = []
+    for item in items[:limit]:
+        row = {}
+        for attr in ["type", "units", "amount", "price", "fee", "description", "trade_date", "settlement_date"]:
+            row[attr] = str(getattr(item, attr, None))[:100] if hasattr(item, attr) else None
+        # Dig into symbol
+        sym_obj = getattr(item, "symbol", None)
+        if sym_obj:
+            row["symbol_type"] = type(sym_obj).__name__
+            row["symbol_attrs"] = [a for a in dir(sym_obj) if not a.startswith("_")][:15]
+            inner_sym = getattr(sym_obj, "symbol", None)
+            if inner_sym:
+                row["symbol.symbol_type"] = type(inner_sym).__name__
+                row["symbol.symbol"] = str(inner_sym)[:100]
+                inner2 = getattr(inner_sym, "symbol", None)
+                if inner2:
+                    row["symbol.symbol.symbol"] = str(inner2)[:100]
+            row["symbol.description"] = str(getattr(sym_obj, "description", ""))[:100]
+            row["symbol.id"] = str(getattr(sym_obj, "id", ""))[:100]
+        results.append(row)
+    return results
 
 
 @router.get("/test-endpoints/{user_id}/{account_id}")

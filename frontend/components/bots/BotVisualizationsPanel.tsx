@@ -26,7 +26,7 @@ interface BotVisualizationsPanelProps {
   accountName?: string;     // display name for the account
 }
 
-type TimeRange = '1W' | '1M' | '3M' | 'YTD' | '1Y' | 'ALL';
+type TimeRange = '1D' | '1W' | '1M' | '3M' | 'YTD' | '1Y' | 'ALL';
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
@@ -40,6 +40,7 @@ function formatPct(n: number) {
 function getStartDate(range: TimeRange): string {
   const d = new Date();
   switch (range) {
+    case '1D': d.setDate(d.getDate() - 2); break; // 2 days back to get prev close + today
     case '1W': d.setDate(d.getDate() - 7); break;
     case '1M': d.setMonth(d.getMonth() - 1); break;
     case '3M': d.setMonth(d.getMonth() - 3); break;
@@ -395,7 +396,7 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
   const [holdings, setHoldings] = useState<HoldingInfo[]>([]);
   const [portfolioSummary, setPortfolioSummary] = useState<{ totalValue: number; totalGainLoss: number; totalGainLossPct: number } | null>(null);
   const [equitySeries, setEquitySeries] = useState<Array<{ date: string; value: number }>>([]);
-  const [timeRange, setTimeRange] = useState<TimeRange>('ALL');
+  const [timeRange, setTimeRange] = useState<TimeRange>('1D');
   const [loading, setLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
@@ -461,7 +462,12 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
   }, [user]);
 
   const [buildingHistory, setBuildingHistory] = useState(false);
+  const [intradayCache, setIntradayCache] = useState<Record<string, Array<{ date: string; value: number }>>>({});
+  const [intradayLoading, setIntradayLoading] = useState(false);
   const [hoverValue, setHoverValue] = useState<{ date: string; value: number } | null>(null);
+
+  // Derived intraday series from cache
+  const intradaySeries = intradayCache[timeRange === '1D' ? '1D' : '1W'] || [];
 
   // Fetch portfolio history, trigger backfill if empty
   useEffect(() => {
@@ -470,7 +476,6 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
         if (result.success && result.equity_series?.length > 1) {
           setEquitySeries(result.equity_series);
         } else {
-          // No snapshots yet - trigger backfill in background
           setBuildingHistory(true);
           snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId).then(buildResult => {
             if (buildResult.success && buildResult.equity_series && buildResult.equity_series.length > 1) {
@@ -481,6 +486,62 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
       }).catch(() => {});
     }
   }, [loading, isConnected, user, showAccountPicker, selectedAccountId]);
+
+  // Fetch intraday data for 1D/1W — cached per timeRange key
+  useEffect(() => {
+    if (!user || !isConnected || showAccountPicker) return;
+    if (timeRange !== '1D' && timeRange !== '1W') return;
+    const cacheKey = timeRange === '1D' ? '1D' : '1W';
+    if (intradayCache[cacheKey]?.length > 1) return; // Already cached
+    setIntradayLoading(true);
+    const days = timeRange === '1D' ? 1 : 7;
+    snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId, days).then(result => {
+      if (result.success && result.equity_series?.length > 1) {
+        setIntradayCache(prev => ({ ...prev, [cacheKey]: result.equity_series }));
+      }
+    }).catch(() => {}).finally(() => setIntradayLoading(false));
+  }, [user, isConnected, showAccountPicker, selectedAccountId, timeRange, intradayCache]);
+
+  // Auto-refresh during market hours (every 60s)
+  useEffect(() => {
+    if (!user || !isConnected || showAccountPicker || buildingHistory) return;
+
+    const isMarketOpen = () => {
+      const now = new Date();
+      const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const day = et.getDay();
+      const h = et.getHours();
+      const m = et.getMinutes();
+      const mins = h * 60 + m;
+      return day >= 1 && day <= 5 && mins >= 570 && mins <= 960; // 9:30 AM - 4:00 PM ET
+    };
+
+    if (!isMarketOpen()) return;
+
+    const interval = setInterval(() => {
+      if (!isMarketOpen()) return;
+
+      // Refresh intraday for 1D/1W
+      if (timeRange === '1D' || timeRange === '1W') {
+        const days = timeRange === '1D' ? 1 : 7;
+        snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId, days).then(result => {
+          if (result.success && result.equity_series?.length > 1) {
+            const cacheKey = timeRange === '1D' ? '1D' : '1W';
+            setIntradayCache(prev => ({ ...prev, [cacheKey]: result.equity_series }));
+          }
+        }).catch(() => {});
+      }
+
+      // Refresh current portfolio value
+      snaptradeApi.getPortfolio(user.id).then(portfolio => {
+        if (portfolio.success) {
+          setPortfolioSummary(prev => prev ? { ...prev, totalValue: portfolio.total_value || prev.totalValue } : prev);
+        }
+      }).catch(() => {});
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, [user, isConnected, showAccountPicker, buildingHistory, timeRange, selectedAccountId]);
 
   if (loading) {
     return (
@@ -502,7 +563,8 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
           setSelectedAccountId(id || undefined);
           setSelectedAccountName(name);
           setShowAccountPicker(false);
-          setEquitySeries([]); // Reset chart for new account
+          setEquitySeries([]);
+          setIntradayCache({}); // Clear intraday cache for new account
         }}
         onBack={onBack}
       />
@@ -541,6 +603,17 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
     );
   }
 
+  // Full-screen rebuilding state
+  if (buildingHistory) {
+    return (
+      <div className="flex flex-col h-full bg-white items-center justify-center gap-3">
+        <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin" />
+        <div className="text-sm text-gray-500">Rebuilding portfolio history...</div>
+        <div className="text-xs text-gray-400">Fetching prices for all holdings</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Portfolio header + chart */}
@@ -563,11 +636,16 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
               </svg>
             </button>
-            {portfolioSummary && isConnected ? (
+            {isConnected ? (
               <div>
                 {selectedAccountName && <div className="text-xs text-gray-400 font-medium">{selectedAccountName}</div>}
                 <div className="text-2xl font-bold text-gray-900 tabular-nums">
-                  {formatCurrency(hoverValue?.value ?? portfolioSummary.totalValue)}
+                  {formatCurrency(
+                    hoverValue?.value
+                    ?? (equitySeries.length > 0 ? equitySeries[equitySeries.length - 1].value : null)
+                    ?? portfolioSummary?.totalValue
+                    ?? 0
+                  )}
                 </div>
               </div>
             ) : (
@@ -576,19 +654,52 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
                 <div className="text-xs text-gray-400">Connect a brokerage to see your portfolio</div>
               </div>
             )}
+            {/* Rebuild button */}
+            {isConnected && (
+              <button
+                onClick={() => {
+                  if (!user || buildingHistory) return;
+                  setBuildingHistory(true);
+                  setEquitySeries([]);
+                  snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId).then(result => {
+                    if (result.success && result.equity_series && result.equity_series.length > 1) {
+                      setEquitySeries(result.equity_series);
+                    }
+                  }).catch(() => {}).finally(() => setBuildingHistory(false));
+                }}
+                disabled={buildingHistory}
+                className="p-1 text-gray-300 hover:text-gray-500 transition-colors disabled:opacity-30"
+                title="Rebuild chart"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Portfolio equity chart */}
         {(() => {
-          const cutoff = getStartDate(timeRange);
-          const filtered = equitySeries.filter(p => p.date >= cutoff);
-          const chartData = filtered.length >= 2 ? filtered : equitySeries;
+          // Use intraday data for 1D/1W, daily data for longer ranges
+          const useIntraday = (timeRange === '1D' || timeRange === '1W') && intradaySeries.length >= 2;
+          let chartData: Array<{ date: string; value: number }>;
+
+          if (useIntraday) {
+            chartData = intradaySeries;
+          } else {
+            const cutoff = getStartDate(timeRange);
+            const filtered = equitySeries.filter(p => p.date >= cutoff);
+            chartData = filtered.length >= 2 ? filtered : equitySeries;
+          }
+
           const change = chartData.length >= 2
             ? { value: chartData[chartData.length - 1].value - chartData[0].value, pct: ((chartData[chartData.length - 1].value - chartData[0].value) / chartData[0].value) * 100 }
             : null;
 
-          return isConnected && chartData.length >= 2 ? (
+          const isChartLoading = (timeRange === '1D' || timeRange === '1W') && intradayLoading && !useIntraday;
+
+          return isConnected && (chartData.length >= 2 || isChartLoading) ? (
             <>
               {/* Period change */}
               {change && (
@@ -597,16 +708,23 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
                     {change.value >= 0 ? '+' : ''}{formatCurrency(change.value)} ({formatPct(change.pct)})
                   </span>
                   <span className="text-xs text-gray-400 ml-1.5">
-                    {timeRange === 'YTD' ? 'Year to date' : timeRange === 'ALL' ? 'All time' : `Past ${timeRange === '1W' ? 'week' : timeRange === '1M' ? 'month' : timeRange === '3M' ? '3 months' : 'year'}`}
+                    {timeRange === '1D' ? 'Today' : timeRange === 'YTD' ? 'Year to date' : timeRange === 'ALL' ? 'All time' : `Past ${timeRange === '1W' ? 'week' : timeRange === '1M' ? 'month' : timeRange === '3M' ? '3 months' : 'year'}`}
                   </span>
                 </div>
               )}
               <div className="h-[160px] px-2">
-                <PortfolioChart data={chartData} loading={false} onHover={setHoverValue} />
+                {isChartLoading ? (
+                  <div className="flex items-center justify-center h-full gap-2">
+                    <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+                    <span className="text-xs text-gray-400">Loading hourly data...</span>
+                  </div>
+                ) : (
+                  <PortfolioChart data={chartData} loading={false} onHover={setHoverValue} />
+                )}
               </div>
               {/* Time range buttons */}
               <div className="flex items-center gap-1 px-4 py-2">
-                {(['1W', '1M', '3M', 'YTD', '1Y', 'ALL'] as TimeRange[]).map(r => (
+                {(['1D', '1W', '1M', '3M', 'YTD', '1Y', 'ALL'] as TimeRange[]).map(r => (
                   <button
                     key={r}
                     onClick={() => setTimeRange(r)}
