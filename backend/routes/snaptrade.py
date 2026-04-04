@@ -360,6 +360,91 @@ async def get_portfolio_intraday(user_id: str, account_id: str = None, days: int
     return result
 
 
+@router.get("/debug-holdings-diff/{user_id}/{account_id}")
+async def debug_holdings_diff(user_id: str, account_id: str):
+    """Compare reconstructed holdings vs actual SnapTrade positions."""
+    import asyncio
+    from skills.snaptrade.scripts.portfolio.build_history import build_portfolio_history, _extract_ticker, _parse_activity
+    from datetime import date as date_type
+    from collections import defaultdict
+
+    session = snaptrade_tools._get_session(user_id)
+    if not session:
+        return {"error": "No session"}
+
+    uid = session.snaptrade_user_id
+    secret = session.snaptrade_user_secret
+
+    # Fetch activities
+    all_activities = []
+    offset = 0
+    while True:
+        resp = await asyncio.get_event_loop().run_in_executor(None, lambda o=offset: snaptrade_tools.client.account_information.get_account_activities(
+            user_id=uid, user_secret=secret, account_id=account_id,
+            start_date="2020-01-01", end_date=date_type.today().isoformat(),
+            offset=o, limit=1000,
+        ))
+        data = resp.body if hasattr(resp, "body") else resp
+        items = data if isinstance(data, list) else data.get("data", [])
+        if not items:
+            break
+        for item in items:
+            a = _parse_activity(item, account_id)
+            if a:
+                all_activities.append(a)
+        if len(items) < 1000:
+            break
+        offset += 1000
+
+    all_activities.sort(key=lambda a: a["date"])
+
+    # Replay
+    SKIP = {'OPTIONEXERCISE', 'OPTIONEXPIRATION', 'FEE', 'INTEREST', 'CONTRIBUTION', 'WITHDRAWAL'}
+    holdings = defaultdict(float)
+    cash = 0.0
+    for a in all_activities:
+        sym = a.get("symbol")
+        units = a.get("units", 0)
+        atype = a.get("type", "")
+        if sym and units and atype not in SKIP:
+            holdings[sym] += units
+            if abs(holdings[sym]) < 0.0001:
+                del holdings[sym]
+        cash += a.get("amount", 0)
+
+    # Get actual positions
+    actual = {}
+    resp = await asyncio.get_event_loop().run_in_executor(None, lambda: snaptrade_tools.client.account_information.get_user_account_positions(
+        user_id=uid, user_secret=secret, account_id=account_id
+    ))
+    positions = resp.body if hasattr(resp, "body") else resp
+    if not isinstance(positions, list):
+        positions = positions.get("data", []) if isinstance(positions, dict) else []
+    for pos in positions:
+        sym_obj = pos.get("symbol") if isinstance(pos, dict) else getattr(pos, "symbol", None)
+        ticker = _extract_ticker(sym_obj)
+        qty = float(pos.get("units", 0) if isinstance(pos, dict) else getattr(pos, "units", 0) or 0)
+        if ticker and qty > 0.001:
+            actual[ticker] = actual.get(ticker, 0) + qty
+
+    # Compare
+    all_syms = sorted(set(list(holdings.keys()) + list(actual.keys())))
+    mismatches = []
+    for sym in all_syms:
+        recon = holdings.get(sym, 0)
+        act = actual.get(sym, 0)
+        if abs(recon - act) > 0.01:
+            mismatches.append({"symbol": sym, "reconstructed": round(recon, 4), "actual": round(act, 4), "diff": round(act - recon, 4)})
+
+    return {
+        "reconstructed_cash": round(cash, 2),
+        "reconstructed_positions": len(holdings),
+        "actual_positions": len(actual),
+        "matches": len(all_syms) - len(mismatches),
+        "mismatches": sorted(mismatches, key=lambda x: abs(x["diff"]), reverse=True),
+    }
+
+
 @router.get("/debug-activities/{user_id}/{account_id}")
 async def debug_activities(user_id: str, account_id: str, limit: int = 5):
     """Debug: dump raw activity objects to see structure."""

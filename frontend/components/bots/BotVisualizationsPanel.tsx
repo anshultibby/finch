@@ -196,7 +196,16 @@ function PortfolioChart({ data, loading, onHover }: {
             top: Math.max(pointsRef.current[hoverIdx].y - 22, 0),
           }}
         >
-          {new Date(data[hoverIdx].date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          {(() => {
+            const raw = data[hoverIdx].date;
+            const d = new Date(raw.includes('T') || raw.includes(' ') ? raw.replace(' ', 'T') : raw + 'T12:00:00');
+            if (isNaN(d.getTime())) return raw;
+            // Show time for intraday data (dates with hours)
+            if (raw.includes(' ') || (raw.includes('T') && raw.includes(':'))) {
+              return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+            }
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          })()}
         </div>
       )}
     </div>
@@ -532,10 +541,10 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
         }).catch(() => {});
       }
 
-      // Refresh current portfolio value
-      snaptradeApi.getPortfolio(user.id).then(portfolio => {
-        if (portfolio.success) {
-          setPortfolioSummary(prev => prev ? { ...prev, totalValue: portfolio.total_value || prev.totalValue } : prev);
+      // Refresh daily history (updates today's snapshot)
+      snaptradeApi.getPortfolioHistory(user.id, undefined, undefined, selectedAccountId).then(result => {
+        if (result.success && result.equity_series?.length > 1) {
+          setEquitySeries(result.equity_series);
         }
       }).catch(() => {});
     }, 60_000);
@@ -642,7 +651,7 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
                 <div className="text-2xl font-bold text-gray-900 tabular-nums">
                   {formatCurrency(
                     hoverValue?.value
-                    ?? (equitySeries.length > 0 ? equitySeries[equitySeries.length - 1].value : null)
+                    ?? (selectedAccountId ? accounts.find(a => a.id === selectedAccountId)?.balance : null)
                     ?? portfolioSummary?.totalValue
                     ?? 0
                   )}

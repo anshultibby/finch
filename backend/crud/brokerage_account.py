@@ -2,6 +2,8 @@
 CRUD operations for brokerage accounts
 """
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from models.brokerage import BrokerageAccount
 from datetime import datetime
 from typing import List, Optional
