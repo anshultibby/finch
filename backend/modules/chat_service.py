@@ -492,7 +492,7 @@ class ChatService:
             connections["polymarket"] = False
         try:
             from modules.tools.clients.snaptrade import snaptrade_tools
-            session = snaptrade_tools._get_session(user_id)
+            session = await snaptrade_tools._get_session(user_id)
             connections["brokerage"] = session is not None and session.is_connected
         except Exception:
             connections["brokerage"] = False

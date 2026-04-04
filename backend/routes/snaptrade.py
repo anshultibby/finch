@@ -23,7 +23,7 @@ async def initiate_connection(request: SnapTradeConnectionRequest):
     the user to connect their brokerage account via SnapTrade.
     """
     try:
-        result = snaptrade_tools.get_login_redirect_uri(
+        result = await snaptrade_tools.get_login_redirect_uri(
             user_id=request.user_id,
             redirect_uri=request.redirect_uri
         )
@@ -81,7 +81,7 @@ async def check_connection_status(user_id: str):
     Check if user has an active SnapTrade connection
     """
     print(f"📊 Checking connection status for user: {user_id}", flush=True)
-    is_connected = snaptrade_tools.has_active_connection(user_id)
+    is_connected = await snaptrade_tools.has_active_connection(user_id)
     print(f"📊 Connection status result: {is_connected}", flush=True)
     
     response = SnapTradeStatusResponse(
@@ -121,7 +121,7 @@ async def get_brokerages():
     """
     Get list of available brokerages that can be connected
     """
-    result = snaptrade_tools.get_available_brokerages()
+    result = snaptrade_tools.get_available_brokerages()  # sync, no DB
     return result
 
 
@@ -144,7 +144,7 @@ async def connect_broker(request: dict):
     if not user_id or not redirect_uri:
         raise HTTPException(status_code=400, detail="user_id and redirect_uri are required")
     
-    result = snaptrade_tools.get_login_redirect_uri_for_broker(
+    result = await snaptrade_tools.get_login_redirect_uri_for_broker(
         user_id=user_id,
         redirect_uri=redirect_uri,
         broker_id=broker_id
@@ -182,29 +182,25 @@ async def toggle_account_visibility(user_id: str, account_id: str, request: dict
         "is_visible": bool
     }
     """
-    from core.database import SessionLocal
+    from core.database import get_db_session
     from crud import brokerage_account as brokerage_crud
-    
+
     is_visible = request.get("is_visible", True)
-    
-    db = SessionLocal()
-    try:
-        account = brokerage_crud.get_account_by_account_id(db, user_id, account_id)
+
+    async with get_db_session() as db:
+        account = await brokerage_crud.get_account_by_account_id_async(db, user_id, account_id)
         if not account:
             return {
                 "success": False,
                 "message": "Account not found"
             }
-        
+
         account.is_active = is_visible
-        db.commit()
-        
-        return {
-            "success": True,
-            "message": f"Account visibility {'enabled' if is_visible else 'disabled'}"
-        }
-    finally:
-        db.close()
+
+    return {
+        "success": True,
+        "message": f"Account visibility {'enabled' if is_visible else 'disabled'}"
+    }
 
 
 @router.get("/portfolio/{user_id}")
@@ -368,7 +364,7 @@ async def debug_holdings_diff(user_id: str, account_id: str):
     from datetime import date as date_type
     from collections import defaultdict
 
-    session = snaptrade_tools._get_session(user_id)
+    session = await snaptrade_tools._get_session(user_id)
     if not session:
         return {"error": "No session"}
 
@@ -449,7 +445,7 @@ async def debug_holdings_diff(user_id: str, account_id: str):
 async def debug_activities(user_id: str, account_id: str, limit: int = 5):
     """Debug: dump raw activity objects to see structure."""
     import asyncio
-    session = snaptrade_tools._get_session(user_id)
+    session = await snaptrade_tools._get_session(user_id)
     if not session:
         return {"error": "No session"}
     client = snaptrade_tools.client
@@ -486,7 +482,7 @@ async def debug_activities(user_id: str, account_id: str, limit: int = 5):
 async def test_endpoints(user_id: str, account_id: str):
     """Temporary: test which SnapTrade endpoints work for this account."""
     import asyncio
-    session = snaptrade_tools._get_session(user_id)
+    session = await snaptrade_tools._get_session(user_id)
     if not session:
         return {"error": "No session"}
 

@@ -107,3 +107,26 @@ def get_accounts_by_broker(db: Session, user_id: str, broker_id: str, active_onl
         query = query.filter(BrokerageAccount.is_active == True)
     return query.all()
 
+
+# --- Async versions (use with get_db_session() context manager) ---
+
+async def get_account_by_account_id_async(db: AsyncSession, user_id: str, account_id: str) -> Optional[BrokerageAccount]:
+    """Get a brokerage account by SnapTrade account ID (async)"""
+    result = await db.execute(
+        select(BrokerageAccount).filter(
+            BrokerageAccount.user_id == user_id,
+            BrokerageAccount.account_id == account_id
+        )
+    )
+    return result.scalars().first()
+
+
+async def disconnect_account_async(db: AsyncSession, user_id: str, account_id: str) -> bool:
+    """Mark an account as disconnected (async)"""
+    db_account = await get_account_by_account_id_async(db, user_id, account_id)
+    if db_account:
+        db_account.is_active = False
+        db_account.disconnected_at = datetime.utcnow()
+        return True
+    return False
+

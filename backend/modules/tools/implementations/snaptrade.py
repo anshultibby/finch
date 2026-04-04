@@ -13,7 +13,7 @@ async def connect_brokerage_impl(
 
     redirect_uri = f"{Config.APP_BASE_URL}/portfolio?snaptrade_callback=true"
 
-    result = snaptrade_tools.get_login_redirect_uri_for_broker(
+    result = await snaptrade_tools.get_login_redirect_uri_for_broker(
         user_id=context.user_id,
         redirect_uri=redirect_uri,
         broker_id=broker,
@@ -37,7 +37,7 @@ async def get_brokerage_status_impl(context: AgentContext) -> Dict[str, Any]:
     """Check whether the user has connected a brokerage."""
     from modules.tools.clients.snaptrade import snaptrade_tools
 
-    session = snaptrade_tools._get_session(context.user_id)
+    session = await snaptrade_tools._get_session(context.user_id)
 
     if not session or not session.is_connected:
         return {
@@ -65,7 +65,7 @@ async def get_portfolio_impl(context: AgentContext) -> Dict[str, Any]:
     """Fetch portfolio holdings across all connected accounts."""
     from modules.tools.clients.snaptrade import snaptrade_tools
 
-    session = snaptrade_tools._get_session(context.user_id)
+    session = await snaptrade_tools._get_session(context.user_id)
     if not session or not session.is_connected:
         return {
             "success": False,

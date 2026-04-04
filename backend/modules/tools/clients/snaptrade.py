@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List, AsyncGenerator, Union
 from datetime import datetime
 from pydantic import BaseModel
 from core.config import Config
-from core.database import SessionLocal
+from core.database import get_db_session
 from crud import snaptrade_user as snaptrade_crud
 from crud import brokerage_account as brokerage_crud
 from models.user import SnapTradeUser as DBSnapTradeUser
@@ -58,16 +58,15 @@ class SnapTradeTools:
         # Cache sessions in memory for performance (but also persist to DB)
         self._sessions: Dict[str, SnapTradeSession] = {}
     
-    def _get_session(self, user_id: str) -> Optional[SnapTradeSession]:
+    async def _get_session(self, user_id: str) -> Optional[SnapTradeSession]:
         """Get session from cache or database"""
         # Check cache first
         if user_id in self._sessions:
             return self._sessions[user_id]
-        
+
         # Load from database
-        db = SessionLocal()
-        try:
-            db_user = snaptrade_crud.get_user_by_id(db, user_id)
+        async with get_db_session() as db:
+            db_user = await snaptrade_crud.get_user_by_id_async(db, user_id)
             if db_user and db_user.snaptrade_user_secret:
                 # Restore to cache
                 session = SnapTradeSession(
@@ -80,55 +79,50 @@ class SnapTradeTools:
                 self._sessions[user_id] = session
                 print(f"✅ Loaded session from database: {user_id}", flush=True)
                 return session
-        finally:
-            db.close()
-        
+
         return None
     
-    def _save_session(self, user_id: str, session: SnapTradeSession):
+    async def _save_session(self, user_id: str, session: SnapTradeSession):
         """Save session to both cache and database"""
         print(f"💾 Saving session: {user_id}, is_connected={session.is_connected}", flush=True)
-        
+
         # Update cache
         self._sessions[user_id] = session
-        
+
         # Save to database
-        db = SessionLocal()
         try:
-            db_user = snaptrade_crud.get_user_by_id(db, user_id)
-            if db_user:
-                # Update existing
-                print(f"💾 Updating existing user in DB, setting is_connected={session.is_connected}", flush=True)
-                db_user.snaptrade_user_secret = session.snaptrade_user_secret
-                db_user.is_connected = session.is_connected
-                db_user.connected_account_ids = ','.join(session.account_ids) if session.account_ids else None
-                db_user.last_activity = datetime.utcnow()
-                db.commit()
-                print(f"✅ Session saved successfully, is_connected={db_user.is_connected}", flush=True)
-            else:
-                # Create new
-                print(f"💾 Creating new user in DB", flush=True)
-                snaptrade_crud.create_user(
-                    db=db,
-                    user_id=user_id,
-                    snaptrade_user_id=session.snaptrade_user_id,
-                    snaptrade_user_secret=session.snaptrade_user_secret
-                )
-                if session.is_connected and session.account_ids:
-                    print(f"💾 Updating connection status to True", flush=True)
-                    snaptrade_crud.update_connection_status(
+            async with get_db_session() as db:
+                db_user = await snaptrade_crud.get_user_by_id_async(db, user_id)
+                if db_user:
+                    # Update existing
+                    print(f"💾 Updating existing user in DB, setting is_connected={session.is_connected}", flush=True)
+                    db_user.snaptrade_user_secret = session.snaptrade_user_secret
+                    db_user.is_connected = session.is_connected
+                    db_user.connected_account_ids = ','.join(session.account_ids) if session.account_ids else None
+                    db_user.last_activity = datetime.utcnow()
+                    print(f"✅ Session saved successfully, is_connected={db_user.is_connected}", flush=True)
+                else:
+                    # Create new
+                    print(f"💾 Creating new user in DB", flush=True)
+                    await snaptrade_crud.create_user_async(
                         db=db,
                         user_id=user_id,
-                        is_connected=True,
-                        account_ids=','.join(session.account_ids)
+                        snaptrade_user_id=session.snaptrade_user_id,
+                        snaptrade_user_secret=session.snaptrade_user_secret
                     )
-                print(f"✅ New user created successfully", flush=True)
+                    if session.is_connected and session.account_ids:
+                        print(f"💾 Updating connection status to True", flush=True)
+                        await snaptrade_crud.update_connection_status_async(
+                            db=db,
+                            user_id=user_id,
+                            is_connected=True,
+                            account_ids=','.join(session.account_ids)
+                        )
+                    print(f"✅ New user created successfully", flush=True)
         except Exception as e:
             print(f"❌ Error saving session to database: {e}", flush=True)
             import traceback
             traceback.print_exc()
-        finally:
-            db.close()
     
     async def _get_accounts(self, user_id: str, user_secret: str) -> List[SnapTradeAccountResponse]:
         """Get user's accounts from SnapTrade and parse with Pydantic"""
@@ -184,10 +178,10 @@ class SnapTradeTools:
         
         return parsed_positions
     
-    def _handle_user_already_exists(self, user_id: str) -> Dict[str, Any]:
+    async def _handle_user_already_exists(self, user_id: str) -> Dict[str, Any]:
         """Handle the case where a SnapTrade user already exists"""
         print(f"⚠️ User already exists in SnapTrade, trying to delete and recreate...", flush=True)
-        
+
         # Try to delete the existing user first
         try:
             self.client.authentication.delete_snap_trade_user(user_id=user_id)
@@ -199,20 +193,20 @@ class SnapTradeTools:
                 "message": "User conflict detected. Please try again.",
                 "requires_new_session": True
             }
-        
+
         # Try registering again after deletion
         try:
             response = self.client.authentication.register_snap_trade_user(
                 body={"userId": user_id}
             )
-            
+
             response_data = response.body if hasattr(response, 'body') else response
             snaptrade_user_id = response_data.get('userId') or user_id
             snaptrade_user_secret = response_data.get('userSecret')
-            
+
             if not snaptrade_user_secret:
                 raise Exception("No userSecret returned after recreation")
-            
+
             # Store session with new userSecret
             session = SnapTradeSession(
                 snaptrade_user_id=snaptrade_user_id,
@@ -220,10 +214,10 @@ class SnapTradeTools:
                 is_connected=False,
                 last_activity=datetime.now().isoformat()
             )
-            self._save_session(user_id, session)
-            
+            await self._save_session(user_id, session)
+
             print(f"✅ Recreated SnapTrade user: {snaptrade_user_id}", flush=True)
-            
+
             return {
                 "success": True,
                 "snaptrade_user_id": snaptrade_user_id,
@@ -237,48 +231,35 @@ class SnapTradeTools:
                 "requires_new_session": True
             }
     
-    def register_user(self, user_id: str) -> Dict[str, Any]:
+    async def register_user(self, user_id: str) -> Dict[str, Any]:
         """
         Register a new user with SnapTrade
-        
+
         This creates a SnapTrade user ID and receives a userSecret from SnapTrade.
         The userSecret is generated by SnapTrade and must be stored for all future API calls.
-        
-        Args:
-            user_id: Our internal user ID (Supabase UUID, used as SnapTrade userId)
-            
-        Returns:
-            Dictionary with snaptrade_user_id and snaptrade_user_secret
         """
         try:
-            # Register user with SnapTrade
-            # Using user_id as the userId for consistency
             response = self.client.authentication.register_snap_trade_user(
-                body={
-                    "userId": user_id
-                }
+                body={"userId": user_id}
             )
-            
-            # SnapTrade SDK returns an ApiResponse object, need to access body
+
             response_data = response.body if hasattr(response, 'body') else response
-            
             snaptrade_user_id = response_data.get('userId') or user_id
             snaptrade_user_secret = response_data.get('userSecret')
-            
+
             if not snaptrade_user_secret:
                 raise Exception("No userSecret returned from SnapTrade")
-            
-            # Store session
+
             session = SnapTradeSession(
                 snaptrade_user_id=snaptrade_user_id,
                 snaptrade_user_secret=snaptrade_user_secret,
                 is_connected=False,
                 last_activity=datetime.now().isoformat()
             )
-            self._save_session(user_id, session)
-            
+            await self._save_session(user_id, session)
+
             print(f"✅ Registered SnapTrade user and saved to DB: {snaptrade_user_id}", flush=True)
-            
+
             return {
                 "success": True,
                 "snaptrade_user_id": snaptrade_user_id,
@@ -287,32 +268,18 @@ class SnapTradeTools:
         except Exception as e:
             error_str = str(e)
             print(f"❌ Error registering user: {error_str}", flush=True)
-            
-            # Check if user already exists (error code 1010)
+
             if "already exist" in error_str or "1010" in error_str:
-                return self._handle_user_already_exists(user_id)
-            
+                return await self._handle_user_already_exists(user_id)
+
             return {
                 "success": False,
                 "message": f"Failed to register user: {error_str}"
             }
     
-    def get_login_redirect_uri(self, user_id: str, redirect_uri: str) -> Dict[str, Any]:
-        """
-        Get the SnapTrade Connection Portal URL for OAuth login (shows all brokerages)
-        
-        This is the legacy method that shows all brokerages. For connecting to a specific
-        broker, use get_login_redirect_uri_for_broker() instead.
-        
-        Args:
-            user_id: User ID (Supabase UUID, also used as SnapTrade user_id)
-            redirect_uri: Where to redirect after successful connection
-            
-        Returns:
-            Dictionary with redirect URL
-        """
-        # Use the new method without specifying a broker (shows all)
-        return self.get_login_redirect_uri_for_broker(user_id, redirect_uri, broker_id=None)
+    async def get_login_redirect_uri(self, user_id: str, redirect_uri: str) -> Dict[str, Any]:
+        """Get the SnapTrade Connection Portal URL for OAuth login (shows all brokerages)"""
+        return await self.get_login_redirect_uri_for_broker(user_id, redirect_uri, broker_id=None)
     
     async def handle_connection_callback(self, user_id: str) -> Dict[str, Any]:
         """
@@ -330,7 +297,7 @@ class SnapTradeTools:
             print(f"🔄 Handling callback for user: {user_id}", flush=True)
             
             # Get session from cache or database
-            session = self._get_session(user_id)
+            session = await self._get_session(user_id)
             if not session or not session.snaptrade_user_secret:
                 print(f"❌ Session not found or no userSecret for: {user_id}", flush=True)
                 return {
@@ -362,8 +329,8 @@ class SnapTradeTools:
             session.is_connected = True
             session.account_ids = account_ids
             session.last_activity = datetime.now().isoformat()
-            self._save_session(user_id, session)
-            
+            await self._save_session(user_id, session)
+
             return {
                 "success": True,
                 "message": f"Successfully connected to {', '.join(brokerage_names)}!",
@@ -381,17 +348,13 @@ class SnapTradeTools:
             if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
                 print(f"⚠️ Invalid credentials detected during callback", flush=True)
                 # Delete the old database record
-                db = SessionLocal()
-                try:
-                    from crud import snaptrade_user as snaptrade_crud
-                    snaptrade_crud.delete_user(db, user_id)
-                finally:
-                    db.close()
-                
+                async with get_db_session() as db:
+                    await snaptrade_crud.delete_user_async(db, user_id)
+
                 # Clear from cache
                 if user_id in self._sessions:
                     del self._sessions[user_id]
-                
+
                 return {
                     "success": False,
                     "message": "Your credentials were invalid (possibly due to API key change). Please reconnect to create a new session.",
@@ -421,7 +384,7 @@ class SnapTradeTools:
             Dictionary with list of connected accounts
         """
         try:
-            session = self._get_session(user_id)
+            session = await self._get_session(user_id)
             if not session or not session.is_connected:
                 return {
                     "success": True,
@@ -487,7 +450,7 @@ class SnapTradeTools:
             "message": f"{len(brokerages)} brokerages available"
         }
     
-    def get_login_redirect_uri_for_broker(self, user_id: str, redirect_uri: str, broker_id: Optional[str] = None) -> Dict[str, Any]:
+    async def get_login_redirect_uri_for_broker(self, user_id: str, redirect_uri: str, broker_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Get the SnapTrade Connection Portal URL for OAuth login for a specific broker
         
@@ -502,14 +465,14 @@ class SnapTradeTools:
         print(f"🌐 get_login_redirect_uri_for_broker called with broker: {broker_id}, redirect_uri: {redirect_uri}", flush=True)
         try:
             # Get or load session
-            session = self._get_session(user_id)
+            session = await self._get_session(user_id)
             
             # If no session exists, register user
             if not session:
-                register_result = self.register_user(user_id)
+                register_result = await self.register_user(user_id)
                 if not register_result["success"]:
                     return register_result
-                session = self._get_session(user_id)
+                session = await self._get_session(user_id)
             if not session or not session.snaptrade_user_secret:
                 return {
                     "success": False,
@@ -563,14 +526,10 @@ class SnapTradeTools:
                 print(f"⚠️ Invalid credentials detected, clearing old session and re-registering...", flush=True)
                 
                 # Delete the old database record
-                db = SessionLocal()
-                try:
-                    from crud import snaptrade_user as snaptrade_crud
-                    snaptrade_crud.delete_user(db, user_id)
+                async with get_db_session() as db:
+                    await snaptrade_crud.delete_user_async(db, user_id)
                     print(f"✅ Deleted old SnapTrade user from database", flush=True)
-                finally:
-                    db.close()
-                
+
                 # Clear from cache
                 if user_id in self._sessions:
                     del self._sessions[user_id]
@@ -584,7 +543,7 @@ class SnapTradeTools:
                 
                 # Re-register with new credentials
                 print(f"🔄 Re-registering user with new API credentials...", flush=True)
-                register_result = self.register_user(user_id)
+                register_result = await self.register_user(user_id)
                 if not register_result["success"]:
                     return {
                         "success": False,
@@ -592,7 +551,7 @@ class SnapTradeTools:
                     }
                 
                 # Retry getting the login URL with new credentials
-                session = self._get_session(user_id)
+                session = await self._get_session(user_id)
                 if not session or not session.snaptrade_user_secret:
                     return {
                         "success": False,
@@ -658,7 +617,7 @@ class SnapTradeTools:
             Dictionary with success status
         """
         try:
-            session = self._get_session(user_id)
+            session = await self._get_session(user_id)
             if not session:
                 return {
                     "success": False,
@@ -681,15 +640,12 @@ class SnapTradeTools:
                 print(f"⚠️ Error calling SnapTrade API (continuing anyway): {str(api_error)}", flush=True)
             
             # Update database: mark account as disconnected
-            db = SessionLocal()
-            try:
-                success = brokerage_crud.disconnect_account(db, user_id, account_id)
+            async with get_db_session() as db:
+                success = await brokerage_crud.disconnect_account_async(db, user_id, account_id)
                 if success:
                     print(f"✅ Marked account as disconnected in DB: {account_id}", flush=True)
                 else:
                     print(f"⚠️ Account not found in DB: {account_id}", flush=True)
-            finally:
-                db.close()
             
             # Update session: remove this account from the list
             if session.account_ids and account_id in session.account_ids:
@@ -699,8 +655,8 @@ class SnapTradeTools:
                 if not session.account_ids:
                     session.is_connected = False
                 
-                self._save_session(user_id, session)
-            
+                await self._save_session(user_id, session)
+
             print(f"✅ Disconnected account {account_id}", flush=True)
             return {
                 "success": True,
@@ -732,7 +688,7 @@ class SnapTradeTools:
             print(f"🔍 Checking portfolio for user_id: {user_id}", flush=True)
             
             # Get session from cache or database
-            session = self._get_session(user_id)
+            session = await self._get_session(user_id)
             if not session or not session.is_connected:
                 print(f"❌ No active connection found for {user_id}", flush=True)
                 return {
@@ -762,13 +718,9 @@ class SnapTradeTools:
                 if '401' in error_str or '1083' in error_str or 'Invalid userID or userSecret' in error_str:
                     print(f"⚠️ Invalid credentials detected in get_portfolio, cleaning up...", flush=True)
                     # Delete the old database record
-                    db = SessionLocal()
-                    try:
-                        from crud import snaptrade_user as snaptrade_crud
-                        snaptrade_crud.delete_user(db, user_id)
-                    finally:
-                        db.close()
-                    
+                    async with get_db_session() as db:
+                        await snaptrade_crud.delete_user_async(db, user_id)
+
                     # Clear from cache
                     if user_id in self._sessions:
                         del self._sessions[user_id]
@@ -841,9 +793,9 @@ class SnapTradeTools:
                 "message": f"Error fetching portfolio: {str(e)}"
             }
     
-    def has_active_connection(self, user_id: str) -> bool:
+    async def has_active_connection(self, user_id: str) -> bool:
         """Check if user has an active connection"""
-        session = self._get_session(user_id)
+        session = await self._get_session(user_id)
         has_connection = session is not None and session.is_connected
         print(f"🔍 has_active_connection({user_id}): {has_connection}", flush=True)
         return has_connection
@@ -855,17 +807,19 @@ class SnapTradeTools:
         """
         from datetime import date, timedelta
         from models.brokerage import PortfolioSnapshot
-        from sqlalchemy import and_
+        from sqlalchemy import and_, select
         import uuid
 
         try:
             # 1. Record today's snapshot if missing
             today = date.today()
-            db = SessionLocal()
-            try:
-                existing = db.query(PortfolioSnapshot).filter(
-                    and_(PortfolioSnapshot.user_id == user_id, PortfolioSnapshot.snapshot_date == today)
-                ).first()
+            async with get_db_session() as db:
+                result = await db.execute(
+                    select(PortfolioSnapshot).filter(
+                        and_(PortfolioSnapshot.user_id == user_id, PortfolioSnapshot.snapshot_date == today)
+                    )
+                )
+                existing = result.scalars().first()
 
                 if not existing:
                     # Fetch current portfolio value
@@ -879,31 +833,28 @@ class SnapTradeTools:
                             data={"total_value": total_value, "account_count": portfolio.get("account_count", 0)}
                         )
                         db.add(snapshot)
-                        db.commit()
                         print(f"📸 Saved portfolio snapshot: {user_id} = ${total_value:,.2f}", flush=True)
 
                 # 2. Query snapshots for the requested range
                 account_key = account_id or "all"
-                query = db.query(PortfolioSnapshot).filter(PortfolioSnapshot.user_id == user_id)
+                query = select(PortfolioSnapshot).filter(PortfolioSnapshot.user_id == user_id)
                 if start_date:
                     query = query.filter(PortfolioSnapshot.snapshot_date >= start_date)
                 if end_date:
                     query = query.filter(PortfolioSnapshot.snapshot_date <= end_date)
-                snapshots = query.order_by(PortfolioSnapshot.snapshot_date.asc()).all()
+                query = query.order_by(PortfolioSnapshot.snapshot_date.asc())
+                result = await db.execute(query)
+                snapshots = result.scalars().all()
 
                 equity_series = []
                 for s in snapshots:
                     if not isinstance(s.data, dict):
                         continue
-                    # Filter by account_id in JSONB data
                     snap_acct = s.data.get("account_id", "all")
                     if snap_acct != account_key:
                         continue
                     val = s.data.get("total_value", 0)
                     equity_series.append({"date": str(s.snapshot_date), "value": float(val)})
-
-            finally:
-                db.close()
 
             return {
                 "success": True,
