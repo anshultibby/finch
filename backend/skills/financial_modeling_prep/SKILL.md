@@ -26,6 +26,7 @@ from skills.financial_modeling_prep.scripts.financials.balance_sheet import get_
 from skills.financial_modeling_prep.scripts.financials.cash_flow import get_cash_flow
 from skills.financial_modeling_prep.scripts.financials.key_metrics import get_key_metrics, get_key_metrics_ttm
 from skills.financial_modeling_prep.scripts.financials.ratios import get_ratios
+from skills.financial_modeling_prep.scripts.market.historical_prices import get_historical_prices
 from skills.financial_modeling_prep.scripts.market.gainers import get_gainers, get_losers, get_actives
 from skills.financial_modeling_prep.scripts.insider.insider_trading import get_insider_trading
 from skills.financial_modeling_prep.scripts.insider.senate_trading import get_senate_trading
@@ -36,6 +37,40 @@ from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_p
 from skills.financial_modeling_prep.scripts.peers.stock_screener import screen_stocks
 from skills.financial_modeling_prep.scripts.search.search import search
 ```
+
+## Historical Prices
+
+**Use this instead of yfinance for all historical price data.**
+
+```python
+import pandas as pd
+from skills.financial_modeling_prep.scripts.market.historical_prices import get_historical_prices
+
+# Daily OHLCV — single symbol
+data = get_historical_prices('QQQ', from_date='2025-01-01', to_date='2025-12-31')
+if 'error' in data:
+    raise RuntimeError(data['error'])
+
+df = pd.DataFrame(data['prices'])
+df['date'] = pd.to_datetime(df['date'])
+df = df.sort_values('date').reset_index(drop=True)
+print(df[['date', 'open', 'high', 'low', 'close', 'adjClose', 'volume']].tail())
+
+# Multiple symbols — call in a loop
+symbols = ['AAPL', 'MSFT', 'NVDA']
+price_data = {}
+for sym in symbols:
+    d = get_historical_prices(sym, from_date='2025-01-01', to_date='2025-12-31')
+    if 'error' not in d:
+        df = pd.DataFrame(d['prices'])
+        df['date'] = pd.to_datetime(df['date'])
+        price_data[sym] = df.sort_values('date').set_index('date')['adjClose']
+
+prices = pd.DataFrame(price_data)
+returns = prices.pct_change().dropna()
+```
+
+Fields per bar: `date`, `open`, `high`, `low`, `close`, `adjClose`, `volume`, `changePercent`
 
 ## Company Information
 
