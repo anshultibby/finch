@@ -26,6 +26,7 @@ export default function AppLayout() {
   const [activeChatIsLoading, setActiveChatIsLoading] = useState(false);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
   const [chatPrefill, setChatPrefill] = useState<string | undefined>();
+  const [selectedVisualization, setSelectedVisualization] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = (e: CustomEvent<{ message: string }>) => {
@@ -75,6 +76,10 @@ export default function AppLayout() {
               onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
               sidebarRef={sidebarRef}
               prefillMessage={chatPrefill}
+              onVisualizationClick={(filename) => {
+                setSelectedVisualization(filename);
+                setActivePanel('charts');
+              }}
             />
           </ChatModeProvider>
           </NavigationProvider>
@@ -88,7 +93,7 @@ export default function AppLayout() {
 
         {activePanel === 'charts' && (
           <div className="h-full">
-            <ChartsPanel chatId={currentChatId} />
+            <ChartsPanel chatId={currentChatId} selectedChart={selectedVisualization} />
           </div>
         )}
 

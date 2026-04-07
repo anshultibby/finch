@@ -89,7 +89,7 @@ export interface ScrapedContent {
 export interface ToolCallStatus {
   tool_call_id: string;
   tool_name: string;
-  status: 'calling' | 'completed' | 'error';
+  status: 'detected' | 'calling' | 'completed' | 'error';
   resource_id?: string;
   error?: string;
   result_summary?: string;
@@ -101,6 +101,8 @@ export interface ToolCallStatus {
   scraped_content?: ScrapedContent;
   agent_id?: string;
   parent_agent_id?: string;
+  sub_agent_id?: string;
+  sub_agent_chat_id?: string;
   _insertionOrder?: number;
 }
 
@@ -131,6 +133,8 @@ export interface SSEToolCallCompleteEvent {
   swap_data?: SwapData[];
   agent_id: string;
   parent_agent_id?: string;
+  sub_agent_id?: string;
+  sub_agent_chat_id?: string;
   timestamp: string;
 }
 
@@ -174,6 +178,13 @@ export interface SSEFileContentEvent {
   content: string;
   file_type: string;
   is_complete: boolean;
+}
+
+export interface SSEToolCallDetectedEvent {
+  tool_call_id: string;  // May be empty string if ID hasn't arrived yet
+  tool_name: string;
+  index: number;
+  timestamp: string;
 }
 
 export interface SSEToolCallStreamingEvent {

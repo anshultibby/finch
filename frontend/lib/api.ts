@@ -30,6 +30,7 @@ import type {
   SSEToolLogEvent,
   SSECodeOutputEvent,
   SSEFileContentEvent,
+  SSEToolCallDetectedEvent,
   SSEToolCallStreamingEvent,
   SSEOptionsEvent,
   SSEDoneEvent,
@@ -74,6 +75,7 @@ api.interceptors.request.use(
 export interface SSEEventHandlers {
   onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onMessageEnd?: (event: SSEMessageEndEvent) => void;
+  onToolCallDetected?: (event: SSEToolCallDetectedEvent) => void;
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
   onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
   onToolsEnd?: () => void;
@@ -144,6 +146,9 @@ export const chatApi = {
         case 'message_end':
           handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
           break;
+        case 'tool_call_detected':
+          handlers.onToolCallDetected?.(eventData as SSEToolCallDetectedEvent);
+          break;
         case 'tool_call_start':
           handlers.onToolCallStart?.(eventData as SSEToolCallStartEvent);
           break;
@@ -188,7 +193,7 @@ export const chatApi = {
 
     // Events that need a React render yield so intermediate UI states are visible
     const YIELD_AFTER_EVENTS = new Set([
-      'tool_call_start', 'tool_call_complete', 'tools_end', 'message_end', 'done'
+      'tool_call_detected', 'tool_call_start', 'tool_call_complete', 'tools_end', 'message_end', 'done'
     ]);
 
     // Parse and process SSE events from buffer one at a time.

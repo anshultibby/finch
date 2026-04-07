@@ -423,14 +423,15 @@ async def cancel_wakeup_tool(*, wakeup_id: str, context: AgentContext):
 async def create_agent(
     *,
     name: str,
+    task: str,
     platform: str = "research",
     capital_usd: Optional[float] = None,
     icon: Optional[str] = None,
     context: AgentContext,
 ) -> Dict[str, Any]:
-    """Create a new autonomous sub-agent."""
+    """Create a new autonomous sub-agent with a queued task."""
     return await agents_impl.create_agent_impl(
-        context=context, name=name, platform=platform,
+        context=context, name=name, task=task, platform=platform,
         capital_usd=capital_usd, icon=icon,
     )
 

@@ -1,9 +1,11 @@
+'use client';
 import React from 'react';
 import type { ToolCallStatus } from '@/lib/types';
 
 interface ToolCallProps {
   toolCall: ToolCallStatus;
   onShowOutput?: () => void;
+  onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
 }
 
 const getToolIcon = (toolName: string) => {
@@ -151,7 +153,7 @@ const getStatusStyles = (status: string, isError: boolean) => {
       file: 'bg-red-100 text-red-700'
     };
   }
-  if (status === 'calling') {
+  if (status === 'detected' || status === 'calling') {
     return {
       container: 'bg-amber-50/70 border border-amber-200/60 hover:border-amber-300 hover:bg-amber-50',
       icon: 'text-amber-500',
@@ -191,7 +193,81 @@ const getToolDisplayName = (toolName: string): string => {
   return nameMap[toolName] || toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 };
 
-export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
+// ── Sub-agent card (create_agent tool) ─────────────────────────────────────
+
+function AgentToolCard({ toolCall, onPeek }: { toolCall: ToolCallStatus; onPeek?: () => void }) {
+  const agentName = toolCall.arguments?.name || 'Sub-agent';
+  const isRunning = toolCall.status === 'detected' || toolCall.status === 'calling';
+  const isError = toolCall.status === 'error';
+
+  return (
+    <div className={`inline-flex items-center gap-2.5 py-2 px-3 rounded-lg border transition-all duration-150 ${
+      isError
+        ? 'bg-red-50 border-red-200'
+        : isRunning
+          ? 'bg-indigo-50/70 border-indigo-200/60'
+          : 'bg-white border-gray-200'
+    }`}>
+      {/* Icon */}
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+        isError ? 'bg-red-100' : isRunning ? 'bg-indigo-100' : 'bg-indigo-100'
+      }`}>
+        {isRunning ? (
+          <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse block" />
+        ) : isError ? (
+          <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        ) : (
+          <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+        )}
+      </div>
+
+      {/* Name + label */}
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{agentName}</p>
+        <p className={`text-[11px] ${isRunning ? 'text-indigo-500' : isError ? 'text-red-500' : 'text-gray-400'}`}>
+          {isRunning ? 'Creating agent…' : isError ? 'Failed' : 'Agent created'}
+        </p>
+      </div>
+
+      {/* Peek button — only when complete and we have the IDs */}
+      {!isRunning && !isError && toolCall.sub_agent_id && onPeek && (
+        <button
+          onClick={onPeek}
+          className="ml-1 inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors flex-shrink-0"
+        >
+          Peek
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCallProps) {
+  // Special rendering for create_agent
+  if (toolCall.tool_name === 'create_agent') {
+    return (
+      <AgentToolCard
+        toolCall={toolCall}
+        onPeek={
+          toolCall.sub_agent_id && toolCall.sub_agent_chat_id && onPeekAgent
+            ? () => onPeekAgent(
+                toolCall.sub_agent_id!,
+                toolCall.sub_agent_chat_id!,
+                toolCall.arguments?.name || 'Sub-agent'
+              )
+            : undefined
+        }
+      />
+    );
+  }
+
   const description = toolCall.statusMessage || '';
   const isError = toolCall.status === 'error' || !!toolCall.error;
   const styles = getStatusStyles(toolCall.status, isError);
@@ -293,7 +369,7 @@ export default function ToolCall({ toolCall, onShowOutput }: ToolCallProps) {
           <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-        ) : toolCall.status === 'calling' ? (
+        ) : toolCall.status === 'detected' || toolCall.status === 'calling' ? (
           <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse block" />
         ) : (
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

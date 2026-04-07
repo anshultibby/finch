@@ -96,6 +96,8 @@ class ToolCallCompleteEvent(BaseModel):
     search_results: Optional[SearchResults] = None  # Web/news search results
     scraped_content: Optional[ScrapedContent] = None  # Scraped webpage content
     file_content: Optional[FileContent] = None  # File content from read_chat_file
+    sub_agent_id: Optional[str] = None  # Set when tool is create_agent — the created bot's ID
+    sub_agent_chat_id: Optional[str] = None  # Set when tool is create_agent — the bot's initial chat ID
     timestamp: str = datetime.now().isoformat()
 
 
@@ -187,6 +189,18 @@ class FileContentEvent(BaseModel):
     content: str  # The file content (can be sent in chunks or all at once)
     file_type: str = "text"  # python, json, csv, markdown, etc.
     is_complete: bool = False  # True when file write is complete
+    timestamp: str = datetime.now().isoformat()
+
+
+class ToolCallDetectedEvent(BaseModel):
+    """Event sent as soon as a tool call name is detected during LLM streaming.
+
+    Fires before arguments are complete — lets the UI immediately show that
+    a tool is being invoked so the user knows the model isn't stuck.
+    """
+    tool_call_id: str  # May be empty string if ID hasn't arrived yet
+    tool_name: str
+    index: int  # Position in the tool_calls array
     timestamp: str = datetime.now().isoformat()
 
 

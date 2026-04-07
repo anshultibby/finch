@@ -1,6 +1,7 @@
 'use client';
 
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { chatApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
 
@@ -84,8 +85,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchActive, setSearchActive] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const loadChats = useCallback(async () => {
@@ -122,12 +123,51 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   }, [currentChatId, loadChats]);
 
   useEffect(() => {
-    if (searchActive) searchInputRef.current?.focus();
-  }, [searchActive]);
+    if (searchModalOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    } else {
+      setSearchQuery('');
+    }
+  }, [searchModalOpen]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!searchModalOpen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setSearchModalOpen(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [searchModalOpen]);
 
   const filteredChats = searchQuery
     ? chats.filter(c => (c.title || 'New Chat').toLowerCase().includes(searchQuery.toLowerCase()))
     : chats;
+
+  // Group chats by relative date label
+  const groupChatsByDate = (chatList: Chat[]) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const week = new Date(today); week.setDate(today.getDate() - 7);
+    const month = new Date(today); month.setDate(today.getDate() - 30);
+
+    const groups: { label: string; chats: Chat[] }[] = [];
+    const buckets: Record<string, Chat[]> = { Today: [], Yesterday: [], 'Previous 7 days': [], 'Previous 30 days': [], Older: [] };
+
+    for (const chat of chatList) {
+      const d = new Date(chat.updated_at);
+      const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (day >= today) buckets['Today'].push(chat);
+      else if (day >= yesterday) buckets['Yesterday'].push(chat);
+      else if (d >= week) buckets['Previous 7 days'].push(chat);
+      else if (d >= month) buckets['Previous 30 days'].push(chat);
+      else buckets['Older'].push(chat);
+    }
+
+    for (const label of ['Today', 'Yesterday', 'Previous 7 days', 'Previous 30 days', 'Older']) {
+      if (buckets[label].length > 0) groups.push({ label, chats: buckets[label] });
+    }
+    return groups;
+  };
 
   return (
     <div className={`h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 transition-all duration-200 ${expanded ? 'w-64' : 'w-14'}`}>
@@ -168,41 +208,16 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
 
         {/* Search Chats */}
         <div className="px-2 mb-1">
-          {searchActive && expanded ? (
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-gray-200 bg-white">
-              <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search chats…"
-                className="flex-1 text-sm bg-transparent outline-none text-gray-900 placeholder-gray-400"
-                onBlur={() => { if (!searchQuery) setSearchActive(false); }}
-                onKeyDown={e => { if (e.key === 'Escape') { setSearchActive(false); setSearchQuery(''); } }}
-              />
-              {searchQuery && (
-                <button onClick={() => { setSearchQuery(''); setSearchActive(false); }} className="text-gray-400 hover:text-gray-600">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          ) : (
-            <button
-              onClick={() => { setSearchActive(true); setChatsCollapsed(false); }}
-              className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors ${expanded ? '' : 'justify-center'}`}
-              title={!expanded ? 'Search Chats' : undefined}
-            >
-              <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              {expanded && <span className="font-medium">Search chats</span>}
-            </button>
-          )}
+          <button
+            onClick={() => setSearchModalOpen(true)}
+            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors ${expanded ? '' : 'justify-center'}`}
+            title={!expanded ? 'Search Chats' : undefined}
+          >
+            <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {expanded && <span className="font-medium">Search chats</span>}
+          </button>
         </div>
 
         {/* Divider */}
@@ -264,7 +279,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                       {expanded && <span className="text-xs text-blue-600">Creating chat…</span>}
                     </div>
                   )}
-                  {filteredChats.map(chat => {
+                  {chats.map(chat => {
                     const isActive = chat.chat_id === currentChatId;
                     const icon = chat.icon || '💬';
                     const title = chat.title || 'New Chat';
@@ -288,9 +303,6 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                       </button>
                     );
                   })}
-                  {searchQuery && filteredChats.length === 0 && expanded && (
-                    <p className="text-xs text-gray-400 text-center py-4">No chats match "{searchQuery}"</p>
-                  )}
                 </>
               )}
             </div>
@@ -302,6 +314,81 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
       <div className={`flex-shrink-0 border-t border-gray-200 px-2 py-2 ${expanded ? '' : 'flex justify-center'}`}>
         <ProfileDropdown collapsed={!expanded} />
       </div>
+
+      {/* Search Modal */}
+      {searchModalOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setSearchModalOpen(false); }}
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+        >
+          <div className="w-full max-w-2xl bg-[#2f2f2f] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[75vh]">
+            {/* Search input */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
+              <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search chats..."
+                className="flex-1 bg-transparent outline-none text-white placeholder-gray-500 text-base"
+              />
+              <button onClick={() => setSearchModalOpen(false)} className="text-gray-500 hover:text-gray-300 transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Results */}
+            <div className="overflow-y-auto flex-1">
+              {/* New chat option */}
+              {!searchQuery && (
+                <button
+                  onClick={() => { setSearchModalOpen(false); onNewChat(); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-gray-200 hover:bg-white/10 transition-colors text-sm"
+                >
+                  <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  <span>New chat</span>
+                </button>
+              )}
+
+              {/* Grouped chats */}
+              {groupChatsByDate(filteredChats).map(group => (
+                <div key={group.label}>
+                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {group.label}
+                  </div>
+                  {group.chats.map(chat => (
+                    <button
+                      key={chat.chat_id}
+                      onClick={() => { setSearchModalOpen(false); onSelectChat(chat.chat_id); }}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left ${
+                        chat.chat_id === currentChatId ? 'bg-white/15 text-white' : 'text-gray-300 hover:bg-white/10'
+                      }`}
+                    >
+                      <svg className="w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                      </svg>
+                      <span className="truncate">{chat.title || 'New Chat'}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+
+              {filteredChats.length === 0 && searchQuery && (
+                <p className="text-sm text-gray-500 text-center py-8">No chats match &ldquo;{searchQuery}&rdquo;</p>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 });

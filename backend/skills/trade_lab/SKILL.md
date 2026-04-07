@@ -5,6 +5,7 @@ metadata:
   emoji: "🧪"
   category: trading
   is_system: true
+  auto_on: true
   requires: {}
 ---
 

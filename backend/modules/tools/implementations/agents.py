@@ -9,6 +9,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from modules.agent.context import AgentContext
+from modules.tools.responses import ToolSuccess
 
 logger = logging.getLogger(__name__)
 
@@ -19,20 +20,26 @@ AGENTS_MANIFEST = f"{WORKSPACE_DIR}/agents.md"
 async def create_agent_impl(
     context: AgentContext,
     name: str,
+    task: str,
     platform: str = "research",
     capital_usd: Optional[float] = None,
     icon: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Create a new sub-agent and register it in /home/user/agents.md.
+    Create a new sub-agent and queue its initial task.
+
+    The task is saved as the first message in the agent's chat.
+    Users can open the agent chat to run it and peek at progress.
 
     agents.md is a plain markdown file the agent can read with bash:
         bash("cat /home/user/agents.md")
     """
     from core.database import get_db_session
     from crud.bots import create_bot
+    from crud.chat_async import create_chat
+    from models.chat_models import ChatMessageDB
     from schemas.bots import CreateBotRequest
-    from datetime import datetime
+    import uuid
 
     async with get_db_session() as db:
         req = CreateBotRequest(
@@ -42,21 +49,38 @@ async def create_agent_impl(
             icon=icon or "🤖",
         )
         bot = await create_bot(db, context.user_id, req)
+        bot_id = str(bot.id)
+
+        # Create first chat for this agent
+        chat_id = str(uuid.uuid4())
+        from models.chat_models import Chat
+        chat = Chat(
+            chat_id=chat_id,
+            user_id=context.user_id,
+            bot_id=bot_id,
+            title=name.strip(),
+        )
+        db.add(chat)
+
+        # Save task as first user message so the agent can be triggered later
+        from datetime import datetime, timezone
+        msg = ChatMessageDB(
+            chat_id=chat_id,
+            role="user",
+            content=task,
+            timestamp=datetime.now(timezone.utc),
+        )
+        db.add(msg)
+        await db.commit()
 
     # Write manifest entry to sandbox (fire-and-forget)
     import asyncio
     asyncio.create_task(_register_agent_in_manifest(context, bot, platform, capital_usd))
 
-    return {
-        "success": True,
-        "agent_id": str(bot.id),
-        "name": bot.name,
-        "platform": platform,
-        "message": (
-            f"Agent '{bot.name}' created (id={bot.id}). "
-            f"Registered in {AGENTS_MANIFEST}."
-        ),
-    }
+    return ToolSuccess(
+        data={"agent_id": bot_id, "chat_id": chat_id, "name": bot.name},
+        message=f"Agent '{bot.name}' created with task queued (chat_id={chat_id}).",
+    )
 
 
 async def _register_agent_in_manifest(context, bot, platform: str, capital_usd) -> None:

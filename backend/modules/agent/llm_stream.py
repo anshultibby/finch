@@ -24,7 +24,7 @@ import json
 import re
 import asyncio
 import traceback as traceback_module
-from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent
+from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent, ToolCallDetectedEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
 from .message_processor import validate_and_fix_tool_calls, enforce_tool_call_sequence
@@ -380,8 +380,19 @@ async def stream_llm_response(
                         tool_calls[idx]["id"] = tc.id
                     if hasattr(tc, 'function') and tc.function:
                         if tc.function.name:
+                            # First time we see this tool's name — emit immediately so UI
+                            # can show a loading indicator before arguments finish streaming
+                            if not tool_calls[idx]["function"]["name"]:
+                                yield SSEEvent(
+                                    event="tool_call_detected",
+                                    data=ToolCallDetectedEvent(
+                                        tool_call_id=tool_calls[idx]["id"],
+                                        tool_name=tc.function.name,
+                                        index=idx,
+                                    ).model_dump()
+                                )
                             tool_calls[idx]["function"]["name"] = tc.function.name
-                        
+
                         if tc.function.arguments:
                             tool_calls[idx]["function"]["arguments"] += tc.function.arguments
         

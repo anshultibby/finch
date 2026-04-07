@@ -6,6 +6,7 @@ metadata:
   emoji: "💹"
   category: stock_fundamentals
   is_system: true
+  auto_on: true
   requires:
     env:
       - FMP_API_KEY
@@ -36,6 +37,7 @@ from skills.financial_modeling_prep.scripts.analyst.price_target import get_pric
 from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_peers
 from skills.financial_modeling_prep.scripts.peers.stock_screener import screen_stocks
 from skills.financial_modeling_prep.scripts.search.search import search
+from skills.financial_modeling_prep.scripts.etf.holdings import get_etf_holdings
 ```
 
 ## Historical Prices
@@ -237,6 +239,27 @@ for stock in results:
     print(f"{stock['symbol']}: {stock['name']} ({stock['exchangeShortName']})")
 ```
 
+## ETF Holdings
+
+```python
+from skills.financial_modeling_prep.scripts.etf.holdings import get_etf_holdings
+
+# Get constituents of an ETF
+holdings = get_etf_holdings('QQQ')
+if isinstance(holdings, dict) and 'error' in holdings:
+    raise RuntimeError(holdings['error'])
+
+import pandas as pd
+df = pd.DataFrame(holdings)
+df = df.sort_values('weightPercentage', ascending=False)
+print(df[['asset', 'name', 'weightPercentage']].head(20))
+
+# Historical snapshot
+holdings_2024 = get_etf_holdings('SPY', date='2024-12-31')
+```
+
+Fields per holding: `asset` (ticker), `name`, `weightPercentage` (decimal, e.g. 0.082 = 8.2%), `sharesNumber`, `marketValue`, `updated`
+
 ## Common Workflows
 
 ### Value Screen
@@ -305,4 +328,5 @@ See `financial_modeling_prep/models.py` for complete Pydantic schemas.
 - User asks for analyst price targets or institutional ownership
 - User wants to screen for market movers (gainers, losers, most active)
 - User asks "what do insiders think about X" or "is X undervalued"
-- Combine with `polygon_io` for price data and `tradingview` for technical signals
+- User wants to know what stocks an ETF holds (use `get_etf_holdings`)
+- For price data, use `get_historical_prices` from this skill — do NOT use yfinance, polygon, or alpha_vantage

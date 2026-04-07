@@ -5,6 +5,7 @@ metadata:
   emoji: "📉"
   category: finance
   is_system: true
+  auto_on: true
   requires:
     env: []
     bins: []

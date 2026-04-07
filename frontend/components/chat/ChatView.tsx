@@ -7,6 +7,7 @@ import ChatModeBanner from './ChatModeBanner';
 import NewChatWelcome from './NewChatWelcome';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
+import AgentPeekPanel from './AgentPeekPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { chatApi, snaptradeApi } from '@/lib/api';
@@ -30,6 +31,7 @@ interface ChatViewProps {
   onHistoryRefresh?: () => void;
   sidebarRef?: React.RefObject<AppSidebarRef>;
   prefillMessage?: string;
+  onVisualizationClick?: (filename: string) => void;
   // If set, this chat is scoped to a trading bot
   botId?: string;
   rightOffset?: number;
@@ -83,14 +85,17 @@ export default function ChatView({
   onHistoryRefresh,
   sidebarRef,
   prefillMessage,
+  onVisualizationClick,
   botId,
   rightOffset = 0,
 }: ChatViewProps) {
   const { user } = useAuth();
   const { mode } = useChatMode();
 
-  const [currentChatId, setCurrentChatIdLocal] = useState<string | null>(null);
-  const [isNewChat, setIsNewChat] = useState(false);
+  const [currentChatId, setCurrentChatIdLocal] = useState<string | null>(
+    externalChatId !== undefined ? externalChatId : null
+  );
+  const [isNewChat, setIsNewChat] = useState(externalChatId === null);
   const [isCreatingChat, setIsCreatingChatLocal] = useState(false);
 
   // Display state mirrors the active chat's ChatStreamState
@@ -108,6 +113,9 @@ export default function ChatView({
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Sub-agent peek panel
+  const [peekAgent, setPeekAgent] = useState<{ agentId: string; chatId: string; name: string } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipNextHistoryLoad = useRef(false);
@@ -572,29 +580,36 @@ export default function ChatView({
             ) : (
               <>
                 {messages.map((msg, i) => {
-                  const lastAssistantIdx = messages.reduce((last, m, idx) => m.role === 'assistant' ? idx : last, -1);
-                  const isLastAssistant = msg.role === 'assistant' && i === lastAssistantIdx && !isLoading && !streamingText && streamingTools.length === 0;
+                  // Only show actions when fully idle — never during streaming
+                  const nextIsUser = messages[i + 1]?.role === 'user';
+                  const isLast = i === messages.length - 1;
+                  const showActions = !isLoading && msg.role === 'assistant' && (
+                    nextIsUser || isLast
+                  );
 
-                  const messageActions = isLastAssistant && currentChatId ? [
+                  // Collect full section text for copy
+                  let groupContent = '';
+                  if (showActions) {
+                    for (let j = i; j >= 0 && messages[j].role === 'assistant'; j--) {
+                      if (messages[j].content) groupContent = messages[j].content + (groupContent ? '\n\n' + groupContent : '');
+                    }
+                  }
+
+                  const messageActions = showActions && currentChatId ? [
                     {
-                      icon: (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      ),
+                      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>,
                       label: 'Copy',
-                      onClick: () => navigator.clipboard.writeText(msg.content),
+                      onClick: () => navigator.clipboard.writeText(groupContent),
                     },
                     {
-                      icon: (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                      ),
-                      label: 'Download PDF',
-                      onClick: handleExportPdf,
-                      disabled: isExporting,
-                      loading: isExporting,
+                      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>,
+                      label: 'Good response',
+                      onClick: () => {},
+                    },
+                    {
+                      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v2a3.5 3.5 0 003.5 3.5h.174a.535.535 0 00.524-.448l.497-2.986A1.5 1.5 0 0116.18 14.5H18a2.5 2.5 0 002.5-2.5v0a2.5 2.5 0 00-.69-1.726l-3.549-3.643A2 2 0 0014.846 6H10m0 8H7.5" /></svg>,
+                      label: 'Bad response',
+                      onClick: () => {},
                     },
                   ] : undefined;
 
@@ -608,30 +623,25 @@ export default function ChatView({
                       chatId={currentChatId || undefined}
                       onSelectTool={handleSelectTool}
                       onFileClick={(filename) => setSelectedFile(filename)}
+                      onVisualizationClick={onVisualizationClick}
                       onSendMessage={(text) => handleSendMessage(text)}
+                      onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                       actions={messageActions}
-                      isLastAssistantMessage={isLastAssistant}
+                      isLastAssistantMessage={showActions && isLast}
                     />
                   );
                 })}
 
-                {streamingTools.length > 0 && (
-                  <ChatMessage
-                    role="assistant"
-                    content=""
-                    toolCalls={streamingTools}
-                    chatId={currentChatId || undefined}
-                    onSelectTool={handleSelectTool}
-                    onFileClick={(filename) => setSelectedFile(filename)}
-                  />
-                )}
-
-                {streamingText && (
+                {(streamingText || streamingTools.length > 0) && (
                   <ChatMessage
                     role="assistant"
                     content={streamingText}
+                    toolCalls={streamingTools.length > 0 ? streamingTools : undefined}
                     chatId={currentChatId || undefined}
+                    onSelectTool={handleSelectTool}
                     onFileClick={(filename) => setSelectedFile(filename)}
+                    onVisualizationClick={onVisualizationClick}
+                    onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                   />
                 )}
 
@@ -665,7 +675,7 @@ export default function ChatView({
                 )}
 
                 <div ref={messagesEndRef} />
-                <div className="h-16" />
+                <div className="h-40" />
               </>
             )}
           </div>
@@ -726,8 +736,23 @@ export default function ChatView({
             newStr={selectedTool.arguments?.new_str}
             searchResults={selectedTool.search_results}
             scrapedContent={selectedTool.scraped_content}
-            isStreaming={selectedTool.status === 'calling'}
+            isStreaming={selectedTool.status === 'detected' || selectedTool.status === 'calling'}
             onClose={() => setSelectedTool(null)}
+          />
+        </div>
+      )}
+
+      {/* Agent Peek Panel — slides in from right when a sub-agent card is clicked */}
+      {peekAgent && (
+        <div
+          className="fixed top-0 right-0 h-full w-full md:w-[380px] z-50 shadow-2xl"
+          style={rightOffset ? { right: rightOffset } : undefined}
+        >
+          <AgentPeekPanel
+            agentId={peekAgent.agentId}
+            chatId={peekAgent.chatId}
+            agentName={peekAgent.name}
+            onClose={() => setPeekAgent(null)}
           />
         </div>
       )}

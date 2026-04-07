@@ -11,6 +11,7 @@ One sandbox persists per user (not per-chat), surviving server restarts:
 - Clearing a chat does NOT destroy the sandbox; reset_sandbox does
 """
 from e2b.sandbox.commands.command_handle import CommandExitException
+from e2b.exceptions import TimeoutException
 from modules.agent.context import AgentContext
 from schemas.sse import SSEEvent
 from typing import Optional, Dict, Any, AsyncGenerator, List
@@ -29,7 +30,7 @@ logger = get_logger(__name__)
 WORKSPACE_DIR = "/home/user"
 SKILLS_DIR = f"{WORKSPACE_DIR}/skills"
 APIS_DIR = f"{WORKSPACE_DIR}/apis"
-EXECUTION_TIMEOUT = 60       # seconds — max runtime per execution
+EXECUTION_TIMEOUT = 180      # seconds — max runtime per execution
 SANDBOX_IDLE_TIMEOUT = 600   # seconds — sandbox auto-pauses after this idle time
 
 # Absolute path to the skills directory on the host (sibling of this file's package root)
@@ -612,6 +613,10 @@ async def bash_impl(
                 ),
             )
             exit_code = run_result.exit_code
+        except TimeoutException:
+            logger.warning(f"bash timed out after {EXECUTION_TIMEOUT}s")
+            stderr_lines.append(f"Command timed out after {EXECUTION_TIMEOUT} seconds.")
+            exit_code = 124  # standard timeout exit code
         except CommandExitException as e:
             exit_code = e.exit_code if hasattr(e, 'exit_code') else 1
 

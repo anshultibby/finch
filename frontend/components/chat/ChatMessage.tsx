@@ -22,7 +22,9 @@ interface ChatMessageProps {
   chatId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
   onFileClick?: (filename: string) => void;
+  onVisualizationClick?: (filename: string) => void;
   onSendMessage?: (msg: string) => void;
+  onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
   actions?: MessageAction[];
   isLastAssistantMessage?: boolean;
 }
@@ -31,6 +33,31 @@ const getChatFileUrl = (chatId: string | undefined, filename: string): string =>
   if (!chatId) return '';
   return `${getApiBaseUrl()}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`;
 };
+
+// Custom ReactMarkdown components that route sandbox image paths through the API
+const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filename: string) => void) => ({
+  img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+    if (src && chatId && (src.startsWith('/home/user/') || src.startsWith('/tmp/'))) {
+      const proxiedSrc = `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(src)}`;
+      const basename = src.split('/').pop() || src;
+      return (
+        <span className="block my-3 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 max-w-full">
+          <img
+            src={proxiedSrc}
+            alt={alt || basename}
+            className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+            style={{ maxHeight: '400px' }}
+            loading="lazy"
+            onClick={() => onFileClick?.(basename)}
+            {...props}
+          />
+          <span className="block px-3 py-2 bg-white border-t border-gray-200 text-xs text-gray-600 font-mono">{basename}</span>
+        </span>
+      );
+    }
+    return <img src={src} alt={alt} {...props} />;
+  },
+});
 
 // Inline CSV Preview Component
 function CsvPreview({
@@ -294,64 +321,114 @@ function HtmlPreview({
   );
 }
 
+const getSandboxFileUrl = (chatId: string | undefined, sandboxPath: string): string => {
+  if (!chatId) return '';
+  return `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(sandboxPath)}`;
+};
+
 const parseFileReferences = (
   content: string,
   chatId: string | undefined,
-  onFileClick?: (filename: string) => void
+  onFileClick?: (filename: string) => void,
+  onVisualizationClick?: (filename: string) => void
 ): React.ReactNode[] => {
   const parts: React.ReactNode[] = [];
-  const filePattern = /\[file:([^\]]+)\]/g;
+  // Match [file:...], [visualization:...], and [image:...] markers
+  const markerPattern = /\[(file|visualization|image):\s*([^\]]+)\]/g;
   let lastIndex = 0;
   let match;
 
-  while ((match = filePattern.exec(content)) !== null) {
+  while ((match = markerPattern.exec(content)) !== null) {
     if (match.index > lastIndex) {
       parts.push(content.substring(lastIndex, match.index));
     }
 
-    const filename = match[1];
-    const fileUrl = getChatFileUrl(chatId, filename);
+    const markerType = match[1];
+    const filename = match[2].trim();
 
-    if (isImageFile(filename)) {
+    if (markerType === 'image') {
+      // [image:filename.png] — render inline from sandbox
+      const sandboxPath = filename.startsWith('/') ? filename : `/home/user/${filename}`;
+      const imgUrl = getSandboxFileUrl(chatId, sandboxPath);
+      const basename = filename.split('/').pop() || filename;
       parts.push(
-        <div key={`file-${match.index}`} className="my-3 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 max-w-full">
-          <img src={fileUrl} alt={filename} className="max-w-full h-auto" loading="lazy" />
+        <div key={`img-${match.index}`} className="my-3 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 max-w-full">
+          <img
+            src={imgUrl}
+            alt={basename}
+            className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+            style={{ maxHeight: '400px' }}
+            loading="lazy"
+            onClick={() => onFileClick?.(basename)}
+          />
           <div className="px-3 py-2 bg-white border-t border-gray-200">
-            <p className="text-xs text-gray-600 font-mono">{filename}</p>
+            <p className="text-xs text-gray-600 font-mono">{basename}</p>
           </div>
         </div>
       );
-    } else if (isCsvFile(filename)) {
-      parts.push(
-        <CsvPreview
-          key={`csv-${match.index}`}
-          filename={filename}
-          chatId={chatId}
-          onOpen={() => onFileClick?.(filename)}
-        />
-      );
-    } else if (isHtmlFile(filename)) {
-      parts.push(
-        <HtmlPreview
-          key={`html-${match.index}`}
-          filename={filename}
-          chatId={chatId}
-          onOpen={() => onFileClick?.(filename)}
-        />
-      );
-    } else {
+    } else if (markerType === 'visualization') {
+      // Render as a clickable chip that navigates to the Charts panel
+      const displayName = filename.replace(/\.html$/i, '').replace(/[_-]/g, ' ');
       parts.push(
         <button
-          key={`file-${match.index}`}
-          onClick={() => onFileClick?.(filename)}
-          className="inline-flex items-center gap-1 px-2 py-1 mx-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-sm border border-blue-200 transition-colors cursor-pointer"
+          key={`viz-${match.index}`}
+          onClick={() => onVisualizationClick?.(filename)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 my-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium border border-indigo-200 transition-colors cursor-pointer group"
         >
-          {filename}
+          <svg className="w-4 h-4 text-indigo-500 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+          </svg>
+          {displayName}
+          <svg className="w-3 h-3 text-indigo-400 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </button>
       );
+    } else {
+      // Existing [file:...] handling
+      const fileUrl = getChatFileUrl(chatId, filename);
+
+      if (isImageFile(filename)) {
+        parts.push(
+          <div key={`file-${match.index}`} className="my-3 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 max-w-full">
+            <img src={fileUrl} alt={filename} className="max-w-full h-auto" loading="lazy" />
+            <div className="px-3 py-2 bg-white border-t border-gray-200">
+              <p className="text-xs text-gray-600 font-mono">{filename}</p>
+            </div>
+          </div>
+        );
+      } else if (isCsvFile(filename)) {
+        parts.push(
+          <CsvPreview
+            key={`csv-${match.index}`}
+            filename={filename}
+            chatId={chatId}
+            onOpen={() => onFileClick?.(filename)}
+          />
+        );
+      } else if (isHtmlFile(filename)) {
+        parts.push(
+          <HtmlPreview
+            key={`html-${match.index}`}
+            filename={filename}
+            chatId={chatId}
+            onOpen={() => onFileClick?.(filename)}
+          />
+        );
+      } else {
+        parts.push(
+          <button
+            key={`file-${match.index}`}
+            onClick={() => onFileClick?.(filename)}
+            className="inline-flex items-center gap-1 px-2 py-1 mx-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-sm border border-blue-200 transition-colors cursor-pointer"
+          >
+            {filename}
+          </button>
+        );
+      }
     }
 
-    lastIndex = filePattern.lastIndex;
+    lastIndex = markerPattern.lastIndex;
   }
 
   if (lastIndex < content.length) {
@@ -428,7 +505,7 @@ function SwapCards({ swaps, onExecute, onExecuteAll }: { swaps: SwapData[]; onEx
   );
 }
 
-function ToolCallList({ toolCalls, onSelectTool }: { toolCalls: ToolCallStatus[], onSelectTool?: (tool: ToolCallStatus) => void }) {
+function ToolCallList({ toolCalls, onSelectTool, onPeekAgent }: { toolCalls: ToolCallStatus[], onSelectTool?: (tool: ToolCallStatus) => void, onPeekAgent?: (agentId: string, chatId: string, name: string) => void }) {
   // Sort by insertion order to maintain stable rendering
   // Tools without _insertionOrder (e.g., from history) keep their array position
   const sortedTools = [...toolCalls].sort((a, b) => {
@@ -440,27 +517,27 @@ function ToolCallList({ toolCalls, onSelectTool }: { toolCalls: ToolCallStatus[]
   return (
     <div className="flex flex-col gap-1">
       {sortedTools.map((tool) => (
-        <ToolCall 
-          key={tool.tool_call_id} 
+        <ToolCall
+          key={tool.tool_call_id}
           toolCall={tool}
           onShowOutput={() => onSelectTool?.(tool)}
+          onPeekAgent={onPeekAgent}
         />
       ))}
     </div>
   );
 }
 
-function MessageActions({ actions }: { actions: MessageAction[] }) {
+function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; alwaysVisible?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5 mt-2 -ml-1">
+    <div className={`flex items-center gap-0.5 mt-3 -ml-1 ${alwaysVisible ? 'opacity-100' : 'opacity-0 group-hover/msg:opacity-100'} transition-opacity`}>
       {actions.map((action, idx) => (
         <button
           key={idx}
           onClick={action.onClick}
           disabled={action.disabled || action.loading}
-          className="flex items-center gap-1.5 px-2.5 py-2 text-gray-400 hover:text-gray-600 active:text-gray-800 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+          className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 active:text-gray-800 hover:bg-gray-100 active:bg-gray-200 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
           title={action.label}
-          style={{ minHeight: '40px', minWidth: '40px' }}
         >
           {action.loading ? (
             <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />
@@ -473,10 +550,11 @@ function MessageActions({ actions }: { actions: MessageAction[] }) {
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, onSelectTool, onFileClick, onSendMessage, actions, isLastAssistantMessage }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage }: ChatMessageProps) {
   const isUser = role === 'user';
-  const hasFileReferences = !isUser && content && /\[file:[^\]]+\]/.test(content);
-  const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick) : null;
+  const hasFileReferences = !isUser && content && /\[(file|visualization|image):\s*[^\]]+\]/.test(content);
+  const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick) : null;
+  const mdComponents = React.useMemo(() => makeMarkdownComponents(chatId, onFileClick), [chatId, onFileClick]);
 
   if (isUser) {
     return (
@@ -492,13 +570,13 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
 
   if (content && (!toolCalls || toolCalls.length === 0)) {
     return (
-      <div className="flex justify-start mb-2">
+      <div className="flex justify-start mb-2 group/msg">
         <div className="w-full px-3">
           {hasFileReferences ? (
             <div className="prose prose-sm prose-slate max-w-none">
-              {parsedContent?.map((part, idx) => 
+              {parsedContent?.map((part, idx) =>
                 typeof part === 'string' ? (
-                  <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
                     {part}
                   </ReactMarkdown>
                 ) : part
@@ -506,13 +584,13 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
             </div>
           ) : (
             <div className="prose prose-sm prose-slate max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                 {content}
               </ReactMarkdown>
             </div>
           )}
-          {actions && actions.length > 0 && isLastAssistantMessage && (
-            <MessageActions actions={actions} />
+          {actions && actions.length > 0 && (
+            <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} />
           )}
         </div>
       </div>
@@ -523,21 +601,21 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
     return (
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
-          <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} />
+          <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex justify-start mb-2">
+    <div className="flex justify-start mb-2 group/msg">
       <div className="w-full px-3">
         {content && (
           hasFileReferences ? (
             <div className="prose prose-sm prose-slate max-w-none mb-2">
-              {parsedContent?.map((part, idx) => 
+              {parsedContent?.map((part, idx) =>
                 typeof part === 'string' ? (
-                  <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
                     {part}
                   </ReactMarkdown>
                 ) : part
@@ -545,7 +623,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
             </div>
           ) : (
             <div className="prose prose-sm prose-slate max-w-none mb-2">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                 {content}
               </ReactMarkdown>
             </div>
@@ -559,10 +637,10 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
           />
         )}
         {toolCalls && toolCalls.length > 0 && (
-          <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} />
+          <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} />
         )}
-        {actions && actions.length > 0 && isLastAssistantMessage && (
-          <MessageActions actions={actions} />
+        {actions && actions.length > 0 && (
+          <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} />
         )}
       </div>
     </div>

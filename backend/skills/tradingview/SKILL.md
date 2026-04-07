@@ -6,6 +6,7 @@ metadata:
   emoji: "📐"
   category: technical_analysis
   is_system: true
+  auto_on: true
   requires:
     env: []
     bins: []

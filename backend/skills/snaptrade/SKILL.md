@@ -6,6 +6,7 @@ metadata:
   emoji: "🏦"
   category: brokerage
   is_system: true
+  auto_on: true
   requires:
     env:
       - SNAPTRADE_CLIENT_ID
