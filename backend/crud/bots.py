@@ -58,7 +58,6 @@ async def create_bot(
 ) -> TradingBot:
     """Create a new trading bot."""
     bot_id = str(uuid.uuid4())
-    directory = f"bots/{_slugify(request.name)}-{bot_id[:8]}"
 
     bot_config = BotConfig(platform=request.platform)
     if request.capital_amount and request.capital_amount > 0:
@@ -73,7 +72,6 @@ async def create_bot(
         user_id=user_id,
         name=request.name,
         icon=request.icon,
-        directory=directory,
         enabled=False,
         config=config,
         stats=BotStats().model_dump(mode="json"),

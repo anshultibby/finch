@@ -32,6 +32,7 @@ export interface ChatStreamState {
   isLoading: boolean;
   error: string | null;
   pendingOptions: SSEOptionsEvent | null;
+  pendingSwapData: import('@/lib/types').SwapData[] | null;
   stream: { close: () => void; reconnect?: () => void } | null;
   toolInsertionCounter: number;
   wasStreamingBeforeHidden: boolean;
@@ -58,6 +59,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     isLoading: false,
     error: null,
     pendingOptions: null,
+    pendingSwapData: null,
     stream: null,
     toolInsertionCounter: 0,
     wasStreamingBeforeHidden: false,
@@ -123,8 +125,10 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           content: '',
           timestamp: new Date().toISOString(),
           toolCalls: sortedTools,
+          swap_data: state.pendingSwapData || undefined,
         }],
         streamingTools: [],
+        pendingSwapData: null,
       }, onStateChange);
     }
   }, [getChatState, updateChatState]);
@@ -284,9 +288,16 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         parent_agent_id: event.parent_agent_id,
       };
 
-      updateChatState(chatId, {
+      const updates: Partial<ChatStreamState> = {
         streamingTools: addOrUpdateTool(chatId, completedTool),
-      }, onStateChange);
+      };
+
+      // Capture swap data from present_swaps tool
+      if (event.tool_name === 'present_swaps' && event.swap_data) {
+        updates.pendingSwapData = event.swap_data;
+      }
+
+      updateChatState(chatId, updates, onStateChange);
     },
 
     onCodeOutput: (event: { stream: 'stdout' | 'stderr'; content: string }) => {

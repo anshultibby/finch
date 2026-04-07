@@ -688,6 +688,10 @@ class ToolExecutor:
                 "file_content": file_content,
                 "agent_id": context.agent_id  # Which agent ran this tool
             }
+
+            # Pass swap data to frontend for rendering swap cards
+            if result.tool_name == "present_swaps" and result.success and isinstance(result.raw_result, dict):
+                complete_event_data["swap_data"] = result.raw_result.get("swaps")
             # Include parent_agent_id if this is a sub-agent (e.g., executor)
             if context.parent_agent_id:
                 complete_event_data["parent_agent_id"] = context.parent_agent_id

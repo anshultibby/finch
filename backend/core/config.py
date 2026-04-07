@@ -90,6 +90,14 @@ class Settings(BaseSettings):
         default=None,
         description="The Odds API key for live sports odds data"
     )
+    ALPACA_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Alpaca API key for paper/live trading"
+    )
+    ALPACA_SECRET_KEY: Optional[str] = Field(
+        default=None,
+        description="Alpaca secret key"
+    )
     E2B_API_KEY: Optional[str] = Field(
         default=None,
         description="E2B API key for sandboxed code execution"
@@ -173,6 +181,10 @@ class Settings(BaseSettings):
             'connect_brokerage',
             'get_brokerage_status',
             'get_portfolio',
+            # TLH Swaps
+            'present_swaps',
+            # Agent Management
+            'create_agent',
             # Bot Management (only functional in bot chats)
             'configure_bot',
             'place_trade',

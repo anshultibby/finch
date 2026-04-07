@@ -1,12 +1,12 @@
 'use client';
 
 import AuthGate from '@/components/PasswordGate';
-import BotGrid from '@/components/bots/BotGrid';
+import AppLayout from '@/components/layout/AppLayout';
 
 export default function Home() {
   return (
     <AuthGate>
-      <BotGrid />
+      <AppLayout />
     </AuthGate>
   );
 }

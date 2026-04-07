@@ -19,12 +19,15 @@ from modules.tools.descriptions import (
     BUILD_CUSTOM_ETF_DESC,
     # Web Search
     WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC,
+    # Agent Management
+    CREATE_AGENT_DESC,
 )
 
 # Import implementations
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
 from modules.tools.implementations import bots as bots_impl
+from modules.tools.implementations import agents as agents_impl
 
 
 # ============================================================================
@@ -179,6 +182,28 @@ def scrape_url(
 ):
     """Scrape a webpage and convert to clean markdown text"""
     return web_search.scrape_url_impl(url, context, timeout)
+
+
+# ============================================================================
+# TLH / SWAP PRESENTATION TOOL
+# ============================================================================
+
+from modules.tools.implementations import alpaca as alpaca_impl
+
+PRESENT_SWAPS_DESC = """Present tax loss harvesting swap opportunities to the user.
+Call this with a list of swap objects after analyzing the portfolio.
+Each swap: {sell_symbol, sell_qty, sell_loss, sell_loss_pct, buy_symbol, buy_reason, estimated_savings, correlation}.
+The frontend will render these as interactive cards the user can execute."""
+
+
+@tool(
+    name="present_swaps",
+    description=PRESENT_SWAPS_DESC,
+    category="swaps"
+)
+async def present_swaps(*, context: AgentContext, swaps: List):
+    """Present TLH swap opportunities as interactive cards."""
+    return await alpaca_impl.present_swaps_impl(context, swaps)
 
 
 # ============================================================================
@@ -387,6 +412,32 @@ async def cancel_wakeup_tool(*, wakeup_id: str, context: AgentContext):
 
 
 # ============================================================================
+# AGENT MANAGEMENT TOOLS
+# ============================================================================
+
+@tool(
+    name="create_agent",
+    description=CREATE_AGENT_DESC,
+    category="agent_management",
+)
+async def create_agent(
+    *,
+    name: str,
+    platform: str = "research",
+    capital_usd: Optional[float] = None,
+    icon: Optional[str] = None,
+    context: AgentContext,
+) -> Dict[str, Any]:
+    """Create a new autonomous sub-agent."""
+    return await agents_impl.create_agent_impl(
+        context=context, name=name, platform=platform,
+        capital_usd=capital_usd, icon=icon,
+    )
+
+
+
+
+# ============================================================================
 # TOOL EXPORTS
 # ============================================================================
 
@@ -401,7 +452,9 @@ __all__ = [
     'build_custom_etf',
     # Web Search
     'web_search_tool', 'news_search', 'scrape_url',
-    # Bot Management
+    # Agent Management
+    'create_agent',
+    # Bot Management (only functional in bot chats)
     'configure_bot',
     'place_trade',
     'cancel_order',

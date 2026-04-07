@@ -114,18 +114,28 @@ for result in comparison['results']:
 
 ### Chart for Chat (Embeddable)
 
+Always save charts to `/home/user/chat_files/` so they appear in the user's Charts tab in the sidebar.
+
 ```python
+import os
 from skills.tradingview.scripts.charts.create_chart_for_chat import create_chart_for_chat
 
 # Create an embeddable chart
 chart = create_chart_for_chat(
     symbol="AAPL",
     interval="D",  # Daily
-    indicators=["MA", "RSI", "MACD"]  # Optional indicators
+    indicators=["RSI", "MACD"]  # Optional indicators
 )
 
-# Returns HTML/widget code for embedding
-print(f"Chart HTML: {chart['html'][:100]}...")
+# Save to chat_files so it shows in the Charts tab
+os.makedirs("/home/user/chat_files", exist_ok=True)
+path = f"/home/user/chat_files/{chart['filename']}"
+with open(path, "w") as f:
+    f.write(chart["html"])
+
+print(f"Chart saved: {chart['filename']}")
+print(f"Description: {chart['description']}")
+# Tell the user to check the Charts tab in the sidebar
 ```
 
 ### Symbol Overview Widget
@@ -305,7 +315,8 @@ def create_analysis_report(symbol):
 - Screener values: `"america"` (US stocks), `"crypto"` (crypto), `"forex"` (FX)
 - Intervals: `"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1D"`, `"1W"`, `"1M"`
 - Recommendations: `"BUY"`, `"SELL"`, `"NEUTRAL"`, `"STRONG_BUY"`, `"STRONG_SELL"`
-- Charts return HTML widgets that can be embedded in chat interfaces
+- **Always save charts to `/home/user/chat_files/`** — this makes them appear in the Charts tab in the sidebar
+- After saving, tell the user the chart is ready and they can view it in the Charts tab
 
 ## When to Use This Skill
 

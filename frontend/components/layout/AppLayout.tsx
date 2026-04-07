@@ -4,6 +4,12 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppSidebar, { type SidebarPanel, type AppSidebarRef } from './AppSidebar';
 import ChatView from '@/components/chat/ChatView';
+import FilesPanel from '../FilesPanel';
+import ChartsPanel from '../ChartsPanel';
+import SkillsPanel from '../SkillsPanel';
+import BotVisualizationsPanel from '../bots/BotVisualizationsPanel';
+import { ChatModeProvider } from '@/contexts/ChatModeContext';
+import { NavigationProvider } from '@/contexts/NavigationContext';
 
 export default function AppLayout() {
   const { user } = useAuth();
@@ -59,16 +65,44 @@ export default function AppLayout() {
       <div className="flex-1 overflow-hidden">
         {/* ChatView is always mounted — streams survive panel switches */}
         <div className={activePanel === 'chat' ? 'h-full' : 'hidden'}>
-          <ChatView
-            externalChatId={currentChatId}
-            onChatIdChange={setCurrentChatId}
-            onCreatingChatChange={setIsCreatingChat}
-            onLoadingChange={setActiveChatIsLoading}
-            onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
-            sidebarRef={sidebarRef}
-            prefillMessage={chatPrefill}
-          />
+          <NavigationProvider>
+          <ChatModeProvider>
+            <ChatView
+              externalChatId={currentChatId}
+              onChatIdChange={setCurrentChatId}
+              onCreatingChatChange={setIsCreatingChat}
+              onLoadingChange={setActiveChatIsLoading}
+              onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
+              sidebarRef={sidebarRef}
+              prefillMessage={chatPrefill}
+            />
+          </ChatModeProvider>
+          </NavigationProvider>
         </div>
+
+        {activePanel === 'files' && (
+          <div className="h-full">
+            <FilesPanel chatId={currentChatId} />
+          </div>
+        )}
+
+        {activePanel === 'charts' && (
+          <div className="h-full">
+            <ChartsPanel chatId={currentChatId} />
+          </div>
+        )}
+
+        {activePanel === 'portfolio' && (
+          <div className="h-full">
+            <BotVisualizationsPanel />
+          </div>
+        )}
+
+        {activePanel === 'skills' && (
+          <div className="h-full">
+            <SkillsPanel />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -558,7 +558,7 @@ export default function ChatView({
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className={`py-3 sm:py-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`pt-8 pb-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
@@ -604,9 +604,11 @@ export default function ChatView({
                       role={msg.role}
                       content={msg.content}
                       toolCalls={msg.toolCalls}
+                      swap_data={msg.swap_data}
                       chatId={currentChatId || undefined}
                       onSelectTool={handleSelectTool}
                       onFileClick={(filename) => setSelectedFile(filename)}
+                      onSendMessage={(text) => handleSendMessage(text)}
                       actions={messageActions}
                       isLastAssistantMessage={isLastAssistant}
                     />

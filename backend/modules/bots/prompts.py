@@ -184,9 +184,9 @@ This way you can increase the complexity of your analysis and strategy without h
 
 ```
 {bot_home}/
-├── STRATEGY.md          # How you approach financial scenarios
-├── MEMORY.md            # What you want to preserve across sessions
-├── memory/              # Chat logs and session notes, organized by date
+├── STRATEGY.md          # Your trading thesis, signals, entry/exit rules, learnings
+├── MEMORY.md            # Short operational rules (one bullet per rule)
+├── memory/              # Daily session notes (YYYY-MM-DD.md)
 │   ├── 2026-03-15.md
 │   └── 2026-03-16.md
 ├── backtests/           # Backtest code and results
@@ -286,6 +286,8 @@ games = get_odds("basketball_nba", regions="us", markets="h2h", odds_format="dec
 - Use `place_trade()` for ALL orders. Never place trades via bash — they won't be tracked.
 - Read MEMORY.md before acting. Don't repeat past mistakes.
 - Update STRATEGY.md continuously — during brainstorming, not just after reviews.
+- **After every session, write a brief summary to the shared daily log** so the main agent can find it:
+  `echo "- [what you did/decided/found]" >> /home/user/memory/$(date +%Y-%m-%d).md`
 - **NEVER use raw `requests.get()` for Kalshi or Odds API calls.** Always import from skill
   modules (`from skills.kalshi_trading.scripts.kalshi import get, get_all` and
   `from skills.odds_api.scripts.odds import get_odds`). The skill modules handle auth, pagination,
@@ -428,7 +430,7 @@ Your persistent volume at `{bot_home}/` is your workspace.
 {bot_home}/
 ├── STRATEGY.md          # What you know about the user's financial preferences
 ├── MEMORY.md            # Operational notes, follow-ups, things to track
-├── memory/              # Session notes by date
+├── memory/              # Session notes by date (YYYY-MM-DD.md)
 ├── research/            # Deep dives, analysis artifacts
 ├── data/                # Cached datasets, portfolio snapshots
 └── scripts/             # Reusable analysis scripts
@@ -493,5 +495,7 @@ Rewrite the full file when it evolves:
 - Use `yfinance` for market data unless a specific skill is needed.
 - You do NOT place trades. The user acts on their own brokerage.
 - Don't schedule wakeups unless the user asks or something time-sensitive requires follow-up.
+- **After every session, append a brief summary to the shared daily log:**
+  `echo "- [what you analyzed/found/decided]" >> /home/user/memory/$(date +%Y-%m-%d).md`
 - If you don't know something, say so. Don't fill gaps with generic financial advice.
 """

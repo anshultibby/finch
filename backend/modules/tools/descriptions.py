@@ -237,6 +237,26 @@ Uses Jina AI Reader which:
 
 
 # ============================================================================
+# AGENT MANAGEMENT TOOLS
+# ============================================================================
+
+CREATE_AGENT_DESC = """Create a sub-agent to handle a task in isolation.
+
+Sub-agents exist for context isolation — delegate work you don't want bloating
+this conversation. They share the same sandbox (/home/user/), so they can run
+bash/code and write results to files the main agent reads back directly.
+
+Delegation pattern:
+  1. create_agent(name="analyzer", platform="research")
+  2. Open the agent and give it the task
+  3. Agent runs code, writes output: e.g. /home/user/results/analysis.md
+  4. Main agent reads it: bash("cat /home/user/results/analysis.md")
+
+Use for: long analyses, backtests, research tasks, anything with many steps."""
+
+
+
+# ============================================================================
 # MARKET DATA TOOLS (Polygon.io)
 # ============================================================================
 

@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ToolCall from './ToolCall';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
-import type { ToolCallStatus } from '@/lib/types';
+import type { ToolCallStatus, SwapData } from '@/lib/types';
 
 export interface MessageAction {
   icon: React.ReactNode;
@@ -18,9 +18,11 @@ interface ChatMessageProps {
   content: string;
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
+  swap_data?: SwapData[];
   chatId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
   onFileClick?: (filename: string) => void;
+  onSendMessage?: (msg: string) => void;
   actions?: MessageAction[];
   isLastAssistantMessage?: boolean;
 }
@@ -359,6 +361,73 @@ const parseFileReferences = (
   return parts.length > 0 ? parts : [content];
 };
 
+function SwapCard({ swap, index, onExecute }: { swap: SwapData; index: number; onExecute: (swap: SwapData) => void }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 hover:border-blue-300 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded">#{index + 1}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-sm text-red-600">{swap.sell_symbol}</span>
+            <span className="text-gray-400">→</span>
+            <span className="font-medium text-sm text-emerald-600">{swap.buy_symbol}</span>
+          </div>
+        </div>
+        <span className="text-xs text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 rounded-full">
+          Save ~${swap.estimated_savings.toLocaleString()}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3 text-xs">
+        <div className="bg-red-50/60 rounded-lg px-3 py-2">
+          <div className="text-gray-500 mb-0.5">Sell</div>
+          <div className="text-red-600 font-medium">{swap.sell_qty} shares · ${Math.abs(swap.sell_loss).toLocaleString()} loss</div>
+          <div className="text-gray-400 mt-0.5">{swap.sell_loss_pct.toFixed(1)}%</div>
+        </div>
+        <div className="bg-emerald-50/60 rounded-lg px-3 py-2">
+          <div className="text-gray-500 mb-0.5">Buy</div>
+          <div className="text-emerald-700 font-medium">{swap.buy_symbol}</div>
+          <div className="text-gray-400 mt-0.5 truncate">{swap.buy_reason}</div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-gray-400">Correlation: {(swap.correlation * 100).toFixed(0)}%</span>
+        <button
+          onClick={() => onExecute(swap)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Execute Swap
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SwapCards({ swaps, onExecute, onExecuteAll }: { swaps: SwapData[]; onExecute: (swap: SwapData) => void; onExecuteAll: () => void }) {
+  const totalSavings = swaps.reduce((sum, s) => sum + s.estimated_savings, 0);
+  return (
+    <div className="space-y-3 my-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {swaps.map((swap, i) => (
+          <SwapCard key={`${swap.sell_symbol}-${swap.buy_symbol}`} swap={swap} index={i} onExecute={onExecute} />
+        ))}
+      </div>
+      {swaps.length > 1 && (
+        <div className="flex items-center justify-between px-1">
+          <span className="text-sm text-gray-600 font-medium">
+            Total estimated savings: <span className="text-emerald-600">${totalSavings.toLocaleString()}</span>
+          </span>
+          <button
+            onClick={onExecuteAll}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            Execute All Swaps
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolCallList({ toolCalls, onSelectTool }: { toolCalls: ToolCallStatus[], onSelectTool?: (tool: ToolCallStatus) => void }) {
   // Sort by insertion order to maintain stable rendering
   // Tools without _insertionOrder (e.g., from history) keep their array position
@@ -404,7 +473,7 @@ function MessageActions({ actions }: { actions: MessageAction[] }) {
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, chatId, onSelectTool, onFileClick, actions, isLastAssistantMessage }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, onSelectTool, onFileClick, onSendMessage, actions, isLastAssistantMessage }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[file:[^\]]+\]/.test(content);
   const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick) : null;
@@ -481,6 +550,13 @@ export default function ChatMessage({ role, content, toolCalls, chatId, onSelect
               </ReactMarkdown>
             </div>
           )
+        )}
+        {swap_data && swap_data.length > 0 && (
+          <SwapCards
+            swaps={swap_data}
+            onExecute={(swap) => onSendMessage?.(`Execute swap: sell ${swap.sell_qty} shares of ${swap.sell_symbol}, buy $${Math.abs(swap.sell_loss).toLocaleString()} of ${swap.buy_symbol}`)}
+            onExecuteAll={() => onSendMessage?.('Execute all swaps')}
+          />
         )}
         {toolCalls && toolCalls.length > 0 && (
           <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} />
