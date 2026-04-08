@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { botsApi } from '@/lib/api';
-import type { BotDetail, BotChat, BotWakeup } from '@/lib/types';
+import { botsApi, tradesApi } from '@/lib/api';
+import type { BotDetail, BotChat, BotWakeup, TradeLog } from '@/lib/types';
 import BotChatList, { type BotPanel } from './BotChatList';
 import BotDocViewer from './BotDocViewer';
 import BotJournalViewer from './BotJournalViewer';
@@ -41,6 +41,7 @@ export default function BotView({ botId }: BotViewProps) {
   const [botLoading, setBotLoading] = useState(true);
   const [chatsLoading, setChatsLoading] = useState(true);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
+  const [pendingTradeCount, setPendingTradeCount] = useState(0);
   const [showApiKeys, setShowApiKeys] = useState(false);
   const [showCapitalModal, setShowCapitalModal] = useState(false);
   const [capitalInput, setCapitalInput] = useState('');
@@ -82,18 +83,35 @@ export default function BotView({ botId }: BotViewProps) {
     }
   }, [user, botId]);
 
+  const fetchPendingTrades = useCallback(async () => {
+    if (!user) return;
+    try {
+      const trades: TradeLog[] = await tradesApi.listForBot(user.id, botId);
+      setPendingTradeCount(trades.filter(t => t.status === 'pending_approval').length);
+    } catch {
+      // ignore
+    }
+  }, [user, botId]);
+
   // Parallel initial load
   useEffect(() => {
     fetchBot();
     fetchChats();
     fetchWakeups();
-  }, [fetchBot, fetchChats, fetchWakeups]);
+    fetchPendingTrades();
+  }, [fetchBot, fetchChats, fetchWakeups, fetchPendingTrades]);
 
   // Auto-refresh bot data (positions, stats) periodically
   useEffect(() => {
     const interval = setInterval(fetchBot, BOT_REFRESH_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchBot]);
+
+  // Poll pending trades every 15s
+  useEffect(() => {
+    const interval = setInterval(fetchPendingTrades, 15_000);
+    return () => clearInterval(interval);
+  }, [fetchPendingTrades]);
 
   // Select first non-wakeup chat when chats load and none is active
   useEffect(() => {
@@ -253,6 +271,7 @@ export default function BotView({ botId }: BotViewProps) {
             botId={botId}
             refreshKey={chatHistoryRefresh}
             onBack={() => setActivePanel('chat')}
+            onTradeAction={fetchPendingTrades}
           />
         );
       case 'files':
@@ -315,6 +334,7 @@ export default function BotView({ botId }: BotViewProps) {
               loading={chatsLoading}
               hasPositions={(bot.positions?.length ?? 0) > 0}
               hasTrades={true}
+              pendingTradeCount={pendingTradeCount}
               wakeups={wakeups}
             />
           </div>

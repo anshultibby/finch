@@ -855,6 +855,26 @@ export const tradesApi = {
     if (!response.ok) return [];
     return response.json();
   },
+
+  /** Approve a pending trade (executes it on the exchange) */
+  async approve(userId: string, tradeId: string) {
+    const response = await fetch(`${API_BASE_URL}/trades/${tradeId}/approve`, {
+      method: 'POST',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to approve trade');
+    return response.json();
+  },
+
+  /** Reject a pending trade */
+  async reject(userId: string, tradeId: string) {
+    const response = await fetch(`${API_BASE_URL}/trades/${tradeId}/reject`, {
+      method: 'POST',
+      headers: { 'X-User-ID': userId },
+    });
+    if (!response.ok) throw new Error('Failed to reject trade');
+    return response.json();
+  },
 };
 
 export const skillsApi = {

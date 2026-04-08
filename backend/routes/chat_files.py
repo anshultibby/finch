@@ -93,23 +93,29 @@ async def get_chat_files(
         if not sbx:
             return []
 
-        try:
-            entries = await sbx.files.list(files_dir, depth=5)
-        except Exception:
-            return []
-
-        files = []
         prefix = files_dir.rstrip("/") + "/"
-        for entry in entries:
-            if entry.type == "dir":
-                continue
-            rel_path = entry.path[len(prefix):] if entry.path.startswith(prefix) else entry.name
-            files.append(ChatFileResponse(
-                filename=rel_path,
-                file_type=_detect_file_type(entry.name),
-                size_bytes=entry.size or 0,
-            ))
-        return files
+
+        async def _recurse(path: str, depth: int = 0) -> list:
+            if depth > 6:
+                return []
+            try:
+                entries = await sbx.files.list(path)
+            except Exception:
+                return []
+            result = []
+            for entry in entries:
+                if entry.type == "dir":
+                    result.extend(await _recurse(entry.path, depth + 1))
+                else:
+                    rel_path = entry.path[len(prefix):] if entry.path.startswith(prefix) else entry.name
+                    result.append(ChatFileResponse(
+                        filename=rel_path,
+                        file_type=_detect_file_type(entry.name),
+                        size_bytes=entry.size or 0,
+                    ))
+            return result
+
+        return await _recurse(files_dir)
 
     except HTTPException:
         raise

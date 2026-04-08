@@ -169,6 +169,8 @@ class TradeLog(Base):
     order_response = Column(JSONB, nullable=True)
     error = Column(Text, nullable=True)
     dry_run = Column(Boolean, nullable=False, default=False)
+    reason = Column(Text, nullable=True)
+    pending_params = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     bot = relationship("TradingBot", back_populates="trade_logs")

@@ -20,62 +20,6 @@ def _get_bot_id(context: AgentContext) -> str:
     return bot_id
 
 
-async def configure_bot_impl(
-    context: AgentContext,
-    name: Optional[str] = None,
-    capital_usd: Optional[float] = None,
-    max_positions: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Update bot settings. Only provided fields are changed."""
-    from core.database import get_db_session
-    from crud.bots import get_bot
-    from sqlalchemy.orm.attributes import flag_modified
-
-    bot_id = _get_bot_id(context)
-    user_id = context.user_id
-
-    async with get_db_session() as db:
-        bot = await get_bot(db, bot_id, user_id)
-        if not bot:
-            return {"success": False, "error": "Bot not found"}
-
-        updated_fields = []
-
-        if name is not None:
-            bot.name = name
-            updated_fields.append("name")
-
-        # Capital fields go into config.capital
-        if capital_usd is not None or max_positions is not None:
-            config = dict(bot.config or {})
-            capital = dict(config.get("capital", {}) or {})
-            if capital_usd is not None:
-                old_amount = capital.get("amount_usd") or 0.0
-                capital["amount_usd"] = capital_usd
-                # Adjust balance by the difference so available capital actually changes
-                old_balance = capital.get("balance_usd")
-                if old_balance is None:
-                    capital["balance_usd"] = capital_usd
-                else:
-                    capital["balance_usd"] = old_balance + (capital_usd - old_amount)
-                updated_fields.append("capital_usd")
-            if max_positions is not None:
-                capital["max_positions"] = max_positions
-                updated_fields.append("max_positions")
-            config["capital"] = capital
-            bot.config = config
-            flag_modified(bot, "config")
-
-        await db.commit()
-        await db.refresh(bot)
-
-        return {
-            "success": True,
-            "message": "Bot updated successfully",
-            "updated_fields": updated_fields,
-            "bot_name": bot.name,
-        }
-
 
 async def schedule_wakeup_impl(
     context: AgentContext,
@@ -198,27 +142,15 @@ async def place_trade_impl(
     position_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Place a trade with full tracking — TradeLog, BotPosition, capital management.
+    Submit a trade for user approval. All trades require confirmation before executing.
 
-    Platform-agnostic tracking layer. The platform-specific order execution
-    is dispatched based on bot.config.platform.
-
-    Buy flow:
-      1. Check capital/risk → 2. Place limit order at caller's price →
-      3. Create TradeLog → 4. Create BotPosition → 5. Deduct capital
-
-    Sell flow (requires position_id):
-      1. Look up position → 2. Place sell order at caller's price (or market bid) →
-      3. Create TradeLog → 4. Close BotPosition → 5. Credit capital back
+    Creates a pending_approval TradeLog and notifies the user. The trade will not
+    execute until the user approves it in the UI or via the approval link.
     """
+    import secrets
+    from datetime import datetime, timezone, timedelta
     from core.database import get_db_session
-    from crud.bots import (
-        get_bot, create_trade_log, update_trade_log_status,
-        create_position, deduct_capital_for_position,
-        get_position, close_position, credit_capital_for_close,
-        recompute_bot_pnl,
-    )
-    from schemas.bots import ExitConfig
+    from crud.bots import get_bot, create_trade_log
 
     bot_id = _get_bot_id(context)
     user_id = context.user_id
@@ -226,7 +158,7 @@ async def place_trade_impl(
     # --- Validation ---
     if action not in ("buy", "sell"):
         return {"success": False, "error": f"Invalid action '{action}'. Must be 'buy' or 'sell'."}
-    if side not in ("yes", "no"):
+    if action == "buy" and side not in ("yes", "no"):
         return {"success": False, "error": f"Invalid side '{side}'. Must be 'yes' or 'no'."}
     if count < 1:
         return {"success": False, "error": "count must be at least 1"}
@@ -242,20 +174,51 @@ async def place_trade_impl(
         if not bot:
             return {"success": False, "error": "Bot not found"}
 
-        config = bot.config or {}
-        platform = config.get("platform", "kalshi")
-        is_paper = False
+        # Fetch market title for display (best-effort)
+        market_title = ""
+        if action == "buy":
+            try:
+                client = await get_platform_client(db, user_id, bot.config.get("platform", "kalshi"))
+                if client:
+                    mkt_data = await fetch_market_data(client, bot.config.get("platform", "kalshi"), market)
+                    market_title = mkt_data.get("title", "")
+            except Exception:
+                pass
 
-        if action == "sell":
-            return await _execute_sell(
-                db, bot, platform, user_id, is_paper,
-                position_id, reason, price,
-            )
-        else:
-            return await _execute_buy(
-                db, bot, platform, user_id, is_paper, config,
-                market, side, count, reason, price,
-            )
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+        cost_usd = (count * price) / 100 if action == "buy" and price else 0.0
+
+        pending_params = {
+            "action": action,
+            "market": market,
+            "side": side,
+            "count": count,
+            "price": price,
+            "reason": reason,
+            "position_id": position_id,
+        }
+
+        trade_log = await create_trade_log(
+            db=db, bot=bot, action=action, market=market, side=side,
+            price=price or 0, quantity=count, cost_usd=cost_usd,
+            status="pending_approval",
+            approval_token=token,
+            expires_at=expires_at,
+            market_title=market_title,
+            reason=reason,
+            pending_params=pending_params,
+        )
+
+        return {
+            "success": True,
+            "status": "pending_approval",
+            "trade_id": str(trade_log.id),
+            "message": (
+                f"Trade submitted for approval — your owner must confirm before it executes. "
+                f"Do not submit this trade again."
+            ),
+        }
 
 
 async def _execute_buy(
@@ -549,6 +512,147 @@ async def _execute_sell(
             "fill_status": "filled",
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# execute_approved_trade — called by the approve route to actually execute
+# ---------------------------------------------------------------------------
+
+async def execute_approved_trade(db, trade_log) -> dict:
+    """
+    Execute a trade that was previously submitted for approval.
+    Called by the approve_trade route after user confirms.
+
+    Reads execution params from trade_log.pending_params and runs the actual
+    platform order, then updates the trade_log in place (no new log created).
+    """
+    from crud.bots import (
+        get_bot, update_trade_log_status,
+        create_position, deduct_capital_for_position,
+        get_position, close_position, credit_capital_for_close,
+        recompute_bot_pnl,
+    )
+    from schemas.bots import ExitConfig
+
+    params = trade_log.pending_params or {}
+    action = params.get("action") or trade_log.action
+    market = params.get("market") or trade_log.market
+    side = params.get("side") or trade_log.side or "yes"
+    count = params.get("count") or trade_log.quantity or 1
+    price = params.get("price") or int(trade_log.price or 0) or None
+    reason = params.get("reason", "")
+    sell_position_id = params.get("position_id")
+
+    bot = await get_bot(db, str(trade_log.bot_id), trade_log.user_id)
+    if not bot:
+        await update_trade_log_status(db, trade_log, "failed", error="Bot not found")
+        return {"success": False, "error": "Bot not found"}
+
+    platform = (bot.config or {}).get("platform", "kalshi")
+    user_id = trade_log.user_id
+    client = await get_platform_client(db, user_id, platform)
+    if not client:
+        await update_trade_log_status(db, trade_log, "failed", error=f"No {platform} credentials")
+        return {"success": False, "error": f"No {platform} credentials configured"}
+
+    if action == "buy":
+        cost_usd = (count * price) / 100
+
+        # Capital check
+        has_funds = await deduct_capital_for_position(db, bot, cost_usd)
+        if not has_funds:
+            balance = (bot.config or {}).get("capital", {}).get("balance_usd", 0)
+            await update_trade_log_status(db, trade_log, "failed",
+                                          error=f"Insufficient capital: need ${cost_usd:.2f}, have ${balance:.2f}")
+            return {"success": False, "error": f"Insufficient capital. Need ${cost_usd:.2f}, have ${balance:.2f}"}
+
+        # Place order
+        order_response = None
+        try:
+            order_response = await _place_order(client, platform, market, side, "buy", count, price=price)
+        except Exception as e:
+            await credit_capital_for_close(db, bot, cost_usd, 0)
+            await update_trade_log_status(db, trade_log, "failed", error=str(e))
+            return {"success": False, "error": f"Order failed: {e}"}
+
+        fill_status = _parse_fill_status(order_response, count)
+
+        if fill_status["status"] == "resting":
+            await credit_capital_for_close(db, bot, cost_usd, 0)
+            await update_trade_log_status(db, trade_log, "resting", order_response=order_response)
+            return {
+                "success": False,
+                "error": f"Limit order resting (unfilled) — price {price}c didn't match any sellers.",
+                "order_id": fill_status.get("order_id"),
+            }
+
+        filled = fill_status.get("filled_count", count)
+        filled_cost = (filled * price) / 100
+        if fill_status["status"] == "partial":
+            await credit_capital_for_close(db, bot, cost_usd - filled_cost, 0)
+            qty, pos_cost = filled, filled_cost
+            final_status = "partial"
+        else:
+            qty, pos_cost = count, cost_usd
+            final_status = "executed"
+
+        # Create position
+        position_id_created = None
+        try:
+            position = await create_position(
+                db=db, bot=bot, market=market, side=side,
+                entry_price=price, quantity=qty, cost_usd=pos_cost,
+                exit_config=ExitConfig(), paper=False,
+                market_title=trade_log.market_title, event_ticker="",
+            )
+            position_id_created = str(position.id)
+        except Exception as e:
+            logger.error(f"Failed to create position after approval: {e}")
+            await credit_capital_for_close(db, bot, pos_cost, 0)
+
+        await update_trade_log_status(db, trade_log, final_status,
+                                      order_response=order_response,
+                                      position_id=position_id_created)
+        await recompute_bot_pnl(db, bot.id)
+        return {"success": True, "status": final_status,
+                "message": f"Executed: bought {qty}x {side.upper()} on {trade_log.market_title or market} @ {price}c"}
+
+    else:  # sell
+        pos = await get_position(db, sell_position_id)
+        if not pos or str(pos.bot_id) != str(bot.id):
+            await update_trade_log_status(db, trade_log, "failed", error="Position not found")
+            return {"success": False, "error": "Position not found"}
+        if pos.status == "closed":
+            await update_trade_log_status(db, trade_log, "failed", error="Position already closed")
+            return {"success": False, "error": "Position is already closed"}
+
+        exit_price = price or int(await _get_mid_price(client, platform, pos.market, pos.side))
+        sell_qty = int(pos.quantity)
+
+        order_response = None
+        if not pos.paper:
+            try:
+                order_response = await _place_order(client, platform, pos.market, pos.side, "sell", sell_qty, price=exit_price)
+            except Exception as e:
+                await update_trade_log_status(db, trade_log, "failed", error=str(e))
+                return {"success": False, "error": f"Sell order failed: {e}"}
+
+            fill_status = _parse_fill_status(order_response, sell_qty)
+            if fill_status["status"] == "resting":
+                await update_trade_log_status(db, trade_log, "resting", order_response=order_response)
+                return {"success": False, "error": f"Sell order resting — price {exit_price}c didn't match any buyers."}
+
+        await close_position(db, pos, exit_price=exit_price, close_reason=reason or "approved", closed_via="chat")
+        realized_pnl = pos.realized_pnl_usd or 0.0
+        await credit_capital_for_close(db, bot, pos.cost_usd, realized_pnl)
+
+        await update_trade_log_status(db, trade_log, "executed",
+                                      order_response=order_response,
+                                      position_id=str(pos.id),
+                                      realized_pnl_usd=realized_pnl)
+        await recompute_bot_pnl(db, bot.id)
+        return {"success": True, "status": "executed",
+                "message": f"Sold position on {pos.market_title or pos.market} — P&L: ${realized_pnl:.2f}"}
 
 
 # ---------------------------------------------------------------------------

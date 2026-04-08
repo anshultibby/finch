@@ -589,6 +589,8 @@ async def create_trade_log(
     expires_at=None,
     market_title: Optional[str] = None,
     realized_pnl_usd: Optional[float] = None,
+    reason: Optional[str] = None,
+    pending_params: Optional[dict] = None,
 ) -> TradeLog:
     """Create a trade log entry for every buy/sell attempt."""
     log = TradeLog(
@@ -608,6 +610,8 @@ async def create_trade_log(
         dry_run=False,
         expires_at=expires_at,
         realized_pnl_usd=realized_pnl_usd,
+        reason=reason,
+        pending_params=pending_params,
     )
     db.add(log)
     await db.commit()
@@ -668,6 +672,21 @@ async def get_trade_log_by_token(
     """Find a trade log by its approval token."""
     result = await db.execute(
         select(TradeLog).where(TradeLog.approval_token == token)
+    )
+    return result.scalars().first()
+
+
+async def get_trade_log(
+    db: AsyncSession,
+    trade_id: str,
+    user_id: str,
+) -> Optional[TradeLog]:
+    """Find a trade log by ID, scoped to a user."""
+    result = await db.execute(
+        select(TradeLog).where(
+            TradeLog.id == trade_id,
+            TradeLog.user_id == user_id,
+        )
     )
     return result.scalars().first()
 

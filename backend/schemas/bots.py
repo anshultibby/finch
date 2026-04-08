@@ -271,6 +271,9 @@ class TradeLogResponse(BaseModel):
     approved_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
 
+    reason: Optional[str] = None
+    approval_token: Optional[str] = None
+
     error: Optional[str] = None
 
     created_at: datetime

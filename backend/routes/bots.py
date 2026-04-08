@@ -733,6 +733,8 @@ def _trade_log_to_response(log, bot_name: str = "", bot_icon: str = "") -> Trade
         approval_method=log.approval_method,
         approved_at=log.approved_at,
         expires_at=log.expires_at,
+        reason=log.reason,
+        approval_token=log.approval_token if log.status == "pending_approval" else None,
         error=log.error,
         created_at=log.created_at,
     )
@@ -1026,8 +1028,10 @@ async def list_all_trades(
 
 @trades_router.post("/approve/{token}")
 async def approve_trade(token: str, db: AsyncSession = Depends(get_async_db)):
-    """Approve a pending trade via its unique token."""
+    """Approve a pending trade and execute it on the exchange."""
     from datetime import datetime, timezone
+    from modules.tools.implementations.bots import execute_approved_trade
+
     log = await crud.get_trade_log_by_token(db, token)
     if not log:
         raise HTTPException(status_code=404, detail="Trade not found")
@@ -1036,15 +1040,46 @@ async def approve_trade(token: str, db: AsyncSession = Depends(get_async_db)):
     if log.expires_at and datetime.now(timezone.utc) > log.expires_at:
         await crud.update_trade_log_status(db, log, "expired")
         return {"status": "expired", "message": "Trade approval expired"}
-    await crud.update_trade_log_status(db, log, "approved")
-    # TODO: Actually execute the trade here (Phase 2 — for now just marks as approved)
-    return {"status": "approved", "message": "Trade approved"}
+
+    result = await execute_approved_trade(db, log)
+    return result
 
 
 @trades_router.post("/reject/{token}")
 async def reject_trade(token: str, db: AsyncSession = Depends(get_async_db)):
     """Reject a pending trade via its unique token."""
     log = await crud.get_trade_log_by_token(db, token)
+    if not log:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if log.status != "pending_approval":
+        return {"status": log.status, "message": f"Trade already {log.status}"}
+    await crud.update_trade_log_status(db, log, "rejected")
+    return {"status": "rejected", "message": "Trade rejected"}
+
+
+@trades_router.post("/{trade_id}/approve")
+async def approve_trade_by_id(trade_id: str, user_id: str = Depends(_get_user_id), db: AsyncSession = Depends(get_async_db)):
+    """Approve a pending trade by its ID (authenticated, for UI use)."""
+    from datetime import datetime, timezone
+    from modules.tools.implementations.bots import execute_approved_trade
+
+    log = await crud.get_trade_log(db, trade_id, user_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    if log.status != "pending_approval":
+        return {"status": log.status, "message": f"Trade already {log.status}"}
+    if log.expires_at and datetime.now(timezone.utc) > log.expires_at:
+        await crud.update_trade_log_status(db, log, "expired")
+        return {"status": "expired", "message": "Trade approval expired"}
+
+    result = await execute_approved_trade(db, log)
+    return result
+
+
+@trades_router.post("/{trade_id}/reject")
+async def reject_trade_by_id(trade_id: str, user_id: str = Depends(_get_user_id), db: AsyncSession = Depends(get_async_db)):
+    """Reject a pending trade by its ID (authenticated, for UI use)."""
+    log = await crud.get_trade_log(db, trade_id, user_id)
     if not log:
         raise HTTPException(status_code=404, detail="Trade not found")
     if log.status != "pending_approval":

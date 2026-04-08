@@ -15,6 +15,7 @@ interface BotChatListProps {
   loading?: boolean;
   hasPositions?: boolean;
   hasTrades?: boolean;
+  pendingTradeCount?: number;
   wakeups?: BotWakeup[];
 }
 
@@ -58,7 +59,7 @@ const NAV_ITEMS: { panel: BotPanel; icon: React.ReactNode; label: string }[] = [
 ];
 
 export default function BotChatList({
-  chats, activeChatId, activePanel, onSelectChat, onNewChat, onSelectPanel, loading, wakeups = [],
+  chats, activeChatId, activePanel, onSelectChat, onNewChat, onSelectPanel, loading, wakeups = [], pendingTradeCount = 0,
 }: BotChatListProps) {
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -102,7 +103,12 @@ export default function BotChatList({
               }`}
             >
               <span className={`[&>svg]:w-4 [&>svg]:h-4 ${isActive ? 'text-gray-700' : 'text-gray-400'}`}>{icon}</span>
-              {label}
+              <span className="flex-1 text-left">{label}</span>
+              {panel === 'trades' && pendingTradeCount > 0 && (
+                <span className="ml-auto px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none">
+                  {pendingTradeCount}
+                </span>
+              )}
             </button>
           );
         })}

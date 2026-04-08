@@ -608,10 +608,13 @@ export interface TradeLog {
   price?: number;
   quantity?: number;
   cost_usd?: number;
-  status: 'executed' | 'dry_run' | 'failed' | 'pending_approval' | 'approved' | 'rejected' | 'expired';
+  realized_pnl_usd?: number;
+  status: 'executed' | 'dry_run' | 'failed' | 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'resting' | 'partial';
   approval_method?: string;
   approved_at?: string;
   expires_at?: string;
+  reason?: string;
+  approval_token?: string;
   error?: string;
   dry_run: boolean;
   created_at: string;

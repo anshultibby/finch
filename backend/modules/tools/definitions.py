@@ -210,15 +210,14 @@ async def present_swaps(*, context: AgentContext, swaps: List):
 # BOT MANAGEMENT TOOLS
 # ============================================================================
 
-CONFIGURE_BOT_DESC = """Update this bot's settings. All parameters are optional — pass only what you want to change.
+PLACE_TRADE_DESC = """Submit a trade for user approval. This is the ONLY way you should place trades.
 
-Use this to set your name, capital, and position limits.
-Only available in bot chats."""
-
-PLACE_TRADE_DESC = """Place a trade (buy or sell) with full tracking. This is the ONLY way you should place trades.
+Trades do NOT execute immediately — they enter a pending_approval state and the user must
+confirm in the UI before any order is sent to the exchange.
 
 **IMPORTANT:** Do NOT use bash/code to place orders directly (e.g. kalshi.post("/portfolio/orders")).
-Always use this tool — it automatically handles tracking, capital, and risk limits.
+Always use this tool — it handles tracking, capital, and risk limits.
+Do NOT submit the same trade twice — it will already be in the pending queue.
 
 **Buy:** Opens a new position.
 - action: "buy"
@@ -270,25 +269,6 @@ Use this when a limit order didn't fill (place_trade returned status "resting") 
 
 The order_id is returned by place_trade when the order rests unfilled.
 Only available in bot chats."""
-
-
-@tool(
-    name="configure_bot",
-    description=CONFIGURE_BOT_DESC,
-    category="bot_management",
-)
-async def configure_bot(
-    *,
-    name: Optional[str] = None,
-    capital_usd: Optional[float] = None,
-    max_positions: Optional[int] = None,
-    context: AgentContext,
-):
-    """Update bot settings."""
-    return await bots_impl.configure_bot_impl(
-        context, name=name,
-        capital_usd=capital_usd, max_positions=max_positions,
-    )
 
 
 @tool(
@@ -456,7 +436,6 @@ __all__ = [
     # Agent Management
     'create_agent',
     # Bot Management (only functional in bot chats)
-    'configure_bot',
     'place_trade',
     'cancel_order',
     'list_trades',
