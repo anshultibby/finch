@@ -3,8 +3,8 @@ Chat Files Routes — Files served from the bot's sandbox root directory when av
 otherwise from /home/user/chat_files/.
 """
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
-from sqlalchemy.orm import Session
-from core.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from core.database import get_async_db
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat-files", tags=["chat-files"])
 
-FALLBACK_FILES_DIR = "/home/user/chat_files"
+FALLBACK_FILES_DIR = "/home/user"
 
 
 class ChatFileResponse(BaseModel):
@@ -37,13 +37,25 @@ def _detect_file_type(filename: str) -> str:
     return "text"
 
 
-async def _get_chat_info(chat_id: str, db: Session) -> tuple:
+def _file_response(data: bytes, filename: str) -> Response:
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    disposition = "inline" if content_type.startswith("image/") or content_type in (
+        "text/html", "text/csv", "application/json"
+    ) else "attachment"
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
+    )
+
+
+async def _get_chat_info(chat_id: str, db: AsyncSession) -> tuple:
     """Look up the user_id and files root directory for this chat.
     Returns (user_id, files_dir)."""
     from models.chat_models import Chat
     from sqlalchemy import select as sa_select
 
-    result = db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
+    result = await db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
     chat = result.scalar_one_or_none()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -54,7 +66,7 @@ async def _get_chat_info(chat_id: str, db: Session) -> tuple:
     if chat.bot_id:
         try:
             from models.bot import TradingBot
-            bot_result = db.execute(
+            bot_result = await db.execute(
                 sa_select(TradingBot).where(TradingBot.id == chat.bot_id)
             )
             bot = bot_result.scalar_one_or_none()
@@ -70,7 +82,7 @@ async def _get_chat_info(chat_id: str, db: Session) -> tuple:
 @router.get("/{chat_id}", response_model=List[ChatFileResponse])
 async def get_chat_files(
     chat_id: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """List all files in the bot's root directory on the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
@@ -87,11 +99,13 @@ async def get_chat_files(
             return []
 
         files = []
+        prefix = files_dir.rstrip("/") + "/"
         for entry in entries:
             if entry.type == "dir":
                 continue
+            rel_path = entry.path[len(prefix):] if entry.path.startswith(prefix) else entry.name
             files.append(ChatFileResponse(
-                filename=entry.name,
+                filename=rel_path,
                 file_type=_detect_file_type(entry.name),
                 size_bytes=entry.size or 0,
             ))
@@ -108,7 +122,7 @@ async def get_chat_files(
 async def download_chat_file(
     chat_id: str,
     filename: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Download a file from the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
@@ -121,16 +135,7 @@ async def download_chat_file(
         if data is None:
             raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
 
-        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        disposition = "inline" if content_type.startswith("image/") or content_type in (
-            "text/html", "text/csv", "application/json"
-        ) else "attachment"
-
-        return Response(
-            content=data,
-            media_type=content_type,
-            headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
-        )
+        return _file_response(data, filename)
 
     except HTTPException:
         raise
@@ -143,39 +148,36 @@ async def download_chat_file(
 async def get_sandbox_file(
     chat_id: str,
     path: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     Proxy a file directly from the user's live sandbox by absolute path.
     Used when the agent references a file by its VM path (e.g. /home/user/subdir/chart.png).
     """
-    from models.chat_models import Chat
-    from sqlalchemy import select as sa_select
-
-    result = db.execute(sa_select(Chat).where(Chat.chat_id == chat_id))
-    chat = result.scalar_one_or_none()
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    user_id = chat.user_id
+    user_id, _ = await _get_chat_info(chat_id, db)
 
     try:
         from modules.tools.implementations.code_execution import read_sandbox_file
         basename = path.split("/")[-1] if "/" in path else path
-        data = await read_sandbox_file(user_id, path)
+
+        # Try the requested path, then common fallback directories.
+        # Agents often save to /home/user/results/ but reference files by bare name.
+        candidate_paths = [path]
+        if not path.startswith("/home/user/results/"):
+            candidate_paths.append(f"/home/user/results/{basename}")
+        if not path.startswith("/home/user/chat_files/"):
+            candidate_paths.append(f"/home/user/chat_files/{basename}")
+
+        data = None
+        for candidate in candidate_paths:
+            data = await read_sandbox_file(user_id, candidate)
+            if data is not None:
+                break
 
         if data is None:
             raise HTTPException(status_code=404, detail=f"File not found in sandbox: {path}")
 
-        content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
-        disposition = "inline" if content_type.startswith("image/") or content_type in (
-            "text/html", "text/csv", "application/json"
-        ) else "attachment"
-
-        return Response(
-            content=data,
-            media_type=content_type,
-            headers={"Content-Disposition": f'{disposition}; filename="{basename}"'}
-        )
+        return _file_response(data, basename)
 
     except HTTPException:
         raise
@@ -188,7 +190,7 @@ async def get_sandbox_file(
 async def delete_chat_file(
     chat_id: str,
     filename: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Delete a file from the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
@@ -215,7 +217,7 @@ async def upload_file_to_sandbox(
     chat_id: str,
     file: UploadFile = File(...),
     dest_dir: str = Form("/home/user/tax/uploads"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Upload a file (PDF, CSV, etc.) directly to the user's sandbox.
 

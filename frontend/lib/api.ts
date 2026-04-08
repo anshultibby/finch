@@ -457,9 +457,10 @@ export const snaptradeApi = {
     return response.data;
   },
 
-  buildPortfolioHistory: async (userId: string, accountId?: string): Promise<{ success: boolean; equity_series?: Array<{ date: string; value: number }>; snapshots_saved?: number; message?: string }> => {
+  buildPortfolioHistory: async (userId: string, accountId?: string, force = false): Promise<{ success: boolean; equity_series?: Array<{ date: string; value: number }>; snapshots_saved?: number; cached?: boolean; message?: string }> => {
     const params = new URLSearchParams();
     if (accountId) params.set('account_id', accountId);
+    if (force) params.set('force', 'true');
     const response = await api.post(`/snaptrade/portfolio/${userId}/build-history?${params.toString()}`);
     return response.data;
   },

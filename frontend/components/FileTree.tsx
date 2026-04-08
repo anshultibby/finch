@@ -1,241 +1,322 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 export interface FileItem {
-  filename: string;
+  filename: string; // relative path, e.g. "results/chart.png"
   file_type: string;
   size_bytes: number;
+}
+
+interface TreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: TreeNode[];
+  file?: FileItem;
 }
 
 interface FileTreeProps {
   chatId: string;
   selectedFile?: string;
   onFileSelect: (filename: string) => void;
-  // Optional: pass cached files to avoid re-fetching
-  cachedFiles?: FileItem[];
   onFilesLoaded?: (files: FileItem[]) => void;
+  cachedFiles?: FileItem[];
 }
 
-// Get icon for file type
-const getFileIcon = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  
-  switch (ext) {
-    case 'py':
-      return (
-        <svg className="w-4 h-4 text-yellow-500" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm-.5 4.5c.276 0 .5.224.5.5v2c0 .276-.224.5-.5.5s-.5-.224-.5-.5V5c0-.276.224-.5.5-.5zm-3 1c.276 0 .5.224.5.5v5.5h3V9c0-.276.224-.5.5-.5s.5.224.5.5v3c0 .276-.224.5-.5.5h-4c-.276 0-.5-.224-.5-.5V6c0-.276.224-.5.5-.5zm7 7c.276 0 .5.224.5.5v5.5c0 .276-.224.5-.5.5h-4c-.276 0-.5-.224-.5-.5v-3c0-.276.224-.5.5-.5s.5.224.5.5v2.5h3V13c0-.276.224-.5.5-.5zm-.5 5.5c-.276 0-.5-.224-.5-.5v-2c0-.276.224-.5.5-.5s.5.224.5.5v2c0 .276-.224.5-.5.5z"/>
-        </svg>
-      );
-    case 'js':
-    case 'ts':
-    case 'tsx':
-    case 'jsx':
-      return (
-        <svg className="w-4 h-4 text-yellow-400" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M0 0h24v24H0V0zm22.034 18.276c-.175-1.095-.888-2.015-3.003-2.873-.736-.345-1.554-.585-1.797-1.14-.091-.33-.105-.51-.046-.705.15-.646.915-.84 1.515-.66.39.12.75.42.976.9 1.034-.676 1.034-.676 1.755-1.125-.27-.42-.404-.601-.586-.78-.63-.705-1.469-1.065-2.834-1.034l-.705.089c-.676.165-1.32.525-1.71 1.005-1.14 1.291-.811 3.541.569 4.471 1.365 1.02 3.361 1.244 3.616 2.205.24 1.17-.87 1.545-1.966 1.41-.811-.18-1.26-.586-1.755-1.336l-1.83 1.051c.21.48.45.689.81 1.109 1.74 1.756 6.09 1.666 6.871-1.004.029-.09.24-.705.074-1.65l.046.067zm-8.983-7.245h-2.248c0 1.938-.009 3.864-.009 5.805 0 1.232.063 2.363-.138 2.711-.33.689-1.18.601-1.566.48-.396-.196-.597-.466-.83-.855-.063-.105-.11-.196-.127-.196l-1.825 1.125c.305.63.75 1.172 1.324 1.517.855.51 2.004.675 3.207.405.783-.226 1.458-.691 1.811-1.411.51-.93.402-2.07.397-3.346.012-2.054 0-4.109 0-6.179l.004-.056z"/>
-        </svg>
-      );
-    case 'json':
-      return (
-        <svg className="w-4 h-4 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 6h2a2 2 0 012 2v2a2 2 0 01-2 2H4m0-6v6m16-6h-2a2 2 0 00-2 2v2a2 2 0 002 2h2m0-6v6"/>
-          <circle cx="12" cy="12" r="1"/>
-        </svg>
-      );
-    case 'csv':
-      return (
-        <svg className="w-4 h-4 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-          <polyline points="14,2 14,8 20,8"/>
-          <line x1="8" y1="13" x2="16" y2="13"/>
-          <line x1="8" y1="17" x2="16" y2="17"/>
-          <line x1="10" y1="9" x2="10" y2="21"/>
-        </svg>
-      );
-    case 'md':
-      return (
-        <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M22.27 19.385H1.73A1.73 1.73 0 010 17.655V6.345a1.73 1.73 0 011.73-1.73h20.54A1.73 1.73 0 0124 6.345v11.31a1.73 1.73 0 01-1.73 1.73zM5.769 15.923v-4.5l2.308 2.885 2.307-2.885v4.5h2.308V8.077h-2.308l-2.307 2.885-2.308-2.885H3.461v7.846h2.308zM21.232 12h-2.309V8.077h-2.307V12h-2.308l3.461 4.039 3.463-4.039z"/>
-        </svg>
-      );
-    case 'html':
-      return (
-        <svg className="w-4 h-4 text-orange-500" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.564-2.438L1.5 0zm7.031 9.75l-.232-2.718 10.059.003.23-2.622L5.412 4.41l.698 8.01h9.126l-.326 3.426-2.91.804-2.955-.81-.188-2.11H6.248l.33 4.171L12 19.351l5.379-1.443.744-8.157H8.531z"/>
-        </svg>
-      );
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'webp':
-    case 'svg':
-      return (
-        <svg className="w-4 h-4 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <polyline points="21,15 16,10 5,21"/>
-        </svg>
-      );
-    default:
-      return (
-        <svg className="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-          <polyline points="14,2 14,8 20,8"/>
-        </svg>
-      );
-  }
-};
+function buildTree(files: FileItem[]): TreeNode[] {
+  const dirMap = new Map<string, TreeNode>();
+  const root: TreeNode[] = [];
 
-// Format file size
-const formatSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
+  const sorted = [...files].sort((a, b) => a.filename.localeCompare(b.filename));
 
-export default function FileTree({ chatId, selectedFile, onFileSelect, cachedFiles, onFilesLoaded }: FileTreeProps) {
-  // Use cached files immediately if available - no local state needed when cached
-  const [fetchedFiles, setFetchedFiles] = useState<FileItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(true);
-  const fetchedForChatRef = useRef<string | null>(null);
-  const onFilesLoadedRef = useRef(onFilesLoaded);
-  
-  // Keep callback ref updated
-  onFilesLoadedRef.current = onFilesLoaded;
-  
-  // Prefer cached files, fall back to fetched files
-  const files = (cachedFiles && cachedFiles.length > 0) ? cachedFiles : fetchedFiles;
-  const hasFiles = files.length > 0;
+  for (const file of sorted) {
+    const parts = file.filename.split('/');
 
-  useEffect(() => {
-    const loadFiles = async () => {
-      if (!chatId) return;
-      
-      // Skip fetch if we already have cached files for this chat
-      if (cachedFiles && cachedFiles.length > 0) {
-        setLoading(false);
-        return;
-      }
-      
-      // Skip fetch if we already fetched for this chat
-      if (fetchedForChatRef.current === chatId && fetchedFiles.length > 0) {
-        return;
-      }
-      
-      // Show loading only if we have nothing to show
-      if (!hasFiles) {
-        setLoading(true);
-      }
-      setError(null);
-      
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/api/chat-files/${chatId}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setFetchedFiles(data);
-          fetchedForChatRef.current = chatId;
-          // Notify parent to cache the files
-          onFilesLoadedRef.current?.(data);
+    for (let i = 0; i < parts.length - 1; i++) {
+      const dirPath = parts.slice(0, i + 1).join('/');
+      if (!dirMap.has(dirPath)) {
+        const dir: TreeNode = { name: parts[i], path: dirPath, isDir: true, children: [] };
+        dirMap.set(dirPath, dir);
+        if (i === 0) {
+          root.push(dir);
         } else {
-          setError('Failed to load files');
+          const parentPath = parts.slice(0, i).join('/');
+          dirMap.get(parentPath)!.children.push(dir);
         }
-      } catch (err) {
-        console.error('Error loading files:', err);
-        setError('Failed to load files');
-      } finally {
-        setLoading(false);
       }
+    }
+
+    const fileNode: TreeNode = {
+      name: parts[parts.length - 1],
+      path: file.filename,
+      isDir: false,
+      children: [],
+      file,
     };
-    
-    loadFiles();
-  }, [chatId, cachedFiles, hasFiles, fetchedFiles.length]);
 
-  if (loading) {
+    if (parts.length === 1) {
+      root.push(fileNode);
+    } else {
+      const parentPath = parts.slice(0, -1).join('/');
+      dirMap.get(parentPath)!.children.push(fileNode);
+    }
+  }
+
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const node of nodes) {
+      if (node.isDir) sortNodes(node.children);
+    }
+  };
+  sortNodes(root);
+
+  return root;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+}
+
+function FileIcon({ name }: { name: string }) {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+
+  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+  if (imageExts.includes(ext)) {
     return (
-      <div className="w-48 bg-gray-50 border-r border-gray-200 flex flex-col">
-        <div className="px-2 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-          <span>Explorer</span>
-        </div>
-        <div className="flex items-center justify-center py-8">
-          <div className="w-4 h-4 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
-        </div>
+      <div className="w-[18px] h-[18px] rounded-[3px] bg-purple-100 flex items-center justify-center flex-shrink-0">
+        <svg className="w-2.5 h-2.5 text-purple-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21,15 16,10 5,21" />
+        </svg>
       </div>
     );
   }
 
-  if (error || files.length === 0) {
-    return (
-      <div className="w-48 bg-gray-50 border-r border-gray-200 flex flex-col">
-        <div className="px-2 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-          <span>Explorer</span>
-        </div>
-        <div className="px-3 py-4 text-xs text-gray-400 text-center">
-          {error || 'No files yet'}
-        </div>
-      </div>
-    );
-  }
+  type IconConfig = { label: string; bg: string; text: string };
+  const map: Record<string, IconConfig> = {
+    py:   { label: 'py',  bg: 'bg-blue-100',   text: 'text-blue-600' },
+    js:   { label: 'js',  bg: 'bg-yellow-100', text: 'text-yellow-700' },
+    ts:   { label: 'ts',  bg: 'bg-blue-100',   text: 'text-blue-700' },
+    tsx:  { label: 'tsx', bg: 'bg-cyan-100',   text: 'text-cyan-700' },
+    jsx:  { label: 'jsx', bg: 'bg-cyan-100',   text: 'text-cyan-700' },
+    json: { label: '{}',  bg: 'bg-orange-100', text: 'text-orange-600' },
+    md:   { label: 'md',  bg: 'bg-indigo-100', text: 'text-indigo-600' },
+    csv:  { label: 'csv', bg: 'bg-green-100',  text: 'text-green-700' },
+    html: { label: 'htm', bg: 'bg-red-100',    text: 'text-red-600' },
+    css:  { label: 'css', bg: 'bg-sky-100',    text: 'text-sky-600' },
+    sh:   { label: 'sh',  bg: 'bg-gray-100',   text: 'text-gray-500' },
+    bash: { label: 'sh',  bg: 'bg-gray-100',   text: 'text-gray-500' },
+    sql:  { label: 'sql', bg: 'bg-purple-100', text: 'text-purple-600' },
+    yaml: { label: 'yml', bg: 'bg-amber-100',  text: 'text-amber-700' },
+    yml:  { label: 'yml', bg: 'bg-amber-100',  text: 'text-amber-700' },
+    txt:  { label: 'txt', bg: 'bg-gray-100',   text: 'text-gray-500' },
+    log:  { label: 'log', bg: 'bg-gray-100',   text: 'text-gray-500' },
+  };
 
+  const c = map[ext] ?? { label: ext.slice(0, 3) || '?', bg: 'bg-gray-100', text: 'text-gray-400' };
   return (
-    <div className="w-48 bg-gray-50 border-r border-gray-200 flex flex-col overflow-hidden">
-      {/* Header - compact */}
-      <div className="px-2 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-        <span>Explorer</span>
-        <span className="text-[10px] text-gray-400 font-normal normal-case">{files.length} files</span>
-      </div>
-      
-      {/* Folder section */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Folder header */}
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
-        >
-          <svg 
-            className={`w-3 h-3 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} 
-            viewBox="0 0 24 24" 
-            fill="currentColor"
-          >
-            <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
-          </svg>
-          <svg className="w-4 h-4 text-amber-500" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-          </svg>
-          <span className="truncate">chat-files</span>
-        </button>
-        
-        {/* Files list */}
-        {isExpanded && (
-          <div className="pl-4">
-            {files.map((file) => (
-              <button
-                key={file.filename}
-                onClick={() => onFileSelect(file.filename)}
-                className={`w-full flex items-center gap-2 px-2 py-0.5 text-left transition-colors group ${
-                  selectedFile === file.filename
-                    ? 'bg-blue-100 text-blue-900 border-l-2 border-blue-500'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {getFileIcon(file.filename)}
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] truncate">{file.filename}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      
-      {/* Footer with selected file info - removed, filename now shows at top of content */}
+    <div className={`w-[18px] h-[18px] rounded-[3px] flex items-center justify-center flex-shrink-0 ${c.bg}`}>
+      <span className={`text-[7.5px] font-bold leading-none tracking-tight ${c.text}`}>{c.label}</span>
     </div>
   );
 }
 
+function TreeNodeView({
+  node, depth, selectedFile, onSelect, expandedDirs, onToggleDir,
+}: {
+  node: TreeNode;
+  depth: number;
+  selectedFile?: string;
+  onSelect: (path: string) => void;
+  expandedDirs: Set<string>;
+  onToggleDir: (path: string) => void;
+}) {
+  const indent = depth * 14;
+  const isExpanded = expandedDirs.has(node.path);
+
+  if (node.isDir) {
+    return (
+      <div>
+        <button
+          onClick={() => onToggleDir(node.path)}
+          className="w-full flex items-center gap-1.5 py-[3px] text-left hover:bg-gray-50 transition-colors group rounded-sm mx-1"
+          style={{ paddingLeft: `${6 + indent}px`, paddingRight: '6px' }}
+        >
+          <svg
+            className={`w-3 h-3 text-gray-300 flex-shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+            viewBox="0 0 24 24" fill="currentColor"
+          >
+            <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+          </svg>
+          <svg
+            className="w-[15px] h-[15px] flex-shrink-0"
+            viewBox="0 0 24 24"
+            fill={isExpanded ? '#fbbf24' : '#fcd34d'}
+          >
+            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+          </svg>
+          <span className="text-[12px] text-gray-700 truncate font-medium">{node.name}</span>
+          <span className="ml-auto text-[10px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity">
+            {node.children.length}
+          </span>
+        </button>
+        {isExpanded && (
+          <div>
+            {node.children.map((child) => (
+              <TreeNodeView
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                selectedFile={selectedFile}
+                onSelect={onSelect}
+                expandedDirs={expandedDirs}
+                onToggleDir={onToggleDir}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const isSelected = selectedFile === node.path;
+  return (
+    <button
+      onClick={() => onSelect(node.path)}
+      title={node.file ? `${node.path} · ${formatBytes(node.file.size_bytes)}` : node.path}
+      className={`w-full flex items-center gap-1.5 py-[3px] text-left transition-colors rounded-sm mx-1 group ${
+        isSelected
+          ? 'bg-blue-50'
+          : 'hover:bg-gray-50'
+      }`}
+      style={{ paddingLeft: `${6 + indent}px`, paddingRight: '6px' }}
+    >
+      <FileIcon name={node.name} />
+      <span className={`text-[12px] truncate flex-1 ${isSelected ? 'text-blue-800 font-medium' : 'text-gray-700'}`}>
+        {node.name}
+      </span>
+      {node.file && (
+        <span className="text-[10px] text-gray-300 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {formatBytes(node.file.size_bytes)}
+        </span>
+      )}
+    </button>
+  );
+}
+
+export default function FileTree({ chatId, selectedFile, onFileSelect, onFilesLoaded }: FileTreeProps) {
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const onFilesLoadedRef = useRef(onFilesLoaded);
+  onFilesLoadedRef.current = onFilesLoaded;
+
+  const fetchFiles = useCallback(async (silent = false) => {
+    if (!chatId) return;
+    if (!silent) setLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/chat-files/${chatId}`);
+      if (res.ok) {
+        const data: FileItem[] = await res.json();
+        setFiles(data);
+        onFilesLoadedRef.current?.(data);
+
+        setExpandedDirs((prev) => {
+          if (prev.size > 0) return prev;
+          const topDirs = new Set<string>();
+          for (const f of data) {
+            const parts = f.filename.split('/');
+            if (parts.length > 1) topDirs.add(parts[0]);
+          }
+          return topDirs;
+        });
+      }
+    } catch {
+      // silent fail on poll
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [chatId]);
+
+  useEffect(() => {
+    setFiles([]);
+    setLoading(true);
+    fetchFiles(false);
+  }, [fetchFiles]);
+
+  useEffect(() => {
+    const id = setInterval(() => fetchFiles(true), 3000);
+    return () => clearInterval(id);
+  }, [fetchFiles]);
+
+  const toggleDir = (path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const tree = buildTree(files);
+
+  return (
+    <div className="w-52 bg-white border-r border-gray-100 flex flex-col overflow-hidden flex-shrink-0">
+      {/* Header */}
+      <div className="px-3 py-2.5 flex items-center justify-between border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-gray-500 tracking-wide">Files</span>
+          {files.length > 0 && (
+            <span className="text-[10px] text-gray-300 tabular-nums">{files.length}</span>
+          )}
+        </div>
+        <button
+          onClick={() => fetchFiles(false)}
+          className="p-1 rounded hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
+          title="Refresh"
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Tree */}
+      <div className="flex-1 overflow-y-auto py-1.5 space-y-px">
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="w-4 h-4 border-2 border-gray-100 border-t-gray-400 rounded-full animate-spin" />
+          </div>
+        ) : tree.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <svg className="w-6 h-6 text-gray-200 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+            </svg>
+            <p className="text-[11px] text-gray-300">No files yet</p>
+          </div>
+        ) : (
+          tree.map((node) => (
+            <TreeNodeView
+              key={node.path}
+              node={node}
+              depth={0}
+              selectedFile={selectedFile}
+              onSelect={onFileSelect}
+              expandedDirs={expandedDirs}
+              onToggleDir={toggleDir}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

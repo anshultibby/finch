@@ -55,11 +55,14 @@ async def log_requests(request, call_next):
         error_str = str(e)
         if "QueuePool limit" in error_str or "connection timed out" in error_str:
             pool_status = get_pool_status()
-            logger.error(
-                f"DATABASE POOL EXHAUSTED - {request.method} {request.url.path} ({duration:.0f}ms) - "
-                f"Pool: {pool_status['checked_out']}/{pool_status['total']} in use, "
-                f"{pool_status['overflow']} overflow active"
-            )
+            if pool_status.get('pooled', True):
+                logger.error(
+                    f"DATABASE POOL EXHAUSTED - {request.method} {request.url.path} ({duration:.0f}ms) - "
+                    f"Pool: {pool_status['checked_out']}/{pool_status['total']} in use, "
+                    f"{pool_status['overflow']} overflow active"
+                )
+            else:
+                logger.error(f"DATABASE CONNECTION FAILED (NullPool) - {request.method} {request.url.path} ({duration:.0f}ms)")
             logger.error(f"Full error: {error_str}")
             logger.error(f"Traceback:\n{traceback.format_exc()}")
 
@@ -112,6 +115,8 @@ async def monitor_connection_pool():
         try:
             await asyncio.sleep(60)  # Check every minute
             pool_status = get_pool_status()
+            if not pool_status.get('pooled', True):
+                continue  # NullPool — nothing to monitor
             usage_percent = (pool_status['checked_out'] / pool_status['total']) * 100 if pool_status['total'] > 0 else 0
 
             # Log warning if pool usage is high
@@ -139,7 +144,10 @@ async def startup_event():
 
     # Log database connection pool configuration
     pool_status = get_pool_status()
-    logger.info(f"Database connection pool: size={pool_status['size']}, overflow={pool_status['overflow']}, total_max={pool_status['total']}, timeout={pool_status['timeout']}s")
+    if pool_status.get('pooled', True):
+        logger.info(f"Database connection pool: size={pool_status['size']}, overflow={pool_status['overflow']}, total_max={pool_status['total']}, timeout={pool_status['timeout']}s")
+    else:
+        logger.info("Database: NullPool mode (transaction-mode pgbouncer — no idle connections held)")
 
     # Start background pool monitoring
     _pool_monitor_task = asyncio.create_task(monitor_connection_pool())
@@ -194,9 +202,10 @@ async def health():
 
     pool_status = get_pool_status()
 
-    # Check if pool is exhausted (warning threshold at 80% usage)
-    usage_percent = (pool_status['checked_out'] / pool_status['total']) * 100 if pool_status['total'] > 0 else 0
+    if not pool_status.get('pooled', True):
+        return {"status": "healthy", "database_pool": {"mode": "nullpool"}}
 
+    usage_percent = (pool_status['checked_out'] / pool_status['total']) * 100 if pool_status['total'] > 0 else 0
     return {
         "status": "healthy",
         "database_pool": {

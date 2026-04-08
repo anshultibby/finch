@@ -37,18 +37,27 @@ function formatPct(n: number) {
   return `${sign}${n.toFixed(2)}%`;
 }
 
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getStartDate(range: TimeRange): string {
-  const d = new Date();
+  // Use local midnight to avoid UTC-offset cutoff drift
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   switch (range) {
-    case '1D': d.setDate(d.getDate() - 2); break; // 2 days back to get prev close + today
+    case '1D': d.setDate(d.getDate() - 1); break; // yesterday → today (prev close as reference)
     case '1W': d.setDate(d.getDate() - 7); break;
     case '1M': d.setMonth(d.getMonth() - 1); break;
     case '3M': d.setMonth(d.getMonth() - 3); break;
     case 'YTD': return `${d.getFullYear()}-01-01`;
     case '1Y': d.setFullYear(d.getFullYear() - 1); break;
-    case 'ALL': d.setFullYear(d.getFullYear() - 5); break;
+    case 'ALL': return ''; // show all available data
   }
-  return d.toISOString().split('T')[0];
+  return localDateStr(d);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -474,9 +483,11 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
   const [intradayCache, setIntradayCache] = useState<Record<string, Array<{ date: string; value: number }>>>({});
   const [intradayLoading, setIntradayLoading] = useState(false);
   const [hoverValue, setHoverValue] = useState<{ date: string; value: number } | null>(null);
+  const intradayCacheRef = useRef(intradayCache);
+  intradayCacheRef.current = intradayCache;
 
-  // Derived intraday series from cache
-  const intradaySeries = intradayCache[timeRange === '1D' ? '1D' : '1W'] || [];
+  // Derived intraday series from cache — only meaningful for 1D/1W
+  const intradaySeries = (timeRange === '1D' || timeRange === '1W') ? (intradayCache[timeRange] || []) : [];
 
   // Fetch portfolio history, trigger backfill if empty
   useEffect(() => {
@@ -497,19 +508,19 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
   }, [loading, isConnected, user, showAccountPicker, selectedAccountId]);
 
   // Fetch intraday data for 1D/1W — cached per timeRange key
+  // Use a ref for the cache check to avoid intradayCache in deps (prevents spurious re-fetches)
   useEffect(() => {
     if (!user || !isConnected || showAccountPicker) return;
     if (timeRange !== '1D' && timeRange !== '1W') return;
-    const cacheKey = timeRange === '1D' ? '1D' : '1W';
-    if (intradayCache[cacheKey]?.length > 1) return; // Already cached
+    if (intradayCacheRef.current[timeRange]?.length >= 1) return; // Already cached
     setIntradayLoading(true);
     const days = timeRange === '1D' ? 1 : 7;
     snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId, days).then(result => {
       if (result.success && result.equity_series?.length > 1) {
-        setIntradayCache(prev => ({ ...prev, [cacheKey]: result.equity_series }));
+        setIntradayCache(prev => ({ ...prev, [timeRange]: result.equity_series }));
       }
     }).catch(() => {}).finally(() => setIntradayLoading(false));
-  }, [user, isConnected, showAccountPicker, selectedAccountId, timeRange, intradayCache]);
+  }, [user, isConnected, showAccountPicker, selectedAccountId, timeRange]);
 
   // Auto-refresh during market hours (every 60s)
   useEffect(() => {
@@ -535,8 +546,7 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
         const days = timeRange === '1D' ? 1 : 7;
         snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId, days).then(result => {
           if (result.success && result.equity_series?.length > 1) {
-            const cacheKey = timeRange === '1D' ? '1D' : '1W';
-            setIntradayCache(prev => ({ ...prev, [cacheKey]: result.equity_series }));
+            setIntradayCache(prev => ({ ...prev, [timeRange]: result.equity_series }));
           }
         }).catch(() => {});
       }
@@ -670,7 +680,7 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
                   if (!user || buildingHistory) return;
                   setBuildingHistory(true);
                   setEquitySeries([]);
-                  snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId).then(result => {
+                  snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId, true).then(result => {
                     if (result.success && result.equity_series && result.equity_series.length > 1) {
                       setEquitySeries(result.equity_series);
                     }
@@ -696,6 +706,11 @@ export default function BotVisualizationsPanel({ onBack, accountId: propAccountI
 
           if (useIntraday) {
             chartData = intradaySeries;
+          } else if (timeRange === 'ALL') {
+            chartData = equitySeries;
+          } else if (timeRange === '1D') {
+            // No intraday available — show last 2 daily points (prev close + today)
+            chartData = equitySeries.length >= 2 ? equitySeries.slice(-2) : equitySeries;
           } else {
             const cutoff = getStartDate(timeRange);
             const filtered = equitySeries.filter(p => p.date >= cutoff);

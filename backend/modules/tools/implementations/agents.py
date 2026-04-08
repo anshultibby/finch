@@ -68,6 +68,7 @@ async def create_agent_impl(
             chat_id=chat_id,
             role="user",
             content=task,
+            sequence=0,
             timestamp=datetime.now(timezone.utc),
         )
         db.add(msg)

@@ -1,5 +1,5 @@
 """
-Brokerage ORM models: BrokerageAccount, Transaction, TransactionSyncJob, PortfolioSnapshot, TradeAnalytics
+Brokerage ORM models: BrokerageAccount, Transaction, TransactionSyncJob, PortfolioSnapshot, PortfolioIntradayCache, TradeAnalytics
 """
 from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Date
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -85,6 +85,21 @@ class PortfolioSnapshot(Base):
 
     def __repr__(self):
         return f"<PortfolioSnapshot(id='{self.id}', user='{self.user_id}', date='{self.snapshot_date}')>"
+
+
+class PortfolioIntradayCache(Base):
+    """
+    Cached intraday portfolio equity series, keyed by user/account/days_back.
+    Refreshed automatically when stale (> 1 hour old).
+    """
+    __tablename__ = "portfolio_intraday_cache"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    account_id = Column(String, nullable=True)
+    days_back = Column(Integer, nullable=False)
+    equity_series = Column(JSONB, nullable=False)
+    computed_at = Column(DateTime(timezone=True), nullable=False)
 
 
 class TradeAnalytics(Base):

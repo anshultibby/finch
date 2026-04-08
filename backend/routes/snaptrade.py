@@ -291,20 +291,41 @@ async def get_portfolio_history(user_id: str, start_date: str = None, end_date: 
 
 
 @router.post("/portfolio/{user_id}/build-history")
-async def build_portfolio_history_endpoint(user_id: str, account_id: str = None):
+async def build_portfolio_history_endpoint(user_id: str, account_id: str = None, force: bool = False):
     """
-    Backfill portfolio value history by replaying SnapTrade activities
-    and fetching historical prices from FMP. Saves to portfolio_snapshots.
-    This can take a while for accounts with lots of history.
+    Backfill portfolio value history. Checks DB for fresh data first — only rebuilds
+    if today's snapshot is missing or force=true. Saves results to portfolio_snapshots.
     """
     import asyncio
     import uuid
     from datetime import date as date_type
+    from sqlalchemy import select, delete
     from skills.snaptrade.scripts.portfolio.build_history import build_portfolio_history
     from core.database import get_db_session
     from models.brokerage import PortfolioSnapshot
 
-    # Step 1: Heavy computation in thread (no DB needed)
+    snapshot_account_key = account_id or "all"
+
+    if not force:
+        # Return cached DB data if today's snapshot already exists
+        async with get_db_session() as db:
+            today = date_type.today()
+            matching = (await db.execute(
+                select(PortfolioSnapshot)
+                .where(PortfolioSnapshot.user_id == user_id)
+                .where(PortfolioSnapshot.data["account_id"].astext == snapshot_account_key)
+                .order_by(PortfolioSnapshot.snapshot_date.desc())
+            )).scalars().all()
+
+            if matching and matching[0].snapshot_date >= today:
+                equity_series = [
+                    {"date": str(s.snapshot_date), "value": float(s.data.get("total_value", 0))}
+                    for s in sorted(matching, key=lambda s: s.snapshot_date)
+                ]
+                if len(equity_series) > 1:
+                    return {"success": True, "equity_series": equity_series, "cached": True}
+
+    # Rebuild from scratch
     result = await asyncio.get_event_loop().run_in_executor(
         None, lambda: build_portfolio_history(user_id, account_id=account_id)
     )
@@ -312,23 +333,16 @@ async def build_portfolio_history_endpoint(user_id: str, account_id: str = None)
     if not result.get("success") or not result.get("equity_series"):
         return result
 
-    # Step 2: Save snapshots using async session (no sync pool needed)
-    snapshot_account_key = account_id or "all"
     equity_series = result["equity_series"]
-    saved = 0
 
     async with get_db_session() as db:
-        # Delete old snapshots for this account
-        from sqlalchemy import select, delete
-        old_snaps = (await db.execute(
-            select(PortfolioSnapshot).where(PortfolioSnapshot.user_id == user_id)
-        )).scalars().all()
+        # Delete old snapshots for this account then insert fresh ones
+        await db.execute(
+            delete(PortfolioSnapshot)
+            .where(PortfolioSnapshot.user_id == user_id)
+            .where(PortfolioSnapshot.data["account_id"].astext == snapshot_account_key)
+        )
 
-        for s in old_snaps:
-            if isinstance(s.data, dict) and s.data.get("account_id", "all") == snapshot_account_key:
-                await db.delete(s)
-
-        # Insert new snapshots
         for point in equity_series:
             db.add(PortfolioSnapshot(
                 id=uuid.uuid4(),
@@ -336,9 +350,8 @@ async def build_portfolio_history_endpoint(user_id: str, account_id: str = None)
                 snapshot_date=date_type.fromisoformat(point["date"]),
                 data={"total_value": point["value"], "account_id": snapshot_account_key},
             ))
-            saved += 1
 
-    result["snapshots_saved"] = saved
+    result["snapshots_saved"] = len(equity_series)
     return result
 
 
@@ -346,13 +359,56 @@ async def build_portfolio_history_endpoint(user_id: str, account_id: str = None)
 async def get_portfolio_intraday(user_id: str, account_id: str = None, days: int = 7):
     """
     Get hourly portfolio value for the last N days.
-    Uses current holdings x FMP intraday prices.
+    Returns DB-cached series if fresh (< 1 hour old), otherwise recomputes and saves.
     """
     import asyncio
+    import uuid as uuid_mod
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select, delete
+    from models.brokerage import PortfolioIntradayCache
+    from core.database import get_db_session
     from skills.snaptrade.scripts.portfolio.build_history import build_intraday_history
+
+    account_key = account_id or "all"
+    cache_ttl = timedelta(hours=1)
+
+    # Check DB cache
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(PortfolioIntradayCache).where(
+                PortfolioIntradayCache.user_id == user_id,
+                PortfolioIntradayCache.account_id == account_key,
+                PortfolioIntradayCache.days_back == days,
+            )
+        )).scalars().first()
+
+        if row and (datetime.now(timezone.utc) - row.computed_at) < cache_ttl:
+            return {"success": True, "equity_series": row.equity_series, "cached": True}
+
+    # Cache miss or stale — recompute
     result = await asyncio.get_event_loop().run_in_executor(
         None, lambda: build_intraday_history(user_id, account_id=account_id, days_back=days)
     )
+
+    if result.get("success") and result.get("equity_series"):
+        async with get_db_session() as db:
+            # Upsert: delete old entry then insert fresh one
+            await db.execute(
+                delete(PortfolioIntradayCache).where(
+                    PortfolioIntradayCache.user_id == user_id,
+                    PortfolioIntradayCache.account_id == account_key,
+                    PortfolioIntradayCache.days_back == days,
+                )
+            )
+            db.add(PortfolioIntradayCache(
+                id=uuid_mod.uuid4(),
+                user_id=user_id,
+                account_id=account_key,
+                days_back=days,
+                equity_series=result["equity_series"],
+                computed_at=datetime.now(timezone.utc),
+            ))
+
     return result
 
 

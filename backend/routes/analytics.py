@@ -4,11 +4,12 @@ Analytics API routes
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 from datetime import datetime
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, desc as sa_desc
 from services.analytics import analytics_service
 from services.transaction_sync import transaction_sync_service
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
-from core.database import get_db
+from core.database import get_async_db
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -85,37 +86,37 @@ async def get_transactions(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     limit: int = Query(100, le=500),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     Get transaction history
-    
+
     Args:
         symbol: Filter by symbol (optional)
         start_date: Start date in YYYY-MM-DD format (optional)
         end_date: End date in YYYY-MM-DD format (optional)
         limit: Max results (default 100, max 500)
     """
-    from crud import transactions as tx_crud
-    
+    from models.brokerage import Transaction
+
     try:
-        # Parse dates if provided
         start_dt = datetime.fromisoformat(start_date) if start_date else None
         end_dt = datetime.fromisoformat(end_date) if end_date else None
-        
-        transactions = tx_crud.get_transactions(
-            db,
-            user_id=user_id,
-            symbol=symbol,
-            start_date=start_dt,
-            end_date=end_dt,
-            limit=limit
-        )
-        
-        # Format response
-        formatted = []
-        for tx in transactions:
-            formatted.append({
+
+        q = select(Transaction).where(Transaction.user_id == user_id)
+        if symbol:
+            q = q.where(Transaction.symbol == symbol.upper())
+        if start_dt:
+            q = q.where(Transaction.transaction_date >= start_dt)
+        if end_dt:
+            q = q.where(Transaction.transaction_date <= end_dt)
+        q = q.order_by(sa_desc(Transaction.transaction_date)).limit(limit)
+
+        result = await db.execute(q)
+        transactions = result.scalars().all()
+
+        formatted = [
+            {
                 "id": str(tx.id),
                 "symbol": tx.symbol,
                 "type": tx.transaction_type,
@@ -123,13 +124,12 @@ async def get_transactions(
                 "account_id": tx.account_id,
                 "data": tx.data,
                 "created_at": tx.created_at.isoformat()
-            })
-        
-        return {
-            "transactions": formatted,
-            "count": len(formatted)
-        }
-        
+            }
+            for tx in transactions
+        ]
+
+        return {"transactions": formatted, "count": len(formatted)}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -134,7 +134,8 @@ def build_portfolio_history(
             for sym, splits in pool.map(_fetch_split, new_splits):
                 _split_cache[sym] = splits
                 if splits:
-                    print(f"   {sym}: {[(s['date'], f\"{s['ratio']:.0f}:1\") for s in splits]}", flush=True)
+                    splits_fmt = [(s['date'], f"{s['ratio']:.0f}:1") for s in splits]
+                    print(f"   {sym}: {splits_fmt}", flush=True)
 
     # Inject split events as virtual activities
     for sym, splits in _split_cache.items():
@@ -301,9 +302,11 @@ def build_intraday_history(user_id: str, account_id: Optional[str] = None, days_
 
     today = date.today().isoformat()
     cutoff = today if days_back <= 1 else (date.today() - timedelta(days=days_back)).isoformat()
+    # Use 15min bars for 1D (finer granularity), hourly for multi-day
+    interval = "15min" if days_back <= 1 else "1hour"
     def _f(sym):
         try:
-            data = fmp(f"/historical-chart/1hour/{sym}", {"from": cutoff, "to": today})
+            data = fmp(f"/historical-chart/{interval}/{sym}", {"from": cutoff, "to": today})
             if not isinstance(data, list):
                 return (sym, [])
             return (sym, [{"date": b["date"], "close": b.get("close", 0)} for b in data if b.get("date", "") >= cutoff])

@@ -566,7 +566,7 @@ export default function ChatView({
         <ChatModeBanner />
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className={`pt-8 pb-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`pt-8 pb-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
@@ -682,14 +682,14 @@ export default function ChatView({
         </div>
 
         {error && (
-          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-5xl mx-auto w-full px-3 sm:px-6'}`}>
+          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
             <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
           </div>
         )}
 
         {messages.length > 0 && (
           <div className="absolute bottom-0 left-0 right-0 z-10">
-            <div className="max-w-2xl mx-auto px-4 relative z-10">
+            <div className="max-w-3xl mx-auto px-4 sm:px-8 relative z-10">
               <ChatInput
                 onSendMessage={handleSendMessage}
                 onStop={handleStopStream}
@@ -757,12 +757,33 @@ export default function ChatView({
         </div>
       )}
 
-      <FileViewer
-        filename={selectedFile}
-        chatId={currentChatId}
-        isOpen={!!selectedFile}
-        onClose={() => setSelectedFile(null)}
-      />
+      {selectedFile && (
+        <div
+          className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setSelectedFile(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full flex flex-col overflow-hidden"
+            style={{ maxHeight: '88vh' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-gray-50 shrink-0">
+              <span className="text-sm font-medium text-gray-700 truncate">{selectedFile}</span>
+              <button
+                onClick={() => setSelectedFile(null)}
+                className="p-1 ml-3 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto" style={{ maxHeight: 'calc(88vh - 48px)' }}>
+              <FileViewer filename={selectedFile} chatId={currentChatId} />
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
