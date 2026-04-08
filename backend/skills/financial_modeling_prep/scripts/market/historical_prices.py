@@ -1,30 +1,20 @@
 """Historical daily OHLCV price data from FMP"""
-import json
-import os
-import hashlib
 from ..api import fmp
+from .._cache import cache_key as _cache_key_fn, load_cache as _load_cache_fn, save_cache as _save_cache_fn
 
 _CACHE_DIR = '/tmp/fmp_price_cache'
 
 
 def _cache_key(symbol: str, from_date: str, to_date: str) -> str:
-    key = f'{symbol}|{from_date}|{to_date}'
-    return hashlib.md5(key.encode()).hexdigest()
+    return _cache_key_fn(symbol, from_date, to_date)
 
 
 def _load_cache(key: str):
-    path = os.path.join(_CACHE_DIR, f'{key}.json')
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return None
+    return _load_cache_fn(_CACHE_DIR, key)
 
 
-def _save_cache(key: str, data):
-    os.makedirs(_CACHE_DIR, exist_ok=True)
-    path = os.path.join(_CACHE_DIR, f'{key}.json')
-    with open(path, 'w') as f:
-        json.dump(data, f)
+def _save_cache(key: str, data) -> None:
+    _save_cache_fn(_CACHE_DIR, key, data)
 
 
 def get_historical_prices(symbol: str, from_date: str = None, to_date: str = None, limit: int = None) -> dict:
@@ -131,28 +121,45 @@ def get_batch_historical_prices(
 
     # Batch-fetch uncached symbols
     params = {'from': from_date, 'to': to_date}
+    still_missing: list = []
     for i in range(0, len(uncached), batch_size):
         batch = uncached[i:i + batch_size]
         batch_str = ','.join(batch)
         raw = fmp(f'/historical-price-full/{batch_str}', params)
 
         if not isinstance(raw, dict):
+            still_missing.extend(batch)
             continue
 
         entries = []
         if 'historicalStockList' in raw:
             entries = raw['historicalStockList']
-        elif 'historical' in raw and len(batch) == 1:
-            entries = [{'symbol': batch[0], 'historical': raw['historical']}]
+        elif 'historical' in raw:
+            # Single-symbol response format (batch of 1, or FMP fallback when only one has data)
+            sym_key = raw.get('symbol', batch[0] if len(batch) == 1 else None)
+            if sym_key:
+                entries = [{'symbol': sym_key, 'historical': raw['historical']}]
 
+        returned = set()
         for entry in entries:
             sym = entry.get('symbol', '')
             prices = entry.get('historical', [])
             if sym and prices:
                 out = {'symbol': sym, 'prices': prices}
                 results[sym] = out
-                # Cache each symbol individually
+                returned.add(sym)
                 key = _cache_key(sym, from_date, to_date)
                 _save_cache(key, out)
+
+        # FMP batch endpoint silently drops some symbols — retry them individually
+        still_missing.extend(s for s in batch if s not in returned)
+
+    for sym in still_missing:
+        raw = fmp(f'/historical-price-full/{sym}', params)
+        if isinstance(raw, dict) and 'historical' in raw and raw['historical']:
+            out = {'symbol': sym, 'prices': raw['historical']}
+            results[sym] = out
+            key = _cache_key(sym, from_date, to_date)
+            _save_cache(key, out)
 
     return results

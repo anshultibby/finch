@@ -299,11 +299,14 @@ def build_intraday_history(user_id: str, account_id: Optional[str] = None, days_
     if not holdings:
         return {"success": False, "error": "No positions."}
 
-    cutoff = (date.today() - timedelta(days=days_back)).isoformat()
+    today = date.today().isoformat()
+    cutoff = today if days_back <= 1 else (date.today() - timedelta(days=days_back)).isoformat()
     def _f(sym):
         try:
-            data = fmp(f"/historical-chart/1hour/{sym}")
-            return (sym, [{"date": b["date"], "close": b.get("close", 0)} for b in data if isinstance(data, list) and b.get("date", "") >= cutoff]) if isinstance(data, list) else (sym, [])
+            data = fmp(f"/historical-chart/1hour/{sym}", {"from": cutoff, "to": today})
+            if not isinstance(data, list):
+                return (sym, [])
+            return (sym, [{"date": b["date"], "close": b.get("close", 0)} for b in data if b.get("date", "") >= cutoff])
         except:
             return (sym, [])
 
@@ -311,12 +314,20 @@ def build_intraday_history(user_id: str, account_id: Optional[str] = None, days_
     with ThreadPoolExecutor(max_workers=10) as pool:
         for sym, bars in pool.map(_f, holdings.keys()):
             if bars:
-                hourly[sym] = bars
+                hourly[sym] = sorted(bars, key=lambda b: b["date"])
 
     all_ts = sorted({b["date"] for bars in hourly.values() for b in bars})
     series = []
     for ts in all_ts:
-        total = sum(qty * next((b["close"] for b in hourly.get(sym, []) if b["date"] <= ts), 0) for sym, qty in holdings.items())
+        total = 0
+        for sym, qty in holdings.items():
+            price = 0
+            for b in hourly.get(sym, []):
+                if b["date"] <= ts:
+                    price = b["close"]
+                else:
+                    break
+            total += qty * price
         if total > 0:
             series.append({"date": ts, "value": round(total, 2)})
     return {"success": True, "equity_series": series}

@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     # =========================================================================
     AGENT_LLM_MODEL: str = Field(
-        default=Models.CLAUDE_SONNET_4_5,
+        default=Models.CLAUDE_SONNET_4_6,
         description="LLM model for the agent"
     )
     OPENAI_API_KEY: Optional[str] = Field(
@@ -148,7 +148,7 @@ class Settings(BaseSettings):
         description="Port for the API server"
     )
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,https://finch-omega.vercel.app",
+        default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,https://finch-omega.vercel.app,https://finchapp.ai,https://www.finchapp.ai",
         description="Allowed CORS origins (comma-separated)"
     )
 
@@ -292,8 +292,28 @@ class Settings(BaseSettings):
         description="Sender email for trade confirmations"
     )
     APP_BASE_URL: str = Field(
-        default="http://localhost:3000",
+        default="https://finchapp.ai",
         description="Base URL for approval links in notifications"
+    )
+
+    # =========================================================================
+    # Payments (Stripe)
+    # =========================================================================
+    STRIPE_SECRET_KEY: Optional[str] = Field(
+        default=None,
+        description="Stripe secret key (sk_live_... or sk_test_...)"
+    )
+    STRIPE_WEBHOOK_SECRET: Optional[str] = Field(
+        default=None,
+        description="Stripe webhook signing secret (whsec_...)"
+    )
+    STRIPE_PRO_PRICE_ID: Optional[str] = Field(
+        default=None,
+        description="Stripe Price ID for the Pro subscription (price_...)"
+    )
+    ADMIN_SECRET: Optional[str] = Field(
+        default=None,
+        description="Secret token for admin-only API endpoints (set a strong random value)"
     )
 
     # =========================================================================

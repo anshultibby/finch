@@ -4,13 +4,15 @@ LLM Model constants.
 Usage:
     from core.constants import Models
 
-    model = Models.CLAUDE_SONNET_4_5
+    model = Models.CLAUDE_SONNET_4_6
 """
 from enum import StrEnum
 
 
 class Models(StrEnum):
     # Claude
+    CLAUDE_SONNET_4_6 = "anthropic/claude-sonnet-4-6"
+    CLAUDE_OPUS_4_6 = "anthropic/claude-opus-4-6"
     CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4-5"
     CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4-5-20251101"
 

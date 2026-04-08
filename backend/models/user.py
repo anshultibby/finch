@@ -20,7 +20,8 @@ class SnapTradeUser(Base):
     connected_account_ids = Column(Text, nullable=True)
     is_connected = Column(Boolean, default=False, nullable=False)
     brokerage_name = Column(String, nullable=True)
-    credits = Column(Integer, nullable=False, default=500)
+    plan = Column(String, nullable=False, default="free")  # free | pro | admin
+    credits = Column(Integer, nullable=False, default=5000)
     total_credits_used = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

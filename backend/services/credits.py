@@ -18,6 +18,8 @@ logger = get_logger(__name__)
 # Format: {model_prefix: {"input": price, "output": price, "cache_read": price, "cache_write": price}}
 MODEL_PRICING = {
     # Claude 4 models
+    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
+    "claude-opus-4-6":   {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
     "claude-sonnet-4-5": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
     "claude-opus-4-5": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
     "claude-sonnet-4": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
@@ -39,11 +41,22 @@ MODEL_PRICING = {
 }
 
 # Credits conversion: 1000 credits = $1 USD
-# This means 1 credit = $0.001 USD
 CREDITS_PER_DOLLAR = 1000
 
-# Premium multiplier (20% markup)
+# Premium multiplier (20% markup over raw API cost)
 PREMIUM_MULTIPLIER = 1.2
+
+# Default credits granted to new users (5000 = $5 — enough for ~500 turns)
+DEFAULT_NEW_USER_CREDITS = 5000
+
+# Daily spend caps per plan (credits = $0.001 each, so 1000 = $1/day)
+DAILY_CREDIT_CAPS = {
+    "free":  1_000,    # $1/day
+    "pro":  10_000,    # $10/day
+    "admin": None,     # unlimited
+}
+# Kept for backward compat
+DAILY_CREDIT_CAP = DAILY_CREDIT_CAPS["free"]
 
 
 def _get_model_pricing(model: str) -> Dict[str, float]:
@@ -331,6 +344,59 @@ class CreditsService:
         
         return True
     
+    @staticmethod
+    async def get_daily_spend(db: AsyncSession, user_id: str) -> int:
+        """
+        Sum of credits deducted today (UTC).  Returns 0 if no transactions today.
+        """
+        from sqlalchemy import func
+        from datetime import datetime, timezone
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        result = await db.execute(
+            select(func.coalesce(func.sum(-CreditTransaction.amount), 0))
+            .where(
+                CreditTransaction.user_id == user_id,
+                CreditTransaction.amount < 0,          # deductions only
+                CreditTransaction.created_at >= today_start,
+            )
+        )
+        return int(result.scalar() or 0)
+
+    @staticmethod
+    async def get_user_plan(db: AsyncSession, user_id: str) -> str:
+        """Return the user's plan string (free/pro/admin), defaulting to 'free'."""
+        result = await db.execute(
+            select(SnapTradeUser.plan).where(SnapTradeUser.user_id == user_id)
+        )
+        row = result.first()
+        return row[0] if row else "free"
+
+    @staticmethod
+    async def set_user_plan(db: AsyncSession, user_id: str, plan: str) -> bool:
+        """Set a user's plan. Returns False if user not found."""
+        from sqlalchemy import update
+        result = await db.execute(
+            update(SnapTradeUser)
+            .where(SnapTradeUser.user_id == user_id)
+            .values(plan=plan)
+        )
+        return result.rowcount > 0
+
+    @staticmethod
+    async def check_daily_cap(db: AsyncSession, user_id: str) -> tuple[bool, int]:
+        """
+        Returns (allowed, credits_remaining_today).
+        allowed=False when today's spend already hit the plan's daily cap.
+        Admin plan is always allowed with -1 as remaining (unlimited).
+        """
+        plan = await CreditsService.get_user_plan(db, user_id)
+        cap = DAILY_CREDIT_CAPS.get(plan, DAILY_CREDIT_CAPS["free"])
+        if cap is None:
+            return True, -1  # admin — unlimited
+        spent_today = await CreditsService.get_daily_spend(db, user_id)
+        remaining = max(0, cap - spent_today)
+        return remaining > 0, remaining
+
     @staticmethod
     async def get_transaction_history(
         db: AsyncSession,

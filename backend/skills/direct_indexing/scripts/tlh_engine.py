@@ -212,135 +212,141 @@ def find_harvest_candidates(
 # Substitute Security Selection
 # ---------------------------------------------------------------------------
 
-def compute_correlation(prices_a: List[float], prices_b: List[float]) -> Optional[float]:
-    """
-    Pearson correlation of daily returns between two price series.
-    Returns None if insufficient data (< 20 common points).
-    """
-    if len(prices_a) < 20 or len(prices_b) < 20:
-        return None
-
-    n = min(len(prices_a), len(prices_b))
-    prices_a = prices_a[:n]
-    prices_b = prices_b[:n]
-
-    returns_a = [(prices_a[i] - prices_a[i+1]) / prices_a[i+1] for i in range(n-1)]
-    returns_b = [(prices_b[i] - prices_b[i+1]) / prices_b[i+1] for i in range(n-1)]
-
-    try:
-        return statistics.correlation(returns_a, returns_b)
-    except Exception:
-        return None
-
-
-def find_substitute_security(
+def find_best_correlated_substitute(
     sold_symbol: str,
-    candidate_tickers: List[str],
+    universe: List[str],
     wash_sale_log: List[Dict[str, Any]],
-    min_correlation: float = 0.85,
-    price_lookback_days: int = 90,
+    min_correlation: float = 0.80,
+    lookback_days: int = 120,
 ) -> Optional[Dict[str, Any]]:
     """
-    Find the best substitute security for a harvested position.
+    Find the highest-correlated substitute for `sold_symbol`.
 
-    Selection criteria (in order):
-    1. Not substantially identical (different issuer — handled by caller passing only peers)
-    2. Not in the wash sale window (wasn't recently sold at a loss)
-    3. Correlation with sold security >= min_correlation (default 0.85)
-    4. Among qualifying substitutes, pick the one with highest correlation
+    Search order:
+      1. FMP sector peers (same sector, same exchange, similar market cap) — the tightest
+         economic match. A sector peer that's also highly correlated is the ideal substitute:
+         it maintains sector exposure while being definitively not "substantially identical."
+      2. Full ETF universe — fallback if no sector peer clears min_correlation. Casts a
+         wider net at the cost of potentially weaker economic similarity.
+
+    Correlation is computed from daily adjClose returns (total return, not price-only).
+    This is the right metric: two stocks with high return correlation will move together
+    during the 31-day hold, minimising tracking error vs the original.
 
     Args:
-        sold_symbol:        The ticker being harvested
-        candidate_tickers:  Pool of potential substitutes (peers, sector ETF, etc.)
-        wash_sale_log:      Prior sales log for wash sale checking
-        min_correlation:    Minimum R with sold security (default 0.85; pros use 0.90-0.95)
-        price_lookback_days: Days of price history to use for correlation (default 90)
+        sold_symbol:     Ticker being harvested.
+        universe:        Candidate pool — typically all ETF constituents. Sector peers are
+                         intersected with this to ensure the substitute is in the index.
+        wash_sale_log:   [{symbol, sale_date, was_loss}] — blocked symbols.
+        min_correlation: Minimum R for the substitute to be used. Default 0.80.
+                         Stocks below this threshold are market bets, not hedges.
+        lookback_days:   Days of price history for correlation. Default 120 (~6 months).
 
     Returns:
-        Best substitute dict {symbol, correlation, reason} or None if no suitable match
+        {symbol, correlation, search_pool, reason, below_threshold: bool} or None.
     """
-    from skills.financial_modeling_prep.scripts.market.historical_prices import get_historical_prices
+    from skills.financial_modeling_prep.scripts.market.historical_prices import get_batch_historical_prices
 
-    # Filter wash-sale-blocked candidates
-    eligible = [
-        t for t in candidate_tickers
-        if t.upper() != sold_symbol.upper()
-        and not is_in_wash_sale_window(t, wash_sale_log)
+    universe_set = {s.upper() for s in universe}
+    blocked = {sold_symbol.upper()} | {
+        e['symbol'].upper() for e in wash_sale_log
+        if is_in_wash_sale_window(e['symbol'], wash_sale_log)
+    }
+
+    # --- Pass 1: sector peers intersected with ETF universe ---
+    sector_peers = [
+        s for s in _get_peers_fallback(sold_symbol)
+        if s.upper() in universe_set and s.upper() not in blocked
+    ]
+    # --- Pass 2: full universe minus blocked ---
+    full_eligible = [
+        s for s in universe
+        if s.upper() not in blocked and s.upper() != sold_symbol.upper()
     ]
 
-    if not eligible:
+    if not full_eligible and not sector_peers:
         return None
 
-    # Fetch historical prices for the sold security
-    from_date = (date.today() - timedelta(days=price_lookback_days + 10)).isoformat()
-    sold_data = get_historical_prices(sold_symbol, from_date=from_date)
-    if 'error' in sold_data or not sold_data.get('prices'):
-        # Fallback: return first eligible candidate without correlation check
-        return {'symbol': eligible[0], 'correlation': None, 'reason': 'price data unavailable, using first eligible peer'}
+    from_date = (date.today() - timedelta(days=lookback_days + 10)).isoformat()
+    to_date = date.today().isoformat()
 
-    sold_prices = [p['close'] for p in sold_data['prices'] if p.get('close')]
+    # Fetch prices for all candidates at once — disk-cached so subsequent calls are instant
+    all_syms = list({sold_symbol} | set(sector_peers) | set(full_eligible))
+    batch = get_batch_historical_prices(all_syms, from_date=from_date, to_date=to_date)
 
-    best: Optional[Dict[str, Any]] = None
-    best_corr = -999.0
+    if sold_symbol not in batch or not batch[sold_symbol].get('prices'):
+        return None
 
-    for ticker in eligible[:15]:  # Check up to 15 candidates to limit API calls
-        data = get_historical_prices(ticker, from_date=from_date)
-        if 'error' in data or not data.get('prices'):
-            continue
-        prices = [p['close'] for p in data['prices'] if p.get('close')]
+    def _returns(prices_list):
+        closes = [p['adjClose'] for p in prices_list if p.get('adjClose')]
+        if len(closes) < 30:
+            return None
+        return [closes[i] / closes[i + 1] - 1 for i in range(len(closes) - 1)]
 
-        corr = compute_correlation(sold_prices, prices)
-        if corr is None:
-            continue
+    sold_returns = _returns(batch[sold_symbol]['prices'])
+    if sold_returns is None:
+        return None
 
-        if corr >= min_correlation and corr > best_corr:
-            best_corr = corr
-            best = {
-                'symbol': ticker,
-                'correlation': round(corr, 4),
-                'reason': f'highest-correlation peer (R={corr:.3f})',
+    def _best_in_pool(pool: List[str]):
+        best_sym, best_corr = None, -999.0
+        for sym in pool:
+            if sym not in batch:
+                continue
+            cand_returns = _returns(batch[sym]['prices'])
+            if cand_returns is None:
+                continue
+            n = min(len(sold_returns), len(cand_returns))
+            if n < 30:
+                continue
+            try:
+                corr = statistics.correlation(sold_returns[:n], cand_returns[:n])
+            except Exception:
+                continue
+            if corr > best_corr:
+                best_corr, best_sym = corr, sym
+        return best_sym, best_corr
+
+    # Try sector peers first
+    if sector_peers:
+        peer_sym, peer_corr = _best_in_pool(sector_peers)
+        if peer_sym and peer_corr >= min_correlation:
+            return {
+                'symbol': peer_sym,
+                'correlation': round(peer_corr, 4),
+                'search_pool': 'sector_peers',
+                'reason': f'highest-correlated sector peer (R={peer_corr:.3f})',
+                'below_threshold': False,
             }
 
-    if best is None:
-        # Relax: take the best available even below threshold (with warning)
-        for ticker in eligible[:5]:
-            data = get_historical_prices(ticker, from_date=from_date)
-            if 'error' in data or not data.get('prices'):
-                continue
-            prices = [p['close'] for p in data['prices'] if p.get('close')]
-            corr = compute_correlation(sold_prices, prices)
-            if corr is not None and corr > best_corr:
-                best_corr = corr
-                best = {
-                    'symbol': ticker,
-                    'correlation': round(corr, 4),
-                    'reason': f'best available peer below correlation threshold (R={corr:.3f}) — verify manually',
-                }
+    # Fall back to full universe
+    full_sym, full_corr = _best_in_pool(full_eligible)
+    if full_sym is None:
+        return None
 
-    return best
+    below = full_corr < min_correlation
+    pool_label = 'sector_peers+universe' if sector_peers else 'universe'
+    return {
+        'symbol': full_sym,
+        'correlation': round(full_corr, 4),
+        'search_pool': pool_label,
+        'reason': (
+            f'highest-correlated substitute in ETF universe (R={full_corr:.3f})'
+            if not below else
+            f'best available substitute (R={full_corr:.3f}, below {min_correlation} threshold — '
+            f'no sector peer or universe stock cleared the bar; verify before executing)'
+        ),
+        'below_threshold': below,
+    }
 
 
-# ---------------------------------------------------------------------------
-# Sector ETF fallbacks (for large-cap stocks with no good peer substitute)
-# ---------------------------------------------------------------------------
-
-SECTOR_ETF_FALLBACKS = {
-    'Technology': 'XLK',
-    'Communication Services': 'XLC',
-    'Consumer Discretionary': 'XLY',
-    'Consumer Staples': 'XLP',
-    'Energy': 'XLE',
-    'Financials': 'XLF',
-    'Health Care': 'XLV',
-    'Industrials': 'XLI',
-    'Materials': 'XLB',
-    'Real Estate': 'XLRE',
-    'Utilities': 'XLU',
-}
-
-# Map of tickers where peer substitution typically fails (mega-caps that dominate sectors)
-# For these, the sector ETF is the preferred substitute
-SECTOR_ETF_PREFERRED = {'AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'TSLA', 'NFLX'}
+def _get_peers_fallback(symbol: str) -> List[str]:
+    """Fetch FMP peers for a symbol — used when no ETF universe is provided."""
+    try:
+        from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_peers
+        peers = get_stock_peers(symbol)
+        return [p for p in peers if isinstance(p, str)] if isinstance(peers, list) else []
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -362,9 +368,18 @@ def build_tlh_plan(
 
     For each harvestable lot:
     1. Identify the loss and its tax value
-    2. Find the best substitute security (peer or sector ETF)
-    3. Compute the safe repurchase date (31 days from today)
-    4. Return actionable instructions
+    2. Find the highest-correlated substitute in the ETF constituent universe
+    3. Enforce cross-opportunity wash sale safety: a stock cannot be both harvested
+       (sold) and used as a substitute (bought) in the same plan
+    4. Compute the safe repurchase date (31 days from today)
+    5. Return actionable instructions
+
+    Cross-opportunity conflict example:
+        AMZN at a loss → substitute is MSFT (highest corr)
+        MSFT also at a loss → MSFT is now blocked as a harvest candidate
+        because we just bought it as AMZN's substitute. Selling MSFT immediately
+        after buying it would disallow the MSFT loss (purchased within 30 days).
+        The plan will warn about MSFT and skip it, or find MSFT a different sub.
 
     Args:
         lots:               All tax lots (use TaxLot objects)
@@ -387,9 +402,6 @@ def build_tlh_plan(
             warnings: list of warning strings,
         }
     """
-    from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_peers
-    from skills.financial_modeling_prep.scripts.company.profile import get_profile as get_company_profile
-
     if wash_sale_log is None:
         wash_sale_log = []
 
@@ -402,66 +414,66 @@ def build_tlh_plan(
         tax_rate_lt=tax_rate_lt,
     )
 
-    # Build set of ETF tickers for in-index substitute preference
-    etf_tickers = set()
-    if etf_holdings:
-        etf_tickers = {h.get('asset', '').upper() for h in etf_holdings if h.get('asset')}
+    # Build substitute universe. ETF constituents are the best candidates:
+    # - Already have cached price data from the simulation
+    # - Definitively not "substantially identical" to any individual stock
+    # - Maintain index exposure during the 31-day hold
+    universe: List[str] = [h['asset'].upper() for h in (etf_holdings or []) if h.get('asset')]
 
     warnings = []
     opportunities = []
     repurchase_date = wash_sale_safe_after(date.today())
 
+    # Track symbols already assigned as substitutes in this plan.
+    # A stock being bought as a substitute cannot simultaneously be harvested (sold) —
+    # that would create a wash sale on the newly purchased substitute lot.
+    # e.g. AMZN loss → buy MSFT; then harvesting MSFT loss → sell MSFT immediately after
+    # buying it → the MSFT loss is disallowed (purchased within 30 days of the loss sale).
+    assigned_as_substitute: set = set()
+
+    # Also track symbols already scheduled to be sold, so we don't assign them as substitutes.
+    scheduled_to_sell: set = set()
+
     for cand in candidates:
         symbol = cand['symbol']
 
-        # Step 2: Find substitute
-        substitute = None
-        substitute_source = None
+        # Skip if this symbol was already assigned as a substitute for an earlier harvest.
+        # We can't sell it (harvest it) while we're supposed to be holding it as a substitute.
+        if symbol in assigned_as_substitute:
+            warnings.append(
+                f'{symbol}: skipped — already assigned as substitute for another position. '
+                f'Cannot harvest and use as substitute simultaneously.'
+            )
+            continue
 
-        # For mega-caps, prefer sector ETF immediately
-        if symbol in SECTOR_ETF_PREFERRED:
-            # Get company sector to find the right ETF
-            profile_data = get_company_profile(symbol)
-            profile_list = profile_data if isinstance(profile_data, list) else [profile_data] if isinstance(profile_data, dict) else []
-            profile = profile_list[0] if profile_list else {}
-            sector = profile.get('sector', '')
-            sector_etf = SECTOR_ETF_FALLBACKS.get(sector)
-            if sector_etf and not is_in_wash_sale_window(sector_etf, wash_sale_log):
-                substitute = {'symbol': sector_etf, 'correlation': None, 'reason': f'sector ETF ({sector}) — preferred for mega-cap, definitively not substantially identical'}
-                substitute_source = 'sector_etf'
+        # Build candidate universe excluding:
+        # - Stocks we're already selling (buying them back = wash sale on the sold lot)
+        # - Stocks already being used as substitutes (can't buy more of what we're holding short-term)
+        blocked = scheduled_to_sell | assigned_as_substitute
+        candidate_universe = [
+            s for s in (universe if universe else _get_peers_fallback(symbol))
+            if s.upper() not in blocked
+        ]
 
-        if substitute is None:
-            # Try peers first, preferring those already in the ETF
-            peers = get_stock_peers(symbol)
-            if isinstance(peers, list) and peers:
-                # Prioritize peers that are in the target ETF (maintains index exposure)
-                in_index_peers = [p for p in peers if p.upper() in etf_tickers and p.upper() != symbol.upper()]
-                out_of_index_peers = [p for p in peers if p.upper() not in etf_tickers and p.upper() != symbol.upper()]
-                ordered_peers = in_index_peers + out_of_index_peers
-
-                substitute = find_substitute_security(
-                    symbol,
-                    ordered_peers,
-                    wash_sale_log,
-                    min_correlation=min_correlation,
-                )
-                substitute_source = 'peer'
+        substitute = find_best_correlated_substitute(
+            symbol, candidate_universe, wash_sale_log, min_correlation=min_correlation,
+        )
 
         if substitute is None:
-            # Final fallback: sector ETF
-            profile_data = get_company_profile(symbol)
-            profile_list = profile_data if isinstance(profile_data, list) else [profile_data] if isinstance(profile_data, dict) else []
-            profile = profile_list[0] if profile_list else {}
-            sector = profile.get('sector', '')
-            sector_etf = SECTOR_ETF_FALLBACKS.get(sector)
-            if sector_etf and not is_in_wash_sale_window(sector_etf, wash_sale_log):
-                substitute = {'symbol': sector_etf, 'correlation': None, 'reason': f'sector ETF fallback ({sector}) — no suitable peer found'}
-                substitute_source = 'sector_etf_fallback'
-            else:
-                warnings.append(f'{symbol}: no suitable substitute found — skipping harvest (wash sale risk or no peers)')
-                continue
+            warnings.append(f'{symbol}: no substitute found — no price data or all candidates in wash sale window')
+            continue
 
-        # Score the opportunity: expected value vs tracking error cost
+        if substitute.get('below_threshold'):
+            warnings.append(
+                f'{symbol}: best substitute {substitute["symbol"]} has R={substitute["correlation"]:.3f} '
+                f'(below {min_correlation} threshold) — included but verify before executing'
+            )
+
+        # Register this pairing so subsequent candidates respect it
+        assigned_as_substitute.add(substitute['symbol'].upper())
+        scheduled_to_sell.add(symbol.upper())
+
+        # Step 3: Score the opportunity: expected value vs tracking error cost
         scoring = score_harvest_opportunity(
             dollar_loss=cand['dollar_loss'],
             tax_rate=cand['tax_rate'],
@@ -471,7 +483,6 @@ def build_tlh_plan(
         opportunity = {
             **cand,
             'substitute': substitute,
-            'substitute_source': substitute_source,
             'sell_date': date.today().isoformat(),
             'safe_repurchase_date': repurchase_date.isoformat(),
             'hold_substitute_days': 31,

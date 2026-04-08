@@ -1,7 +1,7 @@
 """
 Credits API routes
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel
 from typing import Optional
 from core.database import get_db_session
@@ -203,6 +203,114 @@ async def get_pricing_info():
             }
         }
     }
+
+
+class CheckoutRequest(BaseModel):
+    user_id: str
+    success_url: str
+    cancel_url: str
+
+
+class SetPlanRequest(BaseModel):
+    user_id: str
+    plan: str  # free | pro | admin
+
+
+@router.post("/checkout")
+async def create_checkout_session(request: CheckoutRequest):
+    """
+    Create a Stripe checkout session to upgrade to Pro.
+    Returns a URL to redirect the user to.
+    """
+    try:
+        import stripe
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Stripe not installed")
+
+    if not Config.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    if not Config.STRIPE_PRO_PRICE_ID:
+        raise HTTPException(status_code=500, detail="Stripe Pro price not configured")
+
+    stripe.api_key = Config.STRIPE_SECRET_KEY
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{"price": Config.STRIPE_PRO_PRICE_ID, "quantity": 1}],
+            success_url=request.success_url,
+            cancel_url=request.cancel_url,
+            metadata={"user_id": request.user_id},
+        )
+        return {"url": session.url, "session_id": session.id}
+    except Exception as e:
+        logger.error(f"Stripe checkout error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/webhook")
+async def stripe_webhook(request: Request):
+    """
+    Stripe webhook handler. Upgrades user to Pro on successful payment.
+    Configure in Stripe dashboard: checkout.session.completed + customer.subscription.deleted
+    """
+    try:
+        import stripe
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Stripe not installed")
+
+    if not Config.STRIPE_SECRET_KEY or not Config.STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    stripe.api_key = Config.STRIPE_SECRET_KEY
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, Config.STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    async with get_db_session() as db:
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            user_id = session.get("metadata", {}).get("user_id")
+            if user_id:
+                await CreditsService.set_user_plan(db, user_id, "pro")
+                # Give pro users a credit bonus on first subscription
+                await CreditsService.add_credits(
+                    db, user_id, 10_000,
+                    transaction_type="subscription",
+                    description="Pro plan activation bonus (+10,000 credits)"
+                )
+                logger.info(f"User {user_id} upgraded to pro via Stripe")
+
+        elif event["type"] == "customer.subscription.deleted":
+            session = event["data"]["object"]
+            user_id = session.get("metadata", {}).get("user_id")
+            if user_id:
+                await CreditsService.set_user_plan(db, user_id, "free")
+                logger.info(f"User {user_id} downgraded to free (subscription cancelled)")
+
+    return {"status": "ok"}
+
+
+@router.post("/admin/set-plan")
+async def admin_set_plan(request: SetPlanRequest, x_admin_secret: str = Header(...)):
+    """
+    Admin endpoint to manually set a user's plan.
+    Requires X-Admin-Secret header matching ADMIN_SECRET env var.
+    """
+    if not Config.ADMIN_SECRET or x_admin_secret != Config.ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if request.plan not in ("free", "pro", "admin"):
+        raise HTTPException(status_code=400, detail="plan must be free, pro, or admin")
+
+    async with get_db_session() as db:
+        ok = await CreditsService.set_user_plan(db, request.user_id, request.plan)
+        if not ok:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"success": True, "user_id": request.user_id, "plan": request.plan}
 
 
 @router.post("/request")

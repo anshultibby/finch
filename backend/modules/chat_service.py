@@ -79,6 +79,19 @@ class ChatService:
                     ).to_sse_format()
                     yield SSEEvent(event="done", data={}).to_sse_format()
                     return
+
+                # Check daily spend cap
+                allowed, remaining_today = await CreditsService.check_daily_cap(db, user_id)
+                if not allowed:
+                    from schemas.sse import SSEEvent
+                    logger.warning(f"User {user_id} hit daily credit cap")
+                    await chat_async.set_chat_processing(db, chat_id, is_processing=False)
+                    yield SSEEvent(
+                        event="error",
+                        data={"error": "Daily limit reached ($1/day). Resets at midnight UTC."}
+                    ).to_sse_format()
+                    yield SSEEvent(event="done", data={}).to_sse_format()
+                    return
                 
                 # Send immediate acknowledgment so frontend knows connection is alive
                 from schemas.sse import SSEEvent, ThinkingEvent

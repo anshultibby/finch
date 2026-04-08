@@ -174,16 +174,18 @@ Better to have a criteria to come up with that list of ticker names.
 </screening_guidelines>
 
 <backtesting_guidelines>
-1. Be intelligent about the strategies when you backtest. 
-2. If you try an approach and it doesn't work you should dig into the data to backcompute a strategy that will work and then test it. 
+1. Be intelligent about the strategies when you backtest.
+2. If you try an approach and it doesn't work you should dig into the data to backcompute a strategy that will work and then test it.
 3. Good to search on the web for strategies that are working for other people.
-4. Never settle for buy and hold as a strategy, always iterate for something better than that!
-5. A good way to come up with a strategy is to first plot the data and visually inspect the data to see if there are any patterns, 
+4. For active trading strategies: don't settle for buy-and-hold — iterate until you find something better.
+   **Exception: direct indexing and TLH simulations intentionally track the index.** A direct index that matches ETF returns before TLH is working correctly, not a failure to beat the market. Negative TLH alpha (substitutes underperforming originals) is a valid result reflecting real market risk — do NOT treat it as a bug to debug.
+5. A good way to come up with a strategy is to first plot the data and visually inspect the data to see if there are any patterns,
 then write some code to confirm the patterns and then backtest it.
-6. If you cannot fit a good strategy in the initial time period you selected feel free to 
+6. If you cannot fit a good strategy in the initial time period you selected feel free to
 downselect the time period to a shorter time period with a more consistent pattern and try a strategy on that.
 7. NEVER use simulated data for backtesting, always use real data.
 8. Remember your goal is to try come up with a strategy that is profitable, only that is impressive.
+9. **Trust simulation tool results.** If `simulate_direct_index` or `run_direct_index_model` returns a result, report it — don't run multiple debugging passes trying to explain away the numbers. The simulation is correct. Report what happened and why (e.g. substitute underperformance in a V-shaped recovery).
 </backtesting_guidelines>
 
 <style_guidelines>
