@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 
 from core.config import Config
-from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, bots_router, trades_router, credits_router, skills_router
+from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
@@ -16,9 +16,9 @@ logger = get_logger(__name__)
 from modules.tools import definitions  # noqa: F401 - imported for side effects (tool registration)
 
 app = FastAPI(
-    title="Finch Trading Bots API",
-    description="AI-powered trading bots",
-    version="3.0.0"
+    title="Finch Tax Loss Harvesting API",
+    description="AI-powered tax loss harvesting",
+    version="4.0.0"
 )
 
 # Setup OpenTelemetry tracing (auto-instruments FastAPI, DB, HTTP)
@@ -96,10 +96,7 @@ app.include_router(resources_router)
 app.include_router(analytics_router)
 app.include_router(chat_files_router)
 app.include_router(api_keys_router)
-app.include_router(bots_router)
-app.include_router(trades_router)
 app.include_router(credits_router)
-app.include_router(skills_router)
 
 
 import asyncio
@@ -139,7 +136,6 @@ async def startup_event():
     """Initialize services on startup"""
     global _pool_monitor_task
     from services.storage import storage_service
-    from modules.bots.scheduler import start_scheduler
     from core.database import get_pool_status
 
     # Log database connection pool configuration
@@ -163,17 +159,11 @@ async def startup_event():
     else:
         logger.info("Supabase Storage not configured - images will be stored in database")
 
-    # Start bot scheduler
-    logger.info("Starting bot scheduler...")
-    await start_scheduler()
-    logger.info("Bot scheduler started")
-
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
     global _pool_monitor_task
-    from modules.bots.scheduler import stop_scheduler
 
     # Stop pool monitor
     if _pool_monitor_task:
@@ -184,15 +174,11 @@ async def shutdown_event():
             pass
         logger.info("Stopped connection pool monitoring")
 
-    logger.info("Stopping bot scheduler...")
-    await stop_scheduler()
-    logger.info("Bot scheduler stopped")
-
 
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "Finch Trading Bots API", "status": "running"}
+    return {"message": "Finch Tax Loss Harvesting API", "status": "running"}
 
 
 @app.get("/health")

@@ -157,20 +157,7 @@ class ChatService:
                     logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
                     previous_context.cancel()
                 
-                # Check if this chat belongs to a bot — if so, build bot-specific context
-                bot_context = None
-                if db_chat and getattr(db_chat, 'bot_id', None):
-                    try:
-                        bot_context = await self._build_bot_context(db, db_chat.bot_id, user_id)
-                        # Store bot_id in agent context so bot tools can access it
-                        if agent_context.data is None:
-                            agent_context.data = {}
-                        agent_context.data["bot_id"] = str(db_chat.bot_id)
-                        agent_context.data["bot_directory"] = bot_context.get("bot_directory", "") if bot_context else ""
-                    except Exception as e:
-                        logger.warning(f"Failed to build bot context: {e}")
-
-                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids, bot_context=bot_context)
+                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
                 
                 # Prepend current datetime so the LLM is always aware of the current time
                 now = datetime.now(timezone.utc).strftime("%A, %B %d, %Y %H:%M UTC")
@@ -365,17 +352,6 @@ class ChatService:
                 
                 LLMHandler.finalize_session(chat_id)
 
-                # Sync STRATEGY.md and MEMORY.md from sandbox to bot_files DB
-                # (so frontend can display them without waking the sandbox)
-                if bot_context and db_chat and getattr(db_chat, 'bot_id', None):
-                    try:
-                        await self._sync_bot_docs_from_sandbox(
-                            db, str(db_chat.bot_id), user_id,
-                            bot_directory=bot_context.get("bot_directory", ""),
-                        )
-                    except Exception as e:
-                        logger.debug(f"Bot doc sync failed (non-fatal): {e}")
-
                 # Run compaction if the history has grown too large, or if the
                 # session pruner signaled overflow (early compaction cascade).
                 from .agent.compactor import maybe_compact
@@ -395,157 +371,6 @@ class ChatService:
                 
                 logger.info("Chat turn complete - all messages saved incrementally")
     
-    async def _sync_bot_docs_from_sandbox(self, db, bot_id: str, user_id: str, bot_directory: str = "") -> None:
-        """Read STRATEGY.md and MEMORY.md from the sandbox and sync to bot_files DB.
-
-        Called at the end of each bot chat session while the sandbox is still hot.
-        This lets the frontend display the docs without waking the sandbox.
-        """
-        from modules.tools.implementations.code_execution import read_sandbox_file
-        from crud.bots import upsert_bot_file
-
-        for filename, file_type in [("STRATEGY.md", "strategy"), ("MEMORY.md", "memory")]:
-            try:
-                path = f"{bot_directory}/{filename}" if bot_directory else filename
-                raw = await read_sandbox_file(user_id, path)
-                if raw:
-                    content = raw.decode("utf-8", errors="replace").strip()
-                    if content:
-                        await upsert_bot_file(db, bot_id, filename, content=content, file_type=file_type)
-            except Exception as e:
-                logger.debug(f"Sync {filename} failed (non-fatal): {e}")
-
-    async def _build_bot_context(self, db, bot_id: str, user_id: str) -> dict:
-        """Load bot data and API connection status to build bot-specific agent context."""
-        from crud.bots import get_bot, get_bot_files, get_open_positions, list_positions, list_executions
-        from services.api_keys import ApiKeyService
-        import json
-
-        bot = await get_bot(db, bot_id, user_id)
-        if not bot:
-            return None
-
-        config = bot.config or {}
-
-        # Ensure bot has its own sandbox directory (migrate legacy files on first run)
-        bot_dir = bot.directory or f"bots/{bot_id[:8]}"
-        from modules.bots.executor import ensure_bot_directory
-        await ensure_bot_directory(user_id, bot_dir)
-
-        # Load context files from DB (bot_files is the synced mirror)
-        files = await get_bot_files(db, bot_id)
-        strategy_md = ""
-        memory_md = ""
-        for f in files:
-            if f.filename == "STRATEGY.md" or f.file_type == "strategy":
-                strategy_md = f.content or ""
-            elif f.filename == "MEMORY.md" or f.file_type == "memory":
-                memory_md = f.content or ""
-            # Legacy fallbacks
-            elif f.filename == "CONTEXT.md" or f.file_type == "context":
-                strategy_md = strategy_md or (f.content or "")
-            elif f.filename == "AGENTS.md" or f.file_type == "agents":
-                memory_md = memory_md or (f.content or "")
-
-        # Legacy: fall back to config.mandate if no STRATEGY.md file exists yet
-        if not strategy_md:
-            strategy_md = config.get("mandate", "")
-
-        # Bootstrap from sandbox if not in DB (source of truth is sandbox files)
-        bot_dir = bot.directory or f"bots/{bot_id[:8]}"
-        from modules.tools.implementations.code_execution import read_sandbox_file
-        if not strategy_md:
-            try:
-                raw = await read_sandbox_file(user_id, f"{bot_dir}/STRATEGY.md")
-                if raw:
-                    strategy_md = raw.decode("utf-8", errors="replace").strip()
-            except Exception:
-                pass
-        if not memory_md:
-            try:
-                raw = await read_sandbox_file(user_id, f"{bot_dir}/MEMORY.md")
-                if raw:
-                    memory_md = raw.decode("utf-8", errors="replace").strip()
-            except Exception:
-                pass
-
-        # Load positions
-        open_positions = await get_open_positions(db, bot_id)
-        positions_data = []
-        for p in open_positions:
-            positions_data.append({
-                "id": str(p.id), "market": p.market, "side": p.side,
-                "entry_price": p.entry_price, "current_price": p.current_price,
-                "quantity": p.quantity, "cost_usd": p.cost_usd,
-                "unrealized_pnl_usd": p.unrealized_pnl_usd,
-                "market_title": p.market_title, "monitor_note": p.monitor_note,
-            })
-        positions_json = json.dumps(positions_data, indent=2) if positions_data else "No open positions."
-
-        # Recent tick summaries
-        executions = await list_executions(db, bot_id, limit=5)
-        tick_lines = []
-        for ex in executions:
-            data = ex.data or {}
-            tick_lines.append(f"- [{ex.status}] {data.get('summary', 'No summary')}")
-        recent_ticks = "\n".join(tick_lines) if tick_lines else ""
-
-        # Check API connections
-        from crud.user_api_keys import get_decrypted_credentials
-        connections = {}
-        try:
-            kalshi_creds = await get_decrypted_credentials(db, user_id, "kalshi")
-            connections["kalshi"] = kalshi_creds is not None and bool(kalshi_creds.get("api_key_id"))
-        except Exception:
-            connections["kalshi"] = False
-        try:
-            poly_creds = await get_decrypted_credentials(db, user_id, "polymarket")
-            connections["polymarket"] = poly_creds is not None and bool(poly_creds.get("private_key"))
-        except Exception:
-            connections["polymarket"] = False
-        try:
-            from modules.tools.clients.snaptrade import snaptrade_tools
-            session = await snaptrade_tools._get_session(user_id)
-            connections["brokerage"] = session is not None and session.is_connected
-        except Exception:
-            connections["brokerage"] = False
-
-        # Capital info
-        capital = config.get("capital", {}) or {}
-        capital_balance = capital.get("balance_usd")
-        per_position_usd = capital.get("per_trade") or capital.get("amount_usd")
-        max_positions = capital.get("max_positions")
-
-        platform = config.get("platform", "kalshi")
-
-        # For research bots, pre-fetch portfolio summary
-        portfolio_summary = ""
-        if platform == "research":
-            try:
-                from skills.snaptrade.scripts.portfolio.get_holdings import get_holdings
-                holdings = await get_holdings(user_id)
-                if holdings.get("success"):
-                    portfolio_summary = holdings.get("data", {}).get("csv", "")
-            except Exception as e:
-                logger.debug(f"Portfolio pre-fetch failed (non-fatal): {e}")
-
-        return {
-            "bot_name": bot.name,
-            "bot_id": bot_id,
-            "bot_directory": bot.directory or f"bots/{bot_id[:8]}",
-            "strategy_md": strategy_md,
-            "memory_md": memory_md,
-            "positions_json": positions_json,
-            "recent_ticks_summary": recent_ticks,
-            "platform": platform,
-            "connections": connections,
-            "capital_balance": capital_balance,
-            "starting_capital": capital.get("amount_usd"),
-            "per_position_usd": per_position_usd,
-            "max_positions": max_positions,
-            "portfolio_summary": portfolio_summary,
-        }
-
     async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:
         """Get chat history for a chat, including tool calls (OpenAI format)"""
         if db is None:

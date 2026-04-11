@@ -175,23 +175,16 @@ class Settings(BaseSettings):
             'write_chat_file',
             'read_chat_file',
             'replace_in_chat_file',
-            # Domain tools
-            'build_custom_etf',
             # Brokerage / SnapTrade
             'connect_brokerage',
             'get_brokerage_status',
             'get_portfolio',
             # TLH Swaps
             'present_swaps',
+            # Alpaca execution
+            'execute_tlh_swap',
             # Agent Management
             'create_agent',
-            # Bot Management (only functional in bot chats)
-            'configure_bot',
-            'place_trade',
-            'list_trades',
-            'schedule_wakeup',
-            'list_wakeups',
-            'cancel_wakeup',
         ],
         description="All agent tools"
     )

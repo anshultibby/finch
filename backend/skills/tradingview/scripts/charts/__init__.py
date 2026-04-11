@@ -1,2 +1,0 @@
-"""TradingView Chart Widgets"""
-
