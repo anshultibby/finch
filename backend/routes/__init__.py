@@ -7,6 +7,8 @@ from .resources import router as resources_router
 from .chat_files import router as chat_files_router
 from .api_keys import router as api_keys_router
 from .credits import router as credits_router
+from .reminders import router as reminders_router
+from .reminders import alpaca_router
 
 __all__ = [
     "chat_router",
@@ -15,5 +17,7 @@ __all__ = [
     "chat_files_router",
     "api_keys_router",
     "credits_router",
+    "reminders_router",
+    "alpaca_router",
 ]
 

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 
 from core.config import Config
-from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router
+from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router, reminders_router, alpaca_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
@@ -97,6 +97,8 @@ app.include_router(analytics_router)
 app.include_router(chat_files_router)
 app.include_router(api_keys_router)
 app.include_router(credits_router)
+app.include_router(reminders_router)
+app.include_router(alpaca_router)
 
 
 import asyncio
@@ -148,6 +150,11 @@ async def startup_event():
     # Start background pool monitoring
     _pool_monitor_task = asyncio.create_task(monitor_connection_pool())
     logger.info("Started connection pool monitoring")
+
+    # Start TLH reminder email loop
+    from services.reminder_scheduler import run_reminder_loop
+    asyncio.create_task(run_reminder_loop())
+    logger.info("Started TLH reminder scheduler")
 
     # Initialize Supabase Storage bucket (if configured)
     if storage_service.is_available():

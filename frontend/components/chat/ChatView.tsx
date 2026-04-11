@@ -621,6 +621,7 @@ export default function ChatView({
                       toolCalls={msg.toolCalls}
                       swap_data={msg.swap_data}
                       chatId={currentChatId || undefined}
+                      userId={userId || undefined}
                       onSelectTool={handleSelectTool}
                       onFileClick={(filename) => setSelectedFile(filename)}
                       onVisualizationClick={onVisualizationClick}

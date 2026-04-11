@@ -1,7 +1,7 @@
 """
 User-related ORM models: SnapTradeUser, UserSettings, UserSandbox, CreditTransaction
 """
-from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer
+from sqlalchemy import Column, String, DateTime, Date, Text, Boolean, Integer, Float
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from core.database import Base
@@ -100,3 +100,30 @@ class UserSkill(Base):
 
     def __repr__(self):
         return f"<UserSkill(user_id='{self.user_id}', skill_name='{self.skill_name}', enabled={self.enabled})>"
+
+
+class AlpacaWaitlist(Base):
+    __tablename__ = "alpaca_waitlist"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TLHReminder(Base):
+    __tablename__ = "tlh_reminders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    email = Column(String, nullable=False)
+    symbol_sold = Column(String, nullable=False)
+    symbol_bought = Column(String, nullable=True)
+    loss_amount = Column(Float, nullable=True)
+    sale_date = Column(Date, nullable=False)
+    remind_at = Column(DateTime(timezone=True), nullable=False)  # sale_date + 61 days
+    sent = Column(Boolean, default=False, nullable=False)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<TLHReminder(id='{self.id}', user_id='{self.user_id}', symbol_sold='{self.symbol_sold}', sent={self.sent})>"
