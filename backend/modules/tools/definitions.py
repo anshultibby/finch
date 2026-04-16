@@ -184,15 +184,68 @@ def scrape_url(
 
 
 # ============================================================================
+# BROKERAGE / PORTFOLIO TOOLS (SnapTrade)
+# ============================================================================
+
+from modules.tools.implementations import snaptrade as snaptrade_impl
+
+
+@tool(
+    name="connect_brokerage",
+    description=(
+        "Start the brokerage connection flow for the user. "
+        "Generates an OAuth URL for the user to link their brokerage account via SnapTrade. "
+        "Returns a connection_url the user must open to authenticate. "
+        "Call this when the user has no connected brokerage or wants to add a new one."
+    ),
+    category="portfolio",
+)
+async def connect_brokerage(*, context: AgentContext, broker: Optional[str] = None) -> Dict[str, Any]:
+    """Generate OAuth URL for brokerage connection."""
+    return await snaptrade_impl.connect_brokerage_impl(context, broker)
+
+
+@tool(
+    name="get_brokerage_status",
+    description=(
+        "Check whether the user has a connected brokerage account. "
+        "Returns connected=True/False and a list of account names. "
+        "Always call this first before attempting get_portfolio."
+    ),
+    category="portfolio",
+)
+async def get_brokerage_status(*, context: AgentContext) -> Dict[str, Any]:
+    """Check brokerage connection status."""
+    return await snaptrade_impl.get_brokerage_status_impl(context)
+
+
+@tool(
+    name="get_portfolio",
+    description=(
+        "Fetch the user's live portfolio holdings across all connected brokerage accounts. "
+        "Returns positions with symbol, shares, current_price, average_purchase_price (cost basis), "
+        "gain_loss, and gain_loss_percent. "
+        "Use this to get the data needed for tax loss harvesting analysis. "
+        "Requires a connected brokerage — call get_brokerage_status first."
+    ),
+    category="portfolio",
+)
+async def get_portfolio(*, context: AgentContext) -> Dict[str, Any]:
+    """Fetch portfolio holdings with cost basis for TLH analysis."""
+    return await snaptrade_impl.get_portfolio_impl(context)
+
+
+# ============================================================================
 # TLH / SWAP PRESENTATION TOOL
 # ============================================================================
 
 from modules.tools.implementations import alpaca as alpaca_impl
 
-PRESENT_SWAPS_DESC = """Present tax loss harvesting swap opportunities to the user.
-Call this with a list of swap objects after analyzing the portfolio.
-Each swap: {sell_symbol, sell_qty, sell_loss, sell_loss_pct, buy_symbol, buy_reason, estimated_savings, correlation}.
-The frontend will render these as interactive cards the user can execute."""
+PRESENT_SWAPS_DESC = """Present tax loss harvesting results to the user as interactive swap cards.
+Pass the path to the saved TLH plan JSON file (e.g. '/home/user/data/tlh_plan.json').
+The tool reads the file from the sandbox, extracts harvest_now + borderline opportunities,
+and renders them as cards in the 'Opportunities' sidebar tab.
+After calling this, tell the user to check the Opportunities tab."""
 
 
 @tool(
@@ -200,9 +253,9 @@ The frontend will render these as interactive cards the user can execute."""
     description=PRESENT_SWAPS_DESC,
     category="swaps"
 )
-async def present_swaps(*, context: AgentContext, swaps: List):
+async def present_swaps(*, context: AgentContext, plan_file: str):
     """Present TLH swap opportunities as interactive cards."""
-    return await alpaca_impl.present_swaps_impl(context, swaps)
+    return await alpaca_impl.present_swaps_impl(context, plan_file)
 
 
 # ============================================================================
@@ -247,6 +300,10 @@ __all__ = [
     'build_custom_etf',
     # Web Search
     'web_search_tool', 'news_search', 'scrape_url',
+    # Brokerage / Portfolio
+    'connect_brokerage', 'get_brokerage_status', 'get_portfolio',
+    # TLH
+    'present_swaps',
     # Agent Management
     'create_agent',
 ]

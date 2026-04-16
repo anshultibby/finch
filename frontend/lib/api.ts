@@ -431,6 +431,11 @@ export const snaptradeApi = {
     await api.delete(`/snaptrade/disconnect/${userId}`);
   },
 
+  reset: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    const response = await api.delete<{ success: boolean; message: string }>(`/snaptrade/reset/${userId}`);
+    return response.data;
+  },
+
   getPortfolio: async (userId: string): Promise<PortfolioResponse> => {
     const response = await api.get<PortfolioResponse>(`/snaptrade/portfolio/${userId}`);
     return response.data;
@@ -546,6 +551,49 @@ export const apiKeysApi = {
       service,
       credentials,
     });
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alpaca Broker API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const alpacaBrokerApi = {
+  createAccount: async (data: Record<string, unknown>): Promise<{ success: boolean; status: string; alpaca_account_id?: string }> => {
+    const response = await api.post('/alpaca/broker/accounts', data);
+    return response.data;
+  },
+  getAccountStatus: async (userId: string): Promise<{ exists: boolean; status?: string; alpaca_account_id?: string; action_required_reason?: string }> => {
+    const response = await api.get(`/alpaca/broker/accounts/${userId}`);
+    return response.data;
+  },
+  getPortfolio: async (userId: string) => {
+    const response = await api.get(`/alpaca/broker/accounts/${userId}/portfolio`);
+    return response.data as import('./types').AlpacaPortfolioResponse;
+  },
+  placeOrder: async (userId: string, order: { symbol: string; side: string; qty?: number; notional?: number; order_type?: string; time_in_force?: string; limit_price?: number; stop_price?: number }) => {
+    const response = await api.post(`/alpaca/broker/accounts/${userId}/orders`, { user_id: userId, ...order });
+    return response.data;
+  },
+  getOrders: async (userId: string, status: string = 'all', limit: number = 50) => {
+    const response = await api.get(`/alpaca/broker/accounts/${userId}/orders`, { params: { status, limit } });
+    return response.data as import('./types').AlpacaOrder[];
+  },
+  cancelOrder: async (userId: string, orderId: string) => {
+    const response = await api.delete(`/alpaca/broker/accounts/${userId}/orders/${orderId}`);
+    return response.data;
+  },
+  closePosition: async (userId: string, symbol: string) => {
+    const response = await api.delete(`/alpaca/broker/accounts/${userId}/positions/${symbol}`);
+    return response.data;
+  },
+  executeSwap: async (data: { user_id: string; account_id: string; sell_symbol: string; sell_qty: number; buy_symbol: string; buy_notional: number }): Promise<{ success: boolean; message: string; sell_order?: unknown; buy_order?: unknown }> => {
+    const response = await api.post('/execute/swap', data);
+    return response.data;
+  },
+  executeBrokerSwap: async (data: { user_id: string; alpaca_account_id: string; sell_symbol: string; sell_qty: number; buy_symbol: string; buy_notional: number }): Promise<{ success: boolean; message: string; sell_order?: unknown; buy_order?: unknown }> => {
+    const response = await api.post('/alpaca/broker/orders/swap', data);
     return response.data;
   },
 };

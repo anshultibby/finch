@@ -21,8 +21,9 @@ interface AppSidebarProps {
   refreshTrigger?: number;
   isCreatingChat?: boolean;
   activeChatIsLoading?: boolean;
-  activePanel: 'chat' | 'portfolio';
-  onSelectPanel: (panel: 'chat' | 'portfolio') => void;
+  activePanel: 'chat' | 'portfolio' | 'connections' | 'swaps';
+  onSelectPanel: (panel: 'chat' | 'portfolio' | 'connections' | 'swaps') => void;
+  pendingSwapCount?: number;
 }
 
 export interface AppSidebarRef {
@@ -39,6 +40,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   activeChatIsLoading,
   activePanel,
   onSelectPanel,
+  pendingSwapCount = 0,
 }, ref) => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -191,6 +193,56 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             {expanded && <span className="font-medium">Portfolio</span>}
+          </button>
+        </div>
+
+        {/* Connections */}
+        <div className="px-2 mb-1">
+          <button
+            onClick={() => onSelectPanel('connections')}
+            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
+              activePanel === 'connections'
+                ? 'bg-white shadow-sm border border-gray-200 text-gray-900'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            } ${expanded ? '' : 'justify-center'}`}
+            title={!expanded ? 'Connections' : undefined}
+          >
+            <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+            </svg>
+            {expanded && <span className="font-medium">Connections</span>}
+          </button>
+        </div>
+
+        {/* Opportunities (Swap Cards) */}
+        <div className="px-2 mb-1">
+          <button
+            onClick={() => onSelectPanel('swaps')}
+            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
+              activePanel === 'swaps'
+                ? 'bg-white shadow-sm border border-gray-200 text-gray-900'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            } ${expanded ? '' : 'justify-center'}`}
+            title={!expanded ? 'Opportunities' : undefined}
+          >
+            <div className="relative flex-shrink-0">
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+              </svg>
+              {pendingSwapCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {pendingSwapCount > 9 ? '9+' : pendingSwapCount}
+                </span>
+              )}
+            </div>
+            {expanded && (
+              <span className="font-medium flex-1 text-left">Opportunities</span>
+            )}
+            {expanded && pendingSwapCount > 0 && (
+              <span className="text-xs bg-emerald-100 text-emerald-700 font-semibold px-1.5 py-0.5 rounded-full">
+                {pendingSwapCount}
+              </span>
+            )}
           </button>
         </div>
 

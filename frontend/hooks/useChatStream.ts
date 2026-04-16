@@ -52,6 +52,7 @@ interface UseChatStreamOptions {
   onChatCreated?: (chatId: string) => void;
   onTitleGenerated?: (chatId: string, title: string, icon: string) => void;
   onHistoryRefresh?: () => void;
+  onSwapsReceived?: (chatId: string, swaps: import('@/lib/types').SwapData[]) => void;
 }
 
 const INITIAL_STATE: Omit<ChatStreamState, 'messages'> = {
@@ -70,6 +71,8 @@ const INITIAL_STATE: Omit<ChatStreamState, 'messages'> = {
 export function useChatStream(options: UseChatStreamOptions = {}) {
   const chatStatesRef = useRef<Map<string, ChatStreamState>>(new Map());
   const currentChatIdRef = useRef<string | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -273,6 +276,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
 
       if (event.tool_name === 'present_swaps' && event.swap_data) {
         updates.pendingSwapData = event.swap_data;
+        optionsRef.current.onSwapsReceived?.(chatId, event.swap_data);
       }
 
       update(chatId, updates, notify);

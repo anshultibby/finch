@@ -6,6 +6,14 @@
 // Core Chat Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface SubstituteCandidate {
+  symbol: string;
+  correlation: number;
+  quality: string; // 'STRONG' | 'GOOD' | 'WEAK' | 'POOR' | ''
+  reason: string;
+  is_sector_peer: boolean;
+}
+
 export interface SwapData {
   sell_symbol: string;
   sell_qty: number;
@@ -15,6 +23,7 @@ export interface SwapData {
   buy_reason: string;
   estimated_savings: number;
   correlation: number;
+  substitute_candidates?: SubstituteCandidate[];
 }
 
 export interface Message {
@@ -618,5 +627,59 @@ export interface TradeLog {
   error?: string;
   dry_run: boolean;
   created_at: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alpaca Broker Portfolio
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AlpacaBrokerAccountDetail {
+  equity: string | null;
+  cash: string | null;
+  buying_power: string | null;
+  portfolio_value: string | null;
+  long_market_value: string | null;
+  short_market_value: string | null;
+  last_equity: string | null;
+  currency: string;
+  status: string;
+  account_number: string | null;
+}
+
+export interface AlpacaBrokerPosition {
+  symbol: string;
+  qty: string;
+  side: string;
+  market_value: string;
+  cost_basis: string;
+  avg_entry_price: string;
+  current_price: string;
+  unrealized_pl: string;
+  unrealized_plpc: string;
+  change_today: string;
+}
+
+export interface AlpacaPortfolioResponse {
+  success: boolean;
+  account: AlpacaBrokerAccountDetail;
+  positions: AlpacaBrokerPosition[];
+  position_count: number;
+}
+
+export interface AlpacaOrder {
+  id: string;
+  symbol: string;
+  side: string;
+  qty: string | null;
+  notional: string | null;
+  type: string;
+  time_in_force: string;
+  status: string;
+  filled_qty: string | null;
+  filled_avg_price: string | null;
+  limit_price: string | null;
+  stop_price: string | null;
+  created_at: string;
+  filled_at: string | null;
 }
 

@@ -100,11 +100,22 @@ async def disconnect(user_id: str):
     Disconnect from SnapTrade and clear user session
     """
     snaptrade_tools.disconnect(user_id)
-    
+
     return {
         "success": True,
         "message": "Disconnected successfully"
     }
+
+
+@router.delete("/reset/{user_id}")
+async def reset_portfolio(user_id: str):
+    """
+    Fully reset a user's SnapTrade connection.
+    Deletes the user from SnapTrade API, removes all brokerage accounts
+    and the snaptrade_users record from DB so they can reconnect fresh.
+    """
+    result = await snaptrade_tools.reset_user(user_id)
+    return result
 
 
 @router.get("/accounts/{user_id}")

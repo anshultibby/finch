@@ -118,3 +118,17 @@ class TradeAnalytics(Base):
 
     def __repr__(self):
         return f"<TradeAnalytics(id='{self.id}', symbol='{self.symbol}')>"
+
+
+class AlpacaBrokerAccount(Base):
+    """Tracks Alpaca Broker API accounts opened on behalf of users"""
+    __tablename__ = "alpaca_broker_accounts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True, unique=True)
+    alpaca_account_id = Column(String, nullable=True)  # set after API call
+    status = Column(String, nullable=False, default="PENDING")  # PENDING, SUBMITTED, APPROVAL_PENDING, APPROVED, ACTIVE, ACTION_REQUIRED, REJECTED
+    action_required_reason = Column(Text, nullable=True)
+    kyc_snapshot = Column(JSONB, nullable=True)  # non-sensitive fields only (no SSN)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

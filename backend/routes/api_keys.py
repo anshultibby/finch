@@ -8,8 +8,6 @@ SECURITY:
 - Test endpoint validates credentials without storing sensitive data in logs
 - Authentication required: Users can only access their own API keys
 """
-import asyncio
-
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,8 +21,6 @@ from schemas.api_keys import (
     ApiKeyInfo
 )
 from crud import user_api_keys
-from skills.kalshi_trading.scripts._client import test_credentials as test_kalshi_credentials
-from modules.tools.clients.polymarket import test_polymarket_credentials
 from auth.dependencies import get_current_user_id, verify_user_access
 import logging
 
@@ -80,33 +76,8 @@ async def save_api_key(
     await verify_user_access(user_id, authenticated_user_id)
     
     try:
-        # Validate service-specific requirements and normalize credentials
         credentials = request.credentials.copy()
-        
-        if request.service == "kalshi":
-            if "api_key_id" not in credentials:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Kalshi requires 'api_key_id' in credentials"
-                )
-            if "private_key" not in credentials:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Kalshi requires 'private_key' in credentials"
-                )
-            # Normalize private key: convert literal \n to actual newlines
-            if '\\n' in credentials["private_key"]:
-                credentials["private_key"] = credentials["private_key"].replace('\\n', '\n')
-        elif request.service == "polymarket":
-            if "private_key" not in credentials:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Polymarket requires 'private_key' in credentials"
-                )
-            # Normalize private key for Polymarket too
-            if '\\n' in credentials["private_key"]:
-                credentials["private_key"] = credentials["private_key"].replace('\\n', '\n')
-        
+
         key_info = await user_api_keys.save_api_key(
             db=db,
             user_id=user_id,
@@ -178,52 +149,10 @@ async def test_api_key(
     # Verify user is testing their own keys
     await verify_user_access(user_id, authenticated_user_id)
     
-    try:
-        # Get decrypted credentials (server-side only)
-        creds = await user_api_keys.get_decrypted_credentials(db, user_id, request.service)
-        
-        if not creds:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No API key found for service: {request.service}"
-            )
-        
-        # Test based on service
-        if request.service == "kalshi":
-            api_key_id = creds.get("api_key_id", "")
-            private_key = creds.get("private_key", "")
-            
-            # Debug: Log key info (NOT the actual key content!)
-            logger.info(f"Testing Kalshi credentials - api_key_id length: {len(api_key_id)}, private_key length: {len(private_key)}")
-            logger.info(f"api_key_id starts with: {api_key_id[:8] if len(api_key_id) > 8 else api_key_id}...")
-            logger.info(f"private_key starts with: {private_key[:30] if len(private_key) > 30 else 'too short'}...")
-            
-            result = await asyncio.get_event_loop().run_in_executor(None, lambda: test_kalshi_credentials(
-                api_key_id=api_key_id,
-                private_key_pem=private_key
-            ))
-            return TestApiKeyResponse(**result)
-        elif request.service == "polymarket":
-            private_key = creds.get("private_key", "")
-            funder_address = creds.get("funder_address")
-            
-            logger.info(f"Testing Polymarket credentials - private_key length: {len(private_key)}")
-            
-            result = await test_polymarket_credentials(
-                private_key=private_key,
-                funder_address=funder_address
-            )
-            return TestApiKeyResponse(**result)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Testing not supported for service: {request.service}"
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error testing API key for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to test API key")
+    raise HTTPException(
+        status_code=400,
+        detail=f"Testing not supported for service: {request.service}"
+    )
 
 
 @router.post("/{user_id}/test-credentials", response_model=TestApiKeyResponse)
@@ -243,56 +172,8 @@ async def test_credentials_before_save(
     """
     # Verify user is testing credentials for their own account
     await verify_user_access(user_id, authenticated_user_id)
-    
-    try:
-        if request.service == "kalshi":
-            api_key_id = request.credentials.get("api_key_id")
-            private_key = request.credentials.get("private_key")
-            
-            if not api_key_id or not private_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Kalshi requires 'api_key_id' and 'private_key'"
-                )
-            
-            # Normalize private key format
-            # If the key contains literal \n (two chars: backslash + n), replace with actual newlines
-            if '\\n' in private_key:
-                logger.info("Normalizing private key: converting literal \\n to actual newlines")
-                private_key = private_key.replace('\\n', '\n')
-            
-            # Additional validation: check if key looks correct
-            if '-----BEGIN' not in private_key or '-----END' not in private_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid private key format: missing BEGIN/END markers"
-                )
-            
-            result = await asyncio.get_event_loop().run_in_executor(None, lambda: test_kalshi_credentials(api_key_id, private_key))
-            return TestApiKeyResponse(**result)
-        elif request.service == "polymarket":
-            private_key = request.credentials.get("private_key")
-            funder_address = request.credentials.get("funder_address")
-            
-            if not private_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Polymarket requires 'private_key'"
-                )
-            
-            # Normalize private key before testing
-            if '\\n' in private_key:
-                private_key = private_key.replace('\\n', '\n')
-            
-            result = await test_polymarket_credentials(private_key, funder_address)
-            return TestApiKeyResponse(**result)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Testing not supported for service: {request.service}"
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error testing credentials: {e}")
-        raise HTTPException(status_code=500, detail="Failed to test credentials")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Testing not supported for service: {request.service}"
+    )

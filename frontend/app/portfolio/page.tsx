@@ -316,6 +316,7 @@ export default function PortfolioPage() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
@@ -419,6 +420,21 @@ export default function PortfolioPage() {
       await loadData();
     } catch (error) {
       console.error('Error toggling account:', error);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!user?.id) return;
+    if (!confirm('Reset your portfolio connection? This will delete all connected accounts and data so you can reconnect fresh.')) return;
+
+    setResetting(true);
+    try {
+      await snaptradeApi.reset(user.id);
+      await loadData();
+    } catch (error) {
+      console.error('Error resetting portfolio:', error);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -597,6 +613,20 @@ export default function PortfolioPage() {
                 </svg>
                 <span className="hidden sm:inline">Refresh</span>
               </button>
+              {/* Reset (dev only) */}
+              {process.env.NEXT_PUBLIC_DEV_MODE === 'true' && (
+                <button
+                  onClick={handleReset}
+                  disabled={resetting}
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  title="Reset portfolio connection"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                  <span className="hidden sm:inline">{resetting ? 'Resetting…' : 'Reset'}</span>
+                </button>
+              )}
               {/* Connect */}
               <button
                 onClick={() => setShowConnectModal(true)}

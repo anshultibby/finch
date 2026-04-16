@@ -372,6 +372,36 @@ class SnapTradeTools:
         """Disconnect user session"""
         if user_id in self._sessions:
             del self._sessions[user_id]
+
+    async def reset_user(self, user_id: str) -> Dict[str, Any]:
+        """
+        Fully reset a user's SnapTrade connection — deletes from SnapTrade API,
+        removes all brokerage accounts and the snaptrade_users record from DB,
+        and clears the in-memory session cache.
+        """
+        # Try to delete from SnapTrade API (may fail if credentials are bad)
+        try:
+            session = await self._get_session(user_id)
+            if session and session.snaptrade_user_id:
+                self.client.authentication.delete_snap_trade_user(
+                    user_id=session.snaptrade_user_id
+                )
+                print(f"✅ Deleted SnapTrade user from API: {session.snaptrade_user_id}", flush=True)
+        except Exception as e:
+            print(f"⚠️ Could not delete from SnapTrade API (continuing): {str(e)}", flush=True)
+
+        # Delete all brokerage accounts + snaptrade_users record from DB
+        async with get_db_session() as db:
+            deleted = await brokerage_crud.delete_all_accounts_async(db, user_id)
+            print(f"✅ Deleted {deleted} brokerage account(s) from DB for user {user_id}", flush=True)
+            await snaptrade_crud.delete_user_async(db, user_id)
+            print(f"✅ Deleted SnapTrade user record from DB for user {user_id}", flush=True)
+
+        # Clear in-memory session
+        if user_id in self._sessions:
+            del self._sessions[user_id]
+
+        return {"success": True, "message": "Portfolio reset successfully. You can now reconnect."}
     
     async def get_connected_accounts(self, user_id: str) -> Dict[str, Any]:
         """

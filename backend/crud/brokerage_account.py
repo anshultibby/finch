@@ -130,3 +130,14 @@ async def disconnect_account_async(db: AsyncSession, user_id: str, account_id: s
         return True
     return False
 
+
+async def delete_all_accounts_async(db: AsyncSession, user_id: str) -> int:
+    """Permanently delete all accounts for a user (async). Returns count deleted."""
+    result = await db.execute(
+        select(BrokerageAccount).filter(BrokerageAccount.user_id == user_id)
+    )
+    accounts = result.scalars().all()
+    for account in accounts:
+        await db.delete(account)
+    return len(accounts)
+
