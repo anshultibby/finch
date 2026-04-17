@@ -14,6 +14,7 @@ export type View =
   | { type: 'orders' }
   | { type: 'connections' }
   | { type: 'swaps' }
+  | { type: 'chat' }
   | { type: 'search'; query?: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,12 +27,18 @@ interface NavigationContextType {
   goBack: () => void;
   canGoBack: boolean;
 
-  // Chat drawer
+  // Chat drawer (for contextual chats anchored to a stock page)
   chatDrawerOpen: boolean;
   setChatDrawerOpen: (open: boolean) => void;
   chatContext?: { symbol?: string; prefill?: string; prefillLabel?: string };
   openChatAbout: (symbol: string, prefill?: string) => void;
+
+  // Chat page (full-page AI workspace)
+  currentChatId: string | null;
+  setCurrentChatId: (id: string | null) => void;
+  startNewChat: () => void;
   openChatWithPrompt: (prompt: string, label?: string) => void;
+  loadChat: (chatId: string) => void;
 
   // Helpers
   openStock: (symbol: string) => void;
@@ -43,6 +50,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<View[]>([{ type: 'home' }]);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [chatContext, setChatContext] = useState<{ symbol?: string; prefill?: string; prefillLabel?: string }>();
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   const currentView = history[history.length - 1];
 
@@ -67,10 +75,23 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setChatDrawerOpen(true);
   }, []);
 
+  const startNewChat = useCallback(() => {
+    setCurrentChatId(null);
+    setChatContext(undefined);
+    navigateTo({ type: 'chat' });
+  }, [navigateTo]);
+
   const openChatWithPrompt = useCallback((prompt: string, label?: string) => {
+    setCurrentChatId(null);
     setChatContext({ prefill: prompt, prefillLabel: label });
-    setChatDrawerOpen(true);
-  }, []);
+    navigateTo({ type: 'chat' });
+  }, [navigateTo]);
+
+  const loadChat = useCallback((chatId: string) => {
+    setCurrentChatId(chatId);
+    setChatContext(undefined);
+    navigateTo({ type: 'chat' });
+  }, [navigateTo]);
 
   return (
     <NavigationContext.Provider value={{
@@ -82,7 +103,11 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       setChatDrawerOpen,
       chatContext,
       openChatAbout,
+      currentChatId,
+      setCurrentChatId,
+      startNewChat,
       openChatWithPrompt,
+      loadChat,
       openStock,
     }}>
       {children}

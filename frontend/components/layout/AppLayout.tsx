@@ -14,6 +14,7 @@ import OrdersPage from '@/components/orders/OrdersPage';
 import PortfolioPanel from '@/components/PortfolioPanel';
 import ConnectionsPanel from '@/components/ConnectionsPanel';
 import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
+import ChatPage from '@/components/chat/ChatPage';
 import type { SwapData } from '@/lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,9 +42,17 @@ function saveStoredSwaps(userId: string, swaps: StoredSwap[]) {
 
 function AppLayoutInner() {
   const { user } = useAuth();
-  const { currentView, navigateTo, chatDrawerOpen, setChatDrawerOpen } = useNavigation();
+  const {
+    currentView,
+    navigateTo,
+    chatDrawerOpen,
+    setChatDrawerOpen,
+    currentChatId,
+    setCurrentChatId,
+    startNewChat,
+    loadChat,
+  } = useNavigation();
 
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [activeChatIsLoading, setActiveChatIsLoading] = useState(false);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
@@ -134,6 +143,16 @@ function AppLayoutInner() {
             onSelectCandidate={handleSelectCandidate}
           />
         );
+      case 'chat':
+        return (
+          <ChatPage
+            sidebarRef={sidebarRef}
+            onCreatingChatChange={setIsCreatingChat}
+            onLoadingChange={setActiveChatIsLoading}
+            onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
+            onSwapsReceived={handleSwapsReceived}
+          />
+        );
       default:
         return <HomePage />;
     }
@@ -147,19 +166,10 @@ function AppLayoutInner() {
         currentView={currentView}
         onNavigate={navigateTo}
         currentChatId={currentChatId}
-        onSelectChat={(chatId) => {
-          setCurrentChatId(chatId);
-          setChatDrawerOpen(true);
-        }}
-        onNewChat={() => {
-          setCurrentChatId(null);
-          setChatDrawerOpen(true);
-        }}
+        onSelectChat={loadChat}
+        onNewChat={startNewChat}
         refreshTrigger={chatHistoryRefresh}
         isCreatingChat={isCreatingChat}
-        activeChatIsLoading={activeChatIsLoading}
-        chatDrawerOpen={chatDrawerOpen}
-        onToggleChatDrawer={() => setChatDrawerOpen(!chatDrawerOpen)}
         pendingSwapCount={pendingSwapCount}
       />
 

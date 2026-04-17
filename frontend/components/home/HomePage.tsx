@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { alpacaBrokerApi, marketApi, snaptradeApi } from '@/lib/api';
+import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import SandboxBadge from '@/components/shared/SandboxBadge';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import type { AlpacaPortfolioResponse } from '@/lib/types';
@@ -289,9 +290,6 @@ function ActionCard({
   );
 }
 
-const TLH_PROMPT = "Scan my portfolio for tax-loss harvesting opportunities. Identify positions with losses I could realize and suggest replacement candidates that keep my market exposure similar.";
-const PORTFOLIO_REVIEW_PROMPT = "Review my portfolio. Highlight concentrations, risks, sector exposure, and anything notable about my holdings. Suggest things I should consider.";
-
 function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between px-4 sm:px-6 mb-2.5">
@@ -323,7 +321,7 @@ const POPULAR_SYMBOLS = 'SPY,QQQ,DIA,AAPL,MSFT,GOOGL,AMZN,NVDA,TSLA,META';
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { openStock, navigateTo, setChatDrawerOpen, openChatWithPrompt } = useNavigation();
+  const { openStock, navigateTo, openChatWithPrompt, startNewChat } = useNavigation();
   const [portfolio, setPortfolio] = useState<AlpacaPortfolioResponse | null>(null);
   const [hasAccount, setHasAccount] = useState<boolean | null>(null);
   const [hasBrokerage, setHasBrokerage] = useState<boolean>(false);
@@ -376,7 +374,7 @@ export default function HomePage() {
       <div className="shrink-0 px-4 sm:px-6 pt-3 pb-2 border-b border-gray-100 bg-white z-20">
         <div className="flex items-center gap-2">
           <InlineSearch onSelect={openStock} />
-          <button onClick={() => setChatDrawerOpen(true)}
+          <button onClick={startNewChat}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white hover:bg-gray-800 transition-colors flex-shrink-0"
             title="Ask AI">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
