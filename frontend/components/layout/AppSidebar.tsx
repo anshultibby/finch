@@ -4,6 +4,7 @@ import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallbac
 import { createPortal } from 'react-dom';
 import { chatApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
+import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,15 +191,23 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
       <div className={`hidden md:flex h-full bg-gray-50 border-r border-gray-200 flex-col flex-shrink-0 transition-all duration-200 ${expanded ? 'w-60' : 'w-14'}`}>
         {/* Header */}
         <div className={`flex items-center py-3 px-3 flex-shrink-0 ${expanded ? 'justify-between' : 'justify-center'}`}>
-          {expanded && <span className="text-gray-800 font-semibold text-sm tracking-wide select-none">Finch</span>}
-          <button onClick={() => setExpanded(e => !e)}
-            className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
-            title={expanded ? 'Collapse' : 'Expand'}>
-            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
-              <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
-            </svg>
-          </button>
+          {expanded ? (
+            <FinchLogo size={22} showText />
+          ) : (
+            <button onClick={() => setExpanded(true)} className="p-0.5">
+              <FinchLogo size={22} />
+            </button>
+          )}
+          {expanded && (
+            <button onClick={() => setExpanded(false)}
+              className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Collapse">
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
+                <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Main nav */}

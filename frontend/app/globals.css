@@ -224,6 +224,10 @@ body {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
+/* ── Hide scrollbar (for horizontal scroll) ── */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
 /* ── Chat drawer slide-in ── */
 @keyframes slideInRight {
   from { transform: translateX(100%); }

@@ -992,6 +992,14 @@ export const marketApi = {
     const response = await api.get(`/market/news/${symbol}`, { params: { limit } });
     return response.data;
   },
+  getGeneralNews: async (limit = 10) => {
+    const response = await api.get('/market/general-news', { params: { limit } });
+    return response.data;
+  },
+  getEarnings: async () => {
+    const response = await api.get('/market/earnings');
+    return response.data;
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
