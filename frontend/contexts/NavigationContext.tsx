@@ -46,7 +46,11 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const currentView = history[history.length - 1];
 
   const navigateTo = useCallback((view: View) => {
-    setHistory(prev => [...prev, view]);
+    setHistory(prev => {
+      const next = [...prev, view];
+      // Cap history to prevent unbounded growth in long sessions
+      return next.length > 50 ? next.slice(-50) : next;
+    });
   }, []);
 
   const goBack = useCallback(() => {

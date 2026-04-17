@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { marketApi, alpacaBrokerApi, watchlistApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -165,8 +165,9 @@ export default function StockPage({ symbol }: { symbol: string }) {
   const [hasAccount, setHasAccount] = useState(false);
   const [showMobileTrade, setShowMobileTrade] = useState(false);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     setLoading(true);
+    setPosition(null);
     Promise.all([
       marketApi.getQuote(symbol).catch(() => null),
       marketApi.getProfile(symbol).catch(() => null),
@@ -186,9 +187,9 @@ export default function StockPage({ symbol }: { symbol: string }) {
       const st = status as any;
       setHasAccount(st?.exists && st?.status === 'ACTIVE');
     }).finally(() => setLoading(false));
-  };
+  }, [symbol, user]);
 
-  useEffect(() => { fetchData(); }, [symbol, user]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const price = quote?.price || profile?.price || 0;
   const change = quote?.change || profile?.changes || 0;

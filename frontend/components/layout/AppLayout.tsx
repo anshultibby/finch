@@ -3,10 +3,8 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext';
-import type { View } from '@/contexts/NavigationContext';
 import AppSidebar, { type AppSidebarRef } from './AppSidebar';
 import ChatDrawer from '@/components/chat/ChatDrawer';
-import ChatView from '@/components/chat/ChatView';
 import { ChatModeProvider } from '@/contexts/ChatModeContext';
 import HomePage from '@/components/home/HomePage';
 import StockPage from '@/components/stock/StockPage';
@@ -100,7 +98,7 @@ function AppLayoutInner() {
     });
   }, [user?.id]);
 
-  const handleChatAboutSwap = useCallback((message: string) => {
+  const handleChatAboutSwap = useCallback((_message: string) => {
     setCurrentChatId(null);
     setChatDrawerOpen(true);
   }, [setChatDrawerOpen]);
@@ -172,14 +170,14 @@ function AppLayoutInner() {
 
           {/* Chat drawer overlay */}
           <ChatDrawer
-          sidebarRef={sidebarRef}
-          currentChatId={currentChatId}
-          onChatIdChange={setCurrentChatId}
-          onCreatingChatChange={setIsCreatingChat}
-          onLoadingChange={setActiveChatIsLoading}
-          onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
-          onSwapsReceived={handleSwapsReceived}
-        />
+            sidebarRef={sidebarRef}
+            currentChatId={currentChatId}
+            onChatIdChange={setCurrentChatId}
+            onCreatingChatChange={setIsCreatingChat}
+            onLoadingChange={setActiveChatIsLoading}
+            onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
+            onSwapsReceived={handleSwapsReceived}
+          />
         </ChatModeProvider>
       </div>
     </div>

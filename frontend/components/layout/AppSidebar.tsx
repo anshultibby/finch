@@ -1,7 +1,6 @@
 'use client';
 
-import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback } from 'react';
 import { chatApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
 import FinchLogo from '@/components/shared/FinchLogo';
@@ -125,10 +124,6 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
   const navItems: NavItem[] = [
     { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
     { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon />, mobileNav: true },
@@ -169,21 +164,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     }
   }, [currentChatId, loadChats]);
 
-  useEffect(() => {
-    if (searchModalOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
-    else setSearchQuery('');
-  }, [searchModalOpen]);
 
-  useEffect(() => {
-    if (!searchModalOpen) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setSearchModalOpen(false); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [searchModalOpen]);
 
-  const filteredChats = searchQuery
-    ? chats.filter(c => (c.title || 'New Chat').toLowerCase().includes(searchQuery.toLowerCase()))
-    : chats;
 
   return (
     <>

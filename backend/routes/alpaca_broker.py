@@ -13,7 +13,7 @@ import httpx
 
 from core.config import Config
 from core.database import get_async_db
-from auth.dependencies import get_current_user_id
+from auth.dependencies import get_current_user_id, verify_user_access
 import logging
 
 logger = logging.getLogger(__name__)
@@ -152,6 +152,7 @@ async def create_alpaca_account(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Create a new Alpaca brokerage account for a user via Broker API."""
+    await verify_user_access(req.user_id, authenticated_user_id)
     from models.brokerage import AlpacaBrokerAccount
 
     if not Config.ALPACA_BROKER_CLIENT_ID:
@@ -244,6 +245,7 @@ async def get_alpaca_account_status(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Get status of user's Alpaca Broker account, refreshing from API if needed."""
+    await verify_user_access(user_id, authenticated_user_id)
     from models.brokerage import AlpacaBrokerAccount
 
     result = await db.execute(
@@ -268,7 +270,6 @@ async def get_alpaca_account_status(
                     new_status = data.get("status", account.status)
                     reason = data.get("action_required_reason") if new_status == "ACTION_REQUIRED" else None
                     if new_status != account.status:
-                        old_status = account.status
                         account.status = new_status
                         account.action_required_reason = reason
                         await db.commit()
@@ -291,6 +292,7 @@ async def get_alpaca_portfolio(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Fetch portfolio overview (account details + positions) from Alpaca Broker API."""
+    await verify_user_access(user_id, authenticated_user_id)
     from models.brokerage import AlpacaBrokerAccount
 
     result = await db.execute(
@@ -392,6 +394,7 @@ async def place_order(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Place a buy or sell order on the user's Alpaca account."""
+    await verify_user_access(user_id, authenticated_user_id)
     acct_id = await _get_alpaca_account_id(user_id, db)
     headers = await _alpaca_broker_headers()
 
@@ -451,6 +454,7 @@ async def list_orders(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """List orders for the user's Alpaca account."""
+    await verify_user_access(user_id, authenticated_user_id)
     acct_id = await _get_alpaca_account_id(user_id, db)
     headers = await _alpaca_broker_headers()
 
@@ -493,6 +497,7 @@ async def cancel_order(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Cancel an open order."""
+    await verify_user_access(user_id, authenticated_user_id)
     acct_id = await _get_alpaca_account_id(user_id, db)
     headers = await _alpaca_broker_headers()
 
@@ -516,6 +521,7 @@ async def close_position(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Close (sell all) a position by symbol."""
+    await verify_user_access(user_id, authenticated_user_id)
     acct_id = await _get_alpaca_account_id(user_id, db)
     headers = await _alpaca_broker_headers()
 
@@ -547,6 +553,7 @@ async def execute_broker_swap(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Execute a TLH swap via Alpaca Broker API (for Finch-managed accounts)."""
+    await verify_user_access(req.user_id, authenticated_user_id)
     from models.brokerage import AlpacaBrokerAccount
 
     result = await db.execute(
@@ -614,6 +621,7 @@ async def execute_swap(
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Execute a TLH swap via SnapTrade (sell + buy market orders)."""
+    await verify_user_access(req.user_id, authenticated_user_id)
     from skills.snaptrade.scripts.reference.search_symbols import search_symbols
     from skills.snaptrade.scripts.trading.place_order import place_order
 

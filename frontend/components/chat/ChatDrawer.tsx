@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { useAuth } from '@/contexts/AuthContext';
 import ChatView from './ChatView';
 import type { AppSidebarRef } from '@/components/layout/AppSidebar';
 import type { SwapData } from '@/lib/types';

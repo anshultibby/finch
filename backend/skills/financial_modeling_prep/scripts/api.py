@@ -53,7 +53,7 @@ def _set(key: str, data, endpoint: str):
             del _cache[k]
 
 
-def fmp(endpoint: str, params: dict = None):
+def fmp(endpoint: str, params: dict | None = None):
     """
     Call any FMP API endpoint (cached).
 
@@ -79,7 +79,7 @@ def fmp(endpoint: str, params: dict = None):
     return result
 
 
-def fmp_stable(endpoint: str, params: dict = None):
+def fmp_stable(endpoint: str, params: dict | None = None):
     """
     Call FMP Stable API endpoint (cached, uses /stable/ base).
     """

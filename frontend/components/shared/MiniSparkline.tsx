@@ -33,8 +33,8 @@ export default function MiniSparkline({
       .catch(() => {});
   }, [symbol, days]);
 
-  const path = useMemo(() => {
-    if (data.length < 2) return '';
+  const { path, lastPoint } = useMemo(() => {
+    if (data.length < 2) return { path: '', lastPoint: null };
     const min = Math.min(...data);
     const max = Math.max(...data);
     const range = max - min || 1;
@@ -42,11 +42,16 @@ export default function MiniSparkline({
     const w = width - pad * 2;
     const h = height - pad * 2;
 
-    return data.map((v, i) => {
+    const pathStr = data.map((v, i) => {
       const x = pad + (i / (data.length - 1)) * w;
       const y = pad + (1 - (v - min) / range) * h;
       return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
+
+    const lastX = pad + w;
+    const lastY = pad + (1 - (data[data.length - 1] - min) / range) * h;
+
+    return { path: pathStr, lastPoint: { x: lastX, y: lastY } };
   }, [data, width, height]);
 
   const isUp = data.length >= 2 ? data[data.length - 1] >= data[0] : true;
@@ -57,18 +62,7 @@ export default function MiniSparkline({
   return (
     <svg width={width} height={height} className={className} viewBox={`0 0 ${width} ${height}`}>
       <path d={path} fill="none" stroke={lineColor} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      {/* Dot at the end */}
-      {data.length >= 2 && (() => {
-        const min = Math.min(...data);
-        const max = Math.max(...data);
-        const range = max - min || 1;
-        const pad = 2;
-        const w = width - pad * 2;
-        const h = height - pad * 2;
-        const lastX = pad + w;
-        const lastY = pad + (1 - (data[data.length - 1] - min) / range) * h;
-        return <circle cx={lastX} cy={lastY} r={2} fill={lineColor} />;
-      })()}
+      {lastPoint && <circle cx={lastPoint.x} cy={lastPoint.y} r={2} fill={lineColor} />}
     </svg>
   );
 }
