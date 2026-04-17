@@ -165,6 +165,7 @@ export default function StockPage({ symbol }: { symbol: string }) {
   const [watchlistLoading, setWatchlistLoading] = useState(false);
   const [hasAccount, setHasAccount] = useState(false);
   const [showMobileTrade, setShowMobileTrade] = useState(false);
+  const [hoverPct, setHoverPct] = useState<number | null>(null);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -247,9 +248,20 @@ export default function StockPage({ symbol }: { symbol: string }) {
           <div className="mb-1">
             <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(price)}</span>
           </div>
-          <div className={`text-sm font-medium tabular-nums mb-1 ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
-            {isUp ? '+' : ''}{fmt(Math.abs(change))} ({pct(changePct)}) Today
-          </div>
+          {(() => {
+            // When scrubbing the chart, display the hovered point's change; otherwise show today's.
+            const displayPct = hoverPct ?? changePct;
+            // Derive dollar from the window-anchor base rather than current price so
+            // the hover $ matches the hover % exactly.
+            const basePrice = price / (1 + changePct / 100 || 1);
+            const displayChange = hoverPct !== null ? basePrice * (hoverPct / 100) : change;
+            const up = displayChange >= 0;
+            return (
+              <div className={`text-sm font-medium tabular-nums mb-1 ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                {up ? '+' : '-'}{fmt(Math.abs(displayChange))} ({pct(displayPct)}) {hoverPct !== null ? '' : 'Today'}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Chart */}
@@ -259,6 +271,7 @@ export default function StockPage({ symbol }: { symbol: string }) {
             defaultDays={1}
             ranges={getStockRanges()}
             height={280}
+            onHoverChange={info => setHoverPct(info?.value ?? null)}
           />
         </div>
 
