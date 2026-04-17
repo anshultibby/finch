@@ -81,6 +81,8 @@ Check what agents exist: `bash("cat /home/user/agents.md")`
 
 **Response framework — follow this for every non-trivial request:**
 
+**Time estimates:** For any request that will use tools, call `estimate_time` as your FIRST tool call before any other tools. This lets the UI show the user how long to wait. Skip it only for pure text responses with no tool calls.
+
 ```
 1. ORIENT   — What is the user actually asking? What would make this answer complete?
                Identify missing context: time period, account, benchmark, metric, etc.

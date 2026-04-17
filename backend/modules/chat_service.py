@@ -2,6 +2,7 @@
 Chat service for managing chat sessions and interactions
 """
 from typing import List, AsyncGenerator, Dict, Any
+import os
 import json
 import asyncio
 from datetime import datetime, timezone
@@ -365,7 +366,21 @@ class ChatService:
                 
                 # Unregister this context (only if we're still the active one)
                 unregister_context(chat_id, agent_context)
-                
+
+                # Send email notification if user requested it
+                from services.notification_registry import pop_email_notification
+                notify_email = pop_email_notification(chat_id)
+                if notify_email:
+                    try:
+                        from services.notifications import send_chat_complete_email
+                        chat_title = (await chat_async.get_chat(db, chat_id))
+                        title = chat_title.title if chat_title and chat_title.title else "Your analysis"
+                        app_base_url = os.environ.get("APP_BASE_URL", "http://localhost:3000")
+                        chat_url = f"{app_base_url}/chat/{chat_id}"
+                        await send_chat_complete_email(notify_email, title, chat_url)
+                    except Exception as e:
+                        logger.warning(f"Failed to send chat complete email: {e}")
+
                 # Mark chat as no longer processing in database
                 await chat_async.set_chat_processing(db, chat_id, is_processing=False)
                 

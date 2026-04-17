@@ -34,6 +34,12 @@ import type {
 //      into toolQueue and only becomes visible after the text is saved.
 // ═══════════════════════════════════════════════════════════════════════════
 
+export interface TimeEstimate {
+  seconds: number;
+  tools: number;
+  description: string;
+}
+
 export interface ChatStreamState {
   messages: Message[];
   streamingText: string;
@@ -46,6 +52,8 @@ export interface ChatStreamState {
   stream: { close: () => void; reconnect?: () => void } | null;
   toolInsertionCounter: number;
   wasStreamingBeforeHidden: boolean;
+  streamStartTime: number | null;
+  timeEstimate: TimeEstimate | null;
 }
 
 interface UseChatStreamOptions {
@@ -66,6 +74,8 @@ const INITIAL_STATE: Omit<ChatStreamState, 'messages'> = {
   stream: null,
   toolInsertionCounter: 0,
   wasStreamingBeforeHidden: false,
+  streamStartTime: null,
+  timeEstimate: null,
 };
 
 export function useChatStream(options: UseChatStreamOptions = {}) {
@@ -357,6 +367,16 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
 
     onToolsEnd: () => {},
 
+    onTimeEstimate: (event: { estimated_seconds: number; estimated_tools: number; description: string }) => {
+      update(chatId, {
+        timeEstimate: {
+          seconds: event.estimated_seconds,
+          tools: event.estimated_tools,
+          description: event.description,
+        },
+      }, notify);
+    },
+
     onOptions: (event: SSEOptionsEvent) => {
       update(chatId, { pendingOptions: event }, notify);
     },
@@ -463,6 +483,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     }];
     state.isLoading = true;
     state.toolInsertionCounter = 0;
+    state.streamStartTime = Date.now();
+    state.timeEstimate = null;
     onStateChange(state);
 
     // Generate title for first message

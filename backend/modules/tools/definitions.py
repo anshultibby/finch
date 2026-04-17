@@ -10,7 +10,7 @@ from modules.agent.context import AgentContext
 # Import tool descriptions
 from modules.tools.descriptions import (
     # Control
-    IDLE_DESC,
+    IDLE_DESC, ESTIMATE_TIME_DESC,
     # Code Execution (Universal Interface)
     EXECUTE_CODE_DESC,
     # File Management (Convenient wrappers with DB sync)
@@ -49,6 +49,23 @@ from modules.tools.implementations import agents as agents_impl
 def idle(*, context: AgentContext) -> Dict[str, Any]:
     """Signal completion and return to idle state"""
     return control.idle_impl(context)
+
+
+@tool(
+    name="estimate_time",
+    description=ESTIMATE_TIME_DESC,
+    category="control",
+    hidden_from_ui=True
+)
+def estimate_time(
+    *,
+    estimated_seconds: int,
+    estimated_tools: int,
+    description: str,
+    context: AgentContext
+) -> Dict[str, Any]:
+    """Provide time estimate for the current task. Handled specially by executor."""
+    return {"success": True, "message": "Time estimate registered"}
 
 
 # ============================================================================
@@ -291,7 +308,7 @@ async def create_agent(
 
 __all__ = [
     # Control
-    'idle',
+    'idle', 'estimate_time',
     # Code Execution
     'bash',
     # File Management

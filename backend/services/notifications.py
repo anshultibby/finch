@@ -79,6 +79,36 @@ async def send_trade_confirmation_sms(
         return False
 
 
+def _send_resend_email(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
+    """Send an email via Resend. Returns True if sent successfully."""
+    from_email = from_email or os.getenv("RESEND_FROM_EMAIL", "finch@finch.app")
+    api_key = _get_resend_key()
+
+    if not api_key or not to_email:
+        logger.warning("RESEND_API_KEY or to_email not set")
+        return False
+
+    try:
+        import resend
+        resend.api_key = api_key
+    except ImportError:
+        logger.warning("resend package not installed — pip install resend")
+        return False
+
+    try:
+        resend.Emails.send({
+            "from": from_email,
+            "to": [to_email],
+            "subject": subject,
+            "html": html,
+        })
+        logger.info(f"Email sent to {to_email}: {subject}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email to {to_email}: {e}")
+        return False
+
+
 async def send_trade_confirmation_email(
     token: str,
     bot_name: str,
@@ -91,18 +121,8 @@ async def send_trade_confirmation_email(
 ) -> bool:
     """Send email asking user to approve/reject a trade. Returns True if sent."""
     to_email = os.getenv("NOTIFICATION_EMAIL")
-    from_email = os.getenv("RESEND_FROM_EMAIL", "trades@finch.app")
-    api_key = _get_resend_key()
-
-    if not to_email or not api_key:
-        logger.warning("NOTIFICATION_EMAIL or RESEND_API_KEY not set")
-        return False
-
-    try:
-        import resend
-        resend.api_key = api_key
-    except ImportError:
-        logger.warning("resend package not installed — pip install resend")
+    if not to_email:
+        logger.warning("NOTIFICATION_EMAIL not set")
         return False
 
     approve_url = f"{APP_BASE_URL}/api/trades/approve/{token}"
@@ -123,18 +143,25 @@ async def send_trade_confirmation_email(
     <a href="{reject_url}" style="display:inline-block;padding:12px 24px;background:#dc2626;color:white;text-decoration:none;border-radius:6px;font-weight:bold;">REJECT</a>
     """
 
-    try:
-        resend.Emails.send({
-            "from": from_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html,
-        })
-        logger.info(f"Trade confirmation email sent to {to_email}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send email: {e}")
-        return False
+    return _send_resend_email(to_email, subject, html, os.getenv("RESEND_FROM_EMAIL", "trades@finch.app"))
+
+
+async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str) -> bool:
+    """Send email notifying user their chat analysis is ready."""
+    subject = f"Your analysis is ready: {chat_title}"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+      <h2 style="color: #111827; margin-bottom: 8px;">Your analysis is ready</h2>
+      <p style="color: #6b7280; font-size: 14px; margin-bottom: 24px;">
+        {chat_title}
+      </p>
+      <a href="{chat_url}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;">
+        View Results
+      </a>
+    </div>
+    """
+
+    return _send_resend_email(to_email, subject, html)
 
 
 async def send_trade_notification(

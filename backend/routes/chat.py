@@ -1,7 +1,7 @@
 """
 Chat API routes
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -12,6 +12,7 @@ import json
 from schemas import ChatMessage, ChatResponse
 from modules.chat_service import ChatService
 from services.chat_title import generate_chat_title
+from services.notification_registry import register_email_notification
 from core.database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
@@ -292,4 +293,32 @@ async def get_chat_status(
             "is_processing": False,
             "last_activity": ""
         }
+
+
+@router.post("/{chat_id}/notify-email")
+async def request_email_notification(
+    chat_id: str,
+    request: Request,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Register for email notification when this chat's stream completes."""
+    # Extract email from the Supabase JWT payload
+    auth_header = request.headers.get("authorization", "")
+    email = None
+    if auth_header.startswith("Bearer "):
+        try:
+            import jwt
+            token = auth_header[7:]
+            # Decode without verification — we already verified via get_current_user_id
+            payload = jwt.decode(token, options={"verify_signature": False})
+            email = payload.get("email")
+        except Exception:
+            pass
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Could not determine email from token")
+
+    register_email_notification(chat_id, email)
+    logger.info(f"Email notification registered for chat {chat_id} -> {email}")
+    return {"status": "registered", "email": email}
 

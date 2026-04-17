@@ -390,19 +390,31 @@ class ToolExecutor:
         """
         logger.info(f"🌊 Executing {len(tool_calls)} tool(s) with streaming {'ENABLED' if enable_tool_streaming else 'DISABLED'}")
         
-        # Emit tool_call_start events for all tools (skip hidden tools)
+        # Emit time_estimate and tool_call_start events in a single pass
         from modules.tools import tool_registry
-        
+
         for call in tool_calls:
+            # Handle estimate_time specially — emit time_estimate SSE event
+            if call.name == "estimate_time":
+                from schemas.sse import TimeEstimateEvent
+                yield SSEEvent(
+                    event="time_estimate",
+                    data=TimeEstimateEvent(
+                        estimated_seconds=call.arguments.get("estimated_seconds", 60),
+                        estimated_tools=call.arguments.get("estimated_tools", 5),
+                        description=call.arguments.get("description", "Working on your request..."),
+                    ).model_dump()
+                )
+
             # Check if tool is hidden from UI
             tool_obj = tool_registry.get_tool(call.name)
             if tool_obj and tool_obj.hidden_from_ui:
                 logger.debug(f"⏭️  Skipping tool_call_start for hidden tool: {call.name}")
                 continue  # Don't emit event for hidden tools like 'idle'
-            
+
             # Extract user_description from arguments (provided by LLM)
             user_description = call.arguments.get('user_description', None)
-            
+
             logger.info(f"📤 Emitting tool_call_start event: {call.name} (id: {call.id})")
             event_data = {
                 "tool_call_id": call.id,
@@ -414,7 +426,7 @@ class ToolExecutor:
             # Include parent_agent_id if this is a sub-agent (e.g., executor)
             if context.parent_agent_id:
                 event_data["parent_agent_id"] = context.parent_agent_id
-            
+
             yield SSEEvent(
                 event="tool_call_start",
                 data=event_data

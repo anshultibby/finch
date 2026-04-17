@@ -85,6 +85,7 @@ export interface SSEEventHandlers {
   onCodeOutput?: (event: SSECodeOutputEvent) => void;
   onFileContent?: (event: SSEFileContentEvent) => void;
   onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void;
+  onTimeEstimate?: (event: { estimated_seconds: number; estimated_tools: number; description: string }) => void;
   onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
@@ -175,6 +176,9 @@ export const chatApi = {
           break;
         case 'tool_call_streaming':
           handlers.onToolCallStreaming?.(eventData as SSEToolCallStreamingEvent);
+          break;
+        case 'time_estimate':
+          handlers.onTimeEstimate?.(eventData as { estimated_seconds: number; estimated_tools: number; description: string });
           break;
         case 'tool_options':
           handlers.onOptions?.(eventData as SSEOptionsEvent);
@@ -368,6 +372,10 @@ export const chatApi = {
       first_message: firstMessage,
     });
     return response.data;
+  },
+
+  requestEmailNotification: async (chatId: string): Promise<void> => {
+    await api.post(`/chat/${chatId}/notify-email`);
   },
 
   healthCheck: async (): Promise<{ status: string }> => {
@@ -990,6 +998,10 @@ export const marketApi = {
   },
   getNews: async (symbol: string, limit = 10) => {
     const response = await api.get(`/market/news/${symbol}`, { params: { limit } });
+    return response.data;
+  },
+  getPeers: async (symbol: string, limit = 6) => {
+    const response = await api.get(`/market/peers/${symbol}`, { params: { limit } });
     return response.data;
   },
   getGeneralNews: async (limit = 10) => {

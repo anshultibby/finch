@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import ToolCall from './ToolCall';
+import ToolCallSummary from './ToolCallSummary';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import type { ToolCallStatus, SwapData } from '@/lib/types';
+import type { TimeEstimate } from '@/hooks/useChatStream';
 
 export interface MessageAction {
   icon: React.ReactNode;
@@ -28,6 +29,10 @@ interface ChatMessageProps {
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
   actions?: MessageAction[];
   isLastAssistantMessage?: boolean;
+  isStreaming?: boolean;
+  startTime?: number | null;
+  timeEstimate?: TimeEstimate | null;
+  onRequestEmailNotification?: () => void;
 }
 
 const getChatFileUrl = (chatId: string | undefined, filename: string): string => {
@@ -713,29 +718,6 @@ function SwapCards({ swaps, userId }: { swaps: SwapData[]; userId: string }) {
   );
 }
 
-function ToolCallList({ toolCalls, onSelectTool, onPeekAgent }: { toolCalls: ToolCallStatus[], onSelectTool?: (tool: ToolCallStatus) => void, onPeekAgent?: (agentId: string, chatId: string, name: string) => void }) {
-  // Sort by insertion order to maintain stable rendering
-  // Tools without _insertionOrder (e.g., from history) keep their array position
-  const sortedTools = [...toolCalls].sort((a, b) => {
-    const orderA = a._insertionOrder ?? Infinity;
-    const orderB = b._insertionOrder ?? Infinity;
-    return orderA - orderB;
-  });
-  
-  return (
-    <div className="flex flex-col gap-1">
-      {sortedTools.map((tool) => (
-        <ToolCall
-          key={tool.tool_call_id}
-          toolCall={tool}
-          onShowOutput={() => onSelectTool?.(tool)}
-          onPeekAgent={onPeekAgent}
-        />
-      ))}
-    </div>
-  );
-}
-
 function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; alwaysVisible?: boolean }) {
   return (
     <div className={`flex items-center gap-0.5 mt-3 -ml-1 ${alwaysVisible ? 'opacity-100' : 'opacity-0 group-hover/msg:opacity-100'} transition-opacity`}>
@@ -758,7 +740,7 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, onRequestEmailNotification }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[(file|visualization|image):\s*[^\]]+\]/.test(content);
   const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick) : null;
@@ -809,7 +791,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
     return (
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
-          <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} />
+          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} onRequestEmailNotification={onRequestEmailNotification} />
         </div>
       </div>
     );
@@ -841,7 +823,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
           <SwapCards swaps={swap_data} userId={userId || ''} />
         )}
         {toolCalls && toolCalls.length > 0 && (
-          <ToolCallList toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} />
+          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} onRequestEmailNotification={onRequestEmailNotification} />
         )}
         {actions && actions.length > 0 && (
           <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} />

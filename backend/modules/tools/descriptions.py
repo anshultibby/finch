@@ -12,6 +12,37 @@ from modules.tools.skills_registry import generate_skills_description
 # CONTROL TOOLS
 # ============================================================================
 
+ESTIMATE_TIME_DESC = """Estimate how long this task will take. Call this FIRST before any other tools.
+
+Use these heuristics based on actual historical data:
+
+Estimate the number of tool calls you'll make, then use this formula:
+- For 1-3 tools: multiply by 30 seconds each
+- For 4-8 tools: multiply by 20 seconds each
+- For 9-15 tools: multiply by 18 seconds each
+- For 16-30 tools: multiply by 15 seconds each
+- For 30+ tools: multiply by 12 seconds each
+
+Per-tool timing reference:
+- bash/code execution: 15s per call
+- web_search: 3s per call
+- scrape_url: 7s per call
+- file read/write/edit: 8s per call
+- get_portfolio: 8s per call
+- get_fmp_data: 1s per call
+- news_search: 2s per call
+
+Common task benchmarks:
+- Tax-loss harvesting: ~15 tools, ~4 minutes
+- Trading strategy creation: ~20 tools, ~5 minutes
+- Portfolio review/analysis: ~10 tools, ~2 minutes
+- Quick data lookup: ~2 tools, ~30 seconds
+- ETF building/backtest: ~8 tools, ~2 minutes
+- Stock research: ~8 tools, ~2 minutes
+
+Round up. Users prefer a slightly generous estimate over being surprised by a longer wait.
+If the task requires no tools (just a text response), skip calling this tool entirely."""
+
 IDLE_DESC = """Signal that you have completed all tasks and are ready for the user's next input.
 
 Use this tool when:

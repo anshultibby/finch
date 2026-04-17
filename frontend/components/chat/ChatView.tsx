@@ -13,6 +13,7 @@ import { useChatMode } from '@/contexts/ChatModeContext';
 import { chatApi, snaptradeApi } from '@/lib/api';
 import { getApiBaseUrl } from '@/lib/utils';
 import { useChatStream, ChatStreamState } from '@/hooks/useChatStream';
+import { useNotifications } from '@/hooks/useNotifications';
 import type { AppSidebarRef } from '@/components/layout/AppSidebar';
 import type {
   Message,
@@ -111,6 +112,8 @@ export default function ChatView({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
+  const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
+  const [timeEstimate, setTimeEstimate] = useState<import('@/hooks/useChatStream').TimeEstimate | null>(null);
 
 
   // UI state
@@ -122,6 +125,9 @@ export default function ChatView({
 
   // Sub-agent peek panel
   const [peekAgent, setPeekAgent] = useState<{ agentId: string; chatId: string; name: string } | null>(null);
+
+  // Browser notifications
+  const { requestPermission, sendNotification } = useNotifications();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipNextHistoryLoad = useRef(false);
@@ -136,13 +142,23 @@ export default function ChatView({
     setIsLoading(state.isLoading);
     setError(state.error);
     setPendingOptions(state.pendingOptions);
+    setStreamStartTime(state.streamStartTime);
+    setTimeEstimate(state.timeEstimate);
 
     // Notify parent of loading state changes
     if (state.isLoading !== prevIsLoadingRef.current) {
+      // Stream just finished → send browser notification if tab is hidden
+      if (prevIsLoadingRef.current && !state.isLoading) {
+        sendNotification('Finch', 'Your analysis is ready');
+      }
+      // Stream just started → request notification permission for long tasks
+      if (!prevIsLoadingRef.current && state.isLoading) {
+        requestPermission();
+      }
       prevIsLoadingRef.current = state.isLoading;
       onLoadingChange?.(state.isLoading);
     }
-  }, [onLoadingChange]);
+  }, [onLoadingChange, sendNotification, requestPermission]);
 
   const clearDisplay = useCallback(() => {
     setMessages([]);
@@ -151,6 +167,8 @@ export default function ChatView({
     setIsLoading(false);
     setError(null);
     setPendingOptions(null);
+    setStreamStartTime(null);
+    setTimeEstimate(null);
   }, []);
 
   // Sync external chat id changes (e.g. sidebar selection)
@@ -650,6 +668,12 @@ export default function ChatView({
                     onFileClick={(filename) => setSelectedFile(filename)}
                     onVisualizationClick={onVisualizationClick}
                     onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
+                    isStreaming={true}
+                    startTime={streamStartTime}
+                    timeEstimate={timeEstimate}
+                    onRequestEmailNotification={currentChatId ? () => {
+                      chatApi.requestEmailNotification(currentChatId).catch(() => {});
+                    } : undefined}
                   />
                 )}
 

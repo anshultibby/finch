@@ -233,6 +233,14 @@ class ToolsEndEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
+class TimeEstimateEvent(BaseModel):
+    """Event sent when the agent estimates how long the task will take"""
+    estimated_seconds: int
+    estimated_tools: int
+    description: str  # Brief description of what the agent plans to do
+    timestamp: str = datetime.now().isoformat()
+
+
 class CancelledEvent(BaseModel):
     """Event sent when execution is cancelled due to user interruption"""
     reason: str = "User sent a new message"
