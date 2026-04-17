@@ -963,4 +963,54 @@ export const chatFilesApi = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Market Data API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const marketApi = {
+  getQuote: async (symbol: string) => {
+    const response = await api.get(`/market/quote/${symbol}`);
+    return response.data;
+  },
+  getBatchQuotes: async (symbols: string[]) => {
+    const response = await api.get('/market/batch-quotes', { params: { symbols: symbols.join(',') } });
+    return response.data;
+  },
+  getProfile: async (symbol: string) => {
+    const response = await api.get(`/market/profile/${symbol}`);
+    return response.data;
+  },
+  searchStocks: async (query: string, limit = 10) => {
+    const response = await api.get('/market/search', { params: { q: query, limit } });
+    return response.data;
+  },
+  getMovers: async () => {
+    const response = await api.get('/market/movers');
+    return response.data;
+  },
+  getNews: async (symbol: string, limit = 10) => {
+    const response = await api.get(`/market/news/${symbol}`, { params: { limit } });
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Watchlist API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const watchlistApi = {
+  getWatchlist: async (userId: string) => {
+    const response = await api.get(`/watchlist/${userId}`);
+    return response.data;
+  },
+  addSymbol: async (userId: string, symbol: string) => {
+    const response = await api.post(`/watchlist/${userId}`, { symbol });
+    return response.data;
+  },
+  removeSymbol: async (userId: string, symbol: string) => {
+    const response = await api.delete(`/watchlist/${userId}/${symbol}`);
+    return response.data;
+  },
+};
+
 export default api;

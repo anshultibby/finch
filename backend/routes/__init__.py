@@ -11,6 +11,7 @@ from .reminders import router as reminders_router
 from .reminders import alpaca_router
 from .market import router as market_router
 from .alpaca_broker import router as alpaca_broker_router, execute_router
+from .watchlist import router as watchlist_router
 
 __all__ = [
     "chat_router",
@@ -24,5 +25,6 @@ __all__ = [
     "market_router",
     "alpaca_broker_router",
     "execute_router",
+    "watchlist_router",
 ]
 

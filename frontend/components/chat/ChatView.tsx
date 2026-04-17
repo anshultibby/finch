@@ -36,6 +36,8 @@ interface ChatViewProps {
   // If set, this chat is scoped to a trading bot
   botId?: string;
   rightOffset?: number;
+  // Compact mode for chat drawer
+  compact?: boolean;
 }
 
 function formatErrorForUser(error: string): string {

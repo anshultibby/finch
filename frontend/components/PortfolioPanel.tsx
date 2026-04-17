@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigation } from '@/contexts/NavigationContext';
 import { alpacaBrokerApi } from '@/lib/api';
 import AlpacaOnboarding from './AlpacaOnboarding';
 import type { AlpacaPortfolioResponse, AlpacaBrokerPosition, AlpacaOrder } from '@/lib/types';
@@ -219,10 +220,11 @@ function TradeModal({ userId, onClose, onSuccess, prefill }: {
 // Position row
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PositionRow({ position, onSell, onClose: onClosePos }: {
+function PositionRow({ position, onSell, onClose: onClosePos, onTap }: {
   position: AlpacaBrokerPosition;
   onSell: (symbol: string, qty: number) => void;
   onClose: (symbol: string) => void;
+  onTap: (symbol: string) => void;
 }) {
   const pl = num(position.unrealized_pl);
   const plPct = num(position.unrealized_plpc);
@@ -231,23 +233,20 @@ function PositionRow({ position, onSell, onClose: onClosePos }: {
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
-      <button
-        onClick={() => setShowActions(!showActions)}
-        className="w-full flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors"
-      >
-        <div className="text-left min-w-[80px]">
-          <div className="text-sm font-semibold text-gray-900">{position.symbol}</div>
+      <div className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors">
+        <button onClick={() => onTap(position.symbol)} className="text-left min-w-[80px] flex-shrink-0">
+          <div className="text-sm font-semibold text-gray-900 hover:text-emerald-600 transition-colors">{position.symbol}</div>
           <div className="text-xs text-gray-400">
             {num(position.qty) % 1 === 0 ? num(position.qty) : num(position.qty).toFixed(2)} share{num(position.qty) !== 1 ? 's' : ''}
           </div>
-        </div>
+        </button>
 
-        <div className="flex-1 flex items-center justify-center">
+        <button onClick={() => setShowActions(!showActions)} className="flex-1 flex items-center justify-center">
           <div className="w-full max-w-[80px] flex items-center gap-0.5">
             <div className={`flex-1 border-t-2 border-dotted ${isUp ? 'border-emerald-300' : 'border-red-300'}`} />
             <div className={`w-2 h-2 rounded-full ${isUp ? 'bg-emerald-500' : 'bg-red-500'}`} />
           </div>
-        </div>
+        </button>
 
         <div className="text-right min-w-[90px]">
           <div className="text-sm font-medium text-gray-900 tabular-nums">{formatCurrency(num(position.current_price))}</div>
@@ -255,7 +254,7 @@ function PositionRow({ position, onSell, onClose: onClosePos }: {
             {pl >= 0 ? '+' : ''}{formatCurrency(pl)}
           </div>
         </div>
-      </button>
+      </div>
 
       {/* Expanded actions */}
       {showActions && (
@@ -348,6 +347,7 @@ type Tab = 'positions' | 'orders';
 
 export default function PortfolioPanel() {
   const { user } = useAuth();
+  const { openStock } = useNavigation();
   const [alpacaStatus, setAlpacaStatus] = useState<{ exists: boolean; status?: string; alpaca_account_id?: string } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -598,6 +598,7 @@ export default function PortfolioPanel() {
                 position={p}
                 onSell={(symbol, qty) => setTradeModal({ symbol, side: 'sell', qty })}
                 onClose={handleClosePosition}
+                onTap={openStock}
               />
             ))
           ) : (

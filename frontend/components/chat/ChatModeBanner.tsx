@@ -10,7 +10,7 @@ export default function ChatModeBanner() {
 
   const handleBack = () => {
     clearMode();
-    navigateTo('chat');
+    navigateTo({ type: 'home' });
   };
 
   if (mode.type === 'general') {
