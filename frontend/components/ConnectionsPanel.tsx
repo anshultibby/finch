@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { snaptradeApi } from '@/lib/api';
 import type { PortfolioResponse, PortfolioPerformance } from '@/lib/types';
+import PriceRangeChart, { getStockRanges, ytdDays, type RangeOption } from '@/components/ui/PriceRangeChart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -51,209 +52,6 @@ function getStartDate(range: TimeRange): string {
     case 'ALL': return '';
   }
   return localDateStr(d);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Portfolio Line Chart (canvas-based, Robinhood-style)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PortfolioChart({ data, loading, onHover }: {
-  data: Array<{ date: string; value: number }>;
-  loading: boolean;
-  onHover?: (info: { date: string; value: number } | null) => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  const pointsRef = useRef<Array<{ x: number; y: number }>>([]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container || data.length < 2) return;
-
-    const rect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const w = rect.width;
-    const h = rect.height;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
-
-    const values = data.map(d => d.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = max - min || 1;
-    const pad = { top: 12, bottom: 12, left: 0, right: 0 };
-    const chartW = w - pad.left - pad.right;
-    const chartH = h - pad.top - pad.bottom;
-
-    const isUp = values[values.length - 1] >= values[0];
-    const color = isUp ? '#10b981' : '#ef4444';
-
-    const pts: Array<{ x: number; y: number }> = [];
-    for (let i = 0; i < data.length; i++) {
-      pts.push({
-        x: pad.left + (i / (data.length - 1)) * chartW,
-        y: pad.top + (1 - (values[i] - min) / range) * chartH,
-      });
-    }
-    pointsRef.current = pts;
-
-    const refY = pts[0].y;
-    ctx.setLineDash([3, 4]);
-    ctx.strokeStyle = '#d1d5db';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, refY);
-    ctx.lineTo(w, refY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom);
-    grad.addColorStop(0, isUp ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-
-    ctx.beginPath();
-    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-    ctx.lineTo(pts[pts.length - 1].x, h - pad.bottom);
-    ctx.lineTo(pts[0].x, h - pad.bottom);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.beginPath();
-    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    if (hoverIdx !== null && hoverIdx >= 0 && hoverIdx < pts.length) {
-      const hp = pts[hoverIdx];
-      ctx.beginPath();
-      ctx.moveTo(hp.x, pad.top);
-      ctx.lineTo(hp.x, h - pad.bottom);
-      ctx.strokeStyle = '#9ca3af';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(hp.x, hp.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(hp.x, hp.y, 2, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff';
-      ctx.fill();
-    }
-  }, [data, hoverIdx]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (data.length < 2 || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const idx = Math.round((x / rect.width) * (data.length - 1));
-    const clamped = Math.max(0, Math.min(data.length - 1, idx));
-    setHoverIdx(clamped);
-    onHover?.({ date: data[clamped].date, value: data[clamped].value });
-  }, [data, onHover]);
-
-  const handleMouseLeave = useCallback(() => {
-    setHoverIdx(null);
-    onHover?.(null);
-  }, [onHover]);
-
-  if (loading || data.length < 2) return null;
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-full cursor-crosshair"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-    >
-      <canvas ref={canvasRef} className="absolute inset-0" />
-      {hoverIdx !== null && pointsRef.current[hoverIdx] && (
-        <div
-          className="absolute text-[11px] text-gray-500 font-medium pointer-events-none whitespace-nowrap tabular-nums"
-          style={{
-            left: Math.min(Math.max(pointsRef.current[hoverIdx].x - 30, 4), (containerRef.current?.offsetWidth || 300) - 80),
-            top: Math.max(pointsRef.current[hoverIdx].y - 22, 0),
-          }}
-        >
-          {(() => {
-            const raw = data[hoverIdx].date;
-            const d = new Date(raw.includes('T') || raw.includes(' ') ? raw.replace(' ', 'T') : raw + 'T12:00:00');
-            if (isNaN(d.getTime())) return raw;
-            if (raw.includes(' ') || (raw.includes('T') && raw.includes(':'))) {
-              return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-            }
-            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          })()}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TradingView Advanced Chart (for drill-down)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function TradingViewAdvancedChart({ symbol }: { symbol: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const widgetIdRef = useRef(`tradingview_${Math.random().toString(36).slice(2)}`);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.innerHTML = '';
-
-    const containerId = widgetIdRef.current;
-    const wrapper = document.createElement('div');
-    wrapper.id = containerId;
-    wrapper.style.height = '100%';
-    wrapper.style.width = '100%';
-    el.appendChild(wrapper);
-
-    const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/tv.js';
-    script.async = true;
-    script.onload = () => {
-      if (typeof (window as any).TradingView !== 'undefined') {
-        new (window as any).TradingView.widget({
-          autosize: true,
-          symbol,
-          interval: 'D',
-          timezone: 'Etc/UTC',
-          theme: 'light',
-          style: '1',
-          locale: 'en',
-          toolbar_bg: '#f8f9fa',
-          enable_publishing: false,
-          allow_symbol_change: true,
-          hide_top_toolbar: false,
-          hide_legend: false,
-          save_image: false,
-          container_id: containerId,
-          studies: ['Volume@tv-basicstudies'],
-        });
-      }
-    };
-    el.appendChild(script);
-
-    return () => { el.innerHTML = ''; };
-  }, [symbol]);
-
-  return <div ref={containerRef} className="w-full h-full" />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -598,8 +396,14 @@ export default function ConnectionsPanel() {
             </>
           )}
         </div>
-        <div className="flex-1 min-h-0">
-          <TradingViewAdvancedChart key={selectedSymbol} symbol={selectedSymbol} />
+        <div className="flex-1 min-h-0 px-3 py-3 overflow-y-auto">
+          <PriceRangeChart
+            key={selectedSymbol}
+            series={[{ symbol: selectedSymbol, color: (h?.gain_loss ?? 0) >= 0 ? '#10b981' : '#ef4444' }]}
+            defaultDays={365}
+            ranges={getStockRanges()}
+            height={260}
+          />
         </div>
       </div>
     );
@@ -690,6 +494,19 @@ export default function ConnectionsPanel() {
 
           const isChartLoading = (timeRange === '1D' || timeRange === '1W') && intradayLoading && !useIntraday;
 
+          const rangeOptions: RangeOption[] = [
+            { label: '1D', days: 1 },
+            { label: '1W', days: 7 },
+            { label: '1M', days: 30 },
+            { label: '3M', days: 90 },
+            { label: 'YTD', days: ytdDays() },
+            { label: '1Y', days: 365 },
+            { label: 'ALL', days: 3650 },
+          ];
+          const selectedDays = rangeOptions.find(r => r.label === timeRange)?.days ?? 30;
+          const labelToTimeRange = (label: string): TimeRange | null =>
+            rangeOptions.some(r => r.label === label) ? (label as TimeRange) : null;
+
           return chartData.length >= 2 || isChartLoading ? (
             <>
               {change && (
@@ -702,30 +519,26 @@ export default function ConnectionsPanel() {
                   </span>
                 </div>
               )}
-              <div className="h-[160px] px-2">
+              <div className="px-2">
                 {isChartLoading ? (
-                  <div className="flex items-center justify-center h-full gap-2">
+                  <div className="flex items-center justify-center h-[160px] gap-2">
                     <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
                     <span className="text-xs text-gray-400">Loading hourly data...</span>
                   </div>
                 ) : (
-                  <PortfolioChart data={chartData} loading={false} onHover={setHoverValue} />
+                  <PriceRangeChart
+                    data={chartData}
+                    format="currency"
+                    height={160}
+                    ranges={rangeOptions}
+                    selectedDays={selectedDays}
+                    onRangeChange={(_d, label) => {
+                      const next = labelToTimeRange(label);
+                      if (next) setTimeRange(next);
+                    }}
+                    onHoverChange={setHoverValue}
+                  />
                 )}
-              </div>
-              <div className="flex items-center gap-1 px-4 py-2">
-                {(['1D', '1W', '1M', '3M', 'YTD', '1Y', 'ALL'] as TimeRange[]).map(r => (
-                  <button
-                    key={r}
-                    onClick={() => setTimeRange(r)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${
-                      timeRange === r
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
               </div>
             </>
           ) : buildingHistory ? (

@@ -17,7 +17,11 @@ router = APIRouter(prefix="/market", tags=["market"])
 @router.get("/prices")
 async def get_prices(symbols: str, days: int = 365):
     """
-    Return normalized daily price series (% change from first close) for up to 5 symbols.
+    Return normalized price series (% change from window-start anchor) for up to 5 symbols.
+
+    For short windows (≤7 days) we use FMP intraday bars (5min / 30min) and anchor the
+    baseline to the last close *before* the window — so the 1D chart's last-point %
+    matches the "Today +X%" shown in the quote header.
 
     Query params:
         symbols  – comma-separated tickers, e.g. "AAPL,QQQ"
@@ -30,31 +34,81 @@ async def get_prices(symbols: str, days: int = 365):
     if not ticker_list or len(ticker_list) > 5:
         raise HTTPException(status_code=400, detail="Provide 1–5 comma-separated symbols")
 
-    from_date = (date.today() - timedelta(days=days + 10)).isoformat()
-    to_date = date.today().isoformat()
+    if days <= 1:
+        interval = "5min"
+    elif days <= 7:
+        interval = "30min"
+    else:
+        interval = None
 
+    today = date.today()
+    cutoff = (today - timedelta(days=days)).isoformat()
+    pad = 10 if interval is None else 7
+    from_date = (today - timedelta(days=days + pad)).isoformat()
+    to_date = today.isoformat()
+
+    from skills.financial_modeling_prep.scripts.api import fmp
     from skills.financial_modeling_prep.scripts.market.historical_prices import get_historical_prices
 
-    result: dict = {}
-    for symbol in ticker_list:
-        try:
-            data = await asyncio.to_thread(get_historical_prices, symbol, from_date=from_date, to_date=to_date)
-            if not isinstance(data, dict) or "prices" not in data:
-                result[symbol] = []
+    def _partition(bars: list, cutoff_day: str, date_key: str, close_keys: tuple):
+        """Split oldest-first bars around cutoff_day. Base = last pre-cutoff close."""
+        base = None
+        in_window: list[tuple[str, float]] = []
+        for b in bars:
+            d = b.get(date_key, "")
+            c = next((b[k] for k in close_keys if b.get(k) is not None), None)
+            if c is None or not d:
                 continue
-            prices = list(reversed(data["prices"]))
-            if not prices:
-                result[symbol] = []
-                continue
-            base = prices[0].get("adjClose") or prices[0].get("close") or 1
-            result[symbol] = [
-                {"date": p["date"], "pct": round(((p.get("adjClose") or p.get("close", base)) / base - 1) * 100, 2)}
-                for p in prices
-            ]
-        except Exception:
-            result[symbol] = []
+            if d[:10] < cutoff_day:
+                base = c
+            else:
+                iso = d.replace(" ", "T") if " " in d else d
+                in_window.append((iso, c))
+        return base, in_window
 
-    return result
+    def _normalize(bars: list, date_key: str = "date", close_keys: tuple = ("adjClose", "close")) -> list:
+        base, in_window = _partition(bars, cutoff, date_key, close_keys)
+        # Pre-market / weekend fallback: cutoff can be today with no bars yet. Roll
+        # back to the most recent trading day present in the data.
+        if not in_window:
+            latest_day = max(
+                (b[date_key][:10] for b in bars if b.get(date_key)),
+                default=None,
+            )
+            if latest_day and latest_day < cutoff:
+                base, in_window = _partition(bars, latest_day, date_key, close_keys)
+        if base is None and in_window:
+            base = in_window[0][1]
+        if not in_window or not base:
+            return []
+        return [{"date": d, "pct": round((c / base - 1) * 100, 2)} for d, c in in_window]
+
+    async def _fetch_daily(symbol: str) -> list:
+        data = await asyncio.to_thread(
+            get_historical_prices, symbol, from_date=from_date, to_date=to_date,
+        )
+        if not isinstance(data, dict) or "prices" not in data:
+            return []
+        return _normalize(list(reversed(data["prices"])))
+
+    async def _fetch(symbol: str) -> list:
+        try:
+            if interval:
+                raw = await asyncio.to_thread(
+                    fmp, f"/historical-chart/{interval}/{symbol}",
+                    {"from": from_date, "to": to_date, "extended": "true"},
+                )
+                if isinstance(raw, list) and raw:
+                    normalized = _normalize(list(reversed(raw)))
+                    if normalized:
+                        return normalized
+                # Intraday unavailable (empty response / API tier) — fall back to daily.
+            return await _fetch_daily(symbol)
+        except Exception:
+            return []
+
+    series = await asyncio.gather(*(_fetch(s) for s in ticker_list))
+    return dict(zip(ticker_list, series))
 
 
 # ---------------------------------------------------------------------------
@@ -178,15 +232,59 @@ async def get_market_movers():
 
 @router.get("/news/{symbol}")
 async def get_stock_news(symbol: str, limit: int = 10):
-    """Return recent news articles for a given stock symbol."""
+    """Return recent news articles for a given stock symbol.
+
+    For symbols (often ETFs) where FMP has no ticker-specific articles,
+    fall back to general market news so the UI isn't blank.
+    """
     from skills.financial_modeling_prep.scripts.api import fmp
 
     try:
         data = await asyncio.to_thread(fmp, f"/stock_news?tickers={symbol.upper()}&limit={limit}")
     except Exception:
+        data = []
+
+    if not isinstance(data, list):
+        data = []
+
+    if not data:
+        try:
+            data = await asyncio.to_thread(fmp, f"/stock_news?limit={limit}")
+        except Exception:
+            data = []
+        if not isinstance(data, list):
+            data = []
+
+    return data
+
+
+# ---------------------------------------------------------------------------
+# 6b. Stock peers (related tickers)
+# ---------------------------------------------------------------------------
+
+@router.get("/peers/{symbol}")
+async def get_stock_peers_endpoint(symbol: str, limit: int = 6):
+    """Return peer tickers with name, price, and market cap (FMP stable)."""
+    from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_peers_detailed
+
+    try:
+        peers = await asyncio.to_thread(get_stock_peers_detailed, symbol.upper())
+    except Exception:
         return []
 
-    return data if isinstance(data, list) else []
+    if not isinstance(peers, list):
+        return []
+
+    return [
+        {
+            "symbol": p.get("symbol"),
+            "name": p.get("companyName"),
+            "price": p.get("price"),
+            "marketCap": p.get("mktCap"),
+        }
+        for p in peers
+        if isinstance(p, dict) and p.get("symbol")
+    ][:limit]
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { marketApi, alpacaBrokerApi, watchlistApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import PriceRangeChart from '@/components/ui/PriceRangeChart';
+import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
 import type { AlpacaBrokerPosition } from '@/lib/types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -153,11 +153,12 @@ function NewsCard({ item }: { item: any }) {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function StockPage({ symbol }: { symbol: string }) {
-  const { goBack, canGoBack, openChatAbout } = useNavigation();
+  const { goBack, canGoBack, openChatAbout, openStock } = useNavigation();
   const { user } = useAuth();
   const [quote, setQuote] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [news, setNews] = useState<any[]>([]);
+  const [peers, setPeers] = useState<any[]>([]);
   const [position, setPosition] = useState<AlpacaBrokerPosition | null>(null);
   const [loading, setLoading] = useState(true);
   const [watchlisted, setWatchlisted] = useState(false);
@@ -172,13 +173,15 @@ export default function StockPage({ symbol }: { symbol: string }) {
       marketApi.getQuote(symbol).catch(() => null),
       marketApi.getProfile(symbol).catch(() => null),
       marketApi.getNews(symbol, 8).catch(() => []),
+      marketApi.getPeers(symbol, 6).catch(() => []),
       user ? alpacaBrokerApi.getPortfolio(user.id).catch(() => null) : null,
       user ? watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })) : null,
       user ? alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })) : null,
-    ]).then(([q, p, n, portfolio, wl, status]) => {
+    ]).then(([q, p, n, pe, portfolio, wl, status]) => {
       setQuote(q);
       setProfile(p);
       setNews(Array.isArray(n) ? n : []);
+      setPeers(Array.isArray(pe) ? pe : []);
       if (portfolio?.positions) {
         const pos = portfolio.positions.find((x: any) => x.symbol === symbol);
         if (pos) setPosition(pos);
@@ -253,16 +256,8 @@ export default function StockPage({ symbol }: { symbol: string }) {
         <div className="px-2 sm:px-4">
           <PriceRangeChart
             series={[{ symbol, color: isUp ? '#10b981' : '#ef4444' }]}
-            defaultDays={365}
-            ranges={[
-              { label: '1D', days: 1 },
-              { label: '1W', days: 7 },
-              { label: '1M', days: 30 },
-              { label: '3M', days: 90 },
-              { label: 'YTD', days: Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000) },
-              { label: '1Y', days: 365 },
-              { label: 'MAX', days: 3650 },
-            ]}
+            defaultDays={1}
+            ranges={getStockRanges()}
             height={280}
           />
         </div>
@@ -357,6 +352,29 @@ export default function StockPage({ symbol }: { symbol: string }) {
           </div>
         )}
 
+        {/* Related */}
+        {peers.length > 0 && (
+          <div className="px-4 sm:px-6 mb-5">
+            <div className="text-base font-bold text-gray-900 mb-3">Related Stocks</div>
+            <div className="border-t border-gray-100 mb-3" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {peers.map(p => (
+                <button key={p.symbol} onClick={() => openStock(p.symbol)}
+                  className="text-left rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 p-3 transition-colors">
+                  <div className="text-sm font-bold text-gray-900">{p.symbol}</div>
+                  {p.name && <div className="text-xs text-gray-400 truncate mb-1.5">{p.name}</div>}
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{p.price != null ? fmt(p.price) : '--'}</span>
+                    {p.marketCap != null && (
+                      <span className="text-xs font-medium text-gray-400 tabular-nums">{fmtB(p.marketCap)}</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* News */}
         {news.length > 0 && (
           <div className="px-4 sm:px-6 mb-5">
@@ -369,34 +387,56 @@ export default function StockPage({ symbol }: { symbol: string }) {
         <div className="h-20 md:h-8" />
       </div>
 
-      {/* Desktop trade panel (sticky right side) */}
-      {hasAccount && user && (
-        <div className="hidden lg:block w-[300px] shrink-0 border-l border-gray-200 p-4 overflow-y-auto">
-          <TradePanel symbol={symbol} price={price} userId={user.id} onSuccess={fetchData} />
+      {/* Desktop right sidebar */}
+      {user && (
+        <aside className="hidden lg:flex flex-col w-[320px] shrink-0 border-l border-gray-100 overflow-y-auto">
+          {hasAccount && (
+            <div className="p-5 border-b border-gray-100">
+              <TradePanel symbol={symbol} price={price} userId={user.id} onSuccess={fetchData} />
+            </div>
+          )}
 
-          <button onClick={() => openChatAbout(symbol)}
-            className="w-full mt-3 py-2.5 text-sm font-bold text-emerald-600 border border-emerald-200 rounded-xl hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375" />
-            </svg>
-            Ask AI about {symbol}
-          </button>
+          <div className="p-5 flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}>
+                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+                </svg>
+              </div>
+              <div className="text-sm font-bold text-gray-900 tracking-tight">AI Analyst</div>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">
+              Ask anything about {symbol} — fundamentals, price action, news, or peers.
+            </p>
 
-          <button onClick={async () => {
-            if (!user || watchlistLoading) return;
-            setWatchlistLoading(true);
-            try {
-              if (watchlisted) { await watchlistApi.removeSymbol(user.id, symbol); setWatchlisted(false); }
-              else { await watchlistApi.addSymbol(user.id, symbol); setWatchlisted(true); }
-            } catch {} finally { setWatchlistLoading(false); }
-          }}
-            className="w-full mt-2 py-2.5 text-sm font-medium text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5">
-            <svg className="w-4 h-4" fill={watchlisted ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
-            </svg>
-            {watchlisted ? 'Remove from Watchlist' : 'Add to Watchlist'}
-          </button>
-        </div>
+            <div className="space-y-1.5 mb-4">
+              {[
+                `What's moving ${symbol} today?`,
+                `Summarize the latest news on ${symbol}`,
+                `How does ${symbol} compare to its peers?`,
+                `What are the key risks for ${symbol}?`,
+              ].map(prompt => (
+                <button key={prompt} onClick={() => openChatAbout(symbol, prompt)}
+                  className="group w-full text-left text-[13px] text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-between gap-2">
+                  <span className="line-clamp-1">{prompt}</span>
+                  <svg className="w-3.5 h-3.5 text-gray-300 group-hover:text-emerald-500 shrink-0 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+
+            <button onClick={() => openChatAbout(symbol)}
+              className="w-full py-2.5 text-sm font-semibold text-white rounded-xl transition-all hover:shadow-md flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #0f172a, #1f2937)' }}>
+              Start analysis
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+              </svg>
+            </button>
+          </div>
+        </aside>
       )}
 
       {/* Mobile trade modal */}
