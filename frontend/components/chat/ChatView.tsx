@@ -32,6 +32,7 @@ interface ChatViewProps {
   onSwapsReceived?: (chatId: string, swaps: import('@/lib/types').SwapData[]) => void;
   sidebarRef?: React.RefObject<AppSidebarRef>;
   prefillMessage?: string;
+  prefillLabel?: string;
   onVisualizationClick?: (filename: string) => void;
   // If set, this chat is scoped to a trading bot
   botId?: string;
@@ -89,6 +90,7 @@ export default function ChatView({
   onSwapsReceived,
   sidebarRef,
   prefillMessage,
+  prefillLabel,
   onVisualizationClick,
   botId,
   rightOffset = 0,
@@ -581,7 +583,7 @@ export default function ChatView({
                 </div>
               </div>
             ) : messages.length === 0 && !isLoading ? (
-              <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} />
+              <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} prefillLabel={prefillLabel} />
             ) : (
               <>
                 {messages.map((msg, i) => {

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { alpacaBrokerApi, marketApi } from '@/lib/api';
+import { alpacaBrokerApi, marketApi, snaptradeApi } from '@/lib/api';
 import SandboxBadge from '@/components/shared/SandboxBadge';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import type { AlpacaPortfolioResponse } from '@/lib/types';
@@ -235,6 +235,63 @@ function InlineSearch({ onSelect }: { onSelect: (symbol: string) => void }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Action card (TLH, Portfolio Review, Trading Agent)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ActionAccent = 'emerald' | 'violet' | 'amber';
+
+const ACCENT_STYLES: Record<ActionAccent, { bg: string; iconBg: string; iconText: string; hover: string; ring: string }> = {
+  emerald: { bg: 'bg-emerald-50', iconBg: 'bg-emerald-500/15', iconText: 'text-emerald-600', hover: 'hover:bg-emerald-100/70', ring: 'hover:ring-emerald-200' },
+  violet:  { bg: 'bg-violet-50',  iconBg: 'bg-violet-500/15',  iconText: 'text-violet-600',  hover: 'hover:bg-violet-100/70',  ring: 'hover:ring-violet-200' },
+  amber:   { bg: 'bg-amber-50',   iconBg: 'bg-amber-500/15',   iconText: 'text-amber-700',   hover: 'hover:bg-amber-100/70',   ring: 'hover:ring-amber-200' },
+};
+
+function ActionCard({
+  title,
+  subtitle,
+  icon,
+  accent,
+  requires,
+  onClick,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  accent: ActionAccent;
+  requires?: 'brokerage' | 'account';
+  onClick: () => void;
+}) {
+  const s = ACCENT_STYLES[accent];
+  const requiresLabel = requires === 'brokerage' ? 'Connect brokerage' : requires === 'account' ? 'Open account' : null;
+
+  return (
+    <button
+      onClick={onClick}
+      className={`group text-left rounded-2xl p-4 transition-all ring-1 ring-transparent ${s.bg} ${s.hover} ${s.ring}`}
+    >
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-xl ${s.iconBg} flex items-center justify-center ${s.iconText}`}>
+          {icon}
+        </div>
+        {requiresLabel && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-600 bg-white/80 backdrop-blur px-2 py-0.5 rounded-full ring-1 ring-gray-200/70">
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            {requiresLabel}
+          </span>
+        )}
+      </div>
+      <div className="text-sm font-bold text-gray-900 mb-0.5">{title}</div>
+      <div className="text-xs text-gray-500 leading-relaxed">{subtitle}</div>
+    </button>
+  );
+}
+
+const TLH_PROMPT = "Scan my portfolio for tax-loss harvesting opportunities. Identify positions with losses I could realize and suggest replacement candidates that keep my market exposure similar.";
+const PORTFOLIO_REVIEW_PROMPT = "Review my portfolio. Highlight concentrations, risks, sector exposure, and anything notable about my holdings. Suggest things I should consider.";
+
 function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between px-4 sm:px-6 mb-2.5">
@@ -266,9 +323,10 @@ const POPULAR_SYMBOLS = 'SPY,QQQ,DIA,AAPL,MSFT,GOOGL,AMZN,NVDA,TSLA,META';
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { openStock, navigateTo, setChatDrawerOpen } = useNavigation();
+  const { openStock, navigateTo, setChatDrawerOpen, openChatWithPrompt } = useNavigation();
   const [portfolio, setPortfolio] = useState<AlpacaPortfolioResponse | null>(null);
   const [hasAccount, setHasAccount] = useState<boolean | null>(null);
+  const [hasBrokerage, setHasBrokerage] = useState<boolean>(false);
   const [movers, setMovers] = useState<{ gainers: any[]; losers: any[] }>({ gainers: [], losers: [] });
   const [moversTab, setMoversTab] = useState<'gainers' | 'losers'>('gainers');
   const [popularQuotes, setPopularQuotes] = useState<any[]>([]);
@@ -284,12 +342,14 @@ export default function HomePage() {
       marketApi.getBatchQuotes(POPULAR_SYMBOLS.split(',')).catch(() => []),
       marketApi.getEarnings().catch(() => []),
       marketApi.getGeneralNews(8).catch(() => []),
-    ]).then(([status, m, popular, earn, n]) => {
+      snaptradeApi.checkStatus(user.id).catch(() => ({ is_connected: false })),
+    ]).then(([status, m, popular, earn, n, brokerage]) => {
       const s = status as any;
       setHasAccount(s.exists && s.status === 'ACTIVE');
       if (s.exists && s.status === 'ACTIVE') {
         alpacaBrokerApi.getPortfolio(user.id).then(setPortfolio).catch(() => {});
       }
+      setHasBrokerage(Boolean((brokerage as any)?.is_connected));
       setMovers({ gainers: m.gainers || [], losers: m.losers || [] });
       setPopularQuotes(Array.isArray(popular) ? popular : []);
       setEarnings(Array.isArray(earn) ? earn : []);
@@ -329,46 +389,55 @@ export default function HomePage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Account CTAs — first thing users see */}
-        {!hasAccount && (
-          <div className="px-4 sm:px-6 pb-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Open agent account */}
-              <button onClick={() => navigateTo({ type: 'portfolio' })}
-                className="text-left rounded-2xl overflow-hidden relative"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-                <div className="p-4 flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3" />
-                    </svg>
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-white mb-0.5">Open an account for your agent</div>
-                    <div className="text-xs text-white/70">Let your AI trade on your behalf</div>
-                  </div>
-                </div>
-              </button>
-
-              {/* Connect external account */}
-              <button onClick={() => navigateTo({ type: 'connections' })}
-                className="text-left rounded-2xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all bg-white">
-                <div className="p-4 flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-                    </svg>
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-gray-900 mb-0.5">Connect your brokerage</div>
-                    <div className="text-xs text-gray-400">Import your existing portfolio</div>
-                  </div>
-                </div>
-              </button>
-            </div>
+        {/* AI Actions — the three core flows */}
+        <div className="px-4 sm:px-6 pt-3 pb-5">
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">What your AI can do</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <ActionCard
+              title="Tax-loss harvesting"
+              subtitle="Find tax savings hiding in your holdings"
+              accent="emerald"
+              requires={!hasBrokerage ? 'brokerage' : undefined}
+              icon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+              }
+              onClick={() => {
+                if (!hasBrokerage) navigateTo({ type: 'connections' });
+                else openChatWithPrompt(TLH_PROMPT, 'Scan portfolio for tax losses');
+              }}
+            />
+            <ActionCard
+              title="Portfolio review"
+              subtitle="Get an AI analysis of your holdings"
+              accent="violet"
+              requires={!hasBrokerage ? 'brokerage' : undefined}
+              icon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
+                </svg>
+              }
+              onClick={() => {
+                if (!hasBrokerage) navigateTo({ type: 'connections' });
+                else openChatWithPrompt(PORTFOLIO_REVIEW_PROMPT, 'Review my portfolio');
+              }}
+            />
+            <ActionCard
+              title="Trading agent"
+              subtitle="Let AI trade stocks on your behalf"
+              accent="amber"
+              requires={!hasAccount ? 'account' : undefined}
+              icon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.847.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+                </svg>
+              }
+              onClick={() => navigateTo({ type: 'portfolio' })}
+            />
           </div>
-        )}
+        </div>
 
         {/* Portfolio hero (only if account exists) */}
         {hasAccount && portfolio && (

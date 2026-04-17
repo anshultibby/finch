@@ -27,18 +27,23 @@ export default function ChatDrawer({
 }: ChatDrawerProps) {
   const { chatDrawerOpen, setChatDrawerOpen, chatContext } = useNavigation();
   const [prefill, setPrefill] = useState<string | undefined>();
+  const [prefillLabel, setPrefillLabel] = useState<string | undefined>();
 
   // When chat context changes (e.g. "Ask AI about AAPL"), set the prefill
   useEffect(() => {
     if (chatContext?.prefill && chatDrawerOpen) {
       setPrefill(chatContext.prefill);
+      setPrefillLabel(chatContext.prefillLabel);
     }
   }, [chatContext, chatDrawerOpen]);
 
   // Clear prefill after it's consumed
   const handleChatIdChange = useCallback((id: string | null) => {
     onChatIdChange(id);
-    if (id) setPrefill(undefined);
+    if (id) {
+      setPrefill(undefined);
+      setPrefillLabel(undefined);
+    }
   }, [onChatIdChange]);
 
   if (!chatDrawerOpen) return null;
@@ -87,6 +92,7 @@ export default function ChatDrawer({
             onSwapsReceived={onSwapsReceived}
             sidebarRef={sidebarRef}
             prefillMessage={prefill}
+            prefillLabel={prefillLabel}
             onVisualizationClick={() => {}}
             compact
           />

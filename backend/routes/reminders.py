@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
 from datetime import date, datetime, timedelta, timezone
 from core.database import get_async_db
+from auth.dependencies import get_current_user_id, verify_user_access
 
 router = APIRouter(prefix="/reminders", tags=["reminders"])
 
@@ -15,7 +16,12 @@ class CreateReminderRequest(BaseModel):
     sale_date: date  # the date of the sale
 
 @router.post("")
-async def create_reminder(req: CreateReminderRequest, db: AsyncSession = Depends(get_async_db)):
+async def create_reminder(
+    req: CreateReminderRequest,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    await verify_user_access(req.user_id, authenticated_user_id)
     from models.user import TLHReminder
     remind_at = datetime.combine(req.sale_date + timedelta(days=61), datetime.min.time()).replace(tzinfo=timezone.utc)
     reminder = TLHReminder(
@@ -32,7 +38,12 @@ async def create_reminder(req: CreateReminderRequest, db: AsyncSession = Depends
     return {"success": True, "remind_at": remind_at.isoformat(), "id": str(reminder.id)}
 
 @router.get("/user/{user_id}")
-async def list_reminders(user_id: str, db: AsyncSession = Depends(get_async_db)):
+async def list_reminders(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    await verify_user_access(user_id, authenticated_user_id)
     from models.user import TLHReminder
     from sqlalchemy import select
     result = await db.execute(select(TLHReminder).where(TLHReminder.user_id == user_id).order_by(TLHReminder.remind_at))

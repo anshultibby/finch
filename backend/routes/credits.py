@@ -1,7 +1,7 @@
 """
 Credits API routes
 """
-from fastapi import APIRouter, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from pydantic import BaseModel
 from typing import Optional
 from core.database import get_db_session
@@ -11,6 +11,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from core.config import Config
+from auth.dependencies import get_current_user_id, verify_user_access
 
 logger = get_logger(__name__)
 
@@ -55,16 +56,20 @@ class CreditRequestData(BaseModel):
 
 
 @router.get("/balance/{user_id}", response_model=CreditBalanceResponse)
-async def get_credit_balance(user_id: str):
+async def get_credit_balance(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get the current credit balance for a user.
-    
+
     Args:
         user_id: User ID
-    
+
     Returns:
         Credit balance and total credits used
     """
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         async with get_db_session() as db:
             from sqlalchemy import select
@@ -93,17 +98,22 @@ async def get_credit_balance(user_id: str):
 
 
 @router.get("/history/{user_id}")
-async def get_credit_history(user_id: str, limit: int = 50):
+async def get_credit_history(
+    user_id: str,
+    limit: int = 50,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get credit transaction history for a user.
-    
+
     Args:
         user_id: User ID
         limit: Maximum number of transactions to return (default: 50)
-    
+
     Returns:
         List of credit transactions (most recent first)
     """
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         async with get_db_session() as db:
             transactions = await CreditsService.get_transaction_history(
@@ -124,18 +134,22 @@ async def get_credit_history(user_id: str, limit: int = 50):
 
 
 @router.post("/add")
-async def add_credits(request: AddCreditsRequest):
+async def add_credits(
+    request: AddCreditsRequest,
+    x_admin_secret: str = Header(...),
+):
     """
     Add credits to a user's balance (admin only).
-    
-    TODO: Add authentication/authorization for admin-only access
-    
+    Requires X-Admin-Secret header matching ADMIN_SECRET env var.
+
     Args:
         request: Request with user_id, credits, and description
-    
+
     Returns:
         Updated credit balance
     """
+    if not Config.ADMIN_SECRET or x_admin_secret != Config.ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         if request.credits <= 0:
             raise HTTPException(status_code=400, detail="Credits must be positive")
@@ -217,11 +231,15 @@ class SetPlanRequest(BaseModel):
 
 
 @router.post("/checkout")
-async def create_checkout_session(request: CheckoutRequest):
+async def create_checkout_session(
+    request: CheckoutRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Create a Stripe checkout session to upgrade to Pro.
     Returns a URL to redirect the user to.
     """
+    await verify_user_access(request.user_id, authenticated_user_id)
     try:
         import stripe
     except ImportError:
@@ -314,16 +332,20 @@ async def admin_set_plan(request: SetPlanRequest, x_admin_secret: str = Header(.
 
 
 @router.post("/request")
-async def request_credits(request: CreditRequestData):
+async def request_credits(
+    request: CreditRequestData,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Submit a credit request - sends email to admin.
-    
+
     Args:
         request: Credit request data
-    
+
     Returns:
         Success response
     """
+    await verify_user_access(request.user_id, authenticated_user_id)
     try:
         # Send email to admin
         admin_email = "anshul.tibrewal2203@gmail.com"  # Your email

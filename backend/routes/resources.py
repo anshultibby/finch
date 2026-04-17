@@ -8,6 +8,7 @@ from sqlalchemy import select, and_, delete
 from core.database import get_async_db
 from models.chat_models import Resource
 from schemas import ResourceResponse, ResourceMetadata
+from auth.dependencies import get_current_user_id, verify_user_access
 
 router = APIRouter(prefix="/resources", tags=["resources"])
 
@@ -27,7 +28,12 @@ def _to_response(r: Resource) -> ResourceResponse:
 
 
 @router.get("/chat/{chat_id}", response_model=List[ResourceResponse])
-async def get_chat_resources(chat_id: str, limit: int = 100, db: AsyncSession = Depends(get_async_db)):
+async def get_chat_resources(
+    chat_id: str,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     try:
         result = await db.execute(
             select(Resource).where(Resource.chat_id == chat_id)
@@ -39,7 +45,13 @@ async def get_chat_resources(chat_id: str, limit: int = 100, db: AsyncSession = 
 
 
 @router.get("/user/{user_id}", response_model=List[ResourceResponse])
-async def get_user_resources(user_id: str, limit: int = 100, db: AsyncSession = Depends(get_async_db)):
+async def get_user_resources(
+    user_id: str,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         result = await db.execute(
             select(Resource).where(Resource.user_id == user_id)
@@ -51,7 +63,11 @@ async def get_user_resources(user_id: str, limit: int = 100, db: AsyncSession = 
 
 
 @router.get("/{resource_id}", response_model=ResourceResponse)
-async def get_resource(resource_id: str, db: AsyncSession = Depends(get_async_db)):
+async def get_resource(
+    resource_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     try:
         result = await db.execute(select(Resource).where(Resource.id == resource_id))
         resource = result.scalar_one_or_none()
@@ -65,7 +81,11 @@ async def get_resource(resource_id: str, db: AsyncSession = Depends(get_async_db
 
 
 @router.delete("/{resource_id}")
-async def delete_resource(resource_id: str, db: AsyncSession = Depends(get_async_db)):
+async def delete_resource(
+    resource_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     try:
         result = await db.execute(select(Resource).where(Resource.id == resource_id))
         resource = result.scalar_one_or_none()

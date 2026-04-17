@@ -1,7 +1,7 @@
 """
 SnapTrade connection management routes
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from schemas import (
     SnapTradeConnectionRequest,
@@ -10,18 +10,23 @@ from schemas import (
     SnapTradeStatusResponse
 )
 from modules.tools.clients import snaptrade_tools
+from auth.dependencies import get_current_user_id, verify_user_access
 
 router = APIRouter(prefix="/snaptrade", tags=["snaptrade"])
 
 
 @router.post("/connect", response_model=SnapTradeConnectionResponse)
-async def initiate_connection(request: SnapTradeConnectionRequest):
+async def initiate_connection(
+    request: SnapTradeConnectionRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Initiate SnapTrade OAuth connection flow
-    
+
     Returns a redirect URI that the frontend should open to allow
     the user to connect their brokerage account via SnapTrade.
     """
+    await verify_user_access(request.user_id, authenticated_user_id)
     try:
         result = await snaptrade_tools.get_login_redirect_uri(
             user_id=request.user_id,
@@ -45,12 +50,16 @@ async def initiate_connection(request: SnapTradeConnectionRequest):
 
 
 @router.post("/callback", response_model=SnapTradeStatusResponse)
-async def handle_callback(request: SnapTradeCallbackRequest):
+async def handle_callback(
+    request: SnapTradeCallbackRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Handle callback after user successfully connects via SnapTrade Portal
-    
+
     Verifies the connection and fetches connected account information.
     """
+    await verify_user_access(request.user_id, authenticated_user_id)
     try:
         result = await snaptrade_tools.handle_connection_callback(
             user_id=request.user_id
@@ -76,29 +85,32 @@ async def handle_callback(request: SnapTradeCallbackRequest):
 
 
 @router.get("/status/{user_id}", response_model=SnapTradeStatusResponse)
-async def check_connection_status(user_id: str):
+async def check_connection_status(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Check if user has an active SnapTrade connection
     """
-    print(f"📊 Checking connection status for user: {user_id}", flush=True)
+    await verify_user_access(user_id, authenticated_user_id)
     is_connected = await snaptrade_tools.has_active_connection(user_id)
-    print(f"📊 Connection status result: {is_connected}", flush=True)
-    
-    response = SnapTradeStatusResponse(
+
+    return SnapTradeStatusResponse(
         success=True,
         message="Connected" if is_connected else "Not connected",
         is_connected=is_connected
     )
-    print(f"📊 Returning response: {response}", flush=True)
-    
-    return response
 
 
 @router.delete("/disconnect/{user_id}")
-async def disconnect(user_id: str):
+async def disconnect(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Disconnect from SnapTrade and clear user session
     """
+    await verify_user_access(user_id, authenticated_user_id)
     snaptrade_tools.disconnect(user_id)
 
     return {
@@ -108,21 +120,29 @@ async def disconnect(user_id: str):
 
 
 @router.delete("/reset/{user_id}")
-async def reset_portfolio(user_id: str):
+async def reset_portfolio(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Fully reset a user's SnapTrade connection.
     Deletes the user from SnapTrade API, removes all brokerage accounts
     and the snaptrade_users record from DB so they can reconnect fresh.
     """
+    await verify_user_access(user_id, authenticated_user_id)
     result = await snaptrade_tools.reset_user(user_id)
     return result
 
 
 @router.get("/accounts/{user_id}")
-async def get_accounts(user_id: str):
+async def get_accounts(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get list of user's connected brokerage accounts
     """
+    await verify_user_access(user_id, authenticated_user_id)
     result = await snaptrade_tools.get_connected_accounts(user_id)
     return result
 
@@ -137,10 +157,13 @@ async def get_brokerages():
 
 
 @router.post("/connect/broker")
-async def connect_broker(request: dict):
+async def connect_broker(
+    request: dict,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Initiate connection to a specific brokerage
-    
+
     Request body:
     {
         "user_id": str,
@@ -151,9 +174,11 @@ async def connect_broker(request: dict):
     user_id = request.get("user_id")
     redirect_uri = request.get("redirect_uri")
     broker_id = request.get("broker_id")
-    
+
     if not user_id or not redirect_uri:
         raise HTTPException(status_code=400, detail="user_id and redirect_uri are required")
+
+    await verify_user_access(user_id, authenticated_user_id)
     
     result = await snaptrade_tools.get_login_redirect_uri_for_broker(
         user_id=user_id,
@@ -175,24 +200,35 @@ async def connect_broker(request: dict):
 
 
 @router.delete("/accounts/{user_id}/{account_id}")
-async def disconnect_account(user_id: str, account_id: str):
+async def disconnect_account(
+    user_id: str,
+    account_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Disconnect a specific brokerage account
     """
+    await verify_user_access(user_id, authenticated_user_id)
     result = await snaptrade_tools.disconnect_account(user_id, account_id)
     return result
 
 
 @router.patch("/accounts/{user_id}/{account_id}/visibility")
-async def toggle_account_visibility(user_id: str, account_id: str, request: dict):
+async def toggle_account_visibility(
+    user_id: str,
+    account_id: str,
+    request: dict,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Toggle account visibility (include/exclude from portfolio view)
-    
+
     Request body:
     {
         "is_visible": bool
     }
     """
+    await verify_user_access(user_id, authenticated_user_id)
     from core.database import get_db_session
     from crud import brokerage_account as brokerage_crud
 
@@ -215,34 +251,46 @@ async def toggle_account_visibility(user_id: str, account_id: str, request: dict
 
 
 @router.get("/portfolio/{user_id}")
-async def get_portfolio(user_id: str):
+async def get_portfolio(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get user's complete portfolio with holdings, accounts, and performance metrics
-    
+
     Returns:
     - accounts: List of all connected accounts with balances
     - holdings: Aggregated positions across all accounts
     - total_value: Total portfolio value
     - performance: Gain/loss metrics
     """
+    await verify_user_access(user_id, authenticated_user_id)
     result = await snaptrade_tools.get_portfolio(user_id)
     return result
 
 
 @router.get("/portfolio/{user_id}/holdings")
-async def get_portfolio_holdings(user_id: str):
+async def get_portfolio_holdings(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get detailed holdings with position-level data
     """
+    await verify_user_access(user_id, authenticated_user_id)
     result = await snaptrade_tools.get_portfolio(user_id)
     return result
 
 
 @router.get("/portfolio/{user_id}/performance")
-async def get_portfolio_performance(user_id: str):
+async def get_portfolio_performance(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get portfolio performance metrics including gains, losses, and returns
     """
+    await verify_user_access(user_id, authenticated_user_id)
     portfolio = await snaptrade_tools.get_portfolio(user_id)
     
     if not portfolio.get("success"):
@@ -290,11 +338,18 @@ async def get_portfolio_performance(user_id: str):
 
 
 @router.get("/portfolio/{user_id}/history")
-async def get_portfolio_history(user_id: str, start_date: str = None, end_date: str = None, account_id: str = None):
+async def get_portfolio_history(
+    user_id: str,
+    start_date: str = None,
+    end_date: str = None,
+    account_id: str = None,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get historical portfolio value time series (daily equity values).
     Returns data suitable for a Robinhood-style portfolio chart.
     """
+    await verify_user_access(user_id, authenticated_user_id)
     result = await snaptrade_tools.get_portfolio_history(
         user_id, start_date=start_date, end_date=end_date, account_id=account_id
     )
@@ -302,11 +357,17 @@ async def get_portfolio_history(user_id: str, start_date: str = None, end_date: 
 
 
 @router.post("/portfolio/{user_id}/build-history")
-async def build_portfolio_history_endpoint(user_id: str, account_id: str = None, force: bool = False):
+async def build_portfolio_history_endpoint(
+    user_id: str,
+    account_id: str = None,
+    force: bool = False,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Backfill portfolio value history. Checks DB for fresh data first — only rebuilds
     if today's snapshot is missing or force=true. Saves results to portfolio_snapshots.
     """
+    await verify_user_access(user_id, authenticated_user_id)
     import asyncio
     import uuid
     from datetime import date as date_type
@@ -367,11 +428,17 @@ async def build_portfolio_history_endpoint(user_id: str, account_id: str = None,
 
 
 @router.get("/portfolio/{user_id}/intraday")
-async def get_portfolio_intraday(user_id: str, account_id: str = None, days: int = 7):
+async def get_portfolio_intraday(
+    user_id: str,
+    account_id: str = None,
+    days: int = 7,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Get hourly portfolio value for the last N days.
     Returns DB-cached series if fresh (< 1 hour old), otherwise recomputes and saves.
     """
+    await verify_user_access(user_id, authenticated_user_id)
     import asyncio
     import uuid as uuid_mod
     from datetime import datetime, timezone, timedelta
@@ -423,180 +490,4 @@ async def get_portfolio_intraday(user_id: str, account_id: str = None, days: int
     return result
 
 
-@router.get("/debug-holdings-diff/{user_id}/{account_id}")
-async def debug_holdings_diff(user_id: str, account_id: str):
-    """Compare reconstructed holdings vs actual SnapTrade positions."""
-    import asyncio
-    from skills.snaptrade.scripts.portfolio.build_history import build_portfolio_history, _extract_ticker, _parse_activity
-    from datetime import date as date_type
-    from collections import defaultdict
-
-    session = await snaptrade_tools._get_session(user_id)
-    if not session:
-        return {"error": "No session"}
-
-    uid = session.snaptrade_user_id
-    secret = session.snaptrade_user_secret
-
-    # Fetch activities
-    all_activities = []
-    offset = 0
-    while True:
-        resp = await asyncio.get_event_loop().run_in_executor(None, lambda o=offset: snaptrade_tools.client.account_information.get_account_activities(
-            user_id=uid, user_secret=secret, account_id=account_id,
-            start_date="2020-01-01", end_date=date_type.today().isoformat(),
-            offset=o, limit=1000,
-        ))
-        data = resp.body if hasattr(resp, "body") else resp
-        items = data if isinstance(data, list) else data.get("data", [])
-        if not items:
-            break
-        for item in items:
-            a = _parse_activity(item, account_id)
-            if a:
-                all_activities.append(a)
-        if len(items) < 1000:
-            break
-        offset += 1000
-
-    all_activities.sort(key=lambda a: a["date"])
-
-    # Replay
-    SKIP = {'OPTIONEXERCISE', 'OPTIONEXPIRATION', 'FEE', 'INTEREST', 'CONTRIBUTION', 'WITHDRAWAL'}
-    holdings = defaultdict(float)
-    cash = 0.0
-    for a in all_activities:
-        sym = a.get("symbol")
-        units = a.get("units", 0)
-        atype = a.get("type", "")
-        if sym and units and atype not in SKIP:
-            holdings[sym] += units
-            if abs(holdings[sym]) < 0.0001:
-                del holdings[sym]
-        cash += a.get("amount", 0)
-
-    # Get actual positions
-    actual = {}
-    resp = await asyncio.get_event_loop().run_in_executor(None, lambda: snaptrade_tools.client.account_information.get_user_account_positions(
-        user_id=uid, user_secret=secret, account_id=account_id
-    ))
-    positions = resp.body if hasattr(resp, "body") else resp
-    if not isinstance(positions, list):
-        positions = positions.get("data", []) if isinstance(positions, dict) else []
-    for pos in positions:
-        sym_obj = pos.get("symbol") if isinstance(pos, dict) else getattr(pos, "symbol", None)
-        ticker = _extract_ticker(sym_obj)
-        qty = float(pos.get("units", 0) if isinstance(pos, dict) else getattr(pos, "units", 0) or 0)
-        if ticker and qty > 0.001:
-            actual[ticker] = actual.get(ticker, 0) + qty
-
-    # Compare
-    all_syms = sorted(set(list(holdings.keys()) + list(actual.keys())))
-    mismatches = []
-    for sym in all_syms:
-        recon = holdings.get(sym, 0)
-        act = actual.get(sym, 0)
-        if abs(recon - act) > 0.01:
-            mismatches.append({"symbol": sym, "reconstructed": round(recon, 4), "actual": round(act, 4), "diff": round(act - recon, 4)})
-
-    return {
-        "reconstructed_cash": round(cash, 2),
-        "reconstructed_positions": len(holdings),
-        "actual_positions": len(actual),
-        "matches": len(all_syms) - len(mismatches),
-        "mismatches": sorted(mismatches, key=lambda x: abs(x["diff"]), reverse=True),
-    }
-
-
-@router.get("/debug-activities/{user_id}/{account_id}")
-async def debug_activities(user_id: str, account_id: str, limit: int = 5):
-    """Debug: dump raw activity objects to see structure."""
-    import asyncio
-    session = await snaptrade_tools._get_session(user_id)
-    if not session:
-        return {"error": "No session"}
-    client = snaptrade_tools.client
-    resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_account_activities(
-        user_id=session.snaptrade_user_id, user_secret=session.snaptrade_user_secret,
-        account_id=account_id, start_date="2026-03-01", end_date="2026-04-02", limit=limit,
-    ))
-    data = resp.body if hasattr(resp, "body") else resp
-    items = data if isinstance(data, list) else data.get("data", [])
-    results = []
-    for item in items[:limit]:
-        row = {}
-        for attr in ["type", "units", "amount", "price", "fee", "description", "trade_date", "settlement_date"]:
-            row[attr] = str(getattr(item, attr, None))[:100] if hasattr(item, attr) else None
-        # Dig into symbol
-        sym_obj = getattr(item, "symbol", None)
-        if sym_obj:
-            row["symbol_type"] = type(sym_obj).__name__
-            row["symbol_attrs"] = [a for a in dir(sym_obj) if not a.startswith("_")][:15]
-            inner_sym = getattr(sym_obj, "symbol", None)
-            if inner_sym:
-                row["symbol.symbol_type"] = type(inner_sym).__name__
-                row["symbol.symbol"] = str(inner_sym)[:100]
-                inner2 = getattr(inner_sym, "symbol", None)
-                if inner2:
-                    row["symbol.symbol.symbol"] = str(inner2)[:100]
-            row["symbol.description"] = str(getattr(sym_obj, "description", ""))[:100]
-            row["symbol.id"] = str(getattr(sym_obj, "id", ""))[:100]
-        results.append(row)
-    return results
-
-
-@router.get("/test-endpoints/{user_id}/{account_id}")
-async def test_endpoints(user_id: str, account_id: str):
-    """Temporary: test which SnapTrade endpoints work for this account."""
-    import asyncio
-    session = await snaptrade_tools._get_session(user_id)
-    if not session:
-        return {"error": "No session"}
-
-    client = snaptrade_tools.client
-    uid = session.snaptrade_user_id
-    secret = session.snaptrade_user_secret
-    results = {}
-
-    # Activities
-    try:
-        resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_account_activities(
-            user_id=uid, user_secret=secret, account_id=account_id, start_date="2025-01-01", end_date="2026-04-02"
-        ))
-        data = resp.body if hasattr(resp, "body") else resp
-        items = data if isinstance(data, list) else data.get("data", [])
-        results["activities"] = {"status": "OK", "count": len(items)}
-        if items:
-            first = items[0]
-            if isinstance(first, dict):
-                results["activities"]["sample_keys"] = list(first.keys())[:10]
-                results["activities"]["sample"] = {k: str(first[k])[:50] for k in list(first.keys())[:8]}
-            else:
-                attrs = {a: str(getattr(first, a, None))[:50] for a in ["type", "trade_date", "amount", "symbol", "units", "price", "settlement_date", "description"] if hasattr(first, a)}
-                results["activities"]["sample"] = attrs
-    except Exception as e:
-        results["activities"] = {"status": "FAILED", "error": str(e)[:200]}
-
-    # Balances
-    try:
-        resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_user_account_balance(
-            user_id=uid, user_secret=secret, account_id=account_id
-        ))
-        data = resp.body if hasattr(resp, "body") else resp
-        results["balances"] = {"status": "OK", "data": str(data)[:300]}
-    except Exception as e:
-        results["balances"] = {"status": "FAILED", "error": str(e)[:200]}
-
-    # Orders
-    try:
-        resp = await asyncio.get_event_loop().run_in_executor(None, lambda: client.account_information.get_user_account_orders(
-            user_id=uid, user_secret=secret, account_id=account_id, state="all"
-        ))
-        data = resp.body if hasattr(resp, "body") else resp
-        items = data if isinstance(data, list) else data.get("data", [])
-        results["orders"] = {"status": "OK", "count": len(items)}
-    except Exception as e:
-        results["orders"] = {"status": "FAILED", "error": str(e)[:200]}
-
-    return results
 

@@ -2,6 +2,7 @@
 Chat Files Routes — Files served from the bot's sandbox root directory when available,
 otherwise from /home/user/chat_files/.
 """
+import shlex
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_async_db
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import logging
 import mimetypes
+from auth.dependencies import get_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,8 @@ async def _get_chat_info(chat_id: str, db: AsyncSession) -> tuple:
 @router.get("/{chat_id}", response_model=List[ChatFileResponse])
 async def get_chat_files(
     chat_id: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """List all files in the bot's root directory on the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
@@ -128,7 +131,8 @@ async def get_chat_files(
 async def download_chat_file(
     chat_id: str,
     filename: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Download a file from the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
@@ -154,7 +158,8 @@ async def download_chat_file(
 async def get_sandbox_file(
     chat_id: str,
     path: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
     Proxy a file directly from the user's live sandbox by absolute path.
@@ -196,7 +201,8 @@ async def get_sandbox_file(
 async def delete_chat_file(
     chat_id: str,
     filename: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Delete a file from the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
@@ -208,7 +214,7 @@ async def delete_chat_file(
             raise HTTPException(status_code=404, detail="Sandbox not available")
 
         path = f"{files_dir}/{filename}"
-        await sbx.commands.run(f"rm -f {path}")
+        await sbx.commands.run(f"rm -f {shlex.quote(path)}")
         return {"success": True, "message": f"Deleted {filename}"}
 
     except HTTPException:
@@ -224,6 +230,7 @@ async def upload_file_to_sandbox(
     file: UploadFile = File(...),
     dest_dir: str = Form("/home/user/tax/uploads"),
     db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """Upload a file (PDF, CSV, etc.) directly to the user's sandbox.
 

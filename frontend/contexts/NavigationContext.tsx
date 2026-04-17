@@ -29,8 +29,9 @@ interface NavigationContextType {
   // Chat drawer
   chatDrawerOpen: boolean;
   setChatDrawerOpen: (open: boolean) => void;
-  chatContext?: { symbol?: string; prefill?: string };
+  chatContext?: { symbol?: string; prefill?: string; prefillLabel?: string };
   openChatAbout: (symbol: string, prefill?: string) => void;
+  openChatWithPrompt: (prompt: string, label?: string) => void;
 
   // Helpers
   openStock: (symbol: string) => void;
@@ -41,7 +42,7 @@ const NavigationContext = createContext<NavigationContextType | undefined>(undef
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<View[]>([{ type: 'home' }]);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
-  const [chatContext, setChatContext] = useState<{ symbol?: string; prefill?: string }>();
+  const [chatContext, setChatContext] = useState<{ symbol?: string; prefill?: string; prefillLabel?: string }>();
 
   const currentView = history[history.length - 1];
 
@@ -66,6 +67,11 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setChatDrawerOpen(true);
   }, []);
 
+  const openChatWithPrompt = useCallback((prompt: string, label?: string) => {
+    setChatContext({ prefill: prompt, prefillLabel: label });
+    setChatDrawerOpen(true);
+  }, []);
+
   return (
     <NavigationContext.Provider value={{
       currentView,
@@ -76,6 +82,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       setChatDrawerOpen,
       chatContext,
       openChatAbout,
+      openChatWithPrompt,
       openStock,
     }}>
       {children}

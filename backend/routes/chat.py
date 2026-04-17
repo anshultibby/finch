@@ -1,7 +1,7 @@
 """
 Chat API routes
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -15,6 +15,7 @@ from services.chat_title import generate_chat_title
 from core.database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
+from auth.dependencies import get_current_user_id, verify_user_access
 
 logger = get_logger(__name__)
 
@@ -37,19 +38,22 @@ chat_service = ChatService()
 
 
 @router.post("/stream")
-async def send_chat_message_stream(chat_message: ChatMessage):
+async def send_chat_message_stream(
+    chat_message: ChatMessage,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Send a chat message and receive streaming SSE events as tool calls are made
-    
+
     This endpoint streams Server-Sent Events (SSE) with the following event types:
     - tool_call_start: When a tool call begins execution
     - tool_call_complete: When a tool call finishes
     - assistant_message: The final assistant response
     - done: Stream is complete
     - error: An error occurred
-    
+
     Supports multimodal messages with optional image attachments.
-    
+
     Returns:
         StreamingResponse with text/event-stream content type
     """
@@ -57,6 +61,7 @@ async def send_chat_message_stream(chat_message: ChatMessage):
         # Validate required fields
         if not chat_message.user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
+        await verify_user_access(chat_message.user_id, authenticated_user_id)
         if not chat_message.chat_id:
             raise HTTPException(status_code=400, detail="chat_id is required")
         
@@ -120,7 +125,10 @@ async def send_chat_message_stream(chat_message: ChatMessage):
 
 
 @router.get("/history/{chat_id}")
-async def get_chat_history(chat_id: str):
+async def get_chat_history(
+    chat_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Retrieve chat history for a specific chat
     """
@@ -135,7 +143,10 @@ async def get_chat_history(chat_id: str):
 
 
 @router.get("/history/{chat_id}/display")
-async def get_chat_history_display(chat_id: str):
+async def get_chat_history_display(
+    chat_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Retrieve chat history formatted for UI display.
     Returns a structured format with grouped tool calls and filtered messages.
@@ -151,32 +162,44 @@ async def get_chat_history_display(chat_id: str):
 
 
 @router.delete("/history/{chat_id}")
-async def clear_chat_history(chat_id: str):
+async def clear_chat_history(
+    chat_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Clear chat history for a specific chat.
-    The user's persistent sandbox is preserved — skills on the volume stay intact.
+    The user's persistent sandbox is preserved -- skills on the volume stay intact.
     """
     success = await chat_service.clear_chat(chat_id)
     return {"message": "Chat history cleared" if success else "Chat not found or already cleared"}
 
 
 @router.delete("/sandbox/{user_id}")
-async def reset_user_sandbox(user_id: str):
+async def reset_user_sandbox(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Hard-reset a user's persistent sandbox: kills the running instance,
     removes the DB record, and evicts the in-process cache. The next code
     execution will provision a fresh sandbox and re-load skills onto it.
     """
+    await verify_user_access(user_id, authenticated_user_id)
     from modules.tools.implementations.code_execution import reset_sandbox
     await reset_sandbox(user_id)
     return {"message": f"Sandbox reset for user {user_id}"}
 
 
 @router.get("/user/{user_id}/chats")
-async def list_user_chats(user_id: str, limit: int = 50):
+async def list_user_chats(
+    user_id: str,
+    limit: int = 50,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     List all chats for a user
     """
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         chats = await chat_service.get_user_chats(user_id, limit)
         return {
@@ -188,13 +211,17 @@ async def list_user_chats(user_id: str, limit: int = 50):
 
 
 @router.post("/create")
-async def create_new_chat(data: dict):
+async def create_new_chat(
+    data: dict,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Create a new chat for a user
     """
     user_id = data.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
+    await verify_user_access(user_id, authenticated_user_id)
     
     try:
         chat_id = str(uuid.uuid4())
@@ -210,7 +237,10 @@ async def create_new_chat(data: dict):
 
 
 @router.post("/generate-title", response_model=GenerateTitleResponse)
-async def generate_title(request: GenerateTitleRequest):
+async def generate_title(
+    request: GenerateTitleRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Generate a title and icon for a chat based on the first message.
     Uses LLM to create a descriptive title and matching emoji.
@@ -233,7 +263,10 @@ async def generate_title(request: GenerateTitleRequest):
 
 
 @router.get("/status/{chat_id}")
-async def get_chat_status(chat_id: str):
+async def get_chat_status(
+    chat_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
     """
     Check if a chat is currently being processed by the backend.
     Used for reconnection logic to determine if streaming should resume.

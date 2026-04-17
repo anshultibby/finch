@@ -2,38 +2,80 @@
 
 import React, { useState, KeyboardEvent, useRef, useEffect } from 'react';
 
-const TLH_PROMPT = `I'd like to find tax loss harvesting opportunities in my portfolio. Please:
-1. Check if I have a brokerage account connected, and help me connect one if not
-2. Analyze my current holdings for unrealized losses
-3. Identify positions where I can harvest losses while maintaining market exposure
-4. Show me the best swap candidates and estimated tax savings`;
-
-interface ActionPill {
-  icon: string;
+interface QuickAction {
   label: string;
+  description: string;
   prompt: string;
+  accent: 'emerald' | 'violet' | 'gray';
+  icon: React.ReactNode;
 }
 
-const ACTION_PILLS: ActionPill[] = [
-  { icon: '📊', label: 'Review my portfolio', prompt: 'Can you review my current portfolio and give me an overview of my holdings and performance?' },
-  { icon: '🔄', label: 'Explain wash sale rules', prompt: 'Can you explain the wash sale rule and how it affects tax loss harvesting?' },
-  { icon: '💰', label: 'Estimate my tax savings', prompt: 'Based on my portfolio, what are my potential tax savings from harvesting losses this year?' },
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    label: 'Tax-loss harvesting',
+    description: 'Find tax savings in my portfolio',
+    accent: 'emerald',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+      </svg>
+    ),
+    prompt: "Scan my portfolio for tax-loss harvesting opportunities. Identify positions with losses I could realize and suggest replacement candidates that keep my market exposure similar.",
+  },
+  {
+    label: 'Portfolio review',
+    description: 'Analyze my holdings and risks',
+    accent: 'violet',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
+      </svg>
+    ),
+    prompt: "Review my portfolio. Highlight concentrations, risks, sector exposure, and anything notable about my holdings. Suggest things I should consider.",
+  },
+  {
+    label: 'Research a stock',
+    description: 'Get the AI take on any ticker',
+    accent: 'gray',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+      </svg>
+    ),
+    prompt: "I'd like to research a stock. ",
+  },
 ];
+
+const QUICK_ACTION_STYLES: Record<QuickAction['accent'], { bg: string; iconBg: string; iconText: string; hover: string }> = {
+  emerald: { bg: 'bg-emerald-50',  iconBg: 'bg-emerald-500/15', iconText: 'text-emerald-600', hover: 'hover:bg-emerald-100/70' },
+  violet:  { bg: 'bg-violet-50',   iconBg: 'bg-violet-500/15',  iconText: 'text-violet-600',  hover: 'hover:bg-violet-100/70' },
+  gray:    { bg: 'bg-gray-50',     iconBg: 'bg-gray-500/15',    iconText: 'text-gray-600',    hover: 'hover:bg-gray-100' },
+};
 
 interface NewChatWelcomeProps {
   onSendMessage: (message: string, images?: any[], skills?: string[]) => void;
   disabled?: boolean;
   prefillMessage?: string;
+  prefillLabel?: string;
 }
 
-export default function NewChatWelcome({ onSendMessage, disabled = false, prefillMessage }: NewChatWelcomeProps) {
+export default function NewChatWelcome({ onSendMessage, disabled = false, prefillMessage, prefillLabel }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (prefillMessage) {
       setMessage(prefillMessage);
-      setTimeout(() => textareaRef.current?.focus(), 50);
+      setTimeout(() => {
+        const t = textareaRef.current;
+        if (!t) return;
+        t.focus();
+        t.style.height = 'auto';
+        t.style.height = Math.min(t.scrollHeight, 220) + 'px';
+        // Place cursor at end
+        t.setSelectionRange(t.value.length, t.value.length);
+      }, 50);
     }
   }, [prefillMessage]);
 
@@ -45,98 +87,122 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSubmit();
     }
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-full px-6 py-16">
-      {/* Heading */}
-      <div className="mb-10 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gray-900 to-gray-700 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-gray-900/10">
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+  // ─── Prefilled mode: compact header + editable prompt + Run button ───────
+  if (prefillMessage) {
+    return (
+      <div className="flex flex-col h-full px-5 pt-6 pb-4">
+        <div className="mb-3">
+          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Ready to run</div>
+          <h1 className="text-xl font-bold text-gray-900 leading-tight">
+            {prefillLabel || 'Send your message'}
+          </h1>
+          <p className="text-[12px] text-gray-400 mt-1">Edit if you want, then hit Run.</p>
         </div>
-        <h1 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-          Find your tax losses
-        </h1>
-        <p className="text-gray-400 mt-3 text-[15px] max-w-md">
-          Connect your brokerage, find opportunities to harvest losses, and execute smart swaps — all in one place.
-        </p>
-      </div>
 
-      {/* Primary CTA */}
-      <div className="w-full max-w-2xl mb-6">
-        <button
-          onClick={() => !disabled && onSendMessage(TLH_PROMPT)}
-          disabled={disabled}
-          className="w-full py-4 px-6 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 text-white rounded-2xl font-semibold text-base transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-3"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-          Scan my portfolio for tax losses
-        </button>
-      </div>
-
-      {/* Divider */}
-      <div className="flex items-center gap-3 w-full max-w-2xl mb-6">
-        <div className="flex-1 border-t border-gray-200" />
-        <span className="text-xs text-gray-400 font-medium">or ask something specific</span>
-        <div className="flex-1 border-t border-gray-200" />
-      </div>
-
-      {/* Custom input */}
-      <div className="w-full max-w-2xl mb-6">
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-gray-300 transition-all duration-300">
-          <div className="flex items-end gap-2 px-3 py-3">
-            <textarea
-              ref={textareaRef}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask about your portfolio, tax strategy, or specific positions..."
-              disabled={disabled}
-              rows={1}
-              autoFocus
-              className="flex-1 resize-none bg-transparent py-2 text-gray-900 placeholder-gray-400 focus:outline-none text-base disabled:cursor-not-allowed"
-              style={{ minHeight: '24px', maxHeight: '150px', fontSize: '15px' }}
-              onInput={(e) => {
-                const t = e.target as HTMLTextAreaElement;
-                t.style.height = 'auto';
-                t.style.height = Math.min(t.scrollHeight, 150) + 'px';
-              }}
-            />
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm focus-within:border-gray-300 focus-within:shadow-md transition-all">
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              const t = e.target;
+              t.style.height = 'auto';
+              t.style.height = Math.min(t.scrollHeight, 220) + 'px';
+            }}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            rows={3}
+            autoFocus
+            className="w-full resize-none bg-transparent px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-[14px] leading-relaxed disabled:cursor-not-allowed"
+            style={{ minHeight: '88px', maxHeight: '220px' }}
+          />
+          <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100">
+            <span className="text-[11px] text-gray-400">⌘↵ to run</span>
             <button
               onClick={handleSubmit}
               disabled={disabled || !message.trim()}
-              className="flex items-center justify-center w-9 h-9 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:bg-gray-200 disabled:cursor-not-allowed transition-all duration-200 flex-shrink-0 shadow-sm"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl font-semibold text-[13px] transition-colors shadow-sm"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+              Run
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
           </div>
         </div>
       </div>
+    );
+  }
 
-      {/* Quick action pills */}
-      <div className="flex flex-wrap justify-center gap-2.5 max-w-xl">
-        {ACTION_PILLS.map((pill, i) => (
+  // ─── Empty mode: neutral welcome + quick actions + free-form input ──────
+  return (
+    <div className="flex flex-col h-full px-5 pt-6 pb-4">
+      <div className="mb-5">
+        <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">AI Assistant</div>
+        <h1 className="text-xl font-bold text-gray-900 leading-tight">How can I help?</h1>
+        <p className="text-[12px] text-gray-400 mt-1">Pick a quick action or ask anything about your portfolio.</p>
+      </div>
+
+      {/* Quick action cards */}
+      <div className="flex flex-col gap-2 mb-5">
+        {QUICK_ACTIONS.map((action) => {
+          const s = QUICK_ACTION_STYLES[action.accent];
+          return (
+            <button
+              key={action.label}
+              onClick={() => !disabled && (action.prompt.trim().endsWith('.') ? onSendMessage(action.prompt) : setMessage(action.prompt))}
+              disabled={disabled}
+              className={`flex items-center gap-3 p-3 rounded-xl text-left transition-all ${s.bg} ${s.hover} disabled:opacity-50`}
+            >
+              <div className={`w-8 h-8 rounded-lg ${s.iconBg} ${s.iconText} flex items-center justify-center flex-shrink-0`}>
+                {action.icon}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold text-gray-900">{action.label}</div>
+                <div className="text-[11px] text-gray-500">{action.description}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Free-form input */}
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm focus-within:border-gray-300 focus-within:shadow-md transition-all">
+        <textarea
+          ref={textareaRef}
+          value={message}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            const t = e.target;
+            t.style.height = 'auto';
+            t.style.height = Math.min(t.scrollHeight, 180) + 'px';
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask anything..."
+          disabled={disabled}
+          rows={2}
+          className="w-full resize-none bg-transparent px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-[14px] leading-relaxed disabled:cursor-not-allowed"
+          style={{ minHeight: '64px', maxHeight: '180px' }}
+        />
+        <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100">
+          <span className="text-[11px] text-gray-400">⌘↵ to send</span>
           <button
-            key={pill.label}
-            onClick={() => !disabled && onSendMessage(pill.prompt)}
-            disabled={disabled}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-150 rounded-xl text-sm text-gray-600 hover:text-gray-900 hover:border-gray-300 hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 animate-card-in"
-            style={{ animationDelay: `${i * 80 + 200}ms` }}
+            onClick={handleSubmit}
+            disabled={disabled || !message.trim()}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-xl font-semibold text-[13px] transition-colors shadow-sm"
           >
-            <span className="text-base">{pill.icon}</span>
-            <span className="font-medium">{pill.label}</span>
+            Send
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
           </button>
-        ))}
+        </div>
       </div>
     </div>
   );
