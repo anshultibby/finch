@@ -1,10 +1,10 @@
 """Get stock peers — companies in the same sector/exchange with similar market cap."""
-from ..api import fmp
+from ..api import fmp, fmp_stable
 
 
 def get_stock_peers(symbol: str):
     """
-    Get peer companies for a given stock (same exchange, sector, similar market cap).
+    Get peer ticker symbols for a given stock (v4 — symbols only).
 
     Args:
         symbol: Stock ticker (e.g., 'AAPL')
@@ -18,3 +18,17 @@ def get_stock_peers(symbol: str):
     if isinstance(result, list) and result and 'peersList' in result[0]:
         return result[0]['peersList']
     return result
+
+
+def get_stock_peers_detailed(symbol: str):
+    """
+    Get peers with name, price, and market cap via FMP's stable endpoint.
+
+    Args:
+        symbol: Stock ticker (e.g., 'AAPL')
+
+    Returns:
+        list[dict]: [{symbol, companyName, price, mktCap}, ...]
+    """
+    result = fmp_stable(f'/stock-peers?symbol={symbol}')
+    return result if isinstance(result, list) else []

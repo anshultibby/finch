@@ -74,6 +74,10 @@ class Settings(BaseSettings):
         default=None,
         description="Polygon.io API key for market data"
     )
+    ORATS_API_KEY: Optional[str] = Field(
+        default=None,
+        description="ORATS API key for options data (chain, IV rank, historical metrics)"
+    )
     SERPER_API_KEY: Optional[str] = Field(
         default=None,
         description="Serper API key for Google search"

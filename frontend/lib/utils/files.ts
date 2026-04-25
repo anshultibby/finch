@@ -83,7 +83,9 @@ export function getChatFileUrl(chatId: string, filename: string): string {
  * Fetch a file and convert to base64 (for images)
  */
 export async function fetchFileAsBase64(url: string): Promise<string> {
-  const response = await fetch(url);
+  const { getAuthHeader } = await import('@/lib/api');
+  const authHeader = await getAuthHeader();
+  const response = await fetch(url, { headers: authHeader });
   const blob = await response.blob();
   
   return new Promise<string>((resolve, reject) => {
@@ -106,19 +108,21 @@ export async function fetchFileContent(
   filename: string
 ): Promise<{ content: string; fileType: string }> {
   const url = getChatFileUrl(chatId, filename);
-  const response = await fetch(url);
-  
+  const { getAuthHeader } = await import('@/lib/api');
+  const authHeader = await getAuthHeader();
+  const response = await fetch(url, { headers: authHeader });
+
   if (!response.ok) {
     throw new Error(`Failed to fetch file: ${response.status}`);
   }
-  
+
   const fileType = filename.split('.').pop()?.toLowerCase() || 'text';
-  
+
   if (isImageFile(filename)) {
     const content = await fetchFileAsBase64(url);
     return { content, fileType };
   }
-  
+
   const content = await response.text();
   return { content, fileType };
 }

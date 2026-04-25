@@ -69,7 +69,9 @@ export default function FileViewer({ filename, chatId }: FileViewerProps) {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const url = `${apiUrl}/api/chat-files/${chatId}/download/${encodePath(filename)}`;
-        const res = await fetch(url);
+        const { getAuthHeader } = await import('@/lib/api');
+        const authHeader = await getAuthHeader();
+        const res = await fetch(url, { headers: authHeader });
 
         if (!res.ok) {
           setError(`HTTP ${res.status}`);

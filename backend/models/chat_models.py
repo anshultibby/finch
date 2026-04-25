@@ -21,6 +21,7 @@ class Chat(Base):
     bot_id = Column(String, nullable=True, index=True)
     is_processing = Column(Boolean, default=False, nullable=False, index=True)
     processing_started_at = Column(DateTime(timezone=True), nullable=True)
+    notify_email = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

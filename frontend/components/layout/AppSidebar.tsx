@@ -186,17 +186,18 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           )}
         </div>
 
-        {/* New Chat — subtle compose action that blends with nav */}
+        {/* New Chat — pen-in-square compose icon, ChatGPT-style */}
         <div className="px-2 pb-1 flex-shrink-0">
           <button
             onClick={onNewChat}
-            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors ${
+            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors ${
               expanded ? '' : 'justify-center'
             }`}
             title={!expanded ? 'New chat' : undefined}
           >
-            <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+            <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}>
+              <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
             </svg>
             {expanded && <span className="font-medium">New chat</span>}
           </button>
@@ -274,8 +275,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                     const isActive = chat.chat_id === currentChatId && currentView.type === 'chat';
                     return (
                       <button key={chat.chat_id} onClick={() => onSelectChat(chat.chat_id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-xs transition-colors text-left ${
-                          isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-medium' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                          isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                         }`}>
                         <span className="truncate flex-1">{chat.title || 'New Chat'}</span>
                       </button>

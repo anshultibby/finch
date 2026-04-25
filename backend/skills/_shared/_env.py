@@ -45,7 +45,15 @@ def call_proxy(
         )
     params[param_name] = api_key
 
-    full_url = url + ("?" + urllib.parse.urlencode(params, doseq=True) if params else "")
+    # Merge any query string already embedded in the URL with explicit params,
+    # then rebuild the URL so we never produce a double '?'.
+    parsed = urllib.parse.urlsplit(url)
+    existing = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    merged = existing + list(params.items())
+    full_url = urllib.parse.urlunsplit((
+        parsed.scheme, parsed.netloc, parsed.path,
+        urllib.parse.urlencode(merged, doseq=True), parsed.fragment,
+    ))
     if method.upper() == "GET":
         req = urllib.request.Request(full_url, headers={"User-Agent": "Mozilla/5.0"})
     else:

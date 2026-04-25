@@ -88,7 +88,7 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
@@ -161,15 +161,22 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
                 onClick={() => {
                   if (disabled) return;
                   setMessage(action.prompt);
-                  setTimeout(() => textareaRef.current?.focus(), 50);
+                  setTimeout(() => {
+                    const t = textareaRef.current;
+                    if (!t) return;
+                    t.focus();
+                    t.style.height = 'auto';
+                    t.style.height = Math.min(t.scrollHeight, 180) + 'px';
+                    t.setSelectionRange(t.value.length, t.value.length);
+                  }, 50);
                 }}
                 disabled={disabled}
-                className={`flex flex-col items-start gap-1.5 p-2.5 rounded-xl text-left transition-all ${s.bg} ${s.hover} disabled:opacity-50`}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all ${s.bg} ${s.hover} disabled:opacity-50`}
               >
                 <div className={`w-7 h-7 rounded-lg ${s.iconBg} ${s.iconText} flex items-center justify-center flex-shrink-0`}>
                   {action.icon}
                 </div>
-                <div className="text-[12px] font-semibold text-gray-900 leading-tight">{action.label}</div>
+                <div className="text-[12px] font-semibold text-gray-900 leading-tight truncate">{action.label}</div>
               </button>
             );
           })}

@@ -397,6 +397,25 @@ async def get_last_activity_timestamp(db: AsyncSession, chat_id: str) -> Optiona
     return None
 
 
+async def set_notify_email(db: AsyncSession, chat_id: str, email: Optional[str]) -> None:
+    """Set (or clear) the email address to notify when this chat's stream completes."""
+    chat = await get_chat(db, chat_id)
+    if chat:
+        chat.notify_email = email
+        await db.commit()
+
+
+async def pop_notify_email(db: AsyncSession, chat_id: str) -> Optional[str]:
+    """Read and clear the notify_email for a chat. Returns None if not set."""
+    chat = await get_chat(db, chat_id)
+    if not chat or not chat.notify_email:
+        return None
+    email = chat.notify_email
+    chat.notify_email = None
+    await db.commit()
+    return email
+
+
 async def set_chat_processing(db: AsyncSession, chat_id: str, is_processing: bool) -> None:
     """
     Mark a chat as processing or not processing.

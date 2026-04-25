@@ -63,7 +63,9 @@ function formatErrorForUser(error: string): string {
 }
 
 async function loadFileContent(url: string, filename: string): Promise<string> {
-  const response = await fetch(url);
+  const { getAuthHeader } = await import('@/lib/api');
+  const authHeader = await getAuthHeader();
+  const response = await fetch(url, { headers: authHeader });
   if (!response.ok) throw new Error(`Failed to load file: ${response.status}`);
 
   const isImageFile = /\.(png|jpg|jpeg|gif|webp)$/i.test(filename);

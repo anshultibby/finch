@@ -368,8 +368,7 @@ class ChatService:
                 unregister_context(chat_id, agent_context)
 
                 # Send email notification if user requested it
-                from services.notification_registry import pop_email_notification
-                notify_email = pop_email_notification(chat_id)
+                notify_email = await chat_async.pop_notify_email(db, chat_id)
                 if notify_email:
                     try:
                         from services.notifications import send_chat_complete_email

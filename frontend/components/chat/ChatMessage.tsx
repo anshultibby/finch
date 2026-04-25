@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ToolCallSummary from './ToolCallSummary';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
+import { getAuthHeader } from '@/lib/api';
 import type { ToolCallStatus, SwapData } from '@/lib/types';
 import type { TimeEstimate } from '@/hooks/useChatStream';
 
@@ -52,8 +53,36 @@ function SandboxImage({
 }) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [retryCount, setRetryCount] = useState(0);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const basename = alt || src.split('/').pop() || src;
-  const resolvedSrc = retryCount > 0 ? `${src}${src.includes('?') ? '&' : '?'}_r=${retryCount}` : src;
+
+  // Fetch image with auth header, convert to blob URL so <img> can render it
+  // (browsers can't attach Authorization headers to plain <img src>).
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    setStatus('loading');
+    setBlobUrl(null);
+
+    (async () => {
+      try {
+        const authHeader = await getAuthHeader();
+        const res = await fetch(src, { headers: authHeader });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        createdUrl = URL.createObjectURL(blob);
+        setBlobUrl(createdUrl);
+      } catch {
+        if (!cancelled) setStatus('error');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [src, retryCount]);
 
   return (
     <div className="my-3 rounded-xl overflow-hidden border border-gray-100 bg-white shadow-sm max-w-full group/img">
@@ -81,7 +110,7 @@ function SandboxImage({
 
       {/* Actual image — hidden while loading/error, visible once loaded */}
       <img
-        src={resolvedSrc}
+        src={blobUrl || ''}
         alt={basename}
         className="max-w-full h-auto cursor-pointer transition-opacity duration-300"
         style={{
@@ -147,7 +176,8 @@ function CsvPreview({
       try {
         setLoading(true);
         const url = getChatFileUrl(chatId, filename);
-        const response = await fetch(url);
+        const authHeader = await getAuthHeader();
+        const response = await fetch(url, { headers: authHeader });
         
         if (!response.ok) {
           throw new Error(`Failed to load CSV: ${response.status}`);
@@ -288,7 +318,8 @@ function HtmlPreview({
         setError(null);
         const url = getChatFileUrl(chatId, filename);
         console.log('HtmlPreview: Fetching HTML from:', url);
-        const response = await fetch(url);
+        const authHeader = await getAuthHeader();
+        const response = await fetch(url, { headers: authHeader });
         
         if (!response.ok) {
           throw new Error(`Failed to load HTML: ${response.status}`);

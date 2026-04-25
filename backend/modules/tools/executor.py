@@ -392,11 +392,34 @@ class ToolExecutor:
         
         # Emit time_estimate and tool_call_start events in a single pass
         from modules.tools import tool_registry
+        from schemas.sse import TimeEstimateEvent
+
+        # Fallback: if the agent didn't call estimate_time first but is about to
+        # run a real tool, emit a generic estimate so the UI has something to show.
+        has_estimate_call = any(c.name == "estimate_time" for c in tool_calls)
+        has_visible_tool = any(
+            (tool_registry.get_tool(c.name) is None or not tool_registry.get_tool(c.name).hidden_from_ui)
+            for c in tool_calls
+        )
+        if (
+            not context.time_estimate_emitted
+            and not has_estimate_call
+            and has_visible_tool
+        ):
+            context.time_estimate_emitted = True
+            yield SSEEvent(
+                event="time_estimate",
+                data=TimeEstimateEvent(
+                    estimated_seconds=45,
+                    estimated_tools=max(3, len(tool_calls)),
+                    description="Working on your request...",
+                ).model_dump()
+            )
 
         for call in tool_calls:
             # Handle estimate_time specially — emit time_estimate SSE event
             if call.name == "estimate_time":
-                from schemas.sse import TimeEstimateEvent
+                context.time_estimate_emitted = True
                 yield SSEEvent(
                     event="time_estimate",
                     data=TimeEstimateEvent(

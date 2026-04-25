@@ -50,17 +50,23 @@ const api = axios.create({
   },
 });
 
+// Fetch the current Supabase access token (or null if unauthenticated).
+// Exported so raw `fetch` callers (e.g. SSE streams) can attach the same
+// Authorization header that the axios interceptor adds.
+export async function getAuthHeader(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token
+    ? { Authorization: `Bearer ${session.access_token}` }
+    : {};
+}
+
 // Add axios interceptor to automatically include Authorization header
 api.interceptors.request.use(
   async (config) => {
-    // Get the current session from Supabase
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    // If we have a session, add the access token to the Authorization header
-    if (session?.access_token) {
-      config.headers.Authorization = `Bearer ${session.access_token}`;
+    const authHeader = await getAuthHeader();
+    if (authHeader.Authorization) {
+      config.headers.Authorization = authHeader.Authorization;
     }
-    
     return config;
   },
   (error) => {
@@ -239,10 +245,11 @@ export const chatApi = {
     };
 
     // Main fetch stream handler
-    const startStream = () => {
+    const startStream = async () => {
+      const authHeader = await getAuthHeader();
       fetch(url.toString(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestBody),
         signal: abortController.signal,
       })

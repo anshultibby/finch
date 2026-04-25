@@ -52,3 +52,4 @@ supabase>=2.9.0
 tradingview-ta==3.3.0
 uvicorn==0.32.0
 e2b-code-interpreter>=2.4.1
+resend>=2.0.0

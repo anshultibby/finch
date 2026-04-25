@@ -12,7 +12,6 @@ import json
 from schemas import ChatMessage, ChatResponse
 from modules.chat_service import ChatService
 from services.chat_title import generate_chat_title
-from services.notification_registry import register_email_notification
 from core.database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
@@ -318,7 +317,8 @@ async def request_email_notification(
     if not email:
         raise HTTPException(status_code=400, detail="Could not determine email from token")
 
-    register_email_notification(chat_id, email)
+    async with get_db_session() as db:
+        await chat_async.set_notify_email(db, chat_id, email)
     logger.info(f"Email notification registered for chat {chat_id} -> {email}")
     return {"status": "registered", "email": email}
 

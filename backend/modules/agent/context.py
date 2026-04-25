@@ -34,6 +34,7 @@ class AgentContext(BaseModel):
     skill_ids: Optional[list] = None  # Active skill IDs (auto-on + user-selected) for this turn
     data: Optional[Dict[str, Any]] = None  # Additional context data (e.g., auth status, credentials) - OPTIONAL
     cancel_event: Optional[Any] = None  # asyncio.Event for cancellation (Any to avoid Pydantic issues)
+    time_estimate_emitted: bool = False  # Whether a time_estimate event has been emitted this stream
     
     class Config:
         validate_assignment = True
