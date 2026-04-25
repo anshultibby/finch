@@ -7,7 +7,7 @@ import { alpacaBrokerApi, marketApi, snaptradeApi } from '@/lib/api';
 import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import SandboxBadge from '@/components/shared/SandboxBadge';
 import MiniSparkline from '@/components/shared/MiniSparkline';
-import type { AlpacaPortfolioResponse } from '@/lib/types';
+import type { AlpacaPortfolioResponse, PortfolioResponse } from '@/lib/types';
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
@@ -236,59 +236,6 @@ function InlineSearch({ onSelect }: { onSelect: (symbol: string) => void }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AI Action card (TLH, Portfolio Review, Trading Agent)
-// ─────────────────────────────────────────────────────────────────────────────
-
-type ActionAccent = 'emerald' | 'violet' | 'amber';
-
-const ACCENT_STYLES: Record<ActionAccent, { bg: string; iconBg: string; iconText: string; hover: string; ring: string }> = {
-  emerald: { bg: 'bg-emerald-50', iconBg: 'bg-emerald-500/15', iconText: 'text-emerald-600', hover: 'hover:bg-emerald-100/70', ring: 'hover:ring-emerald-200' },
-  violet:  { bg: 'bg-violet-50',  iconBg: 'bg-violet-500/15',  iconText: 'text-violet-600',  hover: 'hover:bg-violet-100/70',  ring: 'hover:ring-violet-200' },
-  amber:   { bg: 'bg-amber-50',   iconBg: 'bg-amber-500/15',   iconText: 'text-amber-700',   hover: 'hover:bg-amber-100/70',   ring: 'hover:ring-amber-200' },
-};
-
-function ActionCard({
-  title,
-  subtitle,
-  icon,
-  accent,
-  requires,
-  onClick,
-}: {
-  title: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  accent: ActionAccent;
-  requires?: 'brokerage' | 'account';
-  onClick: () => void;
-}) {
-  const s = ACCENT_STYLES[accent];
-  const requiresLabel = requires === 'brokerage' ? 'Connect brokerage' : requires === 'account' ? 'Open account' : null;
-
-  return (
-    <button
-      onClick={onClick}
-      className={`group text-left rounded-2xl p-4 transition-all ring-1 ring-transparent ${s.bg} ${s.hover} ${s.ring}`}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-10 h-10 rounded-xl ${s.iconBg} flex items-center justify-center ${s.iconText}`}>
-          {icon}
-        </div>
-        {requiresLabel && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-600 bg-white/80 backdrop-blur px-2 py-0.5 rounded-full ring-1 ring-gray-200/70">
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            {requiresLabel}
-          </span>
-        )}
-      </div>
-      <div className="text-sm font-bold text-gray-900 mb-0.5">{title}</div>
-      <div className="text-xs text-gray-500 leading-relaxed">{subtitle}</div>
-    </button>
-  );
-}
 
 function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
@@ -323,6 +270,7 @@ export default function HomePage() {
   const { user } = useAuth();
   const { openStock, navigateTo, openChatWithPrompt, startNewChat } = useNavigation();
   const [portfolio, setPortfolio] = useState<AlpacaPortfolioResponse | null>(null);
+  const [externalPortfolio, setExternalPortfolio] = useState<PortfolioResponse | null>(null);
   const [hasAccount, setHasAccount] = useState<boolean | null>(null);
   const [hasBrokerage, setHasBrokerage] = useState<boolean>(false);
   const [movers, setMovers] = useState<{ gainers: any[]; losers: any[] }>({ gainers: [], losers: [] });
@@ -347,7 +295,11 @@ export default function HomePage() {
       if (s.exists && s.status === 'ACTIVE') {
         alpacaBrokerApi.getPortfolio(user.id).then(setPortfolio).catch(() => {});
       }
-      setHasBrokerage(Boolean((brokerage as any)?.is_connected));
+      const brokerageConnected = Boolean((brokerage as any)?.is_connected);
+      setHasBrokerage(brokerageConnected);
+      if (brokerageConnected) {
+        snaptradeApi.getPortfolio(user.id).then(setExternalPortfolio).catch(() => {});
+      }
       setMovers({ gainers: m.gainers || [], losers: m.losers || [] });
       setPopularQuotes(Array.isArray(popular) ? popular : []);
       setEarnings(Array.isArray(earn) ? earn : []);
@@ -387,73 +339,183 @@ export default function HomePage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* AI Actions — the three core flows */}
-        <div className="px-4 sm:px-6 pt-3 pb-5">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">What your AI can do</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <ActionCard
-              title="Tax-loss harvesting"
-              subtitle="Find tax savings hiding in your holdings"
-              accent="emerald"
-              requires={!hasBrokerage ? 'brokerage' : undefined}
-              icon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
-                </svg>
-              }
-              onClick={() => {
-                if (!hasBrokerage) navigateTo({ type: 'connections' });
-                else openChatWithPrompt(TLH_PROMPT, 'Scan portfolio for tax losses');
-              }}
-            />
-            <ActionCard
-              title="Portfolio review"
-              subtitle="Get an AI analysis of your holdings"
-              accent="violet"
-              requires={!hasBrokerage ? 'brokerage' : undefined}
-              icon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
-                </svg>
-              }
-              onClick={() => {
-                if (!hasBrokerage) navigateTo({ type: 'connections' });
-                else openChatWithPrompt(PORTFOLIO_REVIEW_PROMPT, 'Review my portfolio');
-              }}
-            />
-            <ActionCard
-              title="Trading agent"
-              subtitle="Let AI trade stocks on your behalf"
-              accent="amber"
-              requires={!hasAccount ? 'account' : undefined}
-              icon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.847.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                </svg>
-              }
-              onClick={() => navigateTo({ type: 'portfolio' })}
-            />
-          </div>
-        </div>
+        {/* ── Linked Accounts section ─────────────────────────────────── */}
+        <div className="px-4 sm:px-6 pt-4 pb-2">
+          <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+            <div className="p-4 pb-3">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
+                    </svg>
+                  </div>
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Linked Accounts</span>
+                </div>
+                <button onClick={() => navigateTo({ type: 'connections' })}
+                  className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors">
+                  Manage
+                </button>
+              </div>
 
-        {/* Portfolio hero (only if account exists) */}
-        {hasAccount && portfolio && (
-          <div className="px-4 sm:px-6 pt-3 pb-3">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs text-gray-400 font-medium">Portfolio</span>
-              <SandboxBadge className="sm:hidden" />
+              {hasBrokerage && externalPortfolio ? (
+                <>
+                  <div className="text-2xl font-bold text-gray-900 tabular-nums mb-0.5">
+                    {formatCurrency(externalPortfolio.total_value)}
+                  </div>
+                  <div className="text-xs text-gray-400 mb-3">
+                    {externalPortfolio.total_positions} position{externalPortfolio.total_positions !== 1 ? 's' : ''} across {externalPortfolio.account_count} account{externalPortfolio.account_count !== 1 ? 's' : ''}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => openChatWithPrompt(PORTFOLIO_REVIEW_PROMPT, 'Review my portfolio')}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-violet-700 bg-violet-50 rounded-xl hover:bg-violet-100 transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375" />
+                      </svg>
+                      Review
+                    </button>
+                    <button onClick={() => openChatWithPrompt(TLH_PROMPT, 'Scan portfolio for tax losses')}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                      </svg>
+                      Tax-loss harvest
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm text-gray-400 mb-3">Connect your brokerage to see holdings and run AI analysis.</div>
+                  <button onClick={() => navigateTo({ type: 'connections' })}
+                    className="w-full py-2 text-xs font-semibold text-violet-700 bg-violet-50 rounded-xl hover:bg-violet-100 transition-colors">
+                    Connect brokerage
+                  </button>
+                </>
+              )}
             </div>
-            <div className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums mb-0.5">
-              {formatCurrency(equity)}
-            </div>
-            {lastEquity > 0 && dayChange !== 0 && (
-              <div className={`text-sm font-medium tabular-nums ${dayChange >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                {dayChange >= 0 ? '+' : ''}{formatCurrency(dayChange)} ({formatPct(dayChangePct)}) today
+
+            {/* Inline holdings list */}
+            {externalPortfolio?.accounts?.some(a => a.positions.length > 0) && (
+              <div className="border-t border-gray-100">
+                {externalPortfolio.accounts.flatMap(a => a.positions)
+                  .sort((a, b) => b.value - a.value)
+                  .map(p => {
+                    const gl = p.gain_loss || 0;
+                    const glPct = p.gain_loss_percent || 0;
+                    const isUp = gl >= 0;
+                    return (
+                      <button key={p.symbol} onClick={() => openStock(p.symbol)}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0">
+                        <div className="min-w-[52px] text-left">
+                          <div className="text-sm font-semibold text-gray-900">{p.symbol}</div>
+                          <div className="text-[11px] text-gray-400">
+                            {p.quantity % 1 === 0 ? p.quantity : p.quantity.toFixed(2)} sh
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <MiniSparkline symbol={p.symbol} width={60} height={20} days={30} />
+                        </div>
+                        <div className="text-right min-w-[80px]">
+                          <div className="text-sm font-medium text-gray-900 tabular-nums">{formatCurrency(p.price)}</div>
+                          <div className={`text-[11px] font-medium tabular-nums ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {gl >= 0 ? '+' : ''}{formatCurrency(gl)} ({formatPct(glPct)})
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
               </div>
             )}
           </div>
-        )}
+        </div>
+
+        {/* ── Agent Portfolio section ─────────────────────────────────── */}
+        <div className="px-4 sm:px-6 pb-4">
+          <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+            <div className="p-4 pb-3">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Z" />
+                    </svg>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agent Portfolio</span>
+                    <SandboxBadge />
+                  </div>
+                </div>
+                <button onClick={() => navigateTo({ type: 'portfolio' })}
+                  className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors">
+                  Manage
+                </button>
+              </div>
+
+              {hasAccount && portfolio ? (
+                <>
+                  <div className="text-2xl font-bold text-gray-900 tabular-nums mb-0.5">
+                    {formatCurrency(equity)}
+                  </div>
+                  {lastEquity > 0 && dayChange !== 0 ? (
+                    <div className={`text-xs font-medium tabular-nums mb-3 ${dayChange >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {dayChange >= 0 ? '+' : ''}{formatCurrency(dayChange)} ({formatPct(dayChangePct)}) today
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-400 mb-3">
+                      {portfolio.positions.length} position{portfolio.positions.length !== 1 ? 's' : ''} · {formatCurrency(num(portfolio.account?.cash))} cash
+                    </div>
+                  )}
+                  <button onClick={() => openChatWithPrompt('Show me my agent portfolio positions, current P&L, and any pending orders. Suggest what trades to make next.', 'Chat about agent portfolio')}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-amber-700 bg-amber-50 rounded-xl hover:bg-amber-100 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375" />
+                    </svg>
+                    Chat with agent
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm text-gray-400 mb-3">Open a sandbox account and let AI trade on your behalf.</div>
+                  <button onClick={() => navigateTo({ type: 'portfolio' })}
+                    className="w-full py-2 text-xs font-semibold text-amber-700 bg-amber-50 rounded-xl hover:bg-amber-100 transition-colors">
+                    Open agent account
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Inline agent positions list */}
+            {portfolio && portfolio.positions.length > 0 && (
+              <div className="border-t border-gray-100">
+                {portfolio.positions.map(p => {
+                  const pl = num(p.unrealized_pl);
+                  const plPct = num(p.unrealized_plpc) * 100;
+                  const isUp = pl >= 0;
+                  return (
+                    <button key={p.symbol} onClick={() => openStock(p.symbol)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0">
+                      <div className="min-w-[52px] text-left">
+                        <div className="text-sm font-semibold text-gray-900">{p.symbol}</div>
+                        <div className="text-[11px] text-gray-400">
+                          {num(p.qty) % 1 === 0 ? num(p.qty) : num(p.qty).toFixed(2)} sh
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <MiniSparkline symbol={p.symbol} width={60} height={20} days={30} />
+                      </div>
+                      <div className="text-right min-w-[80px]">
+                        <div className="text-sm font-medium text-gray-900 tabular-nums">{formatCurrency(num(p.current_price))}</div>
+                        <div className={`text-[11px] font-medium tabular-nums ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {pl >= 0 ? '+' : ''}{formatCurrency(pl)} ({formatPct(plPct)})
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Market indices */}
         <div className="px-4 sm:px-6 pb-4">
@@ -484,36 +546,6 @@ export default function HomePage() {
             })}
           </div>
         </div>
-
-        {/* Positions preview (if account active) */}
-        {portfolio && portfolio.positions.length > 0 && (
-          <div className="mb-5">
-            <SectionHeader title="Your Positions">
-              <button onClick={() => navigateTo({ type: 'portfolio' })} className="text-xs text-emerald-600 font-semibold hover:underline">See all</button>
-            </SectionHeader>
-            <HorizontalScroll>
-              {portfolio.positions.map(p => {
-                const pl = parseFloat(p.unrealized_pl || '0');
-                const isUp = pl >= 0;
-                return (
-                  <button key={p.symbol} onClick={() => openStock(p.symbol)}
-                    className="flex-shrink-0 w-[140px] p-3 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all text-left bg-white">
-                    <div className="text-sm font-bold text-gray-900 mb-1">{p.symbol}</div>
-                    <div className="text-base font-bold text-gray-900 tabular-nums mb-0.5">
-                      {formatCurrency(parseFloat(p.current_price || '0'))}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-gray-400">{parseFloat(p.qty || '0')} sh</span>
-                      <span className={`text-[11px] font-bold ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {isUp ? '+' : ''}{formatCurrency(pl)}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </HorizontalScroll>
-          </div>
-        )}
 
         {/* Popular stocks (exclude index ETFs already shown above) */}
         {popularQuotes.length > 0 && (

@@ -491,8 +491,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     if (state.messages.length === 1) {
       setTimeout(() => {
         chatApi.generateTitle(targetChatId, trimmed)
-          .then(r => options.onTitleGenerated?.(targetChatId, r.title, r.icon))
-          .catch(() => options.onTitleGenerated?.(targetChatId, trimmed.slice(0, 50) + (trimmed.length > 50 ? '...' : ''), '💬'));
+          .then(r => optionsRef.current.onTitleGenerated?.(targetChatId, r.title, r.icon))
+          .catch(() => optionsRef.current.onTitleGenerated?.(targetChatId, trimmed.slice(0, 50) + (trimmed.length > 50 ? '...' : ''), '💬'));
       }, 100);
     }
 

@@ -18,7 +18,7 @@ interface ChatDrawerProps {
 
 export default function ChatDrawer({
   sidebarRef,
-  currentChatId,
+  currentChatId: _externalChatId,
   onChatIdChange,
   onCreatingChatChange,
   onLoadingChange,
@@ -28,17 +28,22 @@ export default function ChatDrawer({
   const { chatDrawerOpen, setChatDrawerOpen, chatContext } = useNavigation();
   const [prefill, setPrefill] = useState<string | undefined>();
   const [prefillLabel, setPrefillLabel] = useState<string | undefined>();
+  const [drawerChatId, setDrawerChatId] = useState<string | null>(null);
 
-  // When chat context changes (e.g. "Ask AI about AAPL"), set the prefill
+  // Reset to a fresh chat each time the drawer opens with new context
   useEffect(() => {
-    if (chatContext?.prefill && chatDrawerOpen) {
-      setPrefill(chatContext.prefill);
-      setPrefillLabel(chatContext.prefillLabel);
+    if (chatDrawerOpen) {
+      setDrawerChatId(null);
+      if (chatContext?.prefill) {
+        setPrefill(chatContext.prefill);
+        setPrefillLabel(chatContext.prefillLabel);
+      }
     }
-  }, [chatContext, chatDrawerOpen]);
+  }, [chatDrawerOpen, chatContext]);
 
   // Clear prefill after it's consumed
   const handleChatIdChange = useCallback((id: string | null) => {
+    setDrawerChatId(id);
     onChatIdChange(id);
     if (id) {
       setPrefill(undefined);
@@ -84,7 +89,7 @@ export default function ChatDrawer({
         {/* Chat content */}
         <div className="flex-1 overflow-hidden">
           <ChatView
-            externalChatId={currentChatId}
+            externalChatId={drawerChatId}
             onChatIdChange={handleChatIdChange}
             onCreatingChatChange={onCreatingChatChange}
             onLoadingChange={onLoadingChange}

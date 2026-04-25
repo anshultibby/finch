@@ -477,11 +477,16 @@ export const snaptradeApi = {
     return response.data;
   },
 
-  buildPortfolioHistory: async (userId: string, accountId?: string, force = false): Promise<{ success: boolean; equity_series?: Array<{ date: string; value: number }>; snapshots_saved?: number; cached?: boolean; message?: string }> => {
+  buildPortfolioHistory: async (userId: string, accountId?: string, force = false): Promise<{ success: boolean; equity_series?: Array<{ date: string; value: number }>; intraday_series?: Array<{ date: string; value: number }>; snapshots_saved?: number; cached?: boolean; message?: string }> => {
     const params = new URLSearchParams();
     if (accountId) params.set('account_id', accountId);
     if (force) params.set('force', 'true');
     const response = await api.post(`/snaptrade/portfolio/${userId}/build-history?${params.toString()}`);
+    return response.data;
+  },
+
+  clearPortfolioCache: async (userId: string): Promise<{ success: boolean; snapshots_deleted: number; intraday_deleted: number }> => {
+    const response = await api.delete(`/snaptrade/portfolio/${userId}/cache`);
     return response.data;
   },
 
@@ -1036,6 +1041,25 @@ export const watchlistApi = {
   },
   removeSymbol: async (userId: string, symbol: string) => {
     const response = await api.delete(`/watchlist/${userId}/${symbol}`);
+    return response.data;
+  },
+};
+
+export const memoryApi = {
+  seedStock: async (symbol: string) => {
+    const response = await api.post(`/memory/seed/${symbol}`);
+    return response.data;
+  },
+  seedStatus: async (symbol: string) => {
+    const response = await api.get(`/memory/status/${symbol}`);
+    return response.data;
+  },
+  getCurrent: async () => {
+    const response = await api.get('/memory/current');
+    return response.data;
+  },
+  getHistory: async (limit: number = 20) => {
+    const response = await api.get(`/memory/history?limit=${limit}`);
     return response.data;
   },
 };

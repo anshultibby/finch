@@ -1,8 +1,8 @@
 """
-Chat-related ORM models: Chat, ChatMessage, ChatFile, Resource
+Chat-related ORM models: Chat, ChatMessage, ChatFile, Resource, MemorySnapshot
 """
 from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from core.database import Base
 import uuid
@@ -96,3 +96,15 @@ class Resource(Base):
 
     def __repr__(self):
         return f"<Resource(id='{self.id}', type='{self.resource_type}', tool='{self.tool_name}')>"
+
+
+class MemorySnapshot(Base):
+    __tablename__ = "memory_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    chat_id = Column(String, nullable=True, index=True)
+    content = Column(Text, nullable=False)
+    diff = Column(Text, nullable=True)
+    source = Column(String(50), nullable=False, server_default="cognee")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

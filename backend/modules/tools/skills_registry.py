@@ -31,6 +31,7 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     "SNAPTRADE_CONSUMER_KEY": ("SNAPTRADE","system"),
     "ALPACA_API_KEY":         ("ALPACA",   "system"),
     "ALPACA_SECRET_KEY":      ("ALPACA",   "system"),
+    "OPENAI_API_KEY":         ("OPENAI",   "system"),
 
     # User keys — each user provides their own via Settings > API Keys
     "KALSHI_API_KEY_ID":  ("KALSHI", "user"),

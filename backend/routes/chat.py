@@ -39,6 +39,7 @@ chat_service = ChatService()
 
 @router.post("/stream")
 async def send_chat_message_stream(
+    request: Request,
     chat_message: ChatMessage,
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
@@ -80,6 +81,9 @@ async def send_chat_message_stream(
         selected_names = chat_message.skills or []  # skill names sent by the frontend
         skill_ids = list(dict.fromkeys(auto_names + selected_names))  # de-dup, preserve order
 
+        auth_header = request.headers.get("authorization", "")
+        auth_token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+
         # Create streaming generator with explicit flushing
         async def event_generator():
             try:
@@ -88,7 +92,8 @@ async def send_chat_message_stream(
                     chat_id=chat_message.chat_id,
                     user_id=chat_message.user_id,
                     images=images,
-                    skill_ids=skill_ids if skill_ids else None
+                    skill_ids=skill_ids if skill_ids else None,
+                    auth_token=auth_token,
                 ):
                     # Yield event immediately
                     yield sse_data

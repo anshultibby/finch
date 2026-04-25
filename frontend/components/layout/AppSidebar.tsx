@@ -27,6 +27,7 @@ interface AppSidebarProps {
   onNewChat: () => void;
   refreshTrigger?: number;
   isCreatingChat?: boolean;
+  isStreamingChat?: boolean;
   pendingSwapCount?: number;
 }
 
@@ -58,9 +59,9 @@ const SearchIcon = () => (
   </svg>
 );
 
-const PortfolioIcon = () => (
+const AgentPortfolioIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Z" />
   </svg>
 );
 
@@ -89,9 +90,9 @@ const SwapsIcon = ({ count }: { count: number }) => (
   </div>
 );
 
-const ConnectionsIcon = () => (
+const LinkedAccountsIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
   </svg>
 );
 
@@ -112,6 +113,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   onNewChat,
   refreshTrigger,
   isCreatingChat,
+  isStreamingChat,
   pendingSwapCount = 0,
 }, ref) => {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -121,14 +123,15 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const navItems: NavItem[] = [
     { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
     { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon />, mobileNav: true },
-    { id: 'portfolio', label: 'Portfolio', view: { type: 'portfolio' }, icon: <PortfolioIcon />, mobileNav: true },
+    { id: 'portfolio', label: 'Agent Portfolio', view: { type: 'portfolio' }, icon: <AgentPortfolioIcon />, mobileNav: true },
     { id: 'watchlist', label: 'Watchlist', view: { type: 'watchlist' }, icon: <WatchlistIcon />, mobileNav: true },
   ];
 
   const secondaryItems: NavItem[] = [
     { id: 'orders', label: 'Orders', view: { type: 'orders' }, icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" /></svg> },
     { id: 'swaps', label: 'Opportunities', view: { type: 'swaps' }, icon: <SwapsIcon count={pendingSwapCount} /> },
-    { id: 'connections', label: 'Connections', view: { type: 'connections' }, icon: <ConnectionsIcon /> },
+    { id: 'connections', label: 'Linked Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon /> },
+    { id: 'memory', label: 'Memory', view: { type: 'memory' }, icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z" /></svg> },
   ];
 
   const loadChats = useCallback(async () => {
@@ -136,7 +139,17 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     setIsLoading(true);
     try {
       const response = await chatApi.getUserChats(userId);
-      setChats(response.chats || []);
+      const fetched = response.chats || [];
+      setChats(prev => {
+        const localTitles = new Map(
+          prev.filter(c => c.title).map(c => [c.chat_id, c])
+        );
+        return fetched.map(c =>
+          !c.title && localTitles.has(c.chat_id)
+            ? { ...c, title: localTitles.get(c.chat_id)!.title, icon: localTitles.get(c.chat_id)!.icon }
+            : c
+        );
+      });
     } catch { /* ignore */ } finally { setIsLoading(false); }
   }, [userId]);
 
@@ -166,22 +179,30 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
       {/* Desktop sidebar */}
       <div className={`hidden md:flex h-full bg-gray-50 border-r border-gray-200 flex-col flex-shrink-0 transition-all duration-200 ${expanded ? 'w-60' : 'w-14'}`}>
         {/* Header */}
-        <div className={`flex items-center py-3 px-3 flex-shrink-0 ${expanded ? 'justify-between' : 'justify-center'}`}>
+        <div className={`group/header flex items-center py-3 px-3 flex-shrink-0 ${expanded ? 'justify-between' : 'justify-center'}`}>
           {expanded ? (
-            <FinchLogo size={22} showText />
+            <>
+              <FinchLogo size={22} showText />
+              <button onClick={() => setExpanded(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors"
+                title="Collapse">
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
+                  <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
+                </svg>
+              </button>
+            </>
           ) : (
-            <button onClick={() => setExpanded(true)} className="p-0.5">
-              <FinchLogo size={22} />
-            </button>
-          )}
-          {expanded && (
-            <button onClick={() => setExpanded(false)}
-              className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
-              title="Collapse">
-              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
-                <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
-              </svg>
+            <button onClick={() => setExpanded(true)} className="relative w-[22px] h-[22px] group/logo">
+              <span className="absolute inset-0 flex items-center justify-center group-hover/logo:opacity-0 transition-opacity">
+                <FinchLogo size={22} />
+              </span>
+              <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/logo:opacity-100 transition-opacity text-gray-600">
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
+                  <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
+                </svg>
+              </span>
             </button>
           )}
         </div>
@@ -273,11 +294,18 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                   )}
                   {chats.slice(0, 12).map(chat => {
                     const isActive = chat.chat_id === currentChatId && currentView.type === 'chat';
+                    const isChatStreaming = chat.chat_id === currentChatId && isStreamingChat;
                     return (
                       <button key={chat.chat_id} onClick={() => onSelectChat(chat.chat_id)}
                         className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm transition-colors text-left ${
                           isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                         }`}>
+                        {isChatStreaming && (
+                          <span className="relative flex-shrink-0 w-2 h-2">
+                            <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                            <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
+                          </span>
+                        )}
                         <span className="truncate flex-1">{chat.title || 'New Chat'}</span>
                       </button>
                     );
@@ -310,11 +338,17 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
             );
           })}
           <button onClick={onNewChat}
-            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors min-w-[56px] ${
+            className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors min-w-[56px] ${
               currentView.type === 'chat' ? 'text-emerald-600' : 'text-gray-400'
             }`}>
             <ChatIcon />
             <span className="text-[10px] font-medium">AI</span>
+            {isStreamingChat && currentView.type !== 'chat' && (
+              <span className="absolute top-1 right-2 w-2 h-2">
+                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
+              </span>
+            )}
           </button>
         </div>
       </div>

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, alpacaBrokerApi, watchlistApi } from '@/lib/api';
+import { marketApi, alpacaBrokerApi, watchlistApi, memoryApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
 import type { AlpacaBrokerPosition } from '@/lib/types';
@@ -166,6 +166,7 @@ export default function StockPage({ symbol }: { symbol: string }) {
   const [hasAccount, setHasAccount] = useState(false);
   const [showMobileTrade, setShowMobileTrade] = useState(false);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const [periodPct, setPeriodPct] = useState<number | null>(null);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -195,10 +196,15 @@ export default function StockPage({ symbol }: { symbol: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    if (user && symbol) {
+      memoryApi.seedStock(symbol).catch(() => {});
+    }
+  }, [symbol, user]);
+
   const price = quote?.price || profile?.price || 0;
   const change = quote?.change || profile?.changes || 0;
   const changePct = quote?.changesPercentage || 0;
-  const isUp = change >= 0;
   const name = profile?.companyName || quote?.name || symbol;
 
   if (loading) {
@@ -244,22 +250,26 @@ export default function StockPage({ symbol }: { symbol: string }) {
             </button>
           </div>
 
-          {/* Price */}
-          <div className="mb-1">
-            <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(price)}</span>
-          </div>
+          {/* Price — updates on chart hover like Robinhood */}
           {(() => {
-            // When scrubbing the chart, display the hovered point's change; otherwise show today's.
-            const displayPct = hoverPct ?? changePct;
-            // Derive dollar from the window-anchor base rather than current price so
-            // the hover $ matches the hover % exactly.
-            const basePrice = price / (1 + changePct / 100 || 1);
-            const displayChange = hoverPct !== null ? basePrice * (hoverPct / 100) : change;
-            const up = displayChange >= 0;
+            // Period start price derived from current price and period's total % change
+            const endPct = periodPct ?? changePct;
+            const periodStart = price / (1 + endPct / 100 || 1);
+            const activePct = hoverPct ?? endPct;
+            const displayPrice = hoverPct !== null
+              ? periodStart * (1 + hoverPct / 100)
+              : price;
+            const displayDollar = periodStart * (activePct / 100);
+            const up = displayDollar >= 0;
             return (
-              <div className={`text-sm font-medium tabular-nums mb-1 ${up ? 'text-emerald-600' : 'text-red-500'}`}>
-                {up ? '+' : '-'}{fmt(Math.abs(displayChange))} ({pct(displayPct)}) {hoverPct !== null ? '' : 'Today'}
-              </div>
+              <>
+                <div className="mb-1">
+                  <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(displayPrice)}</span>
+                </div>
+                <div className={`text-sm font-medium tabular-nums mb-1 ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {up ? '+' : '-'}{fmt(Math.abs(displayDollar))} ({pct(activePct)})
+                </div>
+              </>
             );
           })()}
         </div>
@@ -267,11 +277,16 @@ export default function StockPage({ symbol }: { symbol: string }) {
         {/* Chart */}
         <div className="px-2 sm:px-4">
           <PriceRangeChart
-            series={[{ symbol, color: isUp ? '#10b981' : '#ef4444' }]}
+            series={[{ symbol, color: '#10b981' }]}
+            currentPrice={price}
             defaultDays={1}
             ranges={getStockRanges()}
             height={280}
-            onHoverChange={info => setHoverPct(info?.value ?? null)}
+            hideHeader
+            onHoverChange={info => {
+              setHoverPct(info?.value ?? null);
+            }}
+            onPeriodChange={setPeriodPct}
           />
         </div>
 

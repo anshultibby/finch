@@ -15,6 +15,7 @@ import PortfolioPanel from '@/components/PortfolioPanel';
 import ConnectionsPanel from '@/components/ConnectionsPanel';
 import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
 import ChatPage from '@/components/chat/ChatPage';
+import MemoryPage from '@/components/memory/MemoryPage';
 import type { SwapData } from '@/lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,8 +115,8 @@ function AppLayoutInner() {
 
   if (!user) return null;
 
-  // Render current view
-  const renderView = () => {
+  // Render current view (excluding chat — chat is always mounted for stream persistence)
+  const renderNonChatView = () => {
     switch (currentView.type) {
       case 'home':
         return <HomePage />;
@@ -143,16 +144,10 @@ function AppLayoutInner() {
             onSelectCandidate={handleSelectCandidate}
           />
         );
+      case 'memory':
+        return <MemoryPage />;
       case 'chat':
-        return (
-          <ChatPage
-            sidebarRef={sidebarRef}
-            onCreatingChatChange={setIsCreatingChat}
-            onLoadingChange={setActiveChatIsLoading}
-            onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
-            onSwapsReceived={handleSwapsReceived}
-          />
-        );
+        return null;
       default:
         return <HomePage />;
     }
@@ -170,13 +165,25 @@ function AppLayoutInner() {
         onNewChat={startNewChat}
         refreshTrigger={chatHistoryRefresh}
         isCreatingChat={isCreatingChat}
+        isStreamingChat={activeChatIsLoading}
         pendingSwapCount={pendingSwapCount}
       />
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden relative pb-14 md:pb-0">
         <ChatModeProvider>
-          {renderView()}
+          {renderNonChatView()}
+
+          {/* ChatPage always mounted so streams survive navigation */}
+          <div className={currentView.type === 'chat' ? 'h-full' : 'hidden'}>
+            <ChatPage
+              sidebarRef={sidebarRef}
+              onCreatingChatChange={setIsCreatingChat}
+              onLoadingChange={setActiveChatIsLoading}
+              onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
+              onSwapsReceived={handleSwapsReceived}
+            />
+          </div>
 
           {/* Chat drawer overlay */}
           <ChatDrawer

@@ -103,10 +103,10 @@ class SnapTradeAccountMeta(BaseModel):
 class SnapTradeAccountBalance(BaseModel):
     """Account balance structure"""
     total: Optional[dict] = None
-    
+
     class Config:
         extra = "allow"
-    
+
     def get_amount(self) -> float:
         """Extract total amount"""
         if self.total and isinstance(self.total, dict):
@@ -137,7 +137,7 @@ class SnapTradeAccountResponse(BaseModel):
         if self.balance:
             return self.balance.get_amount()
         return 0.0
-    
+
     def to_account(self, positions: List['Position'], total_value: float, status: Optional[str] = None) -> 'Account':
         """Convert to clean Account model"""
         return Account(

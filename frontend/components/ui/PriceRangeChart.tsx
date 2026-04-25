@@ -52,13 +52,16 @@ type BaseProps = {
   format?: 'pct' | 'currency';
   hideHeader?: boolean;
   hideRangeTabs?: boolean;
-  onHoverChange?: (info: { date: string; value: number } | null) => void;
+  tabsPosition?: 'top' | 'bottom';
+  onHoverChange?: (info: { date: string; value: number; periodEndValue: number } | null) => void;
+  onPeriodChange?: (periodEndValue: number) => void;
   headerRight?: React.ReactNode;
 };
 
 type SymbolProps = BaseProps & {
   series: PriceSeriesConfig[];
   defaultDays?: number;
+  currentPrice?: number;
   data?: undefined;
 };
 
@@ -92,7 +95,9 @@ export default function PriceRangeChart(props: Props) {
     format = 'pct',
     hideHeader,
     hideRangeTabs,
+    tabsPosition = 'top',
     onHoverChange,
+    onPeriodChange,
     headerRight,
   } = props;
 
@@ -128,15 +133,21 @@ export default function PriceRangeChart(props: Props) {
       .catch(() => setFetchLoading(false));
   }, [isSymbolMode, symbolsKey, days]);
 
+  const currentPrice = isSymbolMode ? (props as SymbolProps).currentPrice : undefined;
+
   type Line = { label: string; color: string; data: SeriesPoint[] };
   const lines: Line[] = useMemo(() => {
     if (isSymbolMode) {
       const s = (props as SymbolProps).series;
-      return s.map(cfg => ({
-        label: cfg.label ?? cfg.symbol,
-        color: cfg.color,
-        data: fetched?.[cfg.symbol] ?? [],
-      }));
+      return s.map(cfg => {
+        const data = fetched?.[cfg.symbol] ?? [];
+        const lastVal = data[data.length - 1]?.value ?? 0;
+        return {
+          label: cfg.label ?? cfg.symbol,
+          color: lastVal >= 0 ? '#10b981' : '#ef4444',
+          data,
+        };
+      });
     }
     const dp = props as DataProps;
     const first = dp.data[0]?.value ?? 0;
@@ -201,15 +212,22 @@ export default function PriceRangeChart(props: Props) {
   };
   const handleMouseLeave = () => setHoverIdx(null);
 
+  const periodEndValue = refPts.length ? refPts[refPts.length - 1].value : 0;
+
   useEffect(() => {
     if (!onHoverChange) return;
     if (hoverIdx === null || !refPts[hoverIdx]) {
       onHoverChange(null);
     } else {
-      onHoverChange({ date: refPts[hoverIdx].date, value: refPts[hoverIdx].value });
+      onHoverChange({ date: refPts[hoverIdx].date, value: refPts[hoverIdx].value, periodEndValue });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverIdx]);
+
+  useEffect(() => {
+    if (hasData) onPeriodChange?.(periodEndValue);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodEndValue, hasData]);
 
   const isIntraday = refPts.length > 0 && (refPts[0].date.includes('T') || refPts[0].date.includes(' '));
   const parseDate = (s: string) => new Date(isIntraday ? s.replace(' ', 'T') : s + 'T12:00:00');
@@ -233,21 +251,21 @@ export default function PriceRangeChart(props: Props) {
   return (
     <div className={`flex flex-col ${className}`}>
       {!hideHeader && isSymbolMode && hasData && (
-        <div className="flex items-end gap-6 mb-1 min-h-[52px]">
+        <div className="flex items-end gap-6 mb-1">
           {lines.map((l, li) => {
             const v = getDisplayValue(l.data);
+            const displayColor = v >= 0 ? '#10b981' : '#ef4444';
+            const dollarAmt = currentPrice ? currentPrice - currentPrice / (1 + v / 100) : null;
             return (
-              <div key={li}>
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <div className="w-3 h-0.5 rounded-full" style={{ backgroundColor: l.color }} />
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{l.label}</span>
-                </div>
-                <div
-                  className="text-2xl font-bold tabular-nums leading-none transition-colors"
-                  style={{ color: l.color }}
-                >
-                  {fmtValue(v)}
-                </div>
+              <div
+                key={li}
+                className="text-sm font-semibold tabular-nums leading-none transition-colors"
+                style={{ color: displayColor }}
+              >
+                {dollarAmt !== null && (
+                  <>{dollarAmt >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(dollarAmt))} </>
+                )}
+                ({fmtPct(v)})
               </div>
             );
           })}
@@ -255,7 +273,7 @@ export default function PriceRangeChart(props: Props) {
         </div>
       )}
 
-      {!hideRangeTabs && (
+      {!hideRangeTabs && tabsPosition === 'top' && (
         <div className="flex items-center gap-0.5 mb-3">
           {ranges.map(r => (
             <button
@@ -360,6 +378,24 @@ export default function PriceRangeChart(props: Props) {
           </div>
         )}
       </div>
+
+      {!hideRangeTabs && tabsPosition === 'bottom' && (
+        <div className="flex items-center gap-0.5 mt-3">
+          {ranges.map(r => (
+            <button
+              key={r.label}
+              onClick={() => setDays(r.days, r.label)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                days === r.days
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -68,6 +68,8 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            from sqlalchemy import text
+            connection.execute(text("SET LOCAL statement_timeout = '300s'"))
             context.run_migrations()
 
 

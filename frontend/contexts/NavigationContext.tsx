@@ -15,7 +15,8 @@ export type View =
   | { type: 'connections' }
   | { type: 'swaps' }
   | { type: 'chat' }
-  | { type: 'search'; query?: string };
+  | { type: 'search'; query?: string }
+  | { type: 'memory' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context

@@ -1,12 +1,12 @@
 """
 Build portfolio value history from SnapTrade activities + FMP prices.
 
-Approach:
-1. Fetch activities from SnapTrade
-2. Fetch stock splits from FMP → inject as virtual events into the timeline
-3. Replay day by day: apply buys/sells AND splits to holdings
-4. Use FMP unadjusted close prices (match real prices at the time)
-5. Anchor today to actual SnapTrade balance
+equity[day] = sum(holdings[sym] * price[sym]) + cash[day]
+
+- Holdings replayed from activities (buys/sells/splits)
+- Validated against SnapTrade's current positions to remove phantom holdings
+- Cash anchored to SnapTrade's current cash, adjusted by activity amounts
+- Daily resolution for full history, hourly for last 7 days
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -20,11 +20,18 @@ _split_cache: Dict[str, List[dict]] = {}
 _CACHE_TTL = 300
 
 
+def clear_caches():
+    _activities_cache.clear()
+    _price_cache.clear()
+    _split_cache.clear()
+
+
 def build_portfolio_history(
     user_id: str,
     account_id: Optional[str] = None,
     start_date: Optional[str] = None,
     full_rebuild: bool = False,
+    creds: Optional[tuple] = None,
 ) -> Dict[str, Any]:
     from skills.snaptrade.scripts._client import get_snaptrade_client
     from skills.financial_modeling_prep.scripts.api import fmp
@@ -33,14 +40,16 @@ def build_portfolio_history(
 
     t0 = time.time()
     client = get_snaptrade_client()
-    session = client._get_session(user_id)
-    if not session or not session.is_connected:
-        return {"success": False, "error": "Not connected."}
+    if creds:
+        uid, secret = creds
+    else:
+        session = client._get_session(user_id)
+        if not session or not session.is_connected:
+            return {"success": False, "error": "Not connected."}
+        uid = session.snaptrade_user_id
+        secret = session.snaptrade_user_secret
 
-    uid = session.snaptrade_user_id
-    secret = session.snaptrade_user_secret
-
-    # ── 1. Accounts + balance ──
+    # ── 1. Accounts + balance + cash + current positions ──
     acct_resp = client.client.account_information.list_user_accounts(user_id=uid, user_secret=secret)
     accounts_raw = acct_resp.body if hasattr(acct_resp, "body") else acct_resp
     if not isinstance(accounts_raw, list):
@@ -70,9 +79,47 @@ def build_portfolio_history(
 
     if not account_ids:
         return {"success": False, "error": "No accounts."}
-    print(f"📋 {len(account_ids)} accounts, balance=${actual_balance:,.2f}", flush=True)
 
-    # ── 2. Fetch activities (cached) ──
+    # Get cash balance from SnapTrade
+    cash_balance = 0.0
+    for aid in account_ids:
+        try:
+            resp = client.client.account_information.get_user_account_balance(
+                user_id=uid, user_secret=secret, account_id=aid
+            )
+            data = resp.body if hasattr(resp, "body") else resp
+            bals = data if isinstance(data, list) else [data]
+            for b in bals:
+                if isinstance(b, dict):
+                    cash_balance += float(b.get("cash", 0) or 0)
+                else:
+                    cash_balance += float(getattr(b, "cash", 0) or 0)
+        except Exception as e:
+            print(f"⚠️ Balance fetch failed for {aid}: {str(e)[:80]}", flush=True)
+
+    # Get current positions from SnapTrade (ground truth for today's holdings)
+    actual_positions: Dict[str, float] = defaultdict(float)
+    for aid in account_ids:
+        try:
+            resp = client.client.account_information.get_user_account_positions(
+                user_id=uid, user_secret=secret, account_id=aid
+            )
+            pos = resp.body if hasattr(resp, "body") else resp
+            if not isinstance(pos, list):
+                pos = pos.get("data", []) if isinstance(pos, dict) else []
+            for p in pos:
+                t = _extract_ticker(p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", None))
+                q = float(p.get("units", 0) if isinstance(p, dict) else getattr(p, "units", 0) or 0)
+                if t and q > 0:
+                    actual_positions[t] += q
+        except Exception:
+            pass
+
+    print(f"📋 {len(account_ids)} accounts, balance=${actual_balance:,.2f}, cash=${cash_balance:,.2f}, {len(actual_positions)} positions", flush=True)
+
+    # ── 2. Fetch activities ──
+    # Default to 1 year of history for portfolio view
+    activity_start = start_date or (date.today() - timedelta(days=365)).isoformat()
     cache_key = (user_id, account_id or "all")
     cached = _activities_cache.get(cache_key)
     if cached and (_time.time() - cached[0]) < _CACHE_TTL:
@@ -86,7 +133,7 @@ def build_portfolio_history(
                 while True:
                     resp = client.client.account_information.get_account_activities(
                         user_id=uid, user_secret=secret, account_id=aid,
-                        start_date=start_date or "2020-01-01",
+                        start_date=activity_start,
                         end_date=date.today().isoformat(),
                         offset=offset, limit=1000,
                     )
@@ -110,7 +157,7 @@ def build_portfolio_history(
     if not all_activities:
         return {"success": False, "error": "No activities."}
 
-    # ── 3. Fetch splits for all traded symbols and inject into timeline ──
+    # ── 3. Fetch splits for traded symbols ──
     traded_symbols = {a["symbol"] for a in all_activities if a["symbol"]}
     new_splits = [s for s in traded_symbols if s not in _split_cache]
     if new_splits:
@@ -133,26 +180,27 @@ def build_portfolio_history(
         with ThreadPoolExecutor(max_workers=20) as pool:
             for sym, splits in pool.map(_fetch_split, new_splits):
                 _split_cache[sym] = splits
-                if splits:
-                    splits_fmt = [(s['date'], f"{s['ratio']:.0f}:1") for s in splits]
-                    print(f"   {sym}: {splits_fmt}", flush=True)
 
-    # Inject split events as virtual activities
+    # Only inject splits within our date range
     for sym, splits in _split_cache.items():
         for s in splits:
-            all_activities.append({
-                "account_id": "", "type": "_SPLIT", "symbol": sym,
-                "date": s["date"], "units": 0, "amount": 0, "price": 0,
-                "split_ratio": s["ratio"],
-            })
+            if s["date"] >= activity_start:
+                all_activities.append({
+                    "account_id": "", "type": "_SPLIT", "symbol": sym,
+                    "date": s["date"], "units": 0, "amount": 0, "price": 0,
+                    "split_ratio": s["ratio"],
+                })
 
     all_activities.sort(key=lambda a: a["date"])
 
     # ── 4. Replay activities day by day ──
     SKIP_UNITS = {'OPTIONEXERCISE', 'OPTIONEXPIRATION', 'FEE', 'INTEREST', 'CONTRIBUTION', 'WITHDRAWAL'}
 
+    # Start with actual positions and work backward to set initial holdings
+    # at start_date. We do this by replaying activities FORWARD from start_date
+    # using SnapTrade positions as a validation anchor.
     holdings: Dict[str, float] = defaultdict(float)
-    cash = 0.0
+    cumulative_cash = 0.0
     first_date = date.fromisoformat(all_activities[0]["date"])
     last_date = date.today()
 
@@ -170,26 +218,45 @@ def build_portfolio_history(
             atype = a.get("type", "")
 
             if atype == "_SPLIT" and sym and sym in holdings and holdings[sym] > 0:
-                # Apply stock split: multiply shares by split ratio
                 old_qty = holdings[sym]
                 holdings[sym] = old_qty * a["split_ratio"]
-                print(f"   📈 Split {sym}: {old_qty:.0f} → {holdings[sym]:.0f} ({a['split_ratio']:.0f}:1) on {d}", flush=True)
             elif sym and a.get("units") and atype not in SKIP_UNITS:
                 holdings[sym] += a["units"]
                 if abs(holdings[sym]) < 0.01:
                     del holdings[sym]
 
-            cash += a.get("amount", 0)
+            cumulative_cash += a.get("amount", 0)
 
         if current.weekday() < 5:
             clean = {s: q for s, q in holdings.items() if q > 0.01}
-            daily_state.append((d, dict(clean), cash))
+            daily_state.append((d, dict(clean), cumulative_cash))
 
         current += timedelta(days=1)
 
-    print(f"📊 {len(daily_state)} market days", flush=True)
+    # ── 4b. Validate replayed holdings against SnapTrade positions ──
+    # Remove phantom holdings (mergers, acquisitions, delistings)
+    replayed_holdings = daily_state[-1][1] if daily_state else {}
+    valid_symbols = set(actual_positions.keys())
+    phantom = {s for s in replayed_holdings if s not in valid_symbols}
+    if phantom:
+        print(f"🧹 Removing {len(phantom)} phantom holdings not in SnapTrade: {sorted(phantom)}", flush=True)
+        # Remove phantoms from all daily states
+        daily_state = [
+            (d, {s: q for s, q in h.items() if s not in phantom}, cc)
+            for d, h, cc in daily_state
+        ]
 
-    # ── 5. Fetch unadjusted close prices ──
+    # Log holdings comparison
+    for sym in sorted(valid_symbols):
+        replayed = replayed_holdings.get(sym, 0)
+        actual = actual_positions[sym]
+        if abs(replayed - actual) > 0.1:
+            print(f"⚠️ Holdings mismatch: {sym} replayed={replayed:.2f} vs actual={actual:.2f}", flush=True)
+
+    print(f"📊 {len(daily_state)} market days, {len(valid_symbols)} active positions", flush=True)
+
+    # ── 5. Fetch prices ──
+    # Only fetch for symbols actually in holdings, and only for the date range held
     symbol_ranges: Dict[str, tuple] = {}
     for d, h, _ in daily_state:
         for sym in h:
@@ -208,7 +275,7 @@ def build_portfolio_history(
 
     if to_fetch:
         t1 = time.time()
-        print(f"📊 Prices: {len(to_fetch)}/{len(symbol_ranges)} symbols...", flush=True)
+        print(f"📊 Daily prices: {len(to_fetch)}/{len(symbol_ranges)} symbols...", flush=True)
 
         def _fetch_price(item):
             sym, (fd, td) = item
@@ -218,7 +285,7 @@ def build_portfolio_history(
                 hist = data.get("historical", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
                 for bar in hist:
                     if "date" in bar:
-                        prices[bar["date"]] = bar.get("close", 0)  # UNADJUSTED
+                        prices[bar["date"]] = bar.get("close", 0)
                 return (sym, prices)
             except:
                 return (sym, {})
@@ -227,113 +294,100 @@ def build_portfolio_history(
             for sym, prices in pool.map(_fetch_price, to_fetch.items()):
                 if prices:
                     _price_cache.setdefault(sym, {}).update(prices)
-        print(f"✅ Prices in {time.time()-t1:.1f}s", flush=True)
+        print(f"✅ Daily prices in {time.time()-t1:.1f}s", flush=True)
 
-    # ── 6. Compute daily value ──
+    # Hourly prices for last 7 days
+    current_holdings = daily_state[-1][1] if daily_state else {}
+    intraday_cutoff = (date.today() - timedelta(days=10)).isoformat()
+    hourly_cache: Dict[str, List[dict]] = {}
+
+    if current_holdings:
+        t2 = time.time()
+
+        def _fetch_hourly(sym):
+            try:
+                data = fmp(f"/historical-chart/1hour/{sym}", {"from": intraday_cutoff, "to": date.today().isoformat()})
+                if not isinstance(data, list):
+                    return (sym, [])
+                return (sym, [{"date": b["date"], "close": b.get("close", 0)} for b in data if b.get("date", "") >= intraday_cutoff])
+            except:
+                return (sym, [])
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            for sym, bars in pool.map(_fetch_hourly, current_holdings.keys()):
+                if bars:
+                    hourly_cache[sym] = sorted(bars, key=lambda b: b["date"])
+        print(f"✅ Hourly prices in {time.time()-t2:.1f}s ({len(hourly_cache)} symbols)", flush=True)
+
+    # ── 6. Build equity series ──
+    today_cum = daily_state[-1][2] if daily_state else 0
+    missing_prices: Dict[str, List[str]] = defaultdict(list)
+
     equity_series = []
-    for d, h, day_cash in daily_state:
+    for d, h, cum_cash in daily_state:
         stock_value = 0.0
         for sym, qty in h.items():
             prices = _price_cache.get(sym, {})
             price = prices.get(d)
             if price is None:
                 dt = date.fromisoformat(d)
-                for i in range(1, 8):
+                for i in range(1, 4):
                     p = (dt - timedelta(days=i)).isoformat()
                     if p in prices:
                         price = prices[p]
                         break
-            if price:
+            if price is None:
+                missing_prices[sym].append(d)
+            else:
                 stock_value += qty * price
 
-        total = stock_value + day_cash
+        cash_on_day = cash_balance - (today_cum - cum_cash)
+        total = stock_value + cash_on_day
         if total > 0:
             equity_series.append({"date": d, "value": round(total, 2)})
 
-    # Anchor today
-    if equity_series and actual_balance > 0:
-        equity_series[-1]["value"] = round(actual_balance, 2)
+    if missing_prices:
+        for sym, dates in missing_prices.items():
+            print(f"⚠️ MISSING PRICES: {sym} — {len(dates)} days (e.g. {dates[:3]})", flush=True)
 
-    print(f"⏱️ Done: {time.time()-t0:.1f}s, {len(equity_series)} pts", flush=True)
+    # Hourly series for last 7 days
+    intraday_series = []
+    if hourly_cache and current_holdings:
+        all_ts = sorted({b["date"] for bars in hourly_cache.values() for b in bars})
+        week_ago = (date.today() - timedelta(days=7)).isoformat()
+        all_ts = [ts for ts in all_ts if ts >= week_ago]
+
+        for ts in all_ts:
+            stock_value = 0.0
+            for sym, qty in current_holdings.items():
+                price = 0
+                for b in hourly_cache.get(sym, []):
+                    if b["date"] <= ts:
+                        price = b["close"]
+                    else:
+                        break
+                stock_value += qty * price
+            if stock_value > 0:
+                total = stock_value + cash_balance
+                intraday_series.append({"date": ts, "value": round(total, 2)})
+
+    if equity_series and actual_balance > 0:
+        print(f"📊 Last daily=${equity_series[-1]['value']:,.2f} vs actual=${actual_balance:,.2f}", flush=True)
+
+    print(f"⏱️ Done: {time.time()-t0:.1f}s, {len(equity_series)} daily + {len(intraday_series)} hourly pts", flush=True)
 
     return {
-        "success": True, "equity_series": equity_series,
+        "success": True,
+        "equity_series": equity_series,
+        "intraday_series": intraday_series,
         "symbols_used": sorted(symbol_ranges.keys()),
-        "activities_count": len(all_activities), "snapshots_saved": 0,
-        "date_range": {"from": equity_series[0]["date"] if equity_series else None,
-                       "to": equity_series[-1]["date"] if equity_series else None},
+        "activities_count": len(all_activities),
+        "snapshots_saved": 0,
+        "date_range": {
+            "from": equity_series[0]["date"] if equity_series else None,
+            "to": equity_series[-1]["date"] if equity_series else None,
+        },
     }
-
-
-def build_intraday_history(user_id: str, account_id: Optional[str] = None, days_back: int = 7) -> Dict[str, Any]:
-    from skills.snaptrade.scripts._client import get_snaptrade_client
-    from skills.financial_modeling_prep.scripts.api import fmp
-    from concurrent.futures import ThreadPoolExecutor
-
-    client = get_snaptrade_client()
-    session = client._get_session(user_id)
-    if not session or not session.is_connected:
-        return {"success": False, "error": "Not connected."}
-    uid, secret = session.snaptrade_user_id, session.snaptrade_user_secret
-
-    acct_resp = client.client.account_information.list_user_accounts(user_id=uid, user_secret=secret)
-    accounts_raw = acct_resp.body if hasattr(acct_resp, "body") else acct_resp
-    if not isinstance(accounts_raw, list):
-        accounts_raw = []
-    aids = [str(getattr(a, "id", "") if not isinstance(a, dict) else a.get("id", "")) for a in accounts_raw]
-    aids = [a for a in aids if a and a != "None" and (not account_id or a == account_id)]
-
-    holdings: Dict[str, float] = defaultdict(float)
-    for aid in aids:
-        try:
-            resp = client.client.account_information.get_user_account_positions(user_id=uid, user_secret=secret, account_id=aid)
-            pos = resp.body if hasattr(resp, "body") else resp
-            if not isinstance(pos, list):
-                pos = pos.get("data", []) if isinstance(pos, dict) else []
-            for p in pos:
-                t = _extract_ticker(p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", None))
-                q = float(p.get("units", 0) if isinstance(p, dict) else getattr(p, "units", 0) or 0)
-                if t and q > 0:
-                    holdings[t] += q
-        except:
-            pass
-    if not holdings:
-        return {"success": False, "error": "No positions."}
-
-    today = date.today().isoformat()
-    cutoff = today if days_back <= 1 else (date.today() - timedelta(days=days_back)).isoformat()
-    # Use 15min bars for 1D (finer granularity), hourly for multi-day
-    interval = "15min" if days_back <= 1 else "1hour"
-    def _f(sym):
-        try:
-            data = fmp(f"/historical-chart/{interval}/{sym}", {"from": cutoff, "to": today})
-            if not isinstance(data, list):
-                return (sym, [])
-            return (sym, [{"date": b["date"], "close": b.get("close", 0)} for b in data if b.get("date", "") >= cutoff])
-        except:
-            return (sym, [])
-
-    hourly = {}
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        for sym, bars in pool.map(_f, holdings.keys()):
-            if bars:
-                hourly[sym] = sorted(bars, key=lambda b: b["date"])
-
-    all_ts = sorted({b["date"] for bars in hourly.values() for b in bars})
-    series = []
-    for ts in all_ts:
-        total = 0
-        for sym, qty in holdings.items():
-            price = 0
-            for b in hourly.get(sym, []):
-                if b["date"] <= ts:
-                    price = b["close"]
-                else:
-                    break
-            total += qty * price
-        if total > 0:
-            series.append({"date": ts, "value": round(total, 2)})
-    return {"success": True, "equity_series": series}
 
 
 def _extract_ticker(obj) -> str:

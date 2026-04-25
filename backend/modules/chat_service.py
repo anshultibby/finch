@@ -36,7 +36,8 @@ class ChatService:
         chat_id: str,
         user_id: str,
         images: List[Dict[str, str]] = None,
-        skill_ids: List[str] = None
+        skill_ids: List[str] = None,
+        auth_token: str = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send a message and stream SSE events as they happen.
@@ -143,6 +144,8 @@ class ChatService:
                 # Create cancel event for this execution
                 cancel_event = asyncio.Event()
                 
+                if auth_token:
+                    context["auth_token"] = auth_token
                 agent_context = AgentContext(
                     agent_id=generate_agent_id(),  # Unique ID for this master agent instance
                     user_id=user_id,
@@ -380,9 +383,16 @@ class ChatService:
                     except Exception as e:
                         logger.warning(f"Failed to send chat complete email: {e}")
 
+                # Update MEMORY.md via cognee (background, non-blocking)
+                try:
+                    from services.cognee_memory import process_chat_memory
+                    asyncio.create_task(process_chat_memory(user_id, chat_id))
+                except Exception as e:
+                    logger.warning(f"Cognee memory processing failed to start (non-fatal): {e}")
+
                 # Mark chat as no longer processing in database
                 await chat_async.set_chat_processing(db, chat_id, is_processing=False)
-                
+
                 logger.info("Chat turn complete - all messages saved incrementally")
     
     async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:

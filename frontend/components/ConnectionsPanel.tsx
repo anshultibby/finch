@@ -252,42 +252,57 @@ export default function ConnectionsPanel() {
 
   const [buildingHistory, setBuildingHistory] = useState(false);
   const [intradayCache, setIntradayCache] = useState<Record<string, Array<{ date: string; value: number }>>>({});
-  const [intradayLoading, setIntradayLoading] = useState(false);
   const [hoverValue, setHoverValue] = useState<{ date: string; value: number } | null>(null);
-  const intradayCacheRef = useRef(intradayCache);
-  intradayCacheRef.current = intradayCache;
 
-  const intradaySeries = (timeRange === '1D' || timeRange === '1W') ? (intradayCache[timeRange] || []) : [];
+  const intradaySeries = (() => {
+    if (timeRange !== '1D' && timeRange !== '1W') return [];
+    const raw = intradayCache['1W'] || [];
+    if (timeRange === '1D' && raw.length > 0) {
+      const today = localDateStr(new Date());
+      const todayData = raw.filter(p => p.date.startsWith(today));
+      return todayData.length >= 2 ? todayData : raw;
+    }
+    return raw;
+  })();
+
+  const loadPortfolioData = async (force = false) => {
+    if (!user) return;
+    // First try cached snapshots
+    if (!force) {
+      const cached = await snaptradeApi.getPortfolioHistory(user.id, undefined, undefined, selectedAccountId).catch(() => null);
+      if (cached?.success && cached.equity_series?.length > 1) {
+        setEquitySeries(cached.equity_series);
+        const lastDate = cached.equity_series[cached.equity_series.length - 1].date;
+        const today = new Date().toISOString().split('T')[0];
+        if (lastDate >= today && cached.equity_series.length >= 15) {
+          // Also load intraday from cache
+          const intraday = await snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId).catch(() => null);
+          if (intraday?.success && intraday.equity_series?.length > 1) {
+            setIntradayCache({ '1W': intraday.equity_series });
+          }
+          return;
+        }
+      }
+    }
+    // Build fresh
+    setBuildingHistory(true);
+    try {
+      const result = await snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId, force);
+      if (result.success && result.equity_series && result.equity_series.length > 1) {
+        setEquitySeries(result.equity_series);
+      }
+      if (result.intraday_series && result.intraday_series.length > 1) {
+        setIntradayCache({ '1W': result.intraday_series });
+      }
+    } catch {}
+    setBuildingHistory(false);
+  };
 
   useEffect(() => {
     if (!loading && isConnected && user && !showAccountPicker) {
-      snaptradeApi.getPortfolioHistory(user.id, undefined, undefined, selectedAccountId).then(result => {
-        if (result.success && result.equity_series?.length > 1) {
-          setEquitySeries(result.equity_series);
-        } else {
-          setBuildingHistory(true);
-          snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId).then(buildResult => {
-            if (buildResult.success && buildResult.equity_series && buildResult.equity_series.length > 1) {
-              setEquitySeries(buildResult.equity_series);
-            }
-          }).catch(() => {}).finally(() => setBuildingHistory(false));
-        }
-      }).catch(() => {});
+      loadPortfolioData();
     }
   }, [loading, isConnected, user, showAccountPicker, selectedAccountId]);
-
-  useEffect(() => {
-    if (!user || !isConnected || showAccountPicker) return;
-    if (timeRange !== '1D' && timeRange !== '1W') return;
-    if (intradayCacheRef.current[timeRange]?.length >= 1) return;
-    setIntradayLoading(true);
-    const days = timeRange === '1D' ? 1 : 7;
-    snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId, days).then(result => {
-      if (result.success && result.equity_series?.length > 1) {
-        setIntradayCache(prev => ({ ...prev, [timeRange]: result.equity_series }));
-      }
-    }).catch(() => {}).finally(() => setIntradayLoading(false));
-  }, [user, isConnected, showAccountPicker, selectedAccountId, timeRange]);
 
   useEffect(() => {
     if (!user || !isConnected || showAccountPicker || buildingHistory) return;
@@ -306,25 +321,11 @@ export default function ConnectionsPanel() {
 
     const interval = setInterval(() => {
       if (!isMarketOpen()) return;
-
-      if (timeRange === '1D' || timeRange === '1W') {
-        const days = timeRange === '1D' ? 1 : 7;
-        snaptradeApi.getPortfolioIntraday(user.id, selectedAccountId, days).then(result => {
-          if (result.success && result.equity_series?.length > 1) {
-            setIntradayCache(prev => ({ ...prev, [timeRange]: result.equity_series }));
-          }
-        }).catch(() => {});
-      }
-
-      snaptradeApi.getPortfolioHistory(user.id, undefined, undefined, selectedAccountId).then(result => {
-        if (result.success && result.equity_series?.length > 1) {
-          setEquitySeries(result.equity_series);
-        }
-      }).catch(() => {});
+      loadPortfolioData();
     }, 60_000);
 
     return () => clearInterval(interval);
-  }, [user, isConnected, showAccountPicker, buildingHistory, timeRange, selectedAccountId]);
+  }, [user, isConnected, showAccountPicker, buildingHistory, selectedAccountId]);
 
   if (loading) {
     return (
@@ -419,46 +420,74 @@ export default function ConnectionsPanel() {
     );
   }
 
+  const useIntraday = (timeRange === '1D' || timeRange === '1W') && intradaySeries.length >= 2;
+  let chartData: Array<{ date: string; value: number }>;
+
+  if (useIntraday) {
+    chartData = intradaySeries;
+  } else if (timeRange === 'ALL') {
+    chartData = equitySeries;
+  } else if (timeRange === '1D') {
+    chartData = equitySeries.length >= 2 ? equitySeries.slice(-2) : equitySeries;
+  } else {
+    const cutoff = getStartDate(timeRange);
+    const filtered = equitySeries.filter(p => p.date >= cutoff);
+    chartData = filtered.length >= 2 ? filtered : equitySeries;
+  }
+
+  const change = chartData.length >= 2
+    ? { value: chartData[chartData.length - 1].value - chartData[0].value, pct: ((chartData[chartData.length - 1].value - chartData[0].value) / chartData[0].value) * 100 }
+    : null;
+
+  const hoverChange = hoverValue && chartData.length >= 1
+    ? { value: hoverValue.value - chartData[0].value, pct: ((hoverValue.value - chartData[0].value) / chartData[0].value) * 100 }
+    : null;
+
+  const displayChange = hoverChange ?? change;
+  const isChartLoading = (timeRange === '1D' || timeRange === '1W') && buildingHistory && !useIntraday;
+
+  const rangeOptions: RangeOption[] = [
+    { label: '1D', days: 1 },
+    { label: '1W', days: 7 },
+    { label: '1M', days: 30 },
+    { label: '3M', days: 90 },
+    { label: 'YTD', days: ytdDays() },
+    { label: '1Y', days: 365 },
+    { label: 'ALL', days: 3650 },
+  ];
+  const selectedDays = rangeOptions.find(r => r.label === timeRange)?.days ?? 30;
+  const labelToTimeRange = (label: string): TimeRange | null =>
+    rangeOptions.some(r => r.label === label) ? (label as TimeRange) : null;
+
+  const timeRangeLabel = timeRange === '1D' ? 'Today' : timeRange === 'YTD' ? 'Year to date' : timeRange === 'ALL' ? 'All time' : `Past ${timeRange === '1W' ? 'week' : timeRange === '1M' ? 'month' : timeRange === '3M' ? '3 months' : 'year'}`;
+
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Portfolio header + chart */}
-      <div className="shrink-0">
-        <div className="px-4 pt-3 pb-1">
-          <div className="flex items-center gap-2">
+      {/* Portfolio header — Robinhood style */}
+      <div className="shrink-0 px-4 pt-4 pb-1">
+        <div className="flex items-center gap-2 mb-1">
+          <button
+            onClick={() => {
+              if (accounts.length > 0) {
+                setShowAccountPicker(true);
+                setSelectedSymbol(null);
+              }
+            }}
+            className="p-1 -ml-2 text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+          {selectedAccountName && <div className="text-xs text-gray-400 font-medium">{selectedAccountName}</div>}
+          <div className="ml-auto">
             <button
-              onClick={() => {
-                if (accounts.length > 0) {
-                  setShowAccountPicker(true);
-                  setSelectedSymbol(null);
-                }
-              }}
-              className="p-1 -ml-2 text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-              </svg>
-            </button>
-            <div>
-              {selectedAccountName && <div className="text-xs text-gray-400 font-medium">{selectedAccountName}</div>}
-              <div className="text-2xl font-bold text-gray-900 tabular-nums">
-                {formatCurrency(
-                  hoverValue?.value
-                  ?? (selectedAccountId ? accounts.find(a => a.id === selectedAccountId)?.balance : null)
-                  ?? portfolioSummary?.totalValue
-                  ?? 0
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => {
+              onClick={async () => {
                 if (!user || buildingHistory) return;
-                setBuildingHistory(true);
                 setEquitySeries([]);
-                snaptradeApi.buildPortfolioHistory(user.id, selectedAccountId, true).then(result => {
-                  if (result.success && result.equity_series && result.equity_series.length > 1) {
-                    setEquitySeries(result.equity_series);
-                  }
-                }).catch(() => {}).finally(() => setBuildingHistory(false));
+                setIntradayCache({});
+                await snaptradeApi.clearPortfolioCache(user.id).catch(() => {});
+                loadPortfolioData(true);
               }}
               disabled={buildingHistory}
               className="p-1 text-gray-300 hover:text-gray-500 transition-colors disabled:opacity-30"
@@ -471,87 +500,63 @@ export default function ConnectionsPanel() {
           </div>
         </div>
 
-        {/* Portfolio equity chart */}
-        {(() => {
-          const useIntraday = (timeRange === '1D' || timeRange === '1W') && intradaySeries.length >= 2;
-          let chartData: Array<{ date: string; value: number }>;
+        {/* Big portfolio value */}
+        <div className="text-2xl font-bold text-gray-900 tabular-nums leading-tight">
+          {formatCurrency(
+            hoverValue?.value
+            ?? (selectedAccountId ? accounts.find(a => a.id === selectedAccountId)?.balance : null)
+            ?? portfolioSummary?.totalValue
+            ?? 0
+          )}
+        </div>
 
-          if (useIntraday) {
-            chartData = intradaySeries;
-          } else if (timeRange === 'ALL') {
-            chartData = equitySeries;
-          } else if (timeRange === '1D') {
-            chartData = equitySeries.length >= 2 ? equitySeries.slice(-2) : equitySeries;
-          } else {
-            const cutoff = getStartDate(timeRange);
-            const filtered = equitySeries.filter(p => p.date >= cutoff);
-            chartData = filtered.length >= 2 ? filtered : equitySeries;
-          }
+        {/* Dollar + percent change */}
+        {displayChange && (
+          <div className="mt-0.5">
+            <span className={`text-sm font-medium tabular-nums ${displayChange.value >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+              {displayChange.value >= 0 ? '+' : ''}{formatCurrency(displayChange.value)} ({formatPct(displayChange.pct)})
+            </span>
+            <span className="text-xs text-gray-400 ml-1.5">{timeRangeLabel}</span>
+          </div>
+        )}
+      </div>
 
-          const change = chartData.length >= 2
-            ? { value: chartData[chartData.length - 1].value - chartData[0].value, pct: ((chartData[chartData.length - 1].value - chartData[0].value) / chartData[0].value) * 100 }
-            : null;
-
-          const isChartLoading = (timeRange === '1D' || timeRange === '1W') && intradayLoading && !useIntraday;
-
-          const rangeOptions: RangeOption[] = [
-            { label: '1D', days: 1 },
-            { label: '1W', days: 7 },
-            { label: '1M', days: 30 },
-            { label: '3M', days: 90 },
-            { label: 'YTD', days: ytdDays() },
-            { label: '1Y', days: 365 },
-            { label: 'ALL', days: 3650 },
-          ];
-          const selectedDays = rangeOptions.find(r => r.label === timeRange)?.days ?? 30;
-          const labelToTimeRange = (label: string): TimeRange | null =>
-            rangeOptions.some(r => r.label === label) ? (label as TimeRange) : null;
-
-          return chartData.length >= 2 || isChartLoading ? (
-            <>
-              {change && (
-                <div className="px-4 pb-1">
-                  <span className={`text-sm font-medium tabular-nums ${change.value >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {change.value >= 0 ? '+' : ''}{formatCurrency(change.value)} ({formatPct(change.pct)})
-                  </span>
-                  <span className="text-xs text-gray-400 ml-1.5">
-                    {timeRange === '1D' ? 'Today' : timeRange === 'YTD' ? 'Year to date' : timeRange === 'ALL' ? 'All time' : `Past ${timeRange === '1W' ? 'week' : timeRange === '1M' ? 'month' : timeRange === '3M' ? '3 months' : 'year'}`}
-                  </span>
-                </div>
-              )}
-              <div className="px-2">
-                {isChartLoading ? (
-                  <div className="flex items-center justify-center h-[160px] gap-2">
-                    <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
-                    <span className="text-xs text-gray-400">Loading hourly data...</span>
-                  </div>
-                ) : (
-                  <PriceRangeChart
-                    data={chartData}
-                    format="currency"
-                    height={160}
-                    ranges={rangeOptions}
-                    selectedDays={selectedDays}
-                    onRangeChange={(_d, label) => {
-                      const next = labelToTimeRange(label);
-                      if (next) setTimeRange(next);
-                    }}
-                    onHoverChange={setHoverValue}
-                  />
-                )}
-              </div>
-            </>
-          ) : buildingHistory ? (
-            <div className="h-[80px] flex items-center justify-center gap-2">
-              <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
-              <span className="text-xs text-gray-400">Building portfolio history...</span>
-            </div>
-          ) : null;
-        })()}
+      {/* Chart */}
+      <div className="shrink-0 px-2">
+        {isChartLoading ? (
+          <div className="flex items-center justify-center h-[160px] gap-2">
+            <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+            <span className="text-xs text-gray-400">Loading intraday data...</span>
+          </div>
+        ) : chartData.length >= 2 ? (
+          <PriceRangeChart
+            data={chartData}
+            format="currency"
+            height={160}
+            ranges={rangeOptions}
+            selectedDays={selectedDays}
+            tabsPosition="bottom"
+            hideHeader
+            onRangeChange={(_d, label) => {
+              const next = labelToTimeRange(label);
+              if (next) setTimeRange(next);
+            }}
+            onHoverChange={setHoverValue}
+          />
+        ) : buildingHistory ? (
+          <div className="h-[80px] flex items-center justify-center gap-2">
+            <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+            <span className="text-xs text-gray-400">Building portfolio history...</span>
+          </div>
+        ) : (
+          <div className="h-[80px] flex items-center justify-center">
+            <span className="text-xs text-gray-400">No chart data available</span>
+          </div>
+        )}
       </div>
 
       {/* Holdings list */}
-      <div className="flex-1 overflow-y-auto border-t border-gray-200">
+      <div className="flex-1 overflow-y-auto border-t border-gray-200 mt-2">
         <div className="px-4 py-2.5">
           <span className="text-sm font-semibold text-gray-900">Stocks</span>
         </div>

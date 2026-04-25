@@ -519,10 +519,14 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
     from services.api_keys import ApiKeyService
     from modules.tools.skills_registry import SKILL_ENV_KEYS
     from core.database import get_db_session
+    from core.config import Config
 
+    auth_token = (context.data or {}).get("auth_token", "")
     env: Dict[str, str] = {
         "FINCH_USER_ID": context.user_id or "",
         "FINCH_CHAT_ID": context.chat_id or "",
+        "FINCH_API_URL": getattr(Config, "FINCH_BACKEND_URL", None) or "http://localhost:8000",
+        "FINCH_AUTH_TOKEN": auth_token,
         "PYTHONWARNINGS": "ignore",
         "LOG_LEVEL": "ERROR",
         "CODE_SANDBOX": "true",

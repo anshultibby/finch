@@ -265,7 +265,50 @@ async def get_portfolio(
     - performance: Gain/loss metrics
     """
     await verify_user_access(user_id, authenticated_user_id)
+    import uuid as uuid_mod
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select, delete
+    from core.database import get_db_session
+
+    cache_ttl = timedelta(minutes=5)
+
+    # Check DB cache
+    try:
+        from models.brokerage import PortfolioHoldingsCache
+        async with get_db_session() as db:
+            row = (await db.execute(
+                select(PortfolioHoldingsCache).where(
+                    PortfolioHoldingsCache.user_id == user_id,
+                )
+            )).scalars().first()
+
+            if row and (datetime.now(timezone.utc) - row.computed_at) < cache_ttl:
+                data = row.portfolio_data
+                data["cached"] = True
+                return data
+    except Exception:
+        PortfolioHoldingsCache = None
+
+    # Cache miss or stale — fetch from SnapTrade
     result = await snaptrade_tools.get_portfolio(user_id)
+
+    if result.get("success") and PortfolioHoldingsCache is not None:
+        try:
+            async with get_db_session() as db:
+                await db.execute(
+                    delete(PortfolioHoldingsCache).where(
+                        PortfolioHoldingsCache.user_id == user_id,
+                    )
+                )
+                db.add(PortfolioHoldingsCache(
+                    id=uuid_mod.uuid4(),
+                    user_id=user_id,
+                    portfolio_data=result,
+                    computed_at=datetime.now(timezone.utc),
+                ))
+        except Exception:
+            pass
+
     return result
 
 
@@ -397,30 +440,55 @@ async def build_portfolio_history_endpoint(
                 if len(equity_series) > 1:
                     return {"success": True, "equity_series": equity_series, "cached": True}
 
+    # Pre-fetch session in async context so sync executor can use it
+    session = await snaptrade_tools._get_session(user_id)
+    if not session or not session.is_connected:
+        return {"success": False, "error": "Not connected."}
+    creds = (session.snaptrade_user_id, session.snaptrade_user_secret)
+
     # Rebuild from scratch
     result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: build_portfolio_history(user_id, account_id=account_id)
+        None, lambda: build_portfolio_history(user_id, account_id=account_id, creds=creds)
     )
 
     if not result.get("success") or not result.get("equity_series"):
         return result
 
     equity_series = result["equity_series"]
+    intraday_series = result.get("intraday_series", [])
 
     async with get_db_session() as db:
-        # Delete old snapshots for this account then insert fresh ones
+        # Save daily snapshots
         await db.execute(
             delete(PortfolioSnapshot)
             .where(PortfolioSnapshot.user_id == user_id)
             .where(PortfolioSnapshot.data["account_id"].astext == snapshot_account_key)
         )
-
         for point in equity_series:
             db.add(PortfolioSnapshot(
                 id=uuid.uuid4(),
                 user_id=user_id,
                 snapshot_date=date_type.fromisoformat(point["date"]),
                 data={"total_value": point["value"], "account_id": snapshot_account_key},
+            ))
+
+        # Save intraday series
+        if intraday_series:
+            from datetime import datetime, timezone
+            from models.brokerage import PortfolioIntradayCache
+            await db.execute(
+                delete(PortfolioIntradayCache).where(
+                    PortfolioIntradayCache.user_id == user_id,
+                    PortfolioIntradayCache.account_id == snapshot_account_key,
+                )
+            )
+            db.add(PortfolioIntradayCache(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                account_id=snapshot_account_key,
+                days_back=7,
+                equity_series=intraday_series,
+                computed_at=datetime.now(timezone.utc),
             ))
 
     result["snapshots_saved"] = len(equity_series)
@@ -436,58 +504,59 @@ async def get_portfolio_intraday(
 ):
     """
     Get hourly portfolio value for the last N days.
-    Returns DB-cached series if fresh (< 1 hour old), otherwise recomputes and saves.
+    Returns cached intraday series from the last build-history run.
     """
     await verify_user_access(user_id, authenticated_user_id)
-    import asyncio
-    import uuid as uuid_mod
-    from datetime import datetime, timezone, timedelta
-    from sqlalchemy import select, delete
+    from datetime import date as date_type, timedelta
+    from sqlalchemy import select
     from models.brokerage import PortfolioIntradayCache
     from core.database import get_db_session
-    from skills.snaptrade.scripts.portfolio.build_history import build_intraday_history
 
     account_key = account_id or "all"
-    cache_ttl = timedelta(hours=1)
 
-    # Check DB cache
     async with get_db_session() as db:
         row = (await db.execute(
             select(PortfolioIntradayCache).where(
                 PortfolioIntradayCache.user_id == user_id,
                 PortfolioIntradayCache.account_id == account_key,
-                PortfolioIntradayCache.days_back == days,
             )
         )).scalars().first()
 
-        if row and (datetime.now(timezone.utc) - row.computed_at) < cache_ttl:
-            return {"success": True, "equity_series": row.equity_series, "cached": True}
+        if row and row.equity_series:
+            series = row.equity_series
+            if days < 7:
+                cutoff = (date_type.today() - timedelta(days=days + 1)).isoformat()
+                series = [p for p in series if p["date"] >= cutoff]
+            return {"success": True, "equity_series": series, "cached": True}
 
-    # Cache miss or stale — recompute
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: build_intraday_history(user_id, account_id=account_id, days_back=days)
-    )
-
-    if result.get("success") and result.get("equity_series"):
-        async with get_db_session() as db:
-            # Upsert: delete old entry then insert fresh one
-            await db.execute(
-                delete(PortfolioIntradayCache).where(
-                    PortfolioIntradayCache.user_id == user_id,
-                    PortfolioIntradayCache.account_id == account_key,
-                    PortfolioIntradayCache.days_back == days,
-                )
-            )
-            db.add(PortfolioIntradayCache(
-                id=uuid_mod.uuid4(),
-                user_id=user_id,
-                account_id=account_key,
-                days_back=days,
-                equity_series=result["equity_series"],
-                computed_at=datetime.now(timezone.utc),
-            ))
-
-    return result
+    return {"success": True, "equity_series": [], "cached": False}
 
 
+@router.delete("/portfolio/{user_id}/cache")
+async def clear_portfolio_cache(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Clear all cached portfolio data (snapshots + intraday + in-memory) for a user."""
+    await verify_user_access(user_id, authenticated_user_id)
+    from sqlalchemy import delete
+    from models.brokerage import PortfolioSnapshot, PortfolioIntradayCache
+    from core.database import get_db_session
+
+    async with get_db_session() as db:
+        snap_result = await db.execute(
+            delete(PortfolioSnapshot).where(PortfolioSnapshot.user_id == user_id)
+        )
+        intra_result = await db.execute(
+            delete(PortfolioIntradayCache).where(PortfolioIntradayCache.user_id == user_id)
+        )
+
+    from skills.snaptrade.scripts.portfolio.build_history import clear_caches
+    clear_caches()
+
+    return {
+        "success": True,
+        "snapshots_deleted": snap_result.rowcount,
+        "intraday_deleted": intra_result.rowcount,
+    }
 

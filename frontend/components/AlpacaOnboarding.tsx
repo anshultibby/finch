@@ -5,7 +5,7 @@ import { alpacaBrokerApi } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type OnboardingStep = 'personal' | 'address' | 'identity' | 'disclosures' | 'agreements' | 'submitted';
+type OnboardingStep = 'personal' | 'address' | 'identity' | 'disclosures' | 'agreements' | 'submitted' | 'done';
 
 interface FormData {
   // personal
@@ -61,6 +61,7 @@ const STEP_LABELS: Record<OnboardingStep, string> = {
   disclosures: 'Disclosures',
   agreements: 'Agreements',
   submitted: 'Submitted',
+  done: 'Done',
 };
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -216,6 +217,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
         setPollStatus(result.status);
         if (result.alpaca_account_id) setAccountId(result.alpaca_account_id);
         if (result.status === 'ACTIVE') {
+          setStep('done');
           onSuccess?.();
         }
       }

@@ -803,10 +803,15 @@ class SnapTradeTools:
                     else:
                         status = 'error'
                 
-                # Build Account model
+                # Use SnapTrade account balance as total_value — it reflects
+                # net equity (positions minus margin debt), which is the real value.
+                account_balance = account_model.get_balance()
+                positions_sum = sum(pos.value for pos in positions_list)
+                total_value = account_balance if account_balance > 0 else positions_sum
+
                 accounts_list.append(account_model.to_account(
                     positions=positions_list,
-                    total_value=sum(pos.value for pos in positions_list),
+                    total_value=total_value,
                     status=status
                 ))
             
@@ -852,7 +857,6 @@ class SnapTradeTools:
                 existing = result.scalars().first()
 
                 if not existing:
-                    # Fetch current portfolio value
                     portfolio = await self.get_portfolio(user_id)
                     if portfolio.get("success"):
                         total_value = portfolio.get("total_value", 0)
@@ -860,7 +864,7 @@ class SnapTradeTools:
                             id=uuid.uuid4(),
                             user_id=user_id,
                             snapshot_date=today,
-                            data={"total_value": total_value, "account_count": portfolio.get("account_count", 0)}
+                            data={"total_value": total_value, "account_id": account_id or "all"}
                         )
                         db.add(snapshot)
                         print(f"📸 Saved portfolio snapshot: {user_id} = ${total_value:,.2f}", flush=True)
@@ -880,8 +884,8 @@ class SnapTradeTools:
                 for s in snapshots:
                     if not isinstance(s.data, dict):
                         continue
-                    snap_acct = s.data.get("account_id", "all")
-                    if snap_acct != account_key:
+                    snap_acct = s.data.get("account_id")
+                    if snap_acct is not None and snap_acct != account_key:
                         continue
                     val = s.data.get("total_value", 0)
                     equity_series.append({"date": str(s.snapshot_date), "value": float(val)})

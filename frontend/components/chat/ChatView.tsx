@@ -216,7 +216,6 @@ export default function ChatView({
       onTitleGenerated: (chatId, title, icon) => {
         setIsCreatingChat(false);
         sidebarRef?.current?.updateChatTitle(chatId, title, icon);
-        onHistoryRefresh?.();
       },
       onHistoryRefresh: () => onHistoryRefresh?.(),
       onSwapsReceived,

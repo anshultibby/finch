@@ -102,6 +102,19 @@ class PortfolioIntradayCache(Base):
     computed_at = Column(DateTime(timezone=True), nullable=False)
 
 
+class PortfolioHoldingsCache(Base):
+    """
+    Cached portfolio holdings response, keyed by user_id (one per user).
+    Refreshed automatically when stale (> 5 minutes old).
+    """
+    __tablename__ = "portfolio_holdings_cache"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, unique=True, index=True)
+    portfolio_data = Column(JSONB, nullable=False)
+    computed_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class TradeAnalytics(Base):
     """
     Cached analysis results for closed positions - flexible JSON schema
