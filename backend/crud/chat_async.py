@@ -34,11 +34,11 @@ async def get_chat(db: AsyncSession, chat_id: str) -> Optional[Chat]:
 
 
 async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> List[Chat]:
-    """Get all chats for a user, ordered by most recently created"""
+    """Get all non-bot chats for a user, ordered by most recently active"""
     result = await db.execute(
         select(Chat)
-        .where(Chat.user_id == user_id)
-        .order_by(Chat.created_at.desc())
+        .where(Chat.user_id == user_id, Chat.bot_id.is_(None))
+        .order_by(Chat.updated_at.desc())
         .limit(limit)
     )
     return list(result.scalars().all())
@@ -56,12 +56,12 @@ async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int
     # We'll do this in Python to avoid complex SQL - but efficiently
     result = await db.execute(
         select(Chat)
-        .where(Chat.user_id == user_id)
-        .order_by(Chat.created_at.desc())
+        .where(Chat.user_id == user_id, Chat.bot_id.is_(None))
+        .order_by(Chat.updated_at.desc())
         .limit(limit)
     )
     chats = result.scalars().all()
-    
+
     # Batch fetch last messages for all chats in one query
     if chats:
         chat_ids = [chat.chat_id for chat in chats]

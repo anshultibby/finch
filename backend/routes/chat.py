@@ -254,9 +254,15 @@ async def generate_title(
         # Generate title and icon using LLM
         title, icon = await generate_chat_title(request.first_message)
         
-        # Update the chat in database
+        # Update the chat in database (chat may not exist yet if stream hasn't created it)
         async with get_db_session() as db:
-            await chat_async.update_chat_title(db, request.chat_id, title, icon)
+            updated = await chat_async.update_chat_title(db, request.chat_id, title, icon)
+            if not updated:
+                try:
+                    await chat_async.create_chat(db, request.chat_id, authenticated_user_id, title=title, icon=icon)
+                except Exception:
+                    # Stream handler may have created it in the meantime — retry update
+                    await chat_async.update_chat_title(db, request.chat_id, title, icon)
         
         return GenerateTitleResponse(title=title, icon=icon)
         

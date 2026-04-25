@@ -380,9 +380,9 @@ async def _read_sandbox_memory(user_id: str) -> str:
     """Read current MEMORY.md from user's sandbox."""
     try:
         from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
-        entry = await _get_or_reconnect_sandbox(user_id)
-        if entry and entry.sbx:
-            content = await entry.sbx.files.read("/home/user/MEMORY.md", format="text")
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if sbx:
+            content = await sbx.files.read("/home/user/MEMORY.md", format="text")
             return content or ""
     except Exception:
         pass
@@ -393,9 +393,9 @@ async def _write_sandbox_memory(user_id: str, content: str) -> bool:
     """Write updated MEMORY.md to user's sandbox."""
     try:
         from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
-        entry = await _get_or_reconnect_sandbox(user_id)
-        if entry and entry.sbx:
-            await entry.sbx.files.write("/home/user/MEMORY.md", content)
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if sbx:
+            await sbx.files.write("/home/user/MEMORY.md", content)
             return True
     except Exception as e:
         logger.warning(f"Failed to write MEMORY.md to sandbox: {e}")
