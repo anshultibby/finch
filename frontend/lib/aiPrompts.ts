@@ -46,8 +46,7 @@ export interface InvestorPersona {
   tagline: string;
   quote: string;
   description: string;
-  gradient: string;
-  accentColor: string;
+  gradientStyle: string;
   initial: string;
 }
 
@@ -59,8 +58,7 @@ export const INVESTOR_PERSONAS: InvestorPersona[] = [
     tagline: 'The Oracle of Omaha',
     quote: 'Price is what you pay. Value is what you get.',
     description: 'Moats, business quality, owner earnings',
-    gradient: 'from-blue-500 to-indigo-600',
-    accentColor: 'blue',
+    gradientStyle: 'linear-gradient(135deg, #3b82f6, #4f46e5)',
     initial: 'WB',
   },
   {
@@ -70,8 +68,7 @@ export const INVESTOR_PERSONAS: InvestorPersona[] = [
     tagline: 'The Abominable No-Man',
     quote: 'Invert, always invert.',
     description: 'Mental models, cognitive biases, brutal clarity',
-    gradient: 'from-amber-500 to-orange-600',
-    accentColor: 'amber',
+    gradientStyle: 'linear-gradient(135deg, #f59e0b, #ea580c)',
     initial: 'CM',
   },
   {
@@ -79,10 +76,9 @@ export const INVESTOR_PERSONAS: InvestorPersona[] = [
     name: 'Howard Marks',
     shortName: 'Marks',
     tagline: 'The Memo Writer',
-    quote: 'The most important thing is being attentive to cycles.',
+    quote: 'You can\'t predict. You can prepare.',
     description: 'Second-level thinking, risk, market cycles',
-    gradient: 'from-emerald-500 to-teal-600',
-    accentColor: 'emerald',
+    gradientStyle: 'linear-gradient(135deg, #10b981, #0d9488)',
     initial: 'HM',
   },
   {
@@ -92,19 +88,17 @@ export const INVESTOR_PERSONAS: InvestorPersona[] = [
     tagline: 'The People\'s Investor',
     quote: 'Know what you own, and know why you own it.',
     description: 'Ten-baggers, stock categories, everyday edge',
-    gradient: 'from-violet-500 to-purple-600',
-    accentColor: 'violet',
+    gradientStyle: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
     initial: 'PL',
   },
   {
     id: 'soros',
     name: 'George Soros',
     shortName: 'Soros',
-    tagline: 'The Man Who Broke the Bank of England',
-    quote: 'Find the trend whose premise is false, and bet against it.',
+    tagline: 'Broke the Bank of England',
+    quote: 'It\'s not whether you\'re right or wrong — it\'s how much you make when right.',
     description: 'Reflexivity, macro regimes, boom/bust cycles',
-    gradient: 'from-red-500 to-rose-600',
-    accentColor: 'red',
+    gradientStyle: 'linear-gradient(135deg, #ef4444, #e11d48)',
     initial: 'GS',
   },
   {
@@ -112,10 +106,9 @@ export const INVESTOR_PERSONAS: InvestorPersona[] = [
     name: 'Cathie Wood',
     shortName: 'Cathie',
     tagline: 'The Disruption Evangelist',
-    quote: 'The biggest risk is not being exposed to disruptive innovation.',
+    quote: 'The biggest risk is NOT owning disruptive innovation.',
     description: 'Innovation platforms, exponential growth, 5-year bets',
-    gradient: 'from-fuchsia-500 to-pink-600',
-    accentColor: 'fuchsia',
+    gradientStyle: 'linear-gradient(135deg, #d946ef, #ec4899)',
     initial: 'CW',
   },
   {
@@ -123,10 +116,9 @@ export const INVESTOR_PERSONAS: InvestorPersona[] = [
     name: 'Aswath Damodaran',
     shortName: 'Damodaran',
     tagline: 'The Dean of Valuation',
-    quote: 'A story without numbers is a fairy tale. Numbers without a story are noise.',
+    quote: 'A story without numbers is a fairy tale.',
     description: 'Narrative-to-numbers, DCF, valuation craft',
-    gradient: 'from-slate-500 to-gray-700',
-    accentColor: 'slate',
+    gradientStyle: 'linear-gradient(135deg, #64748b, #374151)',
     initial: 'AD',
   },
 ];
