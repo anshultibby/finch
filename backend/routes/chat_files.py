@@ -238,6 +238,8 @@ async def upload_file_to_sandbox(
     """
     user_id, _ = await _get_chat_info(chat_id, db)
 
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
     try:
         from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
         sbx = await _get_or_reconnect_sandbox(user_id)
@@ -245,9 +247,18 @@ async def upload_file_to_sandbox(
             raise HTTPException(status_code=503, detail="Sandbox not available — start a chat first")
 
         content = await file.read()
-        await sbx.commands.run(f"mkdir -p {dest_dir}", timeout=5)
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
 
-        dest_path = f"{dest_dir}/{file.filename}"
+        import os.path
+        safe_filename = os.path.basename(file.filename or "upload")
+        if not safe_filename or safe_filename.startswith("."):
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        safe_dest = "/home/user/uploads"
+        await sbx.commands.run(f"mkdir -p {safe_dest}", timeout=5)
+
+        dest_path = f"{safe_dest}/{safe_filename}"
         await sbx.files.write(dest_path, content, request_timeout=60)
 
         return {

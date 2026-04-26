@@ -148,7 +148,8 @@ async def add_credits(
     Returns:
         Updated credit balance
     """
-    if not Config.ADMIN_SECRET or x_admin_secret != Config.ADMIN_SECRET:
+    import hmac
+    if not Config.ADMIN_SECRET or not hmac.compare_digest(x_admin_secret, Config.ADMIN_SECRET):
         raise HTTPException(status_code=403, detail="Forbidden")
     try:
         if request.credits <= 0:
@@ -196,7 +197,7 @@ async def get_pricing_info():
     return {
         "credits_per_dollar": CREDITS_PER_DOLLAR,
         "premium_multiplier": PREMIUM_MULTIPLIER,
-        "info": "Credits are calculated based on actual token usage with a 20% premium. 1000 credits = $1 USD base cost.",
+        "info": "Credits are calculated based on actual token usage with a 20% premium. 1 credit = 1 cent ($0.01). 100 credits = $1 USD.",
         "model_pricing": {
             model: {
                 "input_per_million": pricing["input"],
@@ -209,11 +210,11 @@ async def get_pricing_info():
         "example": {
             "scenario": "100K input tokens + 10K output tokens (Claude Sonnet 4.5)",
             "calculation": {
-                "input_cost_usd": 0.3,  # (100K / 1M) * $3
-                "output_cost_usd": 0.15,  # (10K / 1M) * $15
+                "input_cost_usd": 0.3,
+                "output_cost_usd": 0.15,
                 "total_usd": 0.45,
-                "with_premium_usd": 0.54,  # 0.45 * 1.2
-                "credits_charged": 540  # 0.54 * 1000
+                "with_premium_usd": 0.54,
+                "credits_charged": 54
             }
         }
     }
@@ -296,9 +297,9 @@ async def stripe_webhook(request: Request):
                 await CreditsService.set_user_plan(db, user_id, "pro")
                 # Give pro users a credit bonus on first subscription
                 await CreditsService.add_credits(
-                    db, user_id, 10_000,
+                    db, user_id, 1_000,
                     transaction_type="subscription",
-                    description="Pro plan activation bonus (+10,000 credits)"
+                    description="Pro plan activation bonus (+1,000 credits / $10)"
                 )
                 logger.info(f"User {user_id} upgraded to pro via Stripe")
 
@@ -318,7 +319,8 @@ async def admin_set_plan(request: SetPlanRequest, x_admin_secret: str = Header(.
     Admin endpoint to manually set a user's plan.
     Requires X-Admin-Secret header matching ADMIN_SECRET env var.
     """
-    if not Config.ADMIN_SECRET or x_admin_secret != Config.ADMIN_SECRET:
+    import hmac
+    if not Config.ADMIN_SECRET or not hmac.compare_digest(x_admin_secret, Config.ADMIN_SECRET):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     if request.plan not in ("free", "pro", "admin"):
@@ -365,7 +367,7 @@ User ID: {request.user_id}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CREDIT DETAILS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Requested: {request.requested_credits:,} credits (~${request.requested_credits / 1000:.2f} worth)
+Requested: {request.requested_credits:,} credits (~${request.requested_credits / 100:.2f} worth)
 Current Balance: {request.current_balance:,} credits
 Total Used (Lifetime): {request.total_used:,} credits
 

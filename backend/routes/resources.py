@@ -36,7 +36,9 @@ async def get_chat_resources(
 ):
     try:
         result = await db.execute(
-            select(Resource).where(Resource.chat_id == chat_id)
+            select(Resource).where(
+                and_(Resource.chat_id == chat_id, Resource.user_id == authenticated_user_id)
+            )
             .order_by(Resource.created_at.desc()).limit(limit)
         )
         return [_to_response(r) for r in result.scalars().all()]
@@ -73,6 +75,7 @@ async def get_resource(
         resource = result.scalar_one_or_none()
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
+        await verify_user_access(resource.user_id, authenticated_user_id)
         return _to_response(resource)
     except HTTPException:
         raise
@@ -91,6 +94,7 @@ async def delete_resource(
         resource = result.scalar_one_or_none()
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
+        await verify_user_access(resource.user_id, authenticated_user_id)
         await db.delete(resource)
         return {"message": "Resource deleted successfully"}
     except HTTPException:

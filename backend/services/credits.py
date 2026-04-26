@@ -40,22 +40,21 @@ MODEL_PRICING = {
     "gemini-3": {"input": 2.5, "output": 10.0, "cache_read": 0.25, "cache_write": 3.125},
 }
 
-# Credits conversion: 1000 credits = $1 USD
-CREDITS_PER_DOLLAR = 1000
+# Credits conversion: 100 credits = $1 USD (1 credit = 1 cent)
+CREDITS_PER_DOLLAR = 100
 
 # Premium multiplier (20% markup over raw API cost)
 PREMIUM_MULTIPLIER = 1.2
 
-# Default credits granted to new users (5000 = $5 — enough for ~500 turns)
-DEFAULT_NEW_USER_CREDITS = 5000
+# Default credits granted to new users (500 = $5 — enough for ~500 turns)
+DEFAULT_NEW_USER_CREDITS = 500
 
-# Daily spend caps per plan (credits = $0.001 each, so 1000 = $1/day)
+# Daily spend caps per plan (1 credit = $0.01, so 100 = $1/day)
 DAILY_CREDIT_CAPS = {
-    "free":  1_000,    # $1/day
-    "pro":  10_000,    # $10/day
+    "free":  100,      # $1/day (100 credits)
+    "pro":  1_000,     # $10/day (1000 credits)
     "admin": None,     # unlimited
 }
-# Kept for backward compat
 DAILY_CREDIT_CAP = DAILY_CREDIT_CAPS["free"]
 
 

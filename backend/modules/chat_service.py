@@ -91,7 +91,7 @@ class ChatService:
                     await chat_async.set_chat_processing(db, chat_id, is_processing=False)
                     yield SSEEvent(
                         event="error",
-                        data={"error": "Daily limit reached ($1/day). Resets at midnight UTC."}
+                        data={"error": "Daily limit reached (100 credits / $1 per day). Resets at midnight UTC."}
                     ).to_sse_format()
                     yield SSEEvent(event="done", data={}).to_sse_format()
                     return

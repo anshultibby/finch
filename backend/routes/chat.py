@@ -138,6 +138,11 @@ async def get_chat_history(
     """
     Retrieve chat history for a specific chat
     """
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
     try:
         messages = await chat_service.get_chat_history(chat_id)
         return {
@@ -157,6 +162,11 @@ async def get_chat_history_display(
     Retrieve chat history formatted for UI display.
     Returns a structured format with grouped tool calls and filtered messages.
     """
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
     try:
         display_data = await chat_service.get_chat_history_for_display(chat_id)
         return {
@@ -176,6 +186,11 @@ async def clear_chat_history(
     Clear chat history for a specific chat.
     The user's persistent sandbox is preserved -- skills on the volume stay intact.
     """
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
     success = await chat_service.clear_chat(chat_id)
     return {"message": "Chat history cleared" if success else "Chat not found or already cleared"}
 
@@ -291,7 +306,9 @@ async def get_chat_status(
     """
     try:
         async with get_db_session() as db:
-            # Check processing status and get last activity in parallel
+            chat = await chat_async.get_chat(db, chat_id)
+            if chat:
+                await verify_user_access(chat.user_id, authenticated_user_id)
             is_processing = await chat_async.is_chat_processing(db, chat_id)
             last_activity = await chat_async.get_last_activity_timestamp(db, chat_id)
         

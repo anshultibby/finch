@@ -10,6 +10,7 @@ from services.analytics import analytics_service
 from services.transaction_sync import transaction_sync_service
 from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
 from core.database import get_async_db
+from auth.dependencies import get_current_user_id, verify_user_access
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -19,7 +20,8 @@ async def sync_transactions(
     user_id: str = Query(..., description="User ID (from Supabase auth)"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    force_resync: bool = Query(False)
+    force_resync: bool = Query(False),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
     Sync transactions from connected brokerage
@@ -29,6 +31,7 @@ async def sync_transactions(
         end_date: End date in YYYY-MM-DD format (default: today)
         force_resync: Force re-sync even if recently synced
     """
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         # Parse dates if provided
         start_dt = datetime.fromisoformat(start_date) if start_date else None
@@ -50,14 +53,10 @@ async def sync_transactions(
 @router.get("/performance")
 async def get_performance(
     user_id: str = Query(..., description="User ID (from Supabase auth)"),
-    period: str = Query("all_time", regex="^(all_time|ytd|1m|3m|6m|1y)$")
+    period: str = Query("all_time", regex="^(all_time|ytd|1m|3m|6m|1y)$"),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
-    """
-    Get portfolio performance metrics
-    
-    Args:
-        period: Time period (all_time, ytd, 1m, 3m, 6m, 1y)
-    """
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         metrics = analytics_service.calculate_performance_metrics(user_id, period)
         return metrics
@@ -68,9 +67,10 @@ async def get_performance(
 
 @router.get("/patterns")
 async def get_trading_patterns(
-    user_id: str = Query(..., description="User ID (from Supabase auth)")
+    user_id: str = Query(..., description="User ID (from Supabase auth)"),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
-    """Get behavioral trading patterns"""
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         patterns = analytics_service.analyze_trading_patterns(user_id)
         return {"patterns": patterns}
@@ -86,7 +86,8 @@ async def get_transactions(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     limit: int = Query(100, le=500),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get transaction history
@@ -99,6 +100,7 @@ async def get_transactions(
     """
     from models.brokerage import Transaction
 
+    await verify_user_access(user_id, authenticated_user_id)
     try:
         start_dt = datetime.fromisoformat(start_date) if start_date else None
         end_dt = datetime.fromisoformat(end_date) if end_date else None
