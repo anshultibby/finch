@@ -45,6 +45,8 @@ Functions are sync (except portfolio.get_holdings which is async).
 Returns data from user's actual brokerage accounts.
 """
 
-from ._client import get_snaptrade_client
+def get_snaptrade_client():
+    from ._client import get_snaptrade_client as _get
+    return _get()
 
 __all__ = ['get_snaptrade_client']
