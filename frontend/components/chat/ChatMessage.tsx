@@ -33,7 +33,6 @@ interface ChatMessageProps {
   isStreaming?: boolean;
   startTime?: number | null;
   timeEstimate?: TimeEstimate | null;
-  onRequestEmailNotification?: () => void;
 }
 
 const getChatFileUrl = (chatId: string | undefined, filename: string): string => {
@@ -819,7 +818,7 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, onRequestEmailNotification }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[(file|visualization|image):\s*[^\]]+\]/.test(content);
   const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick) : null;
@@ -870,7 +869,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
     return (
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
-          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} onRequestEmailNotification={onRequestEmailNotification} />
+          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
         </div>
       </div>
     );
@@ -902,7 +901,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
           <SwapCards swaps={swap_data} userId={userId || ''} />
         )}
         {toolCalls && toolCalls.length > 0 && (
-          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} onRequestEmailNotification={onRequestEmailNotification} />
+          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
         )}
         {actions && actions.length > 0 && (
           <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} />

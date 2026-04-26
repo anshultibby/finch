@@ -12,7 +12,6 @@ interface ToolCallSummaryProps {
   timeEstimate?: TimeEstimate | null;
   onSelectTool?: (tool: ToolCallStatus) => void;
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
-  onRequestEmailNotification?: () => void;
 }
 
 // Tools that are always shown outside the collapsed summary
@@ -61,11 +60,9 @@ export default function ToolCallSummary({
   timeEstimate,
   onSelectTool,
   onPeekAgent,
-  onRequestEmailNotification,
 }: ToolCallSummaryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [emailRequested, setEmailRequested] = useState(false);
 
   // Sort tools by insertion order, then partition into special vs regular
   // and compute status counts in a single pass
@@ -170,19 +167,13 @@ export default function ToolCallSummary({
         className={`flex items-center gap-2.5 py-2 px-3 rounded-lg cursor-pointer transition-all duration-150 select-none ${
           isStreaming
             ? 'bg-amber-50/70 border border-amber-200/60 hover:border-amber-300'
-            : errorCount > 0
-              ? 'bg-red-50/70 border border-red-200/60 hover:border-red-300'
-              : 'bg-gray-50/70 border border-gray-200/60 hover:border-gray-300'
+            : 'bg-gray-50/70 border border-gray-200/60 hover:border-gray-300'
         }`}
       >
         {/* Status icon */}
         <span className="flex-shrink-0">
           {isStreaming ? (
             <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse block" />
-          ) : errorCount > 0 ? (
-            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
           ) : (
             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -193,13 +184,11 @@ export default function ToolCallSummary({
         {/* Status text */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
           <span className={`text-sm font-medium flex-shrink-0 ${
-            isStreaming ? 'text-amber-700' : errorCount > 0 ? 'text-red-700' : 'text-gray-600'
+            isStreaming ? 'text-amber-700' : 'text-gray-600'
           }`}>
             {isStreaming
               ? `Working... ${completedCount}/${totalCount > 0 ? totalCount : '?'} steps`
-              : errorCount > 0
-                ? `Completed with ${errorCount} error${errorCount > 1 ? 's' : ''}`
-                : `Completed ${totalCount} step${totalCount !== 1 ? 's' : ''}`
+              : `Completed ${totalCount} step${totalCount !== 1 ? 's' : ''}`
             }
           </span>
 
@@ -248,31 +237,6 @@ export default function ToolCallSummary({
         <p className="text-xs text-amber-600/60 px-3 -mt-0.5">
           {timeEstimate.description}
         </p>
-      )}
-
-      {/* Email notification toggle */}
-      {isStreaming && elapsedSeconds > 15 && onRequestEmailNotification && !emailRequested && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setEmailRequested(true);
-            onRequestEmailNotification();
-          }}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 hover:text-gray-600 transition-colors self-start"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          Email me when done
-        </button>
-      )}
-      {isStreaming && emailRequested && (
-        <span className="flex items-center gap-1.5 px-3 py-1 text-xs text-green-600 self-start">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path d="M5 13l4 4L19 7" />
-          </svg>
-          We'll email you when this is done
-        </span>
       )}
 
       {/* Expanded tool list */}

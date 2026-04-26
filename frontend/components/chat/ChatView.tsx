@@ -40,6 +40,7 @@ interface ChatViewProps {
   rightOffset?: number;
   // Compact mode for chat drawer
   compact?: boolean;
+  onPersonaChange?: (personaId: string | null) => void;
 }
 
 function formatErrorForUser(error: string): string {
@@ -97,6 +98,7 @@ export default function ChatView({
   onVisualizationClick,
   botId,
   rightOffset = 0,
+  onPersonaChange,
 }: ChatViewProps) {
   const { user } = useAuth();
   const { mode } = useChatMode();
@@ -116,7 +118,7 @@ export default function ChatView({
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [timeEstimate, setTimeEstimate] = useState<import('@/hooks/useChatStream').TimeEstimate | null>(null);
-
+  const [emailRequested, setEmailRequested] = useState(false);
 
   // UI state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
@@ -124,6 +126,13 @@ export default function ChatView({
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Active investor persona for this chat
+  const [activePersonaId, setActivePersonaIdLocal] = useState<string | null>(null);
+  const setActivePersonaId = useCallback((id: string | null) => {
+    setActivePersonaIdLocal(id);
+    onPersonaChange?.(id);
+  }, [onPersonaChange]);
 
   // Sub-agent peek panel
   const [peekAgent, setPeekAgent] = useState<{ agentId: string; chatId: string; name: string } | null>(null);
@@ -365,6 +374,11 @@ export default function ChatView({
   const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown, investorPersona?: string) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
 
+    // Track investor persona for the lifetime of this chat
+    const personaToUse = investorPersona || activePersonaId;
+    if (investorPersona) setActivePersonaId(investorPersona);
+
+    setEmailRequested(false);
     const isFirst = isNewChat || !currentChatId;
     let creatingChatTimeout: NodeJS.Timeout | null = null;
 
@@ -392,7 +406,7 @@ export default function ChatView({
           setCurrentChatId(newChatId);
         },
         skills,
-        investorPersona,
+        personaToUse,
       );
     } catch {
       // Errors handled inside useChatStream
@@ -424,6 +438,7 @@ export default function ChatView({
     setCurrentChatId(selectedChatId);
     setIsNewChat(false);
     setSelectedTool(null);
+    setActivePersonaId(null);
     syncDisplay(getChatState(selectedChatId));
   };
 
@@ -432,6 +447,7 @@ export default function ChatView({
     setCurrentChatId(null);
     setIsNewChat(true);
     setSelectedTool(null);
+    setActivePersonaId(null);
     clearDisplay();
   }, [userId, clearDisplay, setCurrentChatId]);
 
@@ -592,6 +608,33 @@ export default function ChatView({
       >
         <ChatModeBanner />
 
+        {/* Email notification banner — appears at top during long streams */}
+        {isLoading && streamStartTime && !emailRequested && currentChatId && (Date.now() - streamStartTime) > 15000 && (
+          <div className="flex items-center justify-center gap-2 py-2 px-4 bg-gray-50 border-b border-gray-200 animate-in fade-in duration-300">
+            <span className="text-xs text-gray-500">This is taking a while.</span>
+            <button
+              onClick={() => {
+                setEmailRequested(true);
+                chatApi.requestEmailNotification(currentChatId).catch(() => {});
+              }}
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Email me when done
+            </button>
+          </div>
+        )}
+        {isLoading && emailRequested && (
+          <div className="flex items-center justify-center gap-1.5 py-2 px-4 bg-green-50 border-b border-green-200 animate-in fade-in duration-300">
+            <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-xs text-green-700">We'll email you when this is done</span>
+          </div>
+        )}
+
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className={`pt-8 pb-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
@@ -673,9 +716,6 @@ export default function ChatView({
                     isStreaming={true}
                     startTime={streamStartTime}
                     timeEstimate={timeEstimate}
-                    onRequestEmailNotification={currentChatId ? () => {
-                      chatApi.requestEmailNotification(currentChatId).catch(() => {});
-                    } : undefined}
                   />
                 )}
 
