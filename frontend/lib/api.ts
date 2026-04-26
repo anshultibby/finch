@@ -118,7 +118,8 @@ export const chatApi = {
     chatId: string,
     handlers: SSEEventHandlers,
     images?: ImageAttachment[],
-    skills?: string[]
+    skills?: string[],
+    investorPersona?: string
   ): { close: () => void; reconnect: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
     const abortController = new AbortController();
@@ -129,6 +130,7 @@ export const chatApi = {
       chat_id: chatId,
       ...(images && images.length > 0 && { images }),
       ...(skills && skills.length > 0 && { skills }),
+      ...(investorPersona && { investor_persona: investorPersona }),
     };
 
     // Track if we're closed to prevent processing after abort

@@ -38,6 +38,7 @@ class ChatService:
         images: List[Dict[str, str]] = None,
         skill_ids: List[str] = None,
         auth_token: str = None,
+        investor_persona: str = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send a message and stream SSE events as they happen.
@@ -161,7 +162,7 @@ class ChatService:
                     logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
                     previous_context.cancel()
                 
-                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
+                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids, investor_persona=investor_persona)
                 
                 # Prepend current datetime so the LLM is always aware of the current time
                 now = datetime.now(timezone.utc).strftime("%A, %B %d, %Y %H:%M UTC")

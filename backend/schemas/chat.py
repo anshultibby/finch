@@ -18,6 +18,7 @@ class ChatMessage(BaseModel):
     chat_id: Optional[str] = None
     images: Optional[List[ImageAttachment]] = None  # Optional image attachments for multimodal
     skills: Optional[List[str]] = None  # Skill IDs manually selected for this turn
+    investor_persona: Optional[str] = None  # Investor persona ID (e.g. "buffett", "munger")
 
 
 class ChatResponse(BaseModel):

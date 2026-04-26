@@ -459,10 +459,41 @@ def _get_finch_system_prompt() -> str:
     return FINCH_SYSTEM_PROMPT
 
 
-async def get_agent_system_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None) -> str:
+def _build_investor_persona_prompt(investor_id: str) -> str:
+    """Build a system prompt section that activates an investor persona."""
+    from pathlib import Path
+    persona_dir = Path(__file__).parent.parent.parent / "skills" / "historical_investor" / "investors" / investor_id
+    if not persona_dir.exists():
+        return ""
+
+    persona_file = persona_dir / "persona.md"
+    sources_file = persona_dir / "sources.md"
+
+    parts = ["\n\n<investor_persona>"]
+    parts.append(f"The user has requested a portfolio review from this investor persona.")
+    parts.append(f"You MUST adopt this persona completely — voice, mannerisms, analytical framework, everything.")
+    parts.append(f"Stay in character for the ENTIRE conversation. Never break character or refer to yourself as an AI.")
+    parts.append("")
+
+    if persona_file.exists():
+        parts.append(persona_file.read_text(encoding="utf-8"))
+        parts.append("")
+
+    if sources_file.exists():
+        parts.append(sources_file.read_text(encoding="utf-8"))
+        parts.append("")
+
+    parts.append("IMPORTANT: Before reviewing the portfolio, fetch at least one primary source listed above ")
+    parts.append("using web_search and scrape_url to ground yourself in this investor's actual words and current thinking.")
+    parts.append("</investor_persona>")
+    return "\n".join(parts)
+
+
+async def get_agent_system_prompt(user_id: Optional[str] = None, skill_ids: list[str] = None, investor_persona: str = None) -> str:
     """
-    Build the full agent system prompt: base Finch prompt + skills + memory guidance.
+    Build the full agent system prompt: base Finch prompt + skills + memory guidance + optional investor persona.
     """
     base_prompt = _get_finch_system_prompt()
     skills_section = build_skills_prompt(skill_ids or [])
-    return base_prompt + skills_section + MEMORY_PROMPT
+    persona_section = _build_investor_persona_prompt(investor_persona) if investor_persona else ""
+    return base_prompt + skills_section + MEMORY_PROMPT + persona_section

@@ -449,7 +449,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     images: ImageAttachment[] | undefined,
     onStateChange: (state: ChatStreamState) => void,
     onChatIdChange: (chatId: string) => void,
-    skills?: string[]
+    skills?: string[],
+    investorPersona?: string
   ): Promise<string> => {
     if (!content.trim() && (!images || images.length === 0)) {
       throw new Error('Message content is required');
@@ -500,7 +501,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       const stream = chatApi.sendMessageStream(
         trimmed, userId, targetChatId,
         createEventHandlers(targetChatId, onStateChange),
-        images, skills
+        images, skills, investorPersona
       );
       update(targetChatId, { stream }, onStateChange);
       return targetChatId;

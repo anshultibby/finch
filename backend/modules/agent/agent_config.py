@@ -5,11 +5,11 @@ from core.config import Config
 from .prompts import get_agent_system_prompt
 
 
-async def create_agent(context, user_id: str = None, skill_ids: list[str] = None):
+async def create_agent(context, user_id: str = None, skill_ids: list[str] = None, investor_persona: str = None):
     """Create an agent with the base system prompt."""
     from .base_agent import BaseAgent
 
-    system_prompt = await get_agent_system_prompt(user_id, skill_ids)
+    system_prompt = await get_agent_system_prompt(user_id, skill_ids, investor_persona=investor_persona)
 
     return BaseAgent(
         context=context,

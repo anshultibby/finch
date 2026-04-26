@@ -362,7 +362,7 @@ export default function ChatView({
     };
   }, [currentChatId, getChatState, updateChatState, syncDisplay]);
 
-  const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown) => {
+  const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown, investorPersona?: string) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
 
     const isFirst = isNewChat || !currentChatId;
@@ -392,6 +392,7 @@ export default function ChatView({
           setCurrentChatId(newChatId);
         },
         skills,
+        investorPersona,
       );
     } catch {
       // Errors handled inside useChatStream

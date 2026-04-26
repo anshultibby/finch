@@ -2,6 +2,7 @@
 
 import React, { useState, KeyboardEvent, useRef, useEffect } from 'react';
 import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
+import InvestorPicker from './InvestorPicker';
 
 interface QuickAction {
   label: string;
@@ -55,7 +56,7 @@ const QUICK_ACTION_STYLES: Record<QuickAction['accent'], { bg: string; iconBg: s
 };
 
 interface NewChatWelcomeProps {
-  onSendMessage: (message: string, images?: any[], skills?: string[]) => void;
+  onSendMessage: (message: string, images?: any[], skills?: string[], files?: any, investorPersona?: string) => void;
   disabled?: boolean;
   prefillMessage?: string;
   prefillLabel?: string;
@@ -180,6 +181,16 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
               </button>
             );
           })}
+        </div>
+
+        {/* Investor persona picker */}
+        <div className="mb-4">
+          <InvestorPicker
+            onSelect={(prompt, investorId) => {
+              onSendMessage(prompt, undefined, undefined, undefined, investorId);
+            }}
+            disabled={disabled}
+          />
         </div>
 
         {/* Free-form input */}
