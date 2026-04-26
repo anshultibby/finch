@@ -407,11 +407,16 @@ class ToolExecutor:
             and has_visible_tool
         ):
             context.time_estimate_emitted = True
+            visible_count = sum(
+                1 for c in tool_calls
+                if not (tool_registry.get_tool(c.name) and tool_registry.get_tool(c.name).hidden_from_ui)
+            )
+            est_seconds = max(10, visible_count * 6)
             yield SSEEvent(
                 event="time_estimate",
                 data=TimeEstimateEvent(
-                    estimated_seconds=45,
-                    estimated_tools=max(3, len(tool_calls)),
+                    estimated_seconds=est_seconds,
+                    estimated_tools=max(visible_count, len(tool_calls)),
                     description="Working on your request...",
                 ).model_dump()
             )

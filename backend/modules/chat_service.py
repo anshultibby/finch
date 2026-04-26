@@ -463,82 +463,77 @@ class ChatService:
             return {"messages": []}
         
         display_messages = []
-        
+
+        def _parse_tool_calls(msg):
+            """Extract visible tool calls from an assistant message."""
+            tool_calls = []
+            tool_results = msg.tool_results or {}
+            if not msg.tool_calls:
+                return tool_calls
+            for tc in msg.tool_calls:
+                tool_name = tc.get("function", {}).get("name")
+                tool_call_id = tc.get("id")
+                tool_obj = tool_registry.get_tool(tool_name)
+                if tool_obj and tool_obj.hidden_from_ui:
+                    continue
+                try:
+                    args_str = tc.get("function", {}).get("arguments", "{}")
+                    if isinstance(args_str, str):
+                        args = json.loads(args_str) if args_str else {}
+                    elif isinstance(args_str, dict):
+                        args = args_str
+                    else:
+                        args = {}
+                    status_message = args.get("user_description") or tool_name
+                    stored_result = tool_results.get(tool_call_id, {})
+                    tool_call_data = {
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "statusMessage": status_message,
+                        "arguments": args,
+                        "status": stored_result.get("status", "completed"),
+                        "error": stored_result.get("error"),
+                        "result_summary": stored_result.get("result_summary"),
+                    }
+                    if "code_output" in stored_result:
+                        tool_call_data["code_output"] = stored_result["code_output"]
+                    tool_calls.append(tool_call_data)
+                except Exception as e:
+                    logger.warning(f"Failed to parse tool call {tool_name}: {e}")
+            return tool_calls
+
         for msg in messages:
-            # User messages
             if msg.role == "user":
                 display_messages.append({
                     "role": "user",
                     "content": msg.content,
                     "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
                 })
-            
-            # Assistant messages
             elif msg.role == "assistant":
-                # Parse tool_calls if present
-                tool_calls = []
-                # Get stored tool_results for this message (keyed by tool_call_id)
-                tool_results = msg.tool_results or {}
-                
-                if msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        tool_name = tc.get("function", {}).get("name")
-                        tool_call_id = tc.get("id")
-                        
-                        # Skip hidden tools
-                        tool_obj = tool_registry.get_tool(tool_name)
-                        if tool_obj and tool_obj.hidden_from_ui:
-                            continue
-                        
-                        # Parse arguments
-                        try:
-                            args_str = tc.get("function", {}).get("arguments", "{}")
-                            # Handle both string and dict formats
-                            if isinstance(args_str, str):
-                                args = json.loads(args_str) if args_str else {}
-                            elif isinstance(args_str, dict):
-                                args = args_str
-                            else:
-                                args = {}
-                            
-                            # Use statusMessage to match ToolCallStatus interface
-                            # Fall back to tool_name if no user_description provided
-                            status_message = args.get("user_description") or tool_name
-                            
-                            # Get stored execution result for this tool call
-                            stored_result = tool_results.get(tool_call_id, {})
-                            
-                            tool_call_data = {
-                                "tool_call_id": tool_call_id,
-                                "tool_name": tool_name,
-                                "statusMessage": status_message,
-                                "arguments": args,  # Include arguments for filename extraction
-                                "status": stored_result.get("status", "completed"),
-                                "error": stored_result.get("error"),
-                                "result_summary": stored_result.get("result_summary"),
-                            }
-                            
-                            # Include code_output if present (for execute_code tool)
-                            if "code_output" in stored_result:
-                                tool_call_data["code_output"] = stored_result["code_output"]
-                            
-                            tool_calls.append(tool_call_data)
-                        except Exception as e:
-                            logger.warning(f"Failed to parse tool call {tool_name}: {e}")
-                            logger.exception(e)
-                
-                # Only add message if it has content or tool_calls
-                if msg.content or tool_calls:
+                tool_calls = _parse_tool_calls(msg)
+                if not msg.content and not tool_calls:
+                    continue
+
+                # Merge consecutive tool-only assistant messages into one
+                # so the UI renders a single grouped summary bar per turn
+                if (
+                    tool_calls
+                    and not msg.content
+                    and display_messages
+                    and display_messages[-1]["role"] == "assistant"
+                    and not display_messages[-1]["content"]
+                    and display_messages[-1].get("tool_calls")
+                ):
+                    display_messages[-1]["tool_calls"].extend(tool_calls)
+                else:
                     display_messages.append({
                         "role": "assistant",
                         "content": msg.content or "",
                         "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
                         "tool_calls": tool_calls if tool_calls else None
                     })
-            
-            # Skip internal messages
             elif msg.role in ("tool", "compaction"):
                 continue
-        
+
         return {"messages": display_messages}
 
