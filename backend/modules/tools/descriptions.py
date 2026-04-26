@@ -18,9 +18,10 @@ Give a single overall time estimate for the entire task. The user has nothing to
 
 Guidelines:
 - Quick question / data lookup: ~30 seconds
-- Portfolio review or stock research: ~1-2 minutes
-- Tax-loss harvesting or strategy creation: ~3-5 minutes
-- Complex multi-step analysis: ~5-10 minutes
+- Stock research: ~2-3 minutes
+- Portfolio review or analysis: ~5 minutes
+- Tax-loss harvesting or strategy creation: ~5-7 minutes
+- Complex multi-step analysis: ~8-10 minutes
 
 Set estimated_tools to the number of tool calls you expect to make (used for progress bar).
 Set description to a short phrase the user sees while waiting (e.g. "Analyzing your portfolio...").
