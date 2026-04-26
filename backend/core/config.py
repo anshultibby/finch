@@ -197,8 +197,8 @@ class Settings(BaseSettings):
             'get_portfolio',
             # TLH Swaps
             'present_swaps',
-            # Agent Management
-            'create_agent',
+            # Agent Management (disabled)
+            # 'create_agent',
         ],
         description="All agent tools"
     )

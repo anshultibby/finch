@@ -383,13 +383,6 @@ class ChatService:
                     except Exception as e:
                         logger.warning(f"Failed to send chat complete email: {e}")
 
-                # Update MEMORY.md via cognee (background, non-blocking)
-                try:
-                    from services.cognee_memory import process_chat_memory
-                    asyncio.create_task(process_chat_memory(user_id, chat_id))
-                except Exception as e:
-                    logger.warning(f"Cognee memory processing failed to start (non-fatal): {e}")
-
                 # Mark chat as no longer processing in database
                 await chat_async.set_chat_processing(db, chat_id, is_processing=False)
 

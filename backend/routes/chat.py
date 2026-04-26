@@ -257,11 +257,13 @@ async def generate_title(
         # Update the chat in database (chat may not exist yet if stream hasn't created it)
         async with get_db_session() as db:
             updated = await chat_async.update_chat_title(db, request.chat_id, title, icon)
-            if not updated:
-                try:
+        if not updated:
+            # Chat didn't exist — try to create it, or update if stream created it in the meantime
+            try:
+                async with get_db_session() as db:
                     await chat_async.create_chat(db, request.chat_id, authenticated_user_id, title=title, icon=icon)
-                except Exception:
-                    # Stream handler may have created it in the meantime — retry update
+            except Exception:
+                async with get_db_session() as db:
                     await chat_async.update_chat_title(db, request.chat_id, title, icon)
         
         return GenerateTitleResponse(title=title, icon=icon)

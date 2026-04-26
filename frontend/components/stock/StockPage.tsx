@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, alpacaBrokerApi, watchlistApi, memoryApi } from '@/lib/api';
+import { marketApi, alpacaBrokerApi, watchlistApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
 import type { AlpacaBrokerPosition } from '@/lib/types';
@@ -196,11 +196,6 @@ export default function StockPage({ symbol }: { symbol: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  useEffect(() => {
-    if (user && symbol) {
-      memoryApi.seedStock(symbol).catch(() => {});
-    }
-  }, [symbol, user]);
 
   const price = quote?.price || profile?.price || 0;
   const change = quote?.change || profile?.changes || 0;

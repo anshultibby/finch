@@ -1045,23 +1045,4 @@ export const watchlistApi = {
   },
 };
 
-export const memoryApi = {
-  seedStock: async (symbol: string) => {
-    const response = await api.post(`/memory/seed/${symbol}`);
-    return response.data;
-  },
-  seedStatus: async (symbol: string) => {
-    const response = await api.get(`/memory/status/${symbol}`);
-    return response.data;
-  },
-  getCurrent: async () => {
-    const response = await api.get('/memory/current');
-    return response.data;
-  },
-  getHistory: async (limit: number = 20) => {
-    const response = await api.get(`/memory/history?limit=${limit}`);
-    return response.data;
-  },
-};
-
 export default api;

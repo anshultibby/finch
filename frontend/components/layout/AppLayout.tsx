@@ -15,7 +15,6 @@ import PortfolioPanel from '@/components/PortfolioPanel';
 import ConnectionsPanel from '@/components/ConnectionsPanel';
 import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
 import ChatPage from '@/components/chat/ChatPage';
-import MemoryPage from '@/components/memory/MemoryPage';
 import type { SwapData } from '@/lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,8 +143,6 @@ function AppLayoutInner() {
             onSelectCandidate={handleSelectCandidate}
           />
         );
-      case 'memory':
-        return <MemoryPage />;
       case 'chat':
         return null;
       default:
