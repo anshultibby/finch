@@ -121,7 +121,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
   const navItems: NavItem[] = [
-    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
+    { id: 'home', label: 'Chat', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
     { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon />, mobileNav: true },
     { id: 'portfolio', label: 'Agent Portfolio', view: { type: 'portfolio' }, icon: <AgentPortfolioIcon />, mobileNav: true },
     { id: 'watchlist', label: 'Watchlist', view: { type: 'watchlist' }, icon: <WatchlistIcon />, mobileNav: true },
