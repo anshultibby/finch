@@ -172,7 +172,7 @@ function AppLayoutInner() {
           {renderNonChatView()}
 
           {/* ChatPage always mounted so streams survive navigation */}
-          <div className={currentView.type === 'chat' || currentView.type === 'home' ? 'h-full' : 'hidden'}>
+          <div className={['chat', 'home'].includes(currentView.type) ? 'h-full' : 'hidden'}>
             <ChatPage
               sidebarRef={sidebarRef}
               onCreatingChatChange={setIsCreatingChat}

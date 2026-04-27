@@ -121,10 +121,18 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
   const navItems: NavItem[] = [
-    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
+    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
     { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon />, mobileNav: true },
     { id: 'portfolio', label: 'Agent Portfolio', view: { type: 'portfolio' }, icon: <AgentPortfolioIcon />, mobileNav: true },
     { id: 'watchlist', label: 'Watchlist', view: { type: 'watchlist' }, icon: <WatchlistIcon />, mobileNav: true },
+  ];
+
+  // Mobile nav order: Search, Accounts, Home (center), Watchlist
+  const mobileNavItems: NavItem[] = [
+    navItems[1], // Search
+    { id: 'connections', label: 'Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon />, mobileNav: true },
+    navItems[0], // Home (center)
+    navItems[3], // Watchlist
   ];
 
   const secondaryItems: NavItem[] = [
@@ -324,31 +332,25 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
       {/* Mobile bottom nav */}
       <div className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 safe-area-bottom">
         <div className="flex items-center justify-around px-2 py-1">
-          {navItems.filter(i => i.mobileNav).map(item => {
+          {mobileNavItems.map(item => {
             const active = viewMatch(currentView, item.view);
+            const isHome = item.id === 'home';
             return (
               <button key={item.id} onClick={() => onNavigate(item.view)}
-                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors min-w-[56px] ${
+                className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors min-w-[56px] ${
                   active ? 'text-emerald-600' : 'text-gray-400'
                 }`}>
                 {item.icon}
                 <span className="text-[10px] font-medium">{item.label}</span>
+                {isHome && isStreamingChat && !active && (
+                  <span className="absolute top-1 right-2 w-2 h-2">
+                    <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                    <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
+                  </span>
+                )}
               </button>
             );
           })}
-          <button onClick={onNewChat}
-            className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors min-w-[56px] ${
-              currentView.type === 'chat' ? 'text-emerald-600' : 'text-gray-400'
-            }`}>
-            <ChatIcon />
-            <span className="text-[10px] font-medium">AI</span>
-            {isStreamingChat && currentView.type !== 'chat' && (
-              <span className="absolute top-1 right-2 w-2 h-2">
-                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
-                <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
-              </span>
-            )}
-          </button>
         </div>
       </div>
     </>

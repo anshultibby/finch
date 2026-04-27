@@ -78,19 +78,19 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const startNewChat = useCallback(() => {
     setCurrentChatId(null);
     setChatContext(undefined);
-    navigateTo({ type: 'chat' });
+    navigateTo({ type: 'home' });
   }, [navigateTo]);
 
   const openChatWithPrompt = useCallback((prompt: string, label?: string) => {
     setCurrentChatId(null);
     setChatContext({ prefill: prompt, prefillLabel: label });
-    navigateTo({ type: 'chat' });
+    navigateTo({ type: 'home' });
   }, [navigateTo]);
 
   const loadChat = useCallback((chatId: string) => {
     setCurrentChatId(chatId);
     setChatContext(undefined);
-    navigateTo({ type: 'chat' });
+    navigateTo({ type: 'home' });
   }, [navigateTo]);
 
   return (
