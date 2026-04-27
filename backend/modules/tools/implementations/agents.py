@@ -36,6 +36,7 @@ async def create_agent_impl(
             user_id=context.user_id,
             title=name.strip(),
             icon=icon or "🤖",
+            parent_chat_id=context.chat_id,
         )
         db.add(chat)
 

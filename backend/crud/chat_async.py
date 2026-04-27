@@ -37,7 +37,7 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
     """Get all non-bot chats for a user, ordered by most recently active"""
     result = await db.execute(
         select(Chat)
-        .where(Chat.user_id == user_id, Chat.bot_id.is_(None))
+        .where(Chat.user_id == user_id, Chat.bot_id.is_(None), Chat.parent_chat_id.is_(None))
         .order_by(Chat.updated_at.desc())
         .limit(limit)
     )
@@ -51,12 +51,12 @@ async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int
     """
     from sqlalchemy import func, literal_column
     from sqlalchemy.sql import text
-    
+
     # Subquery to get the last user or assistant message for each chat
     # We'll do this in Python to avoid complex SQL - but efficiently
     result = await db.execute(
         select(Chat)
-        .where(Chat.user_id == user_id, Chat.bot_id.is_(None))
+        .where(Chat.user_id == user_id, Chat.bot_id.is_(None), Chat.parent_chat_id.is_(None))
         .order_by(Chat.updated_at.desc())
         .limit(limit)
     )

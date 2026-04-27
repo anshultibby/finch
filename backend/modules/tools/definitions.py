@@ -279,26 +279,25 @@ async def present_swaps(*, context: AgentContext, plan_file: str):
 # AGENT MANAGEMENT TOOLS
 # ============================================================================
 
-# Subagents disabled for now
-# @tool(
-#     name="create_agent",
-#     description=CREATE_AGENT_DESC,
-#     category="agent_management",
-# )
-# async def create_agent(
-#     *,
-#     name: str,
-#     task: str,
-#     platform: str = "research",
-#     capital_usd: Optional[float] = None,
-#     icon: Optional[str] = None,
-#     context: AgentContext,
-# ) -> Dict[str, Any]:
-#     """Create a new autonomous sub-agent with a queued task."""
-#     return await agents_impl.create_agent_impl(
-#         context=context, name=name, task=task, platform=platform,
-#         capital_usd=capital_usd, icon=icon,
-#     )
+@tool(
+    name="create_agent",
+    description=CREATE_AGENT_DESC,
+    category="agent_management",
+)
+async def create_agent(
+    *,
+    name: str,
+    task: str,
+    platform: str = "research",
+    capital_usd: Optional[float] = None,
+    icon: Optional[str] = None,
+    context: AgentContext,
+) -> Dict[str, Any]:
+    """Create a new autonomous sub-agent with a queued task."""
+    return await agents_impl.create_agent_impl(
+        context=context, name=name, task=task, platform=platform,
+        capital_usd=capital_usd, icon=icon,
+    )
 
 
 

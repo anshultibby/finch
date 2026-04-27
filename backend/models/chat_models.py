@@ -19,6 +19,7 @@ class Chat(Base):
     title = Column(String, nullable=True)
     icon = Column(String(10), nullable=True)
     bot_id = Column(String, nullable=True, index=True)
+    parent_chat_id = Column(String, nullable=True, index=True)
     is_processing = Column(Boolean, default=False, nullable=False, index=True)
     processing_started_at = Column(DateTime(timezone=True), nullable=True)
     notify_email = Column(String, nullable=True)
