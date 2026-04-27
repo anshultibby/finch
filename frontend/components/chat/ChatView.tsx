@@ -406,7 +406,7 @@ export default function ChatView({
           setCurrentChatId(newChatId);
         },
         skills,
-        personaToUse,
+        personaToUse || undefined,
       );
     } catch {
       // Errors handled inside useChatStream

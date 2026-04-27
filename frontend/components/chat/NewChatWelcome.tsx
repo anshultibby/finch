@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, KeyboardEvent, useRef, useEffect } from 'react';
-import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
+import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT, InvestorPersona } from '@/lib/aiPrompts';
 import InvestorPicker from './InvestorPicker';
 
 interface QuickAction {
@@ -64,6 +64,7 @@ interface NewChatWelcomeProps {
 
 export default function NewChatWelcome({ onSendMessage, disabled = false, prefillMessage, prefillLabel }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
+  const [selectedPersona, setSelectedPersona] = useState<InvestorPersona | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -83,8 +84,9 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
 
   const handleSubmit = () => {
     if (message.trim() && !disabled) {
-      onSendMessage(message);
+      onSendMessage(message, undefined, undefined, undefined, selectedPersona?.id);
       setMessage('');
+      setSelectedPersona(null);
     }
   };
 
@@ -186,9 +188,8 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
         {/* Investor persona picker */}
         <div className="mb-4">
           <InvestorPicker
-            onSelect={(prompt, investorId) => {
-              onSendMessage(prompt, undefined, undefined, undefined, investorId);
-            }}
+            selectedId={selectedPersona?.id ?? null}
+            onSelect={setSelectedPersona}
             disabled={disabled}
           />
         </div>
@@ -205,7 +206,7 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
               t.style.height = Math.min(t.scrollHeight, 180) + 'px';
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Ask anything..."
+            placeholder={selectedPersona ? `Ask ${selectedPersona.name} anything...` : 'Ask anything...'}
             disabled={disabled}
             rows={2}
             className="w-full resize-none bg-transparent px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-[14px] leading-relaxed disabled:cursor-not-allowed"

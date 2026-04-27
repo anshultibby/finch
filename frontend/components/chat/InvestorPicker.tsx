@@ -48,11 +48,11 @@ export default function InvestorPicker({ selectedId, onSelect, disabled = false 
               disabled={disabled}
               className={`group relative flex-shrink-0 w-[154px] rounded-2xl text-left transition-all duration-200 overflow-hidden disabled:opacity-50 ${
                 isSelected
-                  ? 'shadow-lg scale-[1.03] -translate-y-0.5 ring-2 ring-offset-1 ring-gray-900'
+                  ? 'shadow-md ring-1.5 ring-gray-900/80'
                   : isOther
                     ? 'opacity-40 hover:opacity-70 shadow-sm'
                     : isHovered
-                      ? 'shadow-lg scale-[1.03] -translate-y-0.5'
+                      ? 'shadow-md -translate-y-0.5'
                       : 'shadow-sm hover:shadow-md'
               }`}
             >

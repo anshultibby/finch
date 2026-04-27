@@ -118,11 +118,11 @@ function AppLayoutInner() {
   const renderNonChatView = () => {
     switch (currentView.type) {
       case 'home':
-        return <HomePage />;
+        return null;
       case 'stock':
         return <StockPage symbol={currentView.symbol} />;
       case 'search':
-        return <SearchPage />;
+        return <HomePage />;
       case 'portfolio':
         return <PortfolioPanel />;
       case 'orders':
@@ -172,7 +172,7 @@ function AppLayoutInner() {
           {renderNonChatView()}
 
           {/* ChatPage always mounted so streams survive navigation */}
-          <div className={currentView.type === 'chat' ? 'h-full' : 'hidden'}>
+          <div className={currentView.type === 'chat' || currentView.type === 'home' ? 'h-full' : 'hidden'}>
             <ChatPage
               sidebarRef={sidebarRef}
               onCreatingChatChange={setIsCreatingChat}
