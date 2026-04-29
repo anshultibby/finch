@@ -13,9 +13,9 @@ _SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
 
 
 # ---------------------------------------------------------------------------
-# Ownership registry
-# Which env vars are system-level (from .env / global config) vs user-level
-# (stored per-user in the DB and set via Settings > API Keys).
+# Ownership registry — WHITELIST of env vars forwarded to E2B sandbox.
+# When adding a new API key to .env and core/config.py, you MUST also add it
+# here so it reaches the sandbox. See also: AGENTS.md.
 # ---------------------------------------------------------------------------
 
 # env_var -> (service_name_for_ApiKeyService, owner)
@@ -32,6 +32,8 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     "ALPACA_API_KEY":         ("ALPACA",   "system"),
     "ALPACA_SECRET_KEY":      ("ALPACA",   "system"),
     "OPENAI_API_KEY":         ("OPENAI",   "system"),
+    "ORATS_API_KEY":          ("ORATS",    "system"),
+    "GEMINI_API_KEY":         ("GEMINI",   "system"),
 
     # User keys — each user provides their own via Settings > API Keys
     "KALSHI_API_KEY_ID":  ("KALSHI", "user"),
