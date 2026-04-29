@@ -690,6 +690,7 @@ export default function ChatView({
                       content={msg.content}
                       toolCalls={msg.toolCalls}
                       swap_data={msg.swap_data}
+                      ui_blocks={msg.ui_blocks}
                       chatId={currentChatId || undefined}
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}

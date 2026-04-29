@@ -732,6 +732,11 @@ class ToolExecutor:
             # Pass swap data to frontend for rendering swap cards
             if result.tool_name == "present_swaps" and result.success and isinstance(result.raw_result, dict):
                 complete_event_data["swap_data"] = result.raw_result.get("swaps")
+            # Pass UI blocks to frontend for rendering structured UI
+            if result.tool_name == "show_ui" and result.success and isinstance(result.raw_result, dict):
+                complete_event_data["ui_blocks"] = {
+                    "blocks": result.raw_result.get("blocks", []),
+                }
             # For create_agent, surface the created bot's IDs for the frontend peek link
             if result.tool_name == "create_agent" and result.success:
                 data = getattr(result.raw_result, 'data', None) or {}

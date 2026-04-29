@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import ToolCallSummary from './ToolCallSummary';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import { getAuthHeader } from '@/lib/api';
-import type { ToolCallStatus, SwapData } from '@/lib/types';
+import type { ToolCallStatus, SwapData, UIBlocksData, UIBlock, ButtonOption } from '@/lib/types';
 import type { TimeEstimate } from '@/hooks/useChatStream';
 
 export interface MessageAction {
@@ -21,6 +21,7 @@ interface ChatMessageProps {
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
   swap_data?: SwapData[];
+  ui_blocks?: UIBlocksData;
   chatId?: string;
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
@@ -720,6 +721,163 @@ function WaitlistModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// UI Blocks Renderer (show_ui tool)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function UIBlocksRenderer({ blocks, onSend }: { blocks: UIBlock[]; onSend?: (msg: string) => void }) {
+  const [clickedValue, setClickedValue] = React.useState<string | null>(null);
+
+  return (
+    <div className="flex flex-col gap-2 my-2">
+      {blocks.map((block, i) => {
+        switch (block.type) {
+          case 'progress': {
+            return (
+              <div key={i} className="flex flex-col gap-1.5 px-1">
+                {block.title && <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{block.title}</p>}
+                <div className="flex items-center gap-0">
+                  {block.steps.map((step, si) => {
+                    const done = si < block.current;
+                    const active = si === block.current;
+                    return (
+                      <React.Fragment key={si}>
+                        {si > 0 && (
+                          <div className={`flex-1 h-px ${done ? 'bg-emerald-400' : 'bg-gray-200'}`} />
+                        )}
+                        <div className="flex flex-col items-center gap-0.5" style={{ minWidth: 24 }}>
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold ${
+                            done ? 'bg-emerald-500 text-white' :
+                            active ? 'bg-primary-600 text-white ring-2 ring-primary-200' :
+                            'bg-gray-200 text-gray-400'
+                          }`}>
+                            {done ? '✓' : si + 1}
+                          </div>
+                          <span className={`text-[10px] leading-tight text-center max-w-[60px] ${
+                            active ? 'text-primary-700 font-medium' : done ? 'text-emerald-600' : 'text-gray-400'
+                          }`}>{step}</span>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+
+          case 'info_card': {
+            const styleMap = {
+              default: 'border-gray-200 bg-gray-50/50',
+              success: 'border-emerald-200 bg-emerald-50/50',
+              warning: 'border-amber-200 bg-amber-50/50',
+              accent: 'border-violet-200 bg-violet-50/50',
+            };
+            const badgeMap = {
+              default: 'bg-gray-100 text-gray-600',
+              success: 'bg-emerald-100 text-emerald-700',
+              warning: 'bg-amber-100 text-amber-700',
+              accent: 'bg-violet-100 text-violet-700',
+            };
+            const s = block.style || 'default';
+            return (
+              <div key={i} className={`border rounded-lg px-3 py-2.5 ${styleMap[s]}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{block.title}</p>
+                    {block.subtitle && <p className="text-xs text-gray-500">{block.subtitle}</p>}
+                  </div>
+                  {block.badge && (
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${badgeMap[s]}`}>
+                      {block.badge}
+                    </span>
+                  )}
+                </div>
+                {block.fields && block.fields.length > 0 && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+                    {block.fields.map((f, fi) => (
+                      <div key={fi} className="flex justify-between text-xs">
+                        <span className="text-gray-500">{f.label}</span>
+                        <span className="text-gray-800 font-medium">{f.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          case 'buttons': {
+            return (
+              <div key={i} className="flex flex-col gap-1.5">
+                {block.title && <p className="text-sm font-medium text-gray-700">{block.title}</p>}
+                <div className="flex flex-wrap gap-2">
+                  {block.buttons.map((btn, bi) => {
+                    const isClicked = clickedValue === btn.value;
+                    const isDisabled = clickedValue !== null;
+                    const styleMap = {
+                      primary: isClicked
+                        ? 'bg-emerald-600 text-white'
+                        : isDisabled
+                        ? 'bg-gray-100 text-gray-400 cursor-default'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+                      danger: isClicked
+                        ? 'bg-red-600 text-white'
+                        : isDisabled
+                        ? 'bg-gray-100 text-gray-400 cursor-default'
+                        : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100',
+                      default: isClicked
+                        ? 'bg-primary-600 text-white'
+                        : isDisabled
+                        ? 'bg-gray-100 text-gray-400 cursor-default'
+                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
+                    };
+                    const s = btn.style || 'default';
+                    return (
+                      <button
+                        key={bi}
+                        disabled={isDisabled}
+                        onClick={() => {
+                          setClickedValue(btn.value);
+                          onSend?.(btn.value);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${styleMap[s]}`}
+                      >
+                        {btn.label}
+                        {btn.description && (
+                          <span className="block text-[10px] font-normal opacity-70">{btn.description}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+
+          case 'status': {
+            const cfg = {
+              success: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: '✓' },
+              warning: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: '⚠' },
+              error: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', icon: '✕' },
+              info: { bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', icon: 'ℹ' },
+            }[block.style];
+            return (
+              <div key={i} className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${cfg.bg}`}>
+                <span className={`text-sm ${cfg.text}`}>{cfg.icon}</span>
+                <p className={`text-sm ${cfg.text}`}>{block.message}</p>
+              </div>
+            );
+          }
+
+          default:
+            return null;
+        }
+      })}
+    </div>
+  );
+}
+
+
 function SwapCard({ swap, index, userId }: { swap: SwapData; index: number; userId: string }) {
   const [showReminder, setShowReminder] = React.useState(false);
   const [showWaitlist, setShowWaitlist] = React.useState(false);
@@ -818,7 +976,7 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, swap_data, ui_blocks, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
   const hasFileReferences = !isUser && content && /\[(file|visualization|image):\s*[^\]]+\]/.test(content);
   const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick) : null;
@@ -870,6 +1028,9 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
           <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
+          {ui_blocks && ui_blocks.blocks.length > 0 && (
+            <UIBlocksRenderer blocks={ui_blocks.blocks} onSend={onSendMessage} />
+          )}
         </div>
       </div>
     );
@@ -899,6 +1060,9 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, chatI
         )}
         {swap_data && swap_data.length > 0 && (
           <SwapCards swaps={swap_data} userId={userId || ''} />
+        )}
+        {ui_blocks && ui_blocks.blocks.length > 0 && (
+          <UIBlocksRenderer blocks={ui_blocks.blocks} onSend={onSendMessage} />
         )}
         {toolCalls && toolCalls.length > 0 && (
           <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />

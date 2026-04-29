@@ -26,36 +26,12 @@ export interface SwapData {
   substitute_candidates?: SubstituteCandidate[];
 }
 
-// UI Blocks (rendered by show_ui tool)
-export interface ButtonOption {
-  label: string;
-  value: string;
-  description?: string;
-  style?: 'default' | 'primary' | 'danger';
-}
-
-export interface InfoCardField {
-  label: string;
-  value: string;
-}
-
-export type UIBlock =
-  | { type: 'buttons'; title?: string; buttons: ButtonOption[] }
-  | { type: 'info_card'; title: string; subtitle?: string; fields?: InfoCardField[]; badge?: string; style?: 'default' | 'success' | 'warning' | 'accent' }
-  | { type: 'progress'; steps: string[]; current: number; title?: string }
-  | { type: 'status'; message: string; style: 'success' | 'warning' | 'error' | 'info' };
-
-export interface UIBlocksData {
-  blocks: UIBlock[];
-}
-
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   toolCalls?: ToolCallStatus[];
   swap_data?: SwapData[];
-  ui_blocks?: UIBlocksData;
 }
 
 export interface ImageAttachment {
@@ -164,7 +140,6 @@ export interface SSEToolCallCompleteEvent {
   search_results?: SearchResults;
   scraped_content?: ScrapedContent;
   swap_data?: SwapData[];
-  ui_blocks?: UIBlocksData;
   agent_id: string;
   parent_agent_id?: string;
   sub_agent_id?: string;
