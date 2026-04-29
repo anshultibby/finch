@@ -384,6 +384,13 @@ class ChatService:
                     except Exception as e:
                         logger.warning(f"Failed to send chat complete email: {e}")
 
+                # Persist a condensed chat transcript to the sandbox so the
+                # agent can read prior conversations in future sessions.
+                try:
+                    await _persist_chat_to_sandbox(user_id, chat_id, db)
+                except Exception as e:
+                    logger.warning(f"Failed to persist chat to sandbox (non-fatal): {e}")
+
                 # Mark chat as no longer processing in database
                 await chat_async.set_chat_processing(db, chat_id, is_processing=False)
 
@@ -536,4 +543,58 @@ class ChatService:
                 continue
 
         return {"messages": display_messages}
+
+
+async def _persist_chat_to_sandbox(user_id: str, chat_id: str, db) -> None:
+    """Write the full chat transcript to the sandbox so the agent can
+    reference prior conversations.
+
+    Layout on sandbox:
+        /home/user/chats/YYYY-MM-DD/HHMMSS_<title>.md
+
+    The transcript includes user messages, assistant responses, and tool
+    call summaries (tool names only, not the full payloads/results).
+    """
+    from modules.tools.implementations.code_execution import get_or_create_sandbox
+
+    chat = await chat_async.get_chat(db, chat_id)
+    if not chat:
+        return
+
+    messages = await chat_async.get_chat_messages(db, chat_id)
+    if not messages:
+        return
+
+    title = chat.title or "Untitled"
+    created = chat.created_at or datetime.now(timezone.utc)
+    lines = [f"# {title}", f"Date: {created.strftime('%Y-%m-%d %H:%M UTC')}", ""]
+
+    for msg in messages:
+        if msg.role == "user":
+            lines.append(f"**User:** {msg.content or ''}")
+            lines.append("")
+        elif msg.role == "assistant":
+            if msg.tool_calls:
+                try:
+                    tc = json.loads(msg.tool_calls) if isinstance(msg.tool_calls, str) else msg.tool_calls
+                    names = [c.get("function", {}).get("name", "?") for c in tc]
+                    lines.append(f"*[tools: {', '.join(names)}]*")
+                except Exception:
+                    pass
+            if msg.content:
+                lines.append(f"**Finch:** {msg.content}")
+                lines.append("")
+
+    transcript = "\n".join(lines)
+
+    # Determine sandbox path
+    date_dir = created.strftime("%Y-%m-%d")
+    time_prefix = created.strftime("%H%M%S")
+    safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in title)[:50].strip().replace(" ", "_")
+    filename = f"{time_prefix}_{safe_title}.md" if safe_title else f"{time_prefix}.md"
+    sandbox_path = f"/home/user/chats/{date_dir}/{filename}"
+
+    entry = await get_or_create_sandbox(user_id, {})
+    await entry.sbx.files.write(sandbox_path, transcript.encode("utf-8"), request_timeout=30)
+    logger.info(f"Persisted chat transcript to sandbox: {sandbox_path}")
 
