@@ -277,12 +277,13 @@ class CreditsService:
             transaction_metadata=metadata
         )
         db.add(transaction)
-        
+        await db.flush()
+
         logger.info(
             f"Deducted {actual_deduction} credits from user {user_id}: "
             f"{user.credits} → {new_balance} ({description})"
         )
-        
+
         return True
     
     @staticmethod

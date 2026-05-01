@@ -309,56 +309,64 @@ class ChatService:
 
                             pending_assistant_msg = None
                 
-                # Log session usage summary (token counts and costs)
-                # Also deduct credits based on actual token usage
+                # --- Post-streaming cleanup ---
+                # Each step is wrapped individually so a failure in one
+                # (e.g. a DB error that poisons the transaction) doesn't
+                # cascade and break all subsequent operations.
+
+                # Deduct credits based on actual token usage
                 usage_tracker = LLMHandler.get_session_usage(chat_id)
                 if usage_tracker and usage_tracker.llm_call_count > 0:
-                    # Calculate and deduct credits
-                    from services.credits import calculate_credits_for_llm_call
-                    
-                    credits_to_deduct = calculate_credits_for_llm_call(
-                        model=usage_tracker.model,
-                        prompt_tokens=usage_tracker.total_prompt_tokens,
-                        completion_tokens=usage_tracker.total_completion_tokens,
-                        cache_read_tokens=usage_tracker.total_cache_read_tokens,
-                        cache_creation_tokens=usage_tracker.total_cache_creation_tokens
-                    )
-                    
-                    # Deduct credits using the same DB session
-                    from services.credits import CreditsService
-                    
-                    # Build metadata for transaction
-                    costs = usage_tracker.calculate_cost()
-                    metadata = {
-                        "model": usage_tracker.model,
-                        "prompt_tokens": usage_tracker.total_prompt_tokens,
-                        "completion_tokens": usage_tracker.total_completion_tokens,
-                        "cache_read_tokens": usage_tracker.total_cache_read_tokens,
-                        "cache_creation_tokens": usage_tracker.total_cache_creation_tokens,
-                        "llm_calls": usage_tracker.llm_call_count,
-                        "usd_cost": costs["total_cost"],
-                        "premium_rate": 1.2
-                    }
-                    
-                    success = await CreditsService.deduct_credits(
-                        db=db,
-                        user_id=user_id,
-                        credits=credits_to_deduct,
-                        transaction_type="chat_turn",
-                        description=f"Chat turn ({usage_tracker.llm_call_count} LLM calls, {usage_tracker.total_prompt_tokens + usage_tracker.total_completion_tokens:,} tokens)",
-                        chat_id=chat_id,
-                        metadata=metadata
-                    )
-                    
-                    if success:
-                        logger.info(f"💳 Deducted {credits_to_deduct} credits (${costs['total_cost']:.4f} + 20% premium)")
-                    else:
-                        logger.warning(f"⚠️  Failed to deduct {credits_to_deduct} credits - insufficient balance or user not found")
-                
+                    try:
+                        from services.credits import calculate_credits_for_llm_call
+
+                        credits_to_deduct = calculate_credits_for_llm_call(
+                            model=usage_tracker.model,
+                            prompt_tokens=usage_tracker.total_prompt_tokens,
+                            completion_tokens=usage_tracker.total_completion_tokens,
+                            cache_read_tokens=usage_tracker.total_cache_read_tokens,
+                            cache_creation_tokens=usage_tracker.total_cache_creation_tokens
+                        )
+
+                        from services.credits import CreditsService
+
+                        costs = usage_tracker.calculate_cost()
+                        metadata = {
+                            "model": usage_tracker.model,
+                            "prompt_tokens": usage_tracker.total_prompt_tokens,
+                            "completion_tokens": usage_tracker.total_completion_tokens,
+                            "cache_read_tokens": usage_tracker.total_cache_read_tokens,
+                            "cache_creation_tokens": usage_tracker.total_cache_creation_tokens,
+                            "llm_calls": usage_tracker.llm_call_count,
+                            "usd_cost": costs["total_cost"],
+                            "premium_rate": 1.2
+                        }
+
+                        success = await CreditsService.deduct_credits(
+                            db=db,
+                            user_id=user_id,
+                            credits=credits_to_deduct,
+                            transaction_type="chat_turn",
+                            description=f"Chat turn ({usage_tracker.llm_call_count} LLM calls, {usage_tracker.total_prompt_tokens + usage_tracker.total_completion_tokens:,} tokens)",
+                            chat_id=chat_id,
+                            metadata=metadata
+                        )
+
+                        if success:
+                            await db.commit()
+                            logger.info(f"💳 Deducted {credits_to_deduct} credits (${costs['total_cost']:.4f} + 20% premium)")
+                        else:
+                            logger.warning(f"⚠️  Failed to deduct {credits_to_deduct} credits - insufficient balance or user not found")
+                    except Exception as e:
+                        logger.error(f"Credit deduction failed (non-fatal): {e}")
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+
                 LLMHandler.finalize_session(chat_id)
 
-                # Run compaction if the history has grown too large, or if the
-                # session pruner signaled overflow (early compaction cascade).
+                # Run compaction if the history has grown too large
                 from .agent.compactor import maybe_compact
                 force_compact = getattr(agent, '_needs_early_compaction', False)
                 try:
@@ -367,13 +375,25 @@ class ChatService:
                     await maybe_compact(chat_id, user_id, db, skill_ids=skill_ids, force=force_compact)
                 except Exception as e:
                     logger.warning(f"Compaction check failed (non-fatal): {e}")
-                
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+
                 # Unregister this context (only if we're still the active one)
                 unregister_context(chat_id, agent_context)
 
                 # Send completion notifications (push + email)
-                chat_obj = await chat_async.get_chat(db, chat_id)
-                title = chat_obj.title if chat_obj and chat_obj.title else "Your analysis"
+                title = "Your analysis"
+                try:
+                    chat_obj = await chat_async.get_chat(db, chat_id)
+                    title = chat_obj.title if chat_obj and chat_obj.title else "Your analysis"
+                except Exception as e:
+                    logger.warning(f"Failed to fetch chat title (non-fatal): {e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
                 try:
                     from services.push_notifications import send_push_notification
@@ -386,26 +406,43 @@ class ChatService:
                     )
                 except Exception as e:
                     logger.debug(f"Push notification skipped: {e}")
-
-                notify_email = await chat_async.pop_notify_email(db, chat_id)
-                if notify_email:
                     try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+
+                try:
+                    notify_email = await chat_async.pop_notify_email(db, chat_id)
+                    if notify_email:
                         from services.notifications import send_chat_complete_email
                         app_base_url = os.environ.get("APP_BASE_URL", "http://localhost:3000")
                         chat_url = f"{app_base_url}/chat/{chat_id}"
                         await send_chat_complete_email(notify_email, title, chat_url)
-                    except Exception as e:
-                        logger.warning(f"Failed to send chat complete email: {e}")
+                except Exception as e:
+                    logger.warning(f"Email notification failed (non-fatal): {e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
-                # Persist a condensed chat transcript to the sandbox so the
-                # agent can read prior conversations in future sessions.
                 try:
                     await _persist_chat_to_sandbox(user_id, chat_id, db)
                 except Exception as e:
                     logger.warning(f"Failed to persist chat to sandbox (non-fatal): {e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
-                # Mark chat as no longer processing in database
-                await chat_async.set_chat_processing(db, chat_id, is_processing=False)
+                # Mark chat as no longer processing
+                try:
+                    await chat_async.set_chat_processing(db, chat_id, is_processing=False)
+                except Exception as e:
+                    logger.error(f"Failed to clear processing flag (non-fatal): {e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
                 logger.info("Chat turn complete - all messages saved incrementally")
     
