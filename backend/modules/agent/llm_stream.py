@@ -128,9 +128,9 @@ def _add_cache_control_to_messages(
     Returns:
         Deep copy of messages with cache_control added at strategic positions
     """
-    if len(messages) <= 1:
-        return [_deep_copy_message(m) for m in messages]
-    
+    if not messages:
+        return []
+
     # Deep copy to avoid mutating originals (which get saved to DB)
     messages_copy = [_deep_copy_message(m) for m in messages]
     
@@ -251,10 +251,8 @@ async def stream_llm_response(
     if is_claude and llm_config.caching:
         logger.debug("🔄 Applying Claude prompt caching (MAXIMUM strategy)")
         
-        # Cache system prompt (converted to block format for Claude, but NO cache_control here)
         system_tokens_estimate = len(system_message["content"]) // 4 if system_message else 0
         if system_message:
-            # DON'T add cache_control to system - it will be covered by tools cache breakpoint
             llm_kwargs["system"] = _add_cache_control_to_system(system_message["content"])
             logger.debug(f"  📦 System prompt: ~{system_tokens_estimate:,} tokens (cached with tools)")
         
