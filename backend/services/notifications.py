@@ -164,6 +164,35 @@ async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str
     return _send_resend_email(to_email, subject, html)
 
 
+async def send_trade_push_notification(
+    user_id: str,
+    bot_name: str,
+    action: str,
+    market: str,
+    side: str,
+    quantity: int,
+    price: float,
+    cost_usd: float,
+    approve_token: str,
+) -> bool:
+    """Send a push notification for a trade confirmation. Returns True if sent."""
+    try:
+        from core.database import get_async_db
+        from services.push_notifications import send_push_notification
+
+        async for db in get_async_db():
+            return await send_push_notification(
+                db=db,
+                user_id=user_id,
+                title=f"{bot_name}: {action.upper()} {market}",
+                body=f"{side} {quantity} @ {price}c (${cost_usd:.2f})",
+                data={"screen": "orders", "approve_token": approve_token},
+            )
+    except Exception as e:
+        logger.error(f"Failed to send trade push notification: {e}")
+    return False
+
+
 async def send_trade_notification(
     token: str,
     bot_name: str,
@@ -173,8 +202,9 @@ async def send_trade_notification(
     quantity: int,
     price: float,
     cost_usd: float,
+    user_id: Optional[str] = None,
 ) -> str:
-    """Try SMS first, fall back to email. Returns the method used or 'none'."""
+    """Try push first, then SMS, then email. Returns the method used or 'none'."""
     kwargs = dict(
         token=token,
         bot_name=bot_name,
@@ -185,6 +215,21 @@ async def send_trade_notification(
         price=price,
         cost_usd=cost_usd,
     )
+
+    if user_id:
+        if await send_trade_push_notification(
+            user_id=user_id,
+            bot_name=bot_name,
+            action=action,
+            market=market,
+            side=side,
+            quantity=quantity,
+            price=price,
+            cost_usd=cost_usd,
+            approve_token=token,
+        ):
+            return "push"
+
     if await send_trade_confirmation_sms(**kwargs):
         return "sms"
     if await send_trade_confirmation_email(**kwargs):

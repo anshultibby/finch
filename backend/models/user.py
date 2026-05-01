@@ -127,3 +127,14 @@ class TLHReminder(Base):
 
     def __repr__(self):
         return f"<TLHReminder(id='{self.id}', user_id='{self.user_id}', symbol_sold='{self.symbol_sold}', sent={self.sent})>"
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    token = Column(String, nullable=False, unique=True)
+    platform = Column(String, nullable=False)  # 'ios' | 'android' | 'web'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -371,13 +371,26 @@ class ChatService:
                 # Unregister this context (only if we're still the active one)
                 unregister_context(chat_id, agent_context)
 
-                # Send email notification if user requested it
+                # Send completion notifications (push + email)
+                chat_obj = await chat_async.get_chat(db, chat_id)
+                title = chat_obj.title if chat_obj and chat_obj.title else "Your analysis"
+
+                try:
+                    from services.push_notifications import send_push_notification
+                    await send_push_notification(
+                        db=db,
+                        user_id=user_id,
+                        title="Analysis complete",
+                        body=title,
+                        data={"chatId": str(chat_id)},
+                    )
+                except Exception as e:
+                    logger.debug(f"Push notification skipped: {e}")
+
                 notify_email = await chat_async.pop_notify_email(db, chat_id)
                 if notify_email:
                     try:
                         from services.notifications import send_chat_complete_email
-                        chat_title = (await chat_async.get_chat(db, chat_id))
-                        title = chat_title.title if chat_title and chat_title.title else "Your analysis"
                         app_base_url = os.environ.get("APP_BASE_URL", "http://localhost:3000")
                         chat_url = f"{app_base_url}/chat/{chat_id}"
                         await send_chat_complete_email(notify_email, title, chat_url)

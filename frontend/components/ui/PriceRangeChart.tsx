@@ -144,7 +144,7 @@ export default function PriceRangeChart(props: Props) {
         const lastVal = data[data.length - 1]?.value ?? 0;
         return {
           label: cfg.label ?? cfg.symbol,
-          color: lastVal >= 0 ? '#10b981' : '#ef4444',
+          color: cfg.color || (lastVal >= 0 ? '#10b981' : '#ef4444'),
           data,
         };
       });
@@ -254,7 +254,7 @@ export default function PriceRangeChart(props: Props) {
         <div className="flex items-end gap-6 mb-1">
           {lines.map((l, li) => {
             const v = getDisplayValue(l.data);
-            const displayColor = v >= 0 ? '#10b981' : '#ef4444';
+            const displayColor = lines.length > 1 ? l.color : (v >= 0 ? '#10b981' : '#ef4444');
             const dollarAmt = currentPrice ? currentPrice - currentPrice / (1 + v / 100) : null;
             return (
               <div

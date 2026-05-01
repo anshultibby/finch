@@ -49,7 +49,6 @@ export interface ChatStreamState {
   error: string | null;
   pendingOptions: SSEOptionsEvent | null;
   pendingSwapData: import('@/lib/types').SwapData[] | null;
-  pendingUIBlocks: import('@/lib/types').UIBlocksData | null;
   stream: { close: () => void; reconnect?: () => void } | null;
   toolInsertionCounter: number;
   wasStreamingBeforeHidden: boolean;
@@ -72,7 +71,6 @@ const INITIAL_STATE: Omit<ChatStreamState, 'messages'> = {
   error: null,
   pendingOptions: null,
   pendingSwapData: null,
-  pendingUIBlocks: null,
   stream: null,
   toolInsertionCounter: 0,
   wasStreamingBeforeHidden: false,
@@ -145,11 +143,9 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         timestamp: new Date().toISOString(),
         toolCalls: sorted,
         swap_data: state.pendingSwapData || undefined,
-        ui_blocks: state.pendingUIBlocks || undefined,
       }],
       streamingTools: [],
       pendingSwapData: null,
-      pendingUIBlocks: null,
     }, notify);
   }, [getChatState, update]);
 
@@ -292,10 +288,6 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         updates.pendingSwapData = event.swap_data;
         optionsRef.current.onSwapsReceived?.(chatId, event.swap_data);
       }
-      if (event.tool_name === 'show_ui' && event.ui_blocks) {
-        updates.pendingUIBlocks = event.ui_blocks;
-      }
-
       update(chatId, updates, notify);
     },
 

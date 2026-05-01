@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import ToolCallSummary from './ToolCallSummary';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import { getAuthHeader } from '@/lib/api';
-import type { ToolCallStatus, SwapData, UIBlocksData, UIBlock, ButtonOption } from '@/lib/types';
+import type { ToolCallStatus, SwapData } from '@/lib/types';
 import type { TimeEstimate } from '@/hooks/useChatStream';
 
 export interface MessageAction {
@@ -21,7 +21,6 @@ interface ChatMessageProps {
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
   swap_data?: SwapData[];
-  ui_blocks?: UIBlocksData;
   chatId?: string;
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
@@ -472,15 +471,178 @@ const getSandboxFileUrl = (chatId: string | undefined, sandboxPath: string): str
   return `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(sandboxPath)}`;
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Inline UI Block Renderers (markdown tags)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function InlineButtons({ body, onSend }: { body: string; onSend?: (msg: string) => void }) {
+  const [clickedValue, setClickedValue] = React.useState<string | null>(null);
+  const parts = body.split('|');
+  const title = parts[0] || '';
+  const options = parts.slice(1).map(opt => {
+    const [label, ...rest] = opt.split('~');
+    const value = rest.join('~') || label;
+    return { label: label.trim(), value: value.trim() };
+  });
+
+  return (
+    <div className="flex flex-col gap-1.5 my-2 not-prose">
+      {title && <p className="text-sm font-medium text-gray-700">{title}</p>}
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt, i) => {
+          const isClicked = clickedValue === opt.value;
+          const isDisabled = clickedValue !== null;
+          return (
+            <button
+              key={i}
+              disabled={isDisabled}
+              onClick={() => { setClickedValue(opt.value); onSend?.(opt.value); }}
+              className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                isClicked
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : isDisabled
+                  ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-default'
+                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InlineInfoCard({ body }: { body: string }) {
+  const parts = body.split('|');
+  const title = parts[0] || '';
+  const subtitle = parts[1] || '';
+  let badge = '';
+  let style: 'default' | 'success' | 'warning' | 'accent' = 'default';
+  const fields: { label: string; value: string }[] = [];
+
+  for (let i = 2; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.startsWith('badge:')) badge = p.slice(6).trim();
+    else if (p.startsWith('style:')) style = p.slice(6).trim() as typeof style;
+    else if (p.includes('=')) {
+      const [label, ...v] = p.split('=');
+      fields.push({ label: label.trim(), value: v.join('=').trim() });
+    }
+  }
+
+  const styleMap = {
+    default: 'border-gray-200 bg-gray-50/50',
+    success: 'border-emerald-200 bg-emerald-50/50',
+    warning: 'border-amber-200 bg-amber-50/50',
+    accent: 'border-violet-200 bg-violet-50/50',
+  };
+  const badgeMap = {
+    default: 'bg-gray-100 text-gray-600',
+    success: 'bg-emerald-100 text-emerald-700',
+    warning: 'bg-amber-100 text-amber-700',
+    accent: 'bg-violet-100 text-violet-700',
+  };
+
+  return (
+    <div className={`border rounded-lg px-3 py-2.5 my-2 not-prose ${styleMap[style]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">{title}</p>
+          {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+        </div>
+        {badge && (
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${badgeMap[style]}`}>
+            {badge}
+          </span>
+        )}
+      </div>
+      {fields.length > 0 && (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+          {fields.map((f, i) => (
+            <div key={i} className="flex justify-between text-xs">
+              <span className="text-gray-500">{f.label}</span>
+              <span className="text-gray-800 font-medium">{f.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InlineProgress({ body }: { body: string }) {
+  const parts = body.split('|');
+  const steps = (parts[0] || '').split(',').map(s => s.trim()).filter(Boolean);
+  let current = 0;
+  for (let i = 1; i < parts.length; i++) {
+    if (parts[i].startsWith('current=')) current = parseInt(parts[i].slice(8)) || 0;
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 my-2 px-1 not-prose">
+      <div className="flex items-center gap-0">
+        {steps.map((step, si) => {
+          const done = si < current;
+          const active = si === current;
+          return (
+            <React.Fragment key={si}>
+              {si > 0 && (
+                <div className={`flex-1 h-px ${done ? 'bg-emerald-400' : 'bg-gray-200'}`} />
+              )}
+              <div className="flex flex-col items-center gap-0.5" style={{ minWidth: 24 }}>
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold ${
+                  done ? 'bg-emerald-500 text-white' :
+                  active ? 'bg-primary-600 text-white ring-2 ring-primary-200' :
+                  'bg-gray-200 text-gray-400'
+                }`}>
+                  {done ? '✓' : si + 1}
+                </div>
+                <span className={`text-[10px] leading-tight text-center max-w-[60px] ${
+                  active ? 'text-primary-700 font-medium' : done ? 'text-emerald-600' : 'text-gray-400'
+                }`}>{step}</span>
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InlineStatus({ body }: { body: string }) {
+  const parts = body.split('|');
+  const style = (parts[0] || 'info').trim() as 'success' | 'warning' | 'error' | 'info';
+  const message = parts.slice(1).join('|').trim();
+  const cfg = {
+    success: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: '✓' },
+    warning: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: '⚠' },
+    error: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', icon: '✕' },
+    info: { bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', icon: 'ℹ' },
+  }[style] || { bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', icon: 'ℹ' };
+
+  return (
+    <div className={`flex items-start gap-2 px-3 py-2 rounded-lg border my-2 not-prose ${cfg.bg}`}>
+      <span className={`text-sm ${cfg.text}`}>{cfg.icon}</span>
+      <p className={`text-sm ${cfg.text}`}>{message}</p>
+    </div>
+  );
+}
+
+const CURLY_TAG_RE = /\{\{(file|visualization|image|buttons|info_card|progress|status):([^}]+)\}\}/g;
+const HAS_CURLY_TAGS_RE = /\{\{(file|visualization|image|buttons|info_card|progress|status):/;
+
 const parseFileReferences = (
   content: string,
   chatId: string | undefined,
   onFileClick?: (filename: string) => void,
-  onVisualizationClick?: (filename: string) => void
+  onVisualizationClick?: (filename: string) => void,
+  onSendMessage?: (msg: string) => void,
 ): React.ReactNode[] => {
   const parts: React.ReactNode[] = [];
-  // Match [file:...], [visualization:...], and [image:...] markers
-  const markerPattern = /\[(file|visualization|image):\s*([^\]]+)\]/g;
+  // Match {{type:body}} tags (primary) and legacy [type:body] tags (backward compat for old messages)
+  const markerPattern = /\{\{(file|visualization|image|buttons|info_card|progress|status):([^}]+)\}\}|\[(file|visualization|image):\s*([^\]]+)\]/g;
   let lastIndex = 0;
   let match;
 
@@ -489,8 +651,8 @@ const parseFileReferences = (
       parts.push(content.substring(lastIndex, match.index));
     }
 
-    const markerType = match[1];
-    const filename = match[2].trim();
+    const markerType = match[1] || match[3];
+    const filename = (match[2] || match[4] || '').trim();
 
     if (markerType === 'image') {
       // [image:filename.png] — render inline from sandbox
@@ -523,6 +685,14 @@ const parseFileReferences = (
           </svg>
         </button>
       );
+    } else if (markerType === 'buttons') {
+      parts.push(<InlineButtons key={`btn-${match.index}`} body={filename} onSend={onSendMessage} />);
+    } else if (markerType === 'info_card') {
+      parts.push(<InlineInfoCard key={`card-${match.index}`} body={filename} />);
+    } else if (markerType === 'progress') {
+      parts.push(<InlineProgress key={`prog-${match.index}`} body={filename} />);
+    } else if (markerType === 'status') {
+      parts.push(<InlineStatus key={`stat-${match.index}`} body={filename} />);
     } else {
       // Existing [file:...] handling
       const fileUrl = getChatFileUrl(chatId, filename);
@@ -721,163 +891,6 @@ function WaitlistModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// UI Blocks Renderer (show_ui tool)
-// ═══════════════════════════════════════════════════════════════════════════
-
-function UIBlocksRenderer({ blocks, onSend }: { blocks: UIBlock[]; onSend?: (msg: string) => void }) {
-  const [clickedValue, setClickedValue] = React.useState<string | null>(null);
-
-  return (
-    <div className="flex flex-col gap-2 my-2">
-      {blocks.map((block, i) => {
-        switch (block.type) {
-          case 'progress': {
-            return (
-              <div key={i} className="flex flex-col gap-1.5 px-1">
-                {block.title && <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{block.title}</p>}
-                <div className="flex items-center gap-0">
-                  {block.steps.map((step, si) => {
-                    const done = si < block.current;
-                    const active = si === block.current;
-                    return (
-                      <React.Fragment key={si}>
-                        {si > 0 && (
-                          <div className={`flex-1 h-px ${done ? 'bg-emerald-400' : 'bg-gray-200'}`} />
-                        )}
-                        <div className="flex flex-col items-center gap-0.5" style={{ minWidth: 24 }}>
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold ${
-                            done ? 'bg-emerald-500 text-white' :
-                            active ? 'bg-primary-600 text-white ring-2 ring-primary-200' :
-                            'bg-gray-200 text-gray-400'
-                          }`}>
-                            {done ? '✓' : si + 1}
-                          </div>
-                          <span className={`text-[10px] leading-tight text-center max-w-[60px] ${
-                            active ? 'text-primary-700 font-medium' : done ? 'text-emerald-600' : 'text-gray-400'
-                          }`}>{step}</span>
-                        </div>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          }
-
-          case 'info_card': {
-            const styleMap = {
-              default: 'border-gray-200 bg-gray-50/50',
-              success: 'border-emerald-200 bg-emerald-50/50',
-              warning: 'border-amber-200 bg-amber-50/50',
-              accent: 'border-violet-200 bg-violet-50/50',
-            };
-            const badgeMap = {
-              default: 'bg-gray-100 text-gray-600',
-              success: 'bg-emerald-100 text-emerald-700',
-              warning: 'bg-amber-100 text-amber-700',
-              accent: 'bg-violet-100 text-violet-700',
-            };
-            const s = block.style || 'default';
-            return (
-              <div key={i} className={`border rounded-lg px-3 py-2.5 ${styleMap[s]}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{block.title}</p>
-                    {block.subtitle && <p className="text-xs text-gray-500">{block.subtitle}</p>}
-                  </div>
-                  {block.badge && (
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${badgeMap[s]}`}>
-                      {block.badge}
-                    </span>
-                  )}
-                </div>
-                {block.fields && block.fields.length > 0 && (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
-                    {block.fields.map((f, fi) => (
-                      <div key={fi} className="flex justify-between text-xs">
-                        <span className="text-gray-500">{f.label}</span>
-                        <span className="text-gray-800 font-medium">{f.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          case 'buttons': {
-            return (
-              <div key={i} className="flex flex-col gap-1.5">
-                {block.title && <p className="text-sm font-medium text-gray-700">{block.title}</p>}
-                <div className="flex flex-wrap gap-2">
-                  {block.buttons.map((btn, bi) => {
-                    const isClicked = clickedValue === btn.value;
-                    const isDisabled = clickedValue !== null;
-                    const styleMap = {
-                      primary: isClicked
-                        ? 'bg-emerald-600 text-white'
-                        : isDisabled
-                        ? 'bg-gray-100 text-gray-400 cursor-default'
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
-                      danger: isClicked
-                        ? 'bg-red-600 text-white'
-                        : isDisabled
-                        ? 'bg-gray-100 text-gray-400 cursor-default'
-                        : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100',
-                      default: isClicked
-                        ? 'bg-primary-600 text-white'
-                        : isDisabled
-                        ? 'bg-gray-100 text-gray-400 cursor-default'
-                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
-                    };
-                    const s = btn.style || 'default';
-                    return (
-                      <button
-                        key={bi}
-                        disabled={isDisabled}
-                        onClick={() => {
-                          setClickedValue(btn.value);
-                          onSend?.(btn.value);
-                        }}
-                        className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${styleMap[s]}`}
-                      >
-                        {btn.label}
-                        {btn.description && (
-                          <span className="block text-[10px] font-normal opacity-70">{btn.description}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          }
-
-          case 'status': {
-            const cfg = {
-              success: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: '✓' },
-              warning: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: '⚠' },
-              error: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', icon: '✕' },
-              info: { bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', icon: 'ℹ' },
-            }[block.style];
-            return (
-              <div key={i} className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${cfg.bg}`}>
-                <span className={`text-sm ${cfg.text}`}>{cfg.icon}</span>
-                <p className={`text-sm ${cfg.text}`}>{block.message}</p>
-              </div>
-            );
-          }
-
-          default:
-            return null;
-        }
-      })}
-    </div>
-  );
-}
-
-
 function SwapCard({ swap, index, userId }: { swap: SwapData; index: number; userId: string }) {
   const [showReminder, setShowReminder] = React.useState(false);
   const [showWaitlist, setShowWaitlist] = React.useState(false);
@@ -976,10 +989,13 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, swap_data, ui_blocks, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
-  const hasFileReferences = !isUser && content && /\[(file|visualization|image):\s*[^\]]+\]/.test(content);
-  const parsedContent = hasFileReferences ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick) : null;
+  const hasSpecialTags = !isUser && content && (
+    HAS_CURLY_TAGS_RE.test(content) ||
+    /\[(file|visualization|image):\s*[^\]]+\]/.test(content)
+  );
+  const parsedContent = hasSpecialTags ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick, onSendMessage) : null;
   const mdComponents = React.useMemo(() => makeMarkdownComponents(chatId, onFileClick), [chatId, onFileClick]);
 
   if (isUser) {
@@ -998,7 +1014,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, ui_bl
     return (
       <div className="flex justify-start mb-2 group/msg">
         <div className="w-full px-3">
-          {hasFileReferences ? (
+          {hasSpecialTags ? (
             <div className="prose prose-sm prose-slate max-w-none">
               {parsedContent?.map((part, idx) =>
                 typeof part === 'string' ? (
@@ -1028,9 +1044,6 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, ui_bl
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
           <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
-          {ui_blocks && ui_blocks.blocks.length > 0 && (
-            <UIBlocksRenderer blocks={ui_blocks.blocks} onSend={onSendMessage} />
-          )}
         </div>
       </div>
     );
@@ -1040,7 +1053,7 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, ui_bl
     <div className="flex justify-start mb-2 group/msg">
       <div className="w-full px-3">
         {content && (
-          hasFileReferences ? (
+          hasSpecialTags ? (
             <div className="prose prose-sm prose-slate max-w-none mb-2">
               {parsedContent?.map((part, idx) =>
                 typeof part === 'string' ? (
@@ -1060,9 +1073,6 @@ export default function ChatMessage({ role, content, toolCalls, swap_data, ui_bl
         )}
         {swap_data && swap_data.length > 0 && (
           <SwapCards swaps={swap_data} userId={userId || ''} />
-        )}
-        {ui_blocks && ui_blocks.blocks.length > 0 && (
-          <UIBlocksRenderer blocks={ui_blocks.blocks} onSend={onSendMessage} />
         )}
         {toolCalls && toolCalls.length > 0 && (
           <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />

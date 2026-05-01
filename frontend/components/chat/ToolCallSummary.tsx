@@ -49,7 +49,6 @@ function getActiveToolLabel(toolName: string): string {
     'build_custom_etf': 'Building ETF',
     'present_swaps': 'Preparing results',
     'connect_brokerage': 'Connecting brokerage',
-    'show_ui': 'Showing options',
   };
   return map[toolName] || toolName.replace(/_/g, ' ');
 }

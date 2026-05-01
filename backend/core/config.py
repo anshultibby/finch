@@ -197,8 +197,6 @@ class Settings(BaseSettings):
             'get_portfolio',
             # TLH Swaps
             'present_swaps',
-            # Structured UI
-            'show_ui',
             # Agent Management (disabled)
             # 'create_agent',
         ],

@@ -797,32 +797,49 @@ function SwapDetailView({
 
 // ─── Compact card (grid tile) ─────────────────────────────────────────────────
 
-function SwapCard({ swap, index, onOpen }: {
+function SwapCard({ swap, index, onOpen, selectable, selected, onToggleSelect }: {
   swap: StoredSwap; index: number; onOpen: (s: StoredSwap) => void;
+  selectable?: boolean; selected?: boolean; onToggleSelect?: (s: StoredSwap) => void;
 }) {
   const isPending = swap.status === 'pending';
   const isApproved = swap.status === 'approved';
   const isRejected = swap.status === 'rejected';
 
   return (
-    <button
-      onClick={() => onOpen(swap)}
+    <div
       className={`w-full text-left rounded-2xl overflow-hidden transition-all duration-150 active:scale-[0.98] ${isRejected ? 'opacity-40' : ''}`}
       style={{
         background: '#fff',
         boxShadow: isPending
           ? '0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.05)'
           : '0 1px 3px rgba(0,0,0,0.05)',
-        border: isPending ? '1px solid #e5e7eb' : isApproved ? '1px solid #d1fae5' : '1px solid #e5e7eb',
+        border: selected ? '2px solid #10b981' : isPending ? '1px solid #e5e7eb' : isApproved ? '1px solid #d1fae5' : '1px solid #e5e7eb',
       }}
     >
       {/* Accent bar */}
       <div className={`h-1 w-full ${isPending ? 'bg-gradient-to-r from-emerald-400 to-teal-400' : isApproved ? 'bg-emerald-300' : 'bg-gray-200'}`} />
 
       <div className="p-3">
-        {/* Symbols */}
+        {/* Symbols + checkbox */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
+            {selectable && isPending && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleSelect?.(swap); }}
+                className={`w-4.5 h-4.5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all mr-0.5 ${
+                  selected
+                    ? 'bg-emerald-500 border-emerald-500'
+                    : 'border-gray-300 hover:border-emerald-400'
+                }`}
+                style={{ width: 18, height: 18 }}
+              >
+                {selected && (
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            )}
             <span className="font-black text-base text-red-500">{swap.sell_symbol}</span>
             <svg className="w-3 h-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
@@ -863,13 +880,14 @@ function SwapCard({ swap, index, onOpen }: {
           </div>
         </div>
 
-        {isPending && (
-          <div className="mt-2.5 text-center text-[10px] text-gray-400">
-            Tap to review & approve →
-          </div>
-        )}
+        <button
+          onClick={() => onOpen(swap)}
+          className="mt-2.5 text-center text-[10px] text-gray-400 hover:text-gray-600 w-full transition-colors"
+        >
+          {isPending ? 'Tap to review →' : 'View details →'}
+        </button>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -880,6 +898,7 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
   const [reminderSet, setReminderSet] = useState<Set<string>>(new Set());
   const [showWaitlistBanner, setShowWaitlistBanner] = useState(true);
   const [showBannerWaitlist, setShowBannerWaitlist] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const pending = swaps.filter(s => s.status === 'pending');
   const decided = swaps.filter(s => s.status !== 'pending' && s.status !== 'dismissed');
@@ -887,6 +906,37 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
   const approved = swaps.filter(s => s.status === 'approved');
   const storedApprovedCount = approved.length;
   const storedApprovedSavings = approved.reduce((sum, s) => sum + s.estimated_savings, 0);
+
+  const toggleSelect = (swap: StoredSwap) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(swap.id)) next.delete(swap.id);
+      else next.add(swap.id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(pending.map(s => s.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBatchApprove = () => {
+    const selected = swaps.filter(s => selectedIds.has(s.id));
+    selected.forEach(s => onApprove(s));
+    setSelectedIds(new Set());
+  };
+
+  const handleBatchReject = () => {
+    const selected = swaps.filter(s => selectedIds.has(s.id));
+    selected.forEach(s => onReject(s));
+    setSelectedIds(new Set());
+  };
+
+  const selectedSavings = swaps
+    .filter(s => selectedIds.has(s.id))
+    .reduce((sum, s) => sum + s.estimated_savings, 0);
 
   const handleReminderSet = (swap: StoredSwap) => setReminderSet(prev => new Set(Array.from(prev).concat(swap.id)));
   const enrich = (s: StoredSwap) => ({ ...s, reminderSet: reminderSet.has(s.id) });
@@ -950,9 +1000,19 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
       {/* Stats bar */}
       {pending.length > 0 && (
         <div className="flex-shrink-0 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-          <span className="text-xs text-gray-500">
-            <span className="font-semibold text-gray-700">{pending.length}</span> pending
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">
+              <span className="font-semibold text-gray-700">{pending.length}</span> pending
+            </span>
+            {pending.length > 1 && (
+              <button
+                onClick={selectedIds.size === pending.length ? clearSelection : selectAll}
+                className="text-[10px] font-medium text-primary-600 hover:text-primary-700"
+              >
+                {selectedIds.size === pending.length ? 'Deselect all' : 'Select all'}
+              </button>
+            )}
+          </div>
           <span className="text-xs font-bold text-emerald-600">
             ~${totalPendingSavings.toLocaleString()} total savings
           </span>
@@ -999,7 +1059,15 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
         {pending.length > 0 && (
           <div className="grid grid-cols-2 gap-2.5 mb-3">
             {pending.map((swap, i) => (
-              <SwapCard key={swap.id} swap={enrich(swap)} index={i} onOpen={setActiveSwap} />
+              <SwapCard
+                key={swap.id}
+                swap={enrich(swap)}
+                index={i}
+                onOpen={setActiveSwap}
+                selectable={pending.length > 1}
+                selected={selectedIds.has(swap.id)}
+                onToggleSelect={toggleSelect}
+              />
             ))}
           </div>
         )}
@@ -1018,6 +1086,30 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
           </>
         )}
       </div>
+
+      {/* Floating batch action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex-shrink-0 px-3 pb-3 pt-1">
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-900 shadow-lg">
+            <span className="text-xs text-white font-medium flex-1">
+              {selectedIds.size} selected · ~${selectedSavings.toLocaleString()} savings
+            </span>
+            <button
+              onClick={handleBatchReject}
+              className="px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Skip
+            </button>
+            <button
+              onClick={handleBatchApprove}
+              className="px-3 py-1.5 text-xs font-bold text-white rounded-lg transition-colors"
+              style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}
+            >
+              Approve {selectedIds.size}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

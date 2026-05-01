@@ -1,60 +1,40 @@
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatStream } from '@/hooks/useChatStream';
 import { chatApi } from '@/lib/api';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Square, ArrowLeft, Loader } from 'lucide-react-native';
-import type { Message } from '@/lib/types';
+import { ArrowLeft } from 'lucide-react-native';
+import type { Message, ImageAttachment } from '@/lib/types';
+import ChatMessage from '@/components/ChatMessage';
+import ChatInput from '@/components/ChatInput';
+import ToolCallCard from '@/components/ToolCallCard';
+import NewChatWelcome from '@/components/NewChatWelcome';
+import Markdown from 'react-native-markdown-display';
 
-function ChatBubble({ message }: { message: Message }) {
-  const isUser = message.role === 'user';
-  return (
-    <View className={`mb-3 ${isUser ? 'items-end' : 'items-start'}`}>
-      <View className={`max-w-[85%] rounded-2xl px-4 py-3 ${isUser ? 'bg-slate-900' : 'bg-white border border-black/5'}`}>
-        <Text className={`text-[15px] font-body leading-6 ${isUser ? 'text-white' : 'text-slate-800'}`}>
-          {message.content}
-        </Text>
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <View className="mt-2 pt-2 border-t border-black/5">
-            {message.toolCalls.map((tc) => (
-              <View key={tc.tool_call_id} className="flex-row items-center gap-2 py-1">
-                <View className={`w-2 h-2 rounded-full ${tc.status === 'completed' ? 'bg-emerald-500' : tc.status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} />
-                <Text className="text-xs font-body text-slate-500">
-                  {tc.tool_name.replace(/_/g, ' ')}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
+const streamingMarkdownStyles = {
+  body: { color: '#1e293b', fontSize: 15, lineHeight: 24, fontFamily: 'DMSans' },
+  strong: { fontWeight: '700' as const, fontFamily: 'DMSans-Bold' },
+  code_inline: { backgroundColor: '#f1f5f9', color: '#475569', fontSize: 13, fontFamily: 'SpaceMono', paddingHorizontal: 4, borderRadius: 4 },
+  fence: { backgroundColor: '#1e293b', color: '#e2e8f0', fontSize: 13, fontFamily: 'SpaceMono', padding: 12, borderRadius: 8, marginVertical: 8 },
+  link: { color: '#2563eb' },
+  paragraph: { marginVertical: 4 },
+};
 
-function StreamingBubble({ text, tools }: { text: string; tools: Array<{ tool_call_id: string; tool_name: string; status: string }> }) {
+function StreamingView({ text, tools }: { text: string; tools: Array<{ tool_call_id: string; tool_name: string; status: string; arguments?: Record<string, any>; result_summary?: string; error?: string }> }) {
   return (
     <View className="items-start mb-3">
       {tools.length > 0 && (
-        <View className="bg-white rounded-2xl px-4 py-3 mb-2 border border-black/5 max-w-[85%]">
+        <View className="w-full max-w-[90%] mb-2">
           {tools.map((tc) => (
-            <View key={tc.tool_call_id} className="flex-row items-center gap-2 py-1">
-              {tc.status === 'calling' || tc.status === 'detected' ? (
-                <Loader size={12} color="#f59e0b" />
-              ) : (
-                <View className={`w-2 h-2 rounded-full ${tc.status === 'completed' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              )}
-              <Text className="text-xs font-body text-slate-500">
-                {tc.tool_name.replace(/_/g, ' ')}
-              </Text>
-            </View>
+            <ToolCallCard key={tc.tool_call_id} toolCall={tc as any} />
           ))}
         </View>
       )}
       {text.length > 0 && (
-        <View className="bg-white rounded-2xl px-4 py-3 border border-black/5 max-w-[85%]">
-          <Text className="text-[15px] font-body text-slate-800 leading-6">{text}</Text>
+        <View className="bg-white rounded-2xl px-4 py-3 border border-black/5 max-w-[90%]">
+          <Markdown style={streamingMarkdownStyles}>{text}</Markdown>
         </View>
       )}
       {text.length === 0 && tools.length === 0 && (
@@ -70,9 +50,10 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const router = useRouter();
-  const [input, setInput] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [chatTitle, setChatTitle] = useState('Chat');
   const flatListRef = useRef<FlatList>(null);
+  const hasGeneratedTitle = useRef(false);
 
   const {
     messages,
@@ -96,9 +77,10 @@ export default function ChatScreen() {
             timestamp: m.timestamp || new Date().toISOString(),
             toolCalls: m.tool_calls,
           })));
+          hasGeneratedTitle.current = true;
         }
       } catch {
-        // New chat, no history
+        // New chat
       } finally {
         setLoadingHistory(false);
       }
@@ -106,14 +88,29 @@ export default function ChatScreen() {
     loadHistory();
   }, [id, setMessages]);
 
-  const handleSend = useCallback(() => {
-    const text = input.trim();
-    if (!text || isStreaming) return;
-    setInput('');
-    sendMessage(text);
-  }, [input, isStreaming, sendMessage]);
+  // Auto-generate title after first user message
+  useEffect(() => {
+    if (hasGeneratedTitle.current) return;
+    const userMessages = messages.filter(m => m.role === 'user');
+    if (userMessages.length === 1 && !isStreaming) {
+      hasGeneratedTitle.current = true;
+      chatApi.generateTitle(id, userMessages[0].content)
+        .then(data => setChatTitle(data.title))
+        .catch(() => {});
+    }
+  }, [messages, isStreaming, id]);
 
-  const allItems = [...messages];
+  const handleSend = useCallback((text: string, images?: ImageAttachment[]) => {
+    if (!text.trim() || isStreaming) return;
+    sendMessage(text, images);
+  }, [isStreaming, sendMessage]);
+
+  const handleWelcomeSend = useCallback((text: string, investorPersona?: string) => {
+    if (!text.trim() || isStreaming) return;
+    sendMessage(text);
+  }, [isStreaming, sendMessage]);
+
+  const showWelcome = !loadingHistory && messages.length === 0 && !isStreaming;
 
   return (
     <SafeAreaView className="flex-1 bg-finch-bg" edges={['top']}>
@@ -123,7 +120,7 @@ export default function ChatScreen() {
           <ArrowLeft size={22} color="#0f172a" />
         </TouchableOpacity>
         <Text className="text-lg font-body-medium text-slate-900 flex-1" numberOfLines={1}>
-          Chat
+          {chatTitle}
         </Text>
       </View>
 
@@ -136,68 +133,35 @@ export default function ChatScreen() {
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color="#0f172a" />
           </View>
+        ) : showWelcome ? (
+          <NewChatWelcome onSendMessage={handleWelcomeSend} disabled={isStreaming} />
         ) : (
           <FlatList
             ref={flatListRef}
-            data={allItems}
+            data={messages}
             keyExtractor={(_, index) => index.toString()}
-            renderItem={({ item }) => <ChatBubble message={item} />}
+            renderItem={({ item }) => <ChatMessage message={item} />}
             contentContainerClassName="px-4 pt-4 pb-2"
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
             ListFooterComponent={
               isStreaming ? (
-                <StreamingBubble text={streamingText} tools={streamingTools} />
+                <StreamingView text={streamingText} tools={streamingTools} />
               ) : error ? (
                 <View className="bg-red-50 rounded-2xl p-4 mb-3">
                   <Text className="text-sm font-body text-red-600">{error}</Text>
                 </View>
               ) : null
             }
-            ListEmptyComponent={
-              <View className="flex-1 items-center justify-center py-20">
-                <Text className="text-slate-400 font-body text-center">
-                  Ask anything about markets, stocks, or your portfolio
-                </Text>
-              </View>
-            }
           />
         )}
 
-        {/* Input */}
-        <View className="px-4 py-3 border-t border-black/5 bg-finch-bg">
-          <View className="flex-row items-end gap-2">
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Message..."
-              placeholderTextColor="#94a3b8"
-              multiline
-              maxLength={10000}
-              className="flex-1 bg-white rounded-2xl px-4 py-3 text-[15px] font-body text-slate-900 border border-black/5 max-h-32"
-              editable={!isStreaming}
-              onSubmitEditing={handleSend}
-              blurOnSubmit={false}
-            />
-            {isStreaming ? (
-              <TouchableOpacity
-                onPress={stopStream}
-                className="bg-red-500 rounded-full w-10 h-10 items-center justify-center"
-                activeOpacity={0.8}
-              >
-                <Square size={16} color="#ffffff" fill="#ffffff" />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                onPress={handleSend}
-                disabled={!input.trim()}
-                className={`rounded-full w-10 h-10 items-center justify-center ${input.trim() ? 'bg-slate-900' : 'bg-slate-200'}`}
-                activeOpacity={0.8}
-              >
-                <Send size={16} color={input.trim() ? '#ffffff' : '#94a3b8'} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
+        {!showWelcome && (
+          <ChatInput
+            onSend={handleSend}
+            onStop={stopStream}
+            isStreaming={isStreaming}
+          />
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

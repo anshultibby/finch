@@ -3,8 +3,9 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
 import { marketApi, chatApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { MessageSquare, TrendingUp, TrendingDown, Star } from 'lucide-react-native';
+import { MessageSquare, TrendingUp, TrendingDown, Star, ShoppingCart } from 'lucide-react-native';
 import { watchlistApi } from '@/lib/api';
+import TradeModal from '@/components/TradeModal';
 
 interface StockQuote {
   symbol: string;
@@ -37,6 +38,7 @@ export default function StockDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [inWatchlist, setInWatchlist] = useState(false);
+  const [showTrade, setShowTrade] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -136,12 +138,20 @@ export default function StockDetailScreen() {
             {/* Action Buttons */}
             <View className="flex-row gap-3 mb-6">
               <TouchableOpacity
+                onPress={() => setShowTrade(true)}
+                className="flex-1 bg-emerald-500 rounded-2xl py-3 flex-row items-center justify-center gap-2"
+                activeOpacity={0.8}
+              >
+                <ShoppingCart size={16} color="#ffffff" />
+                <Text className="text-white font-body-medium text-sm">Trade</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={chatAboutStock}
                 className="flex-1 bg-slate-900 rounded-2xl py-3 flex-row items-center justify-center gap-2"
                 activeOpacity={0.8}
               >
                 <MessageSquare size={16} color="#ffffff" />
-                <Text className="text-white font-body-medium text-sm">Chat about {symbol}</Text>
+                <Text className="text-white font-body-medium text-sm">Chat</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={toggleWatchlist}
@@ -194,6 +204,16 @@ export default function StockDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      {quote && user && (
+        <TradeModal
+          visible={showTrade}
+          onClose={() => setShowTrade(false)}
+          symbol={symbol}
+          currentPrice={quote.price}
+          userId={user.id}
+        />
+      )}
     </>
   );
 }

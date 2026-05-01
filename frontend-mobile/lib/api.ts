@@ -324,6 +324,14 @@ export const marketApi = {
     const response = await api.get('/market/general-news', { params: { limit } });
     return response.data;
   },
+  getEarnings: async () => {
+    const response = await api.get('/market/earnings');
+    return response.data;
+  },
+  getPeers: async (symbol: string, limit = 6) => {
+    const response = await api.get(`/market/peers/${symbol}`, { params: { limit } });
+    return response.data;
+  },
 };
 
 export const watchlistApi = {

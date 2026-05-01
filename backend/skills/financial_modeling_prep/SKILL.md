@@ -1,6 +1,6 @@
 ---
 name: financial_modeling_prep
-description: Stock fundamentals, financial statements, ownership data, and analyst estimates from Financial Modeling Prep. Company profiles, insider trading, institutional ownership, and more.
+description: Stock fundamentals, financial statements, earnings calendar & history, ownership data, and analyst estimates from Financial Modeling Prep. Company profiles, earnings beat/miss rates, insider trading, institutional ownership, and more.
 homepage: https://financialmodelingprep.com
 metadata:
   emoji: "💹"
@@ -38,7 +38,25 @@ from skills.financial_modeling_prep.scripts.peers.stock_peers import get_stock_p
 from skills.financial_modeling_prep.scripts.peers.stock_screener import screen_stocks
 from skills.financial_modeling_prep.scripts.search.search import search
 from skills.financial_modeling_prep.scripts.etf.holdings import get_etf_holdings
+from skills.financial_modeling_prep.scripts.earnings.earnings_calendar import get_earnings_calendar, get_historical_earnings
 ```
+
+## International Stocks (Indian Market / NSE / BSE)
+
+FMP covers Indian stocks on both NSE and BSE. Use the `.NS` suffix for NSE and `.BO` suffix for BSE.
+
+```python
+# Indian stock examples
+profile = get_profile("RELIANCE.NS")       # Reliance Industries (NSE)
+income = get_income_statement("RELIANCE.NS", period="annual", limit=4)  # financials in INR
+prices = get_historical_prices("TCS.NS", from_date="2025-01-01", to_date="2025-12-31")
+results = search("infosys", exchange="NSE")  # search Indian stocks
+
+# Common tickers: RELIANCE.NS, TCS.NS, INFY.NS, HDFCBANK.NS, ICICIBANK.NS, WIPRO.NS
+# BSE alternative: RELIANCE.BO, TCS.BO, etc.
+```
+
+If you're unsure of the exact ticker, use `search(query="company name")` — the results include `exchangeShortName` ("NSE" or "BSE") and the full symbol.
 
 ## Historical Prices
 
@@ -260,7 +278,91 @@ holdings_2024 = get_etf_holdings('SPY', date='2024-12-31')
 
 Fields per holding: `asset` (ticker), `name`, `weightPercentage` (decimal, e.g. 0.082 = 8.2%), `sharesNumber`, `marketValue`, `updated`
 
+## Earnings Calendar & History
+
+**Use this for all earnings data — dates, EPS surprises, beat/miss rates, revenue estimates.**
+
+```python
+from skills.financial_modeling_prep.scripts.earnings.earnings_calendar import get_earnings_calendar, get_historical_earnings
+
+# Upcoming earnings for a date range
+upcoming = get_earnings_calendar(from_date='2026-05-01', to_date='2026-05-15')
+for e in upcoming:
+    timing = {'bmo': 'Before Open', 'amc': 'After Close', 'dmh': 'During Market'}.get(e.get('time', ''), e.get('time', ''))
+    est = f"EPS est: ${e['epsEstimated']}" if e.get('epsEstimated') else "No estimate"
+    print(f"{e['date']} {e['symbol']} ({timing}) — {est}")
+
+# Today's earnings (no date args)
+today = get_earnings_calendar()
+
+# Historical earnings for a specific stock — beat/miss history & surprises
+history = get_historical_earnings('AAPL')
+import pandas as pd
+df = pd.DataFrame(history)
+df['date'] = pd.to_datetime(df['date'])
+df = df.sort_values('date', ascending=False).reset_index(drop=True)
+
+# Calculate beat rate and average surprise
+df['surprise'] = df['eps'] - df['epsEstimated']
+df['beat'] = df['eps'] > df['epsEstimated']
+beat_rate = df['beat'].mean()
+avg_surprise = df['surprise'].mean()
+print(f"Beat rate: {beat_rate:.0%} ({df['beat'].sum()}/{len(df)} quarters)")
+print(f"Avg EPS surprise: ${avg_surprise:.2f}")
+
+# Show recent quarters
+for _, row in df.head(8).iterrows():
+    actual = f"${row['eps']:.2f}" if pd.notna(row['eps']) else "pending"
+    est = f"${row['epsEstimated']:.2f}" if pd.notna(row['epsEstimated']) else "n/a"
+    result = "BEAT" if row.get('beat') else "MISS"
+    print(f"  {row['date'].strftime('%Y-%m-%d')}: {actual} vs {est} ({result})")
+```
+
+Fields from `get_earnings_calendar`: `date`, `symbol`, `time` (bmo/amc/dmh), `eps`, `epsEstimated`, `revenue`, `revenueEstimated`, `fiscalDateEnding`
+
+Fields from `get_historical_earnings`: `date`, `symbol`, `eps`, `epsEstimated`, `revenue`, `revenueEstimated`
+
+### When to use earnings data
+
+- **Any stock analysis** — always check upcoming earnings date and recent beat/miss history
+- **Earnings plays** — pull beat rate, average surprise magnitude, revenue trends
+- **Pre-earnings screening** — scan a date range for stocks reporting, filter by sector/estimate availability
+- **Post-earnings review** — compare actual vs estimated to assess reaction
+
 ## Common Workflows
+
+### Earnings Season Scanner
+
+```python
+from skills.financial_modeling_prep.scripts.earnings.earnings_calendar import get_earnings_calendar, get_historical_earnings
+import pandas as pd
+
+# Find high-conviction earnings plays in a date range
+upcoming = get_earnings_calendar(from_date='2026-05-01', to_date='2026-05-15')
+df = pd.DataFrame(upcoming)
+# Filter to stocks with estimates
+df = df[df['epsEstimated'].notna() & (df['epsEstimated'] != 0)]
+
+results = []
+for symbol in df['symbol'].unique():
+    hist = get_historical_earnings(symbol)
+    if not hist or len(hist) < 4:
+        continue
+    hdf = pd.DataFrame(hist)
+    hdf['beat'] = hdf['eps'] > hdf['epsEstimated']
+    beat_rate = hdf['beat'].mean()
+    avg_surprise = (hdf['eps'] - hdf['epsEstimated']).mean()
+    results.append({
+        'symbol': symbol,
+        'date': df[df['symbol'] == symbol].iloc[0]['date'],
+        'beat_rate': beat_rate,
+        'avg_surprise': avg_surprise,
+        'quarters': len(hdf),
+    })
+
+rdf = pd.DataFrame(results).sort_values('beat_rate', ascending=False)
+print(rdf.to_string(index=False))
+```
 
 ### Value Screen
 
@@ -324,9 +426,12 @@ See `financial_modeling_prep/models.py` for complete Pydantic schemas.
 ## When to Use This Skill
 
 - User asks about a company's financials, revenue, earnings, or debt
+- **Any stock analysis** — always pull upcoming earnings date and beat/miss history via `get_historical_earnings`
+- **Earnings plays or earnings season** — use `get_earnings_calendar` for date ranges and `get_historical_earnings` for beat rates
 - User wants insider trading or congressional trading data for a stock
 - User asks for analyst price targets or institutional ownership
 - User wants to screen for market movers (gainers, losers, most active)
 - User asks "what do insiders think about X" or "is X undervalued"
 - User wants to know what stocks an ETF holds (use `get_etf_holdings`)
 - For price data, use `get_historical_prices` from this skill — do NOT use yfinance, polygon, or alpha_vantage
+- **For earnings data, use `get_earnings_calendar` and `get_historical_earnings`** — do NOT scrape news or guess dates

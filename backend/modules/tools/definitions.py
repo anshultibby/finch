@@ -253,45 +253,6 @@ async def get_portfolio(*, context: AgentContext) -> Dict[str, Any]:
 
 
 # ============================================================================
-# STRUCTURED UI TOOL
-# ============================================================================
-
-SHOW_UI_DESC = """Render structured UI blocks in the chat. Use this to compose rich, interactive
-displays instead of plain text — account cards, progress steps, action buttons, status banners.
-
-Pass an array of blocks. Each block has a "type" and type-specific fields:
-
-**buttons** — interactive choices. User clicks → value sent as their reply.
-  {"type": "buttons", "title": "Which account?", "buttons": [
-    {"label": "Robinhood", "value": "Use my Robinhood account", "description": "12 positions · $45k", "style": "primary"},
-    {"label": "Schwab IRA", "value": "Use my Schwab IRA", "description": "8 positions · $120k"}
-  ]}
-  style: "default" (gray), "primary" (green), "danger" (red)
-
-**info_card** — display structured info (accounts, positions, summaries).
-  {"type": "info_card", "title": "Robinhood", "subtitle": "Individual Brokerage",
-   "fields": [{"label": "Balance", "value": "$45,230"}, {"label": "Positions", "value": "12"}],
-   "badge": "Connected", "style": "default"}
-  style: "default" (gray), "success" (green), "warning" (amber), "accent" (violet)
-
-**progress** — step tracker showing where the user is in a multi-step flow.
-  {"type": "progress", "title": "Tax-Loss Harvesting", "steps": ["Pick account", "Mirror portfolio", "Scan losses", "Pick replacements", "Execute"], "current": 1}
-
-**status** — banner for success, warning, error, or info messages.
-  {"type": "status", "message": "Portfolio mirrored successfully — 12 positions replicated.", "style": "success"}
-"""
-
-@tool(
-    name="show_ui",
-    description=SHOW_UI_DESC,
-    category="ui",
-    hidden_from_ui=True,
-)
-def show_ui(*, blocks: list, context: AgentContext) -> Dict[str, Any]:
-    return {"success": True, "blocks": blocks}
-
-
-# ============================================================================
 # TLH / SWAP PRESENTATION TOOL
 # ============================================================================
 
@@ -358,8 +319,6 @@ __all__ = [
     'web_search_tool', 'news_search', 'scrape_url',
     # Brokerage / Portfolio
     'connect_brokerage', 'get_brokerage_status', 'get_portfolio',
-    # UI
-    'show_ui',
     # TLH
     'present_swaps',
     # Agent Management — disabled for now

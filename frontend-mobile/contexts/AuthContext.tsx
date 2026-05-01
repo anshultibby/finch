@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { Platform } from 'react-native';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import { registerForPushNotifications, setupNotificationListeners } from '@/lib/pushNotifications';
 
 interface AuthContextType {
   user: User | null;
@@ -20,6 +21,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const pushRegistered = useRef(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -33,9 +36,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+
+      if (session?.access_token && !pushRegistered.current) {
+        pushRegistered.current = true;
+        registerForPushNotifications(session.access_token).catch(console.error);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    const cleanupNotifications = setupNotificationListeners();
+
+    return () => {
+      subscription.unsubscribe();
+      cleanupNotifications();
+    };
   }, []);
 
   const signInWithGoogle = async () => {
@@ -43,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin + '/auth/callback',
+          redirectTo: window.location.origin,
         },
       });
       if (error) throw error;

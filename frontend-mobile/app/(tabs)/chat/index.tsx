@@ -64,7 +64,7 @@ export default function ChatListScreen() {
         <Text className="text-2xl font-body-bold text-slate-900">Chats</Text>
         <TouchableOpacity
           onPress={createNewChat}
-          className="bg-slate-900 rounded-full w-10 h-10 items-center justify-center"
+          className="bg-emerald-600 rounded-full w-10 h-10 items-center justify-center"
           activeOpacity={0.8}
         >
           <Plus size={20} color="#ffffff" />
@@ -73,7 +73,7 @@ export default function ChatListScreen() {
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#0f172a" />
+          <ActivityIndicator size="large" color="#059669" />
         </View>
       ) : chats.length === 0 ? (
         <View className="flex-1 items-center justify-center px-8">
@@ -86,7 +86,7 @@ export default function ChatListScreen() {
           </Text>
           <TouchableOpacity
             onPress={createNewChat}
-            className="mt-6 bg-slate-900 rounded-2xl px-6 py-3"
+            className="mt-6 bg-emerald-600 rounded-2xl px-6 py-3"
             activeOpacity={0.8}
           >
             <Text className="text-white font-body-medium">Start a Chat</Text>

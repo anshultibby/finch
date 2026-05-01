@@ -564,7 +564,7 @@ export default function ChatView({
         ${messages.map(msg => {
           let content = msg.content
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/\[file:([^\]]+)\]/g, '<span style="color:#2563eb;background:#eff6ff;padding:2px 6px;border-radius:4px;">📎 $1</span>')
+            .replace(/\{\{file:([^}]+)\}\}|\[file:([^\]]+)\]/g, (_, g1, g2) => `<span style="color:#2563eb;background:#eff6ff;padding:2px 6px;border-radius:4px;">📎 ${g1 || g2}</span>`)
             .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -690,7 +690,6 @@ export default function ChatView({
                       content={msg.content}
                       toolCalls={msg.toolCalls}
                       swap_data={msg.swap_data}
-                      ui_blocks={msg.ui_blocks}
                       chatId={currentChatId || undefined}
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
