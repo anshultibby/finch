@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 
 # Import tool definitions to register all tools
 from modules.tools import definitions  # noqa: F401 - imported for side effects (tool registration)
+from modules.tools.implementations import delegate  # noqa: F401 - imported for side effects (tool registration)
 
 app = FastAPI(
     title="Finch Tax Loss Harvesting API",
