@@ -139,7 +139,7 @@ class BaseAgent:
         self,
         initial_messages: List[Dict[str, Any]],
         chat_history: Optional[ChatHistory] = None,
-        max_iterations: int = 10,
+        max_iterations: int = 50,
         llm_config: Optional[LLMConfig] = None
     ) -> AsyncGenerator[SSEEvent, None]:
         """
@@ -360,7 +360,7 @@ class BaseAgent:
             async for event in self.run_tool_loop_streaming(
                 initial_messages=initial_messages,
                 chat_history=chat_history,
-                max_iterations=30,
+                max_iterations=50,
                 llm_config=llm_config
             ):
                 yield event
