@@ -163,7 +163,6 @@ function AppLayoutInner() {
         refreshTrigger={chatHistoryRefresh}
         isCreatingChat={isCreatingChat}
         isStreamingChat={activeChatIsLoading}
-        pendingSwapCount={pendingSwapCount}
       />
 
       {/* Main content */}

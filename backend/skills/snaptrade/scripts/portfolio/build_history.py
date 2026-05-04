@@ -1,12 +1,13 @@
 """
-Build portfolio value history from SnapTrade activities + FMP prices.
+Build portfolio value history from SnapTrade activities + FMP daily prices.
 
-equity[day] = sum(holdings[sym] * price[sym]) + cash[day]
+equity[day] = sum(holdings[sym] * close_price[sym]) + cash[day]
 
-- Holdings replayed from activities (buys/sells/splits)
-- Validated against SnapTrade's current positions to remove phantom holdings
-- Cash anchored to SnapTrade's current cash, adjusted by activity amounts
-- Daily resolution for full history, hourly for last 7 days
+- Holdings replayed from activities (buys, sells, splits, option events)
+- Validated against SnapTrade's current positions; correction applied retroactively
+- Cash anchored to SnapTrade's current cash, adjusted by cumulative activity amounts
+- Daily resolution only (end-of-day close prices)
+- Incremental: reuses cached equity series and resumes from cached holdings state
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -18,6 +19,10 @@ _activities_cache: Dict[Tuple[str, str], Tuple[float, List[dict]]] = {}
 _price_cache: Dict[str, Dict[str, float]] = {}
 _split_cache: Dict[str, List[dict]] = {}
 _CACHE_TTL = 300
+_INCREMENTAL_OVERLAP = 3
+
+# Activity types where 'units' does NOT represent share count changes
+_SKIP_UNITS = {'FEE', 'INTEREST', 'CONTRIBUTION', 'WITHDRAWAL', 'DIVIDEND'}
 
 
 def clear_caches():
@@ -32,6 +37,9 @@ def build_portfolio_history(
     start_date: Optional[str] = None,
     full_rebuild: bool = False,
     creds: Optional[tuple] = None,
+    cached_equity: Optional[List[dict]] = None,
+    cached_holdings: Optional[Dict[str, float]] = None,
+    cached_cash: Optional[float] = None,
 ) -> Dict[str, Any]:
     from skills.snaptrade.scripts._client import get_snaptrade_client
     from skills.financial_modeling_prep.scripts.api import fmp
@@ -49,7 +57,7 @@ def build_portfolio_history(
         uid = session.snaptrade_user_id
         secret = session.snaptrade_user_secret
 
-    # ── 1. Accounts + balance + cash + current positions ──
+    # ── 1. Accounts, balance, cash, current positions ──
     acct_resp = client.client.account_information.list_user_accounts(user_id=uid, user_secret=secret)
     accounts_raw = acct_resp.body if hasattr(acct_resp, "body") else acct_resp
     if not isinstance(accounts_raw, list):
@@ -80,7 +88,6 @@ def build_portfolio_history(
     if not account_ids:
         return {"success": False, "error": "No accounts."}
 
-    # Get cash balance from SnapTrade
     cash_balance = 0.0
     for aid in account_ids:
         try:
@@ -97,7 +104,6 @@ def build_portfolio_history(
         except Exception as e:
             print(f"⚠️ Balance fetch failed for {aid}: {str(e)[:80]}", flush=True)
 
-    # Get current positions from SnapTrade (ground truth for today's holdings)
     actual_positions: Dict[str, float] = defaultdict(float)
     for aid in account_ids:
         try:
@@ -117,14 +123,29 @@ def build_portfolio_history(
 
     print(f"📋 {len(account_ids)} accounts, balance=${actual_balance:,.2f}, cash=${cash_balance:,.2f}, {len(actual_positions)} positions", flush=True)
 
-    # ── 2. Fetch activities ──
-    # Default to 1 year of history for portfolio view
-    activity_start = start_date or (date.today() - timedelta(days=365)).isoformat()
+    # ── 2. Determine incremental vs full rebuild ──
+    use_incremental = (
+        not full_rebuild
+        and cached_equity
+        and cached_holdings
+        and cached_cash is not None
+        and len(cached_equity) >= 2
+    )
+
+    if use_incremental:
+        cache_cutoff = cached_equity[-1]["date"]
+        resume_date = (date.fromisoformat(cache_cutoff) - timedelta(days=_INCREMENTAL_OVERLAP)).isoformat()
+        print(f"⚡ Incremental build from {resume_date} (cached {len(cached_equity)} days through {cache_cutoff})", flush=True)
+        activity_start = resume_date
+    else:
+        activity_start = start_date or (date.today() - timedelta(days=365)).isoformat()
+        print(f"🔄 Full rebuild from {activity_start}", flush=True)
+
+    # ── 3. Fetch activities ──
     cache_key = (user_id, account_id or "all")
     cached = _activities_cache.get(cache_key)
     if cached and (_time.time() - cached[0]) < _CACHE_TTL:
         all_activities = list(cached[1])
-        print(f"📋 Cached: {len(all_activities)} activities", flush=True)
     else:
         all_activities = []
         for aid in account_ids:
@@ -152,17 +173,15 @@ def build_portfolio_history(
                 print(f"⚠️ Activities failed for {aid}: {str(e)[:100]}", flush=True)
         if all_activities:
             _activities_cache[cache_key] = (_time.time(), list(all_activities))
-        print(f"📋 Fetched {len(all_activities)} activities in {time.time()-t0:.1f}s", flush=True)
+    print(f"📋 {len(all_activities)} activities", flush=True)
 
-    if not all_activities:
+    if not all_activities and not use_incremental:
         return {"success": False, "error": "No activities."}
 
-    # ── 3. Fetch splits for traded symbols ──
+    # ── 4. Fetch splits for traded symbols ──
     traded_symbols = {a["symbol"] for a in all_activities if a["symbol"]}
     new_splits = [s for s in traded_symbols if s not in _split_cache]
     if new_splits:
-        print(f"📊 Fetching splits for {len(new_splits)} symbols...", flush=True)
-
         def _fetch_split(sym):
             try:
                 data = fmp(f"/historical-price-full/stock_split/{sym}")
@@ -174,14 +193,13 @@ def build_portfolio_history(
                     if n > 0 and d > 0 and n != d:
                         splits.append({"date": s["date"], "ratio": n / d})
                 return (sym, splits)
-            except:
+            except Exception:
                 return (sym, [])
 
         with ThreadPoolExecutor(max_workers=20) as pool:
             for sym, splits in pool.map(_fetch_split, new_splits):
                 _split_cache[sym] = splits
 
-    # Only inject splits within our date range
     for sym, splits in _split_cache.items():
         for s in splits:
             if s["date"] >= activity_start:
@@ -193,15 +211,16 @@ def build_portfolio_history(
 
     all_activities.sort(key=lambda a: a["date"])
 
-    # ── 4. Replay activities day by day ──
-    SKIP_UNITS = {'OPTIONEXERCISE', 'OPTIONEXPIRATION', 'FEE', 'INTEREST', 'CONTRIBUTION', 'WITHDRAWAL'}
+    # ── 5. Replay activities day by day ──
+    if use_incremental:
+        holdings = defaultdict(float, cached_holdings)
+        cumulative_cash = cached_cash
+        first_date = date.fromisoformat(activity_start)
+    else:
+        holdings: Dict[str, float] = defaultdict(float)
+        cumulative_cash = 0.0
+        first_date = date.fromisoformat(all_activities[0]["date"]) if all_activities else date.today()
 
-    # Start with actual positions and work backward to set initial holdings
-    # at start_date. We do this by replaying activities FORWARD from start_date
-    # using SnapTrade positions as a validation anchor.
-    holdings: Dict[str, float] = defaultdict(float)
-    cumulative_cash = 0.0
-    first_date = date.fromisoformat(all_activities[0]["date"])
     last_date = date.today()
 
     activities_by_date: Dict[str, List[dict]] = defaultdict(list)
@@ -218,9 +237,8 @@ def build_portfolio_history(
             atype = a.get("type", "")
 
             if atype == "_SPLIT" and sym and sym in holdings and holdings[sym] > 0:
-                old_qty = holdings[sym]
-                holdings[sym] = old_qty * a["split_ratio"]
-            elif sym and a.get("units") and atype not in SKIP_UNITS:
+                holdings[sym] = holdings[sym] * a["split_ratio"]
+            elif sym and a.get("units") and atype not in _SKIP_UNITS:
                 holdings[sym] += a["units"]
                 if abs(holdings[sym]) < 0.01:
                     del holdings[sym]
@@ -233,30 +251,46 @@ def build_portfolio_history(
 
         current += timedelta(days=1)
 
-    # ── 4b. Validate replayed holdings against SnapTrade positions ──
-    # Remove phantom holdings (mergers, acquisitions, delistings)
-    replayed_holdings = daily_state[-1][1] if daily_state else {}
+    if not daily_state:
+        return {"success": False, "error": "No market days computed."}
+
+    # ── 6. Correct holdings: snap to actual positions ──
+    replayed_final = daily_state[-1][1]
     valid_symbols = set(actual_positions.keys())
-    phantom = {s for s in replayed_holdings if s not in valid_symbols}
-    if phantom:
-        print(f"🧹 Removing {len(phantom)} phantom holdings not in SnapTrade: {sorted(phantom)}", flush=True)
-        # Remove phantoms from all daily states
-        daily_state = [
-            (d, {s: q for s, q in h.items() if s not in phantom}, cc)
-            for d, h, cc in daily_state
-        ]
 
-    # Log holdings comparison
-    for sym in sorted(valid_symbols):
-        replayed = replayed_holdings.get(sym, 0)
-        actual = actual_positions[sym]
-        if abs(replayed - actual) > 0.1:
-            print(f"⚠️ Holdings mismatch: {sym} replayed={replayed:.2f} vs actual={actual:.2f}", flush=True)
+    # Compute per-symbol correction (actual - replayed)
+    correction: Dict[str, float] = {}
+    all_syms = set(list(replayed_final.keys()) + list(actual_positions.keys()))
+    for sym in all_syms:
+        replayed_qty = replayed_final.get(sym, 0)
+        actual_qty = actual_positions.get(sym, 0)
+        delta = actual_qty - replayed_qty
+        if abs(delta) > 0.1:
+            correction[sym] = delta
+            print(f"⚠️ {sym}: replayed={replayed_qty:.2f} actual={actual_qty:.2f} correction={delta:+.2f}", flush=True)
 
-    print(f"📊 {len(daily_state)} market days, {len(valid_symbols)} active positions", flush=True)
+    # Remove phantoms (replayed > 0 but actual = 0) from all days
+    phantoms = {sym for sym, delta in correction.items() if actual_positions.get(sym, 0) < 0.01}
 
-    # ── 5. Fetch prices ──
-    # Only fetch for symbols actually in holdings, and only for the date range held
+    # Apply corrections retroactively to all days
+    if correction:
+        corrected_state = []
+        for d, h, cc in daily_state:
+            corrected = dict(h)
+            for sym in phantoms:
+                corrected.pop(sym, None)
+            for sym, delta in correction.items():
+                if sym in phantoms:
+                    continue
+                corrected[sym] = corrected.get(sym, 0) + delta
+                if corrected[sym] < 0.01:
+                    corrected.pop(sym, None)
+            corrected_state.append((d, corrected, cc))
+        daily_state = corrected_state
+
+    print(f"📊 {len(daily_state)} market days, {len(valid_symbols)} active positions, {len(correction)} corrections", flush=True)
+
+    # ── 7. Fetch daily close prices ──
     symbol_ranges: Dict[str, tuple] = {}
     for d, h, _ in daily_state:
         for sym in h:
@@ -275,7 +309,7 @@ def build_portfolio_history(
 
     if to_fetch:
         t1 = time.time()
-        print(f"📊 Daily prices: {len(to_fetch)}/{len(symbol_ranges)} symbols...", flush=True)
+        print(f"📊 Fetching daily prices: {len(to_fetch)}/{len(symbol_ranges)} symbols...", flush=True)
 
         def _fetch_price(item):
             sym, (fd, td) = item
@@ -287,43 +321,19 @@ def build_portfolio_history(
                     if "date" in bar:
                         prices[bar["date"]] = bar.get("close", 0)
                 return (sym, prices)
-            except:
+            except Exception:
                 return (sym, {})
 
         with ThreadPoolExecutor(max_workers=20) as pool:
             for sym, prices in pool.map(_fetch_price, to_fetch.items()):
                 if prices:
                     _price_cache.setdefault(sym, {}).update(prices)
-        print(f"✅ Daily prices in {time.time()-t1:.1f}s", flush=True)
+        print(f"✅ Prices fetched in {time.time()-t1:.1f}s", flush=True)
 
-    # Hourly prices for last 7 days
-    current_holdings = daily_state[-1][1] if daily_state else {}
-    intraday_cutoff = (date.today() - timedelta(days=10)).isoformat()
-    hourly_cache: Dict[str, List[dict]] = {}
+    # ── 8. Build equity series ──
+    today_cum = daily_state[-1][2]
 
-    if current_holdings:
-        t2 = time.time()
-
-        def _fetch_hourly(sym):
-            try:
-                data = fmp(f"/historical-chart/1hour/{sym}", {"from": intraday_cutoff, "to": date.today().isoformat()})
-                if not isinstance(data, list):
-                    return (sym, [])
-                return (sym, [{"date": b["date"], "close": b.get("close", 0)} for b in data if b.get("date", "") >= intraday_cutoff])
-            except:
-                return (sym, [])
-
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            for sym, bars in pool.map(_fetch_hourly, current_holdings.keys()):
-                if bars:
-                    hourly_cache[sym] = sorted(bars, key=lambda b: b["date"])
-        print(f"✅ Hourly prices in {time.time()-t2:.1f}s ({len(hourly_cache)} symbols)", flush=True)
-
-    # ── 6. Build equity series ──
-    today_cum = daily_state[-1][2] if daily_state else 0
-    missing_prices: Dict[str, List[str]] = defaultdict(list)
-
-    equity_series = []
+    new_equity = []
     for d, h, cum_cash in daily_state:
         stock_value = 0.0
         for sym, qty in h.items():
@@ -336,50 +346,37 @@ def build_portfolio_history(
                     if p in prices:
                         price = prices[p]
                         break
-            if price is None:
-                missing_prices[sym].append(d)
-            else:
+            if price is not None:
                 stock_value += qty * price
 
         cash_on_day = cash_balance - (today_cum - cum_cash)
         total = stock_value + cash_on_day
         if total > 0:
-            equity_series.append({"date": d, "value": round(total, 2)})
+            new_equity.append({"date": d, "value": round(total, 2)})
 
-    if missing_prices:
-        for sym, dates in missing_prices.items():
-            print(f"⚠️ MISSING PRICES: {sym} — {len(dates)} days (e.g. {dates[:3]})", flush=True)
-
-    # Hourly series for last 7 days
-    intraday_series = []
-    if hourly_cache and current_holdings:
-        all_ts = sorted({b["date"] for bars in hourly_cache.values() for b in bars})
-        week_ago = (date.today() - timedelta(days=7)).isoformat()
-        all_ts = [ts for ts in all_ts if ts >= week_ago]
-
-        for ts in all_ts:
-            stock_value = 0.0
-            for sym, qty in current_holdings.items():
-                price = 0
-                for b in hourly_cache.get(sym, []):
-                    if b["date"] <= ts:
-                        price = b["close"]
-                    else:
-                        break
-                stock_value += qty * price
-            if stock_value > 0:
-                total = stock_value + cash_balance
-                intraday_series.append({"date": ts, "value": round(total, 2)})
+    # Merge with cached equity for incremental builds
+    if use_incremental and cached_equity:
+        cutoff = new_equity[0]["date"] if new_equity else cached_equity[-1]["date"]
+        kept = [p for p in cached_equity if p["date"] < cutoff]
+        equity_series = kept + new_equity
+        print(f"⚡ Merged: {len(kept)} cached + {len(new_equity)} new = {len(equity_series)} total days", flush=True)
+    else:
+        equity_series = new_equity
 
     if equity_series and actual_balance > 0:
-        print(f"📊 Last daily=${equity_series[-1]['value']:,.2f} vs actual=${actual_balance:,.2f}", flush=True)
+        last_computed = equity_series[-1]["value"]
+        drift = abs(last_computed - actual_balance) / actual_balance
+        print(f"📊 Final: ${last_computed:,.2f} vs actual ${actual_balance:,.2f} (drift={drift:.1%})", flush=True)
 
-    print(f"⏱️ Done: {time.time()-t0:.1f}s, {len(equity_series)} daily + {len(intraday_series)} hourly pts", flush=True)
+    final_holdings = daily_state[-1][1]
+    final_cash = daily_state[-1][2]
+
+    print(f"⏱️ Done in {time.time()-t0:.1f}s — {len(equity_series)} daily points", flush=True)
 
     return {
         "success": True,
         "equity_series": equity_series,
-        "intraday_series": intraday_series,
+        "intraday_series": [],
         "symbols_used": sorted(symbol_ranges.keys()),
         "activities_count": len(all_activities),
         "snapshots_saved": 0,
@@ -387,6 +384,8 @@ def build_portfolio_history(
             "from": equity_series[0]["date"] if equity_series else None,
             "to": equity_series[-1]["date"] if equity_series else None,
         },
+        "holdings_state": final_holdings,
+        "cash_state": final_cash,
     }
 
 

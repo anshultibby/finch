@@ -83,4 +83,7 @@ async def get_portfolio_impl(context: AgentContext) -> Dict[str, Any]:
             "error": result.get("message", "Failed to fetch portfolio"),
         }
 
+    # Strip per-account positions to keep LLM context lean — the aggregated
+    # holdings_csv already contains everything the agent needs.
+    result.pop("accounts", None)
     return result

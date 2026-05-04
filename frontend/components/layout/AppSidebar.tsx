@@ -28,7 +28,6 @@ interface AppSidebarProps {
   refreshTrigger?: number;
   isCreatingChat?: boolean;
   isStreamingChat?: boolean;
-  pendingSwapCount?: number;
 }
 
 export interface AppSidebarRef {
@@ -77,19 +76,6 @@ const ChatIcon = () => (
   </svg>
 );
 
-const SwapsIcon = ({ count }: { count: number }) => (
-  <div className="relative">
-    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
-    </svg>
-    {count > 0 && (
-      <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-emerald-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-        {count > 9 ? '9+' : count}
-      </span>
-    )}
-  </div>
-);
-
 const LinkedAccountsIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
@@ -114,31 +100,24 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   refreshTrigger,
   isCreatingChat,
   isStreamingChat,
-  pendingSwapCount = 0,
 }, ref) => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
   const navItems: NavItem[] = [
-    { id: 'home', label: 'Chat', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
-    { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon />, mobileNav: true },
-    { id: 'portfolio', label: 'Agent Portfolio', view: { type: 'portfolio' }, icon: <AgentPortfolioIcon />, mobileNav: true },
-    { id: 'watchlist', label: 'Watchlist', view: { type: 'watchlist' }, icon: <WatchlistIcon />, mobileNav: true },
-  ];
-
-  // Mobile nav order: Search, Accounts, Home (center), Watchlist
-  const mobileNavItems: NavItem[] = [
-    navItems[1], // Search
-    { id: 'connections', label: 'Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon />, mobileNav: true },
-    navItems[0], // Home (center)
-    navItems[3], // Watchlist
-  ];
-
-  const secondaryItems: NavItem[] = [
-    { id: 'orders', label: 'Orders', view: { type: 'orders' }, icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" /></svg> },
-    { id: 'swaps', label: 'Opportunities', view: { type: 'swaps' }, icon: <SwapsIcon count={pendingSwapCount} /> },
+    { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon /> },
+    { id: 'portfolio', label: 'Agent Portfolio', view: { type: 'portfolio' }, icon: <AgentPortfolioIcon /> },
+    { id: 'watchlist', label: 'Watchlist', view: { type: 'watchlist' }, icon: <WatchlistIcon /> },
     { id: 'connections', label: 'Linked Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon /> },
+  ];
+
+  // Mobile nav order: Search, Accounts, Chat (center), Portfolio
+  const mobileNavItems: NavItem[] = [
+    navItems[0], // Search
+    { id: 'connections', label: 'Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon />, mobileNav: true },
+    { id: 'home', label: 'Chat', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
+    navItems[1], // Agent Portfolio
   ];
 
   const loadChats = useCallback(async () => {
@@ -244,30 +223,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                   title={!expanded ? item.label : undefined}>
                   {item.icon}
                   {expanded && <span className="font-medium">{item.label}</span>}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Divider */}
-          <div className="mx-3 my-2 border-t border-gray-200" />
-
-          {/* Secondary nav */}
-          <div className="px-2 space-y-0.5">
-            {secondaryItems.map(item => {
-              const active = viewMatch(currentView, item.view);
-              return (
-                <button key={item.id} onClick={() => onNavigate(item.view)}
-                  className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
-                    active ? 'bg-white shadow-sm border border-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  } ${expanded ? '' : 'justify-center'}`}
-                  title={!expanded ? item.label : undefined}>
-                  {item.icon}
-                  {expanded && <span className="font-medium">{item.label}</span>}
-                  {expanded && item.id === 'swaps' && pendingSwapCount > 0 && (
-                    <span className="ml-auto text-xs bg-emerald-100 text-emerald-700 font-semibold px-1.5 py-0.5 rounded-full">
-                      {pendingSwapCount}
-                    </span>
+                  {expanded && item.id === 'portfolio' && (
+                    <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">BETA</span>
                   )}
                 </button>
               );

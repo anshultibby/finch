@@ -1,32 +1,18 @@
 'use client';
 
 import React, { useState, KeyboardEvent, useRef, useEffect } from 'react';
-import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT, InvestorPersona } from '@/lib/aiPrompts';
-import InvestorPicker from './InvestorPicker';
+import { PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
 
 interface QuickAction {
   label: string;
-  description: string;
   prompt: string;
-  accent: 'emerald' | 'violet' | 'gray';
+  accent: 'violet' | 'gray';
   icon: React.ReactNode;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    label: 'Tax-loss harvesting',
-    description: 'Find tax savings in my portfolio',
-    accent: 'emerald',
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
-      </svg>
-    ),
-    prompt: TLH_PROMPT,
-  },
-  {
     label: 'Portfolio review',
-    description: 'Analyze my holdings and risks',
     accent: 'violet',
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -38,7 +24,6 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
   {
     label: 'Research a stock',
-    description: 'Get the AI take on any ticker',
     accent: 'gray',
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -50,13 +35,12 @@ const QUICK_ACTIONS: QuickAction[] = [
 ];
 
 const QUICK_ACTION_STYLES: Record<QuickAction['accent'], { bg: string; iconBg: string; iconText: string; hover: string }> = {
-  emerald: { bg: 'bg-emerald-50',  iconBg: 'bg-emerald-500/15', iconText: 'text-emerald-600', hover: 'hover:bg-emerald-100/70' },
   violet:  { bg: 'bg-violet-50',   iconBg: 'bg-violet-500/15',  iconText: 'text-violet-600',  hover: 'hover:bg-violet-100/70' },
   gray:    { bg: 'bg-gray-50',     iconBg: 'bg-gray-500/15',    iconText: 'text-gray-600',    hover: 'hover:bg-gray-100' },
 };
 
 interface NewChatWelcomeProps {
-  onSendMessage: (message: string, images?: any[], skills?: string[], files?: any, investorPersona?: string) => void;
+  onSendMessage: (message: string, images?: any[], skills?: string[], files?: any) => void;
   disabled?: boolean;
   prefillMessage?: string;
   prefillLabel?: string;
@@ -64,7 +48,6 @@ interface NewChatWelcomeProps {
 
 export default function NewChatWelcome({ onSendMessage, disabled = false, prefillMessage, prefillLabel }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
-  const [selectedPersona, setSelectedPersona] = useState<InvestorPersona | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -84,9 +67,8 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
 
   const handleSubmit = () => {
     if (message.trim() && !disabled) {
-      onSendMessage(message, undefined, undefined, undefined, selectedPersona?.id);
+      onSendMessage(message);
       setMessage('');
-      setSelectedPersona(null);
     }
   };
 
@@ -154,8 +136,8 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
           <p className="text-[13px] text-gray-400 mt-1.5">Pick a quick action or ask anything about your portfolio.</p>
         </div>
 
-        {/* Compact horizontal quick actions */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        {/* Quick actions */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
           {QUICK_ACTIONS.map((action) => {
             const s = QUICK_ACTION_STYLES[action.accent];
             return (
@@ -185,15 +167,6 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
           })}
         </div>
 
-        {/* Investor persona picker */}
-        <div className="mb-4">
-          <InvestorPicker
-            selectedId={selectedPersona?.id ?? null}
-            onSelect={setSelectedPersona}
-            disabled={disabled}
-          />
-        </div>
-
         {/* Free-form input */}
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm focus-within:border-gray-300 focus-within:shadow-md transition-all">
           <textarea
@@ -206,7 +179,7 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
               t.style.height = Math.min(t.scrollHeight, 180) + 'px';
             }}
             onKeyDown={handleKeyDown}
-            placeholder={selectedPersona ? `Ask ${selectedPersona.name} anything...` : 'Ask anything...'}
+            placeholder="Ask anything about your portfolio..."
             disabled={disabled}
             rows={2}
             className="w-full resize-none bg-transparent px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none text-[14px] leading-relaxed disabled:cursor-not-allowed"

@@ -407,20 +407,49 @@ class Portfolio(BaseModel):
     
     def to_csv_format(self) -> Dict[str, Any]:
         """
-        Convert portfolio to CSV format for LLM consumption.
-        Returns ONLY summary info + aggregated CSV (not per-account details).
-        This is much more efficient - the LLM gets all positions in one CSV.
+        Lean format for LLM consumption — aggregated CSV only, no per-account detail.
         """
-        result = {
+        return {
             "success": self.success,
             "message": self.message,
             "total_value": self.total_value,
             "total_positions": self.total_positions,
             "account_count": self.account_count,
             "syncing": self.syncing,
-            # Only send aggregated CSV - it contains all unique positions
-            "holdings_csv": self.aggregated_holdings_to_csv()
+            "holdings_csv": self.aggregated_holdings_to_csv(),
         }
-        
+
+    def to_full_format(self) -> Dict[str, Any]:
+        """
+        Full format for the frontend — includes per-account positions.
+        """
+        result = self.to_csv_format()
+        result["accounts"] = [
+            {
+                "id": a.id,
+                "name": a.name,
+                "number": a.number,
+                "type": a.type,
+                "institution": a.institution,
+                "balance": a.balance,
+                "total_value": a.total_value,
+                "position_count": a.position_count,
+                "status": a.status,
+                "positions": [
+                    {
+                        "symbol": p.symbol,
+                        "quantity": p.quantity,
+                        "price": p.price,
+                        "value": p.value,
+                        "average_purchase_price": p.average_purchase_price,
+                        "total_cost": p.total_cost,
+                        "gain_loss": (p.value - p.total_cost) if p.total_cost else None,
+                        "gain_loss_percent": (((p.value - p.total_cost) / p.total_cost) * 100) if p.total_cost and p.total_cost > 0 else None,
+                    }
+                    for p in a.positions
+                ],
+            }
+            for a in self.accounts
+        ]
         return result
 

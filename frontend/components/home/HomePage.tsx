@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { alpacaBrokerApi, marketApi, snaptradeApi } from '@/lib/api';
-import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
+import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import SandboxBadge from '@/components/shared/SandboxBadge';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import type { AlpacaPortfolioResponse, PortfolioResponse } from '@/lib/types';
@@ -366,22 +366,13 @@ export default function HomePage() {
                   <div className="text-xs text-gray-400 mb-3">
                     {externalPortfolio.total_positions} position{externalPortfolio.total_positions !== 1 ? 's' : ''} across {externalPortfolio.account_count} account{externalPortfolio.account_count !== 1 ? 's' : ''}
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => openChatWithPrompt(PORTFOLIO_REVIEW_PROMPT, 'Review my portfolio')}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-violet-700 bg-violet-50 rounded-xl hover:bg-violet-100 transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375" />
-                      </svg>
-                      Review
-                    </button>
-                    <button onClick={() => openChatWithPrompt(TLH_PROMPT, 'Scan portfolio for tax losses')}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
-                      </svg>
-                      Tax-loss harvest
-                    </button>
-                  </div>
+                  <button onClick={() => openChatWithPrompt(PORTFOLIO_REVIEW_PROMPT, 'Review my portfolio')}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-violet-700 bg-violet-50 rounded-xl hover:bg-violet-100 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375" />
+                    </svg>
+                    Review portfolio
+                  </button>
                 </>
               ) : (
                 <>

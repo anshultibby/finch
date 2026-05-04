@@ -421,24 +421,33 @@ async def build_portfolio_history_endpoint(
 
     snapshot_account_key = account_id or "all"
 
-    if not force:
-        # Return cached DB data if today's snapshot already exists
-        async with get_db_session() as db:
-            today = date_type.today()
-            matching = (await db.execute(
-                select(PortfolioSnapshot)
-                .where(PortfolioSnapshot.user_id == user_id)
-                .where(PortfolioSnapshot.data["account_id"].astext == snapshot_account_key)
-                .order_by(PortfolioSnapshot.snapshot_date.desc())
-            )).scalars().all()
+    # Load existing cached snapshots from DB
+    cached_equity = []
+    cached_holdings = None
+    cached_cash = None
+    async with get_db_session() as db:
+        today = date_type.today()
+        matching = (await db.execute(
+            select(PortfolioSnapshot)
+            .where(PortfolioSnapshot.user_id == user_id)
+            .where(PortfolioSnapshot.data["account_id"].astext == snapshot_account_key)
+            .order_by(PortfolioSnapshot.snapshot_date.desc())
+        )).scalars().all()
 
-            if matching and matching[0].snapshot_date >= today:
-                equity_series = [
-                    {"date": str(s.snapshot_date), "value": float(s.data.get("total_value", 0))}
-                    for s in sorted(matching, key=lambda s: s.snapshot_date)
-                ]
-                if len(equity_series) > 1:
-                    return {"success": True, "equity_series": equity_series, "cached": True}
+        if matching:
+            sorted_snaps = sorted(matching, key=lambda s: s.snapshot_date)
+            cached_equity = [
+                {"date": str(s.snapshot_date), "value": float(s.data.get("total_value", 0))}
+                for s in sorted_snaps
+            ]
+            # Load holdings state from the latest snapshot
+            latest_data = sorted_snaps[-1].data
+            cached_holdings = latest_data.get("holdings_state")
+            cached_cash = latest_data.get("cash_state")
+
+            if not force and sorted_snaps[-1].snapshot_date >= today:
+                if len(cached_equity) > 1:
+                    return {"success": True, "equity_series": cached_equity, "cached": True}
 
     # Pre-fetch session in async context so sync executor can use it
     session = await snaptrade_tools._get_session(user_id)
@@ -446,49 +455,48 @@ async def build_portfolio_history_endpoint(
         return {"success": False, "error": "Not connected."}
     creds = (session.snaptrade_user_id, session.snaptrade_user_secret)
 
-    # Rebuild from scratch
+    # Build (incremental if we have cached state, full otherwise)
+    can_incremental = (
+        not force
+        and cached_equity
+        and cached_holdings
+        and cached_cash is not None
+    )
     result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: build_portfolio_history(user_id, account_id=account_id, creds=creds)
+        None, lambda: build_portfolio_history(
+            user_id,
+            account_id=account_id,
+            creds=creds,
+            full_rebuild=force,
+            cached_equity=cached_equity if can_incremental else None,
+            cached_holdings=cached_holdings if can_incremental else None,
+            cached_cash=cached_cash if can_incremental else None,
+        )
     )
 
     if not result.get("success") or not result.get("equity_series"):
         return result
 
     equity_series = result["equity_series"]
-    intraday_series = result.get("intraday_series", [])
+    holdings_state = result.get("holdings_state", {})
+    cash_state = result.get("cash_state", 0.0)
 
     async with get_db_session() as db:
-        # Save daily snapshots
         await db.execute(
             delete(PortfolioSnapshot)
             .where(PortfolioSnapshot.user_id == user_id)
             .where(PortfolioSnapshot.data["account_id"].astext == snapshot_account_key)
         )
-        for point in equity_series:
+        for i, point in enumerate(equity_series):
+            data = {"total_value": point["value"], "account_id": snapshot_account_key}
+            if i == len(equity_series) - 1:
+                data["holdings_state"] = holdings_state
+                data["cash_state"] = cash_state
             db.add(PortfolioSnapshot(
                 id=uuid.uuid4(),
                 user_id=user_id,
                 snapshot_date=date_type.fromisoformat(point["date"]),
-                data={"total_value": point["value"], "account_id": snapshot_account_key},
-            ))
-
-        # Save intraday series
-        if intraday_series:
-            from datetime import datetime, timezone
-            from models.brokerage import PortfolioIntradayCache
-            await db.execute(
-                delete(PortfolioIntradayCache).where(
-                    PortfolioIntradayCache.user_id == user_id,
-                    PortfolioIntradayCache.account_id == snapshot_account_key,
-                )
-            )
-            db.add(PortfolioIntradayCache(
-                id=uuid.uuid4(),
-                user_id=user_id,
-                account_id=snapshot_account_key,
-                days_back=7,
-                equity_series=intraday_series,
-                computed_at=datetime.now(timezone.utc),
+                data=data,
             ))
 
     result["snapshots_saved"] = len(equity_series)

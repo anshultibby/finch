@@ -40,7 +40,6 @@ interface ChatViewProps {
   rightOffset?: number;
   // Compact mode for chat drawer
   compact?: boolean;
-  onPersonaChange?: (personaId: string | null) => void;
 }
 
 function formatErrorForUser(error: string): string {
@@ -98,7 +97,6 @@ export default function ChatView({
   onVisualizationClick,
   botId,
   rightOffset = 0,
-  onPersonaChange,
 }: ChatViewProps) {
   const { user } = useAuth();
   const { mode } = useChatMode();
@@ -127,12 +125,6 @@ export default function ChatView({
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Active investor persona for this chat
-  const [activePersonaId, setActivePersonaIdLocal] = useState<string | null>(null);
-  const setActivePersonaId = useCallback((id: string | null) => {
-    setActivePersonaIdLocal(id);
-    onPersonaChange?.(id);
-  }, [onPersonaChange]);
 
   // Sub-agent peek panel
   const [peekAgent, setPeekAgent] = useState<{ agentId: string; chatId: string; name: string } | null>(null);
@@ -371,12 +363,8 @@ export default function ChatView({
     };
   }, [currentChatId, getChatState, updateChatState, syncDisplay]);
 
-  const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[], _files?: unknown, investorPersona?: string) => {
+  const handleSendMessage = async (content: string, images?: ImageAttachment[], skills?: string[]) => {
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
-
-    // Track investor persona for the lifetime of this chat
-    const personaToUse = investorPersona || activePersonaId;
-    if (investorPersona) setActivePersonaId(investorPersona);
 
     setEmailRequested(false);
     const isFirst = isNewChat || !currentChatId;
@@ -406,7 +394,6 @@ export default function ChatView({
           setCurrentChatId(newChatId);
         },
         skills,
-        personaToUse || undefined,
       );
     } catch {
       // Errors handled inside useChatStream
@@ -438,7 +425,6 @@ export default function ChatView({
     setCurrentChatId(selectedChatId);
     setIsNewChat(false);
     setSelectedTool(null);
-    setActivePersonaId(null);
     syncDisplay(getChatState(selectedChatId));
   };
 
@@ -447,7 +433,6 @@ export default function ChatView({
     setCurrentChatId(null);
     setIsNewChat(true);
     setSelectedTool(null);
-    setActivePersonaId(null);
     clearDisplay();
   }, [userId, clearDisplay, setCurrentChatId]);
 

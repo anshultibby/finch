@@ -817,7 +817,7 @@ class SnapTradeTools:
             
             # Let Portfolio handle ALL the aggregation!
             portfolio = Portfolio.from_accounts(accounts_list, syncing_count=syncing_count)
-            return portfolio.to_csv_format()
+            return portfolio.to_full_format()
             
         except Exception as e:
             print(f"❌ Error fetching portfolio: {str(e)}", flush=True)
@@ -873,9 +873,9 @@ class SnapTradeTools:
                 account_key = account_id or "all"
                 query = select(PortfolioSnapshot).filter(PortfolioSnapshot.user_id == user_id)
                 if start_date:
-                    query = query.filter(PortfolioSnapshot.snapshot_date >= start_date)
+                    query = query.filter(PortfolioSnapshot.snapshot_date >= date.fromisoformat(start_date))
                 if end_date:
-                    query = query.filter(PortfolioSnapshot.snapshot_date <= end_date)
+                    query = query.filter(PortfolioSnapshot.snapshot_date <= date.fromisoformat(end_date))
                 query = query.order_by(PortfolioSnapshot.snapshot_date.asc())
                 result = await db.execute(query)
                 snapshots = result.scalars().all()
