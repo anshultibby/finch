@@ -173,6 +173,20 @@ framework = get_alpha_framework()
 # Check warnings before acting on any signal
 ```
 
+## Extending: Write Your Own Analysis Functions
+
+The functions here are starting points, not a complete set. You should write your own analysis functions on the fly when the situation calls for it. You have full access to all other skills (FMP, Polygon, ORATS, etc.) and can combine them however makes sense.
+
+Examples of functions you might write ad hoc:
+- Sector rotation detector using cross-asset data + FMP sector performance
+- Earnings revision momentum tracker using FMP analyst estimates over time
+- Congressional trading signal using FMP senate/house trading data + earnings timing
+- Options skew analyzer combining ORATS IV surface with FMP fundamentals
+- Custom stock screener combining multiple FMP endpoints with your own filters
+- Correlation/pair analysis using Polygon historical prices
+
+Don't limit yourself to what's pre-built. Read the framework, identify which alpha gap you're targeting, pull the raw data you need from any available skill, and build the analysis inline.
+
 ## When to Use
 
 - Researching trade opportunities or scanning for ideas
