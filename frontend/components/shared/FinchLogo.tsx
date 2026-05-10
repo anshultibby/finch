@@ -17,10 +17,10 @@ export default function FinchLogo({ size = 28, showText = false, className = '' 
         xmlns="http://www.w3.org/2000/svg"
       >
         <rect width="36" height="36" rx="8" fill="#10b981" />
-        {/* Abstract swift — three strokes pinched right */}
-        <path d="M8 14h12l4-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8 18h16" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-        <path d="M8 22h12l4 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Bar chart forming an F */}
+        <rect x="8" y="8" width="5" height="20" rx="1.5" fill="white" />
+        <rect x="15" y="8" width="5" height="12" rx="1.5" fill="white" />
+        <rect x="22" y="14" width="5" height="6" rx="1.5" fill="white" />
       </svg>
       {showText && (
         <span className="font-bold text-gray-900 tracking-tight text-base">Finch</span>
