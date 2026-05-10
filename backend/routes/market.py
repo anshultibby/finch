@@ -313,34 +313,85 @@ async def get_batch_quotes(symbols: str = Query(..., description="Comma-separate
 # ---------------------------------------------------------------------------
 
 @router.get("/earnings")
-async def get_earnings_calendar_endpoint():
-    """Return upcoming earnings for the next 7 days."""
+async def get_earnings_calendar_endpoint(
+    from_date: str = None,
+    to_date: str = None,
+    market: str = "us",
+):
+    """Return earnings calendar. Accepts optional from/to date params (YYYY-MM-DD) and market (us/india)."""
     from skills.financial_modeling_prep.scripts.earnings.earnings_calendar import get_earnings_calendar
     from datetime import datetime, timedelta
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    end = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    if not from_date:
+        from_date = datetime.now().strftime("%Y-%m-%d")
+    if not to_date:
+        to_date = (datetime.strptime(from_date, "%Y-%m-%d") + timedelta(days=7)).strftime("%Y-%m-%d")
 
     try:
-        data = await asyncio.to_thread(get_earnings_calendar, today, end)
+        data = await asyncio.to_thread(get_earnings_calendar, from_date, to_date)
     except Exception:
         return []
 
     if not isinstance(data, list):
         return []
 
-    result = [
+    import re
+    if market == "india":
+        ticker_re = re.compile(r'^[A-Z0-9]+\.(NS|BO)$')
+    else:
+        ticker_re = re.compile(r'^[A-Z]{1,4}(-[A-Z])?$')
+
+    filtered = [
         {
             "symbol": e.get("symbol"),
+            "name": e.get("name", ""),
             "date": e.get("date"),
             "time": e.get("time"),
+            "eps": e.get("eps"),
             "epsEstimated": e.get("epsEstimated"),
+            "revenue": e.get("revenue"),
             "revenueEstimated": e.get("revenueEstimated"),
         }
         for e in data
-        if e.get("epsEstimated") is not None
-    ][:20]
-    return result
+        if (e.get("epsEstimated") is not None or e.get("eps") is not None)
+        and ticker_re.match(e.get("symbol") or "")
+    ]
+
+    filtered.sort(key=lambda x: (x["date"], -(x.get("revenue") or x.get("revenueEstimated") or 0)))
+    return filtered
+
+
+# ---------------------------------------------------------------------------
+# 8b. Batch quotes
+# ---------------------------------------------------------------------------
+
+@router.get("/batch-quote")
+async def get_batch_quotes(symbols: str):
+    """Return quotes for comma-separated symbols."""
+    from skills.financial_modeling_prep.scripts.api import fmp
+
+    syms = symbols.upper().strip()
+    if not syms:
+        return []
+
+    try:
+        data = await asyncio.to_thread(fmp, f"/quote/{syms}")
+    except Exception:
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    return [
+        {
+            "symbol": q.get("symbol"),
+            "name": q.get("name", ""),
+            "price": q.get("price"),
+            "changePercent": q.get("changesPercentage"),
+            "marketCap": q.get("marketCap"),
+        }
+        for q in data
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -372,3 +423,248 @@ async def get_general_news(limit: int = 10):
         }
         for n in data
     ]
+
+
+# ---------------------------------------------------------------------------
+# 10. Analyst consensus / price targets
+# ---------------------------------------------------------------------------
+
+@router.get("/analyst/{symbol}")
+async def get_analyst_data(symbol: str):
+    sym = symbol.upper()
+    from skills.financial_modeling_prep.scripts.analyst.price_target import (
+        get_price_target_consensus,
+    )
+    from skills.financial_modeling_prep.scripts.api import fmp
+
+    try:
+        consensus, grades = await asyncio.gather(
+            asyncio.to_thread(get_price_target_consensus, sym),
+            asyncio.to_thread(fmp, f"/grade/{sym}", {"limit": 100}),
+        )
+    except Exception:
+        return {"consensus": None, "grades": None}
+
+    grade_summary = None
+    if isinstance(grades, list) and grades:
+        counts = {"Buy": 0, "Neutral": 0, "Sell": 0}
+        for g in grades:
+            rec = (g.get("newGrade") or "").lower()
+            if any(w in rec for w in ("buy", "overweight", "outperform", "strong buy")):
+                counts["Buy"] += 1
+            elif any(w in rec for w in ("sell", "underweight", "underperform")):
+                counts["Sell"] += 1
+            else:
+                counts["Neutral"] += 1
+        total = sum(counts.values())
+        if total > 0:
+            top = max(counts, key=lambda k: counts[k])
+            grade_summary = {
+                "buy": counts["Buy"],
+                "neutral": counts["Neutral"],
+                "sell": counts["Sell"],
+                "total": total,
+                "consensus": top,
+            }
+
+    cons = None
+    if isinstance(consensus, list) and consensus:
+        cons = consensus[0]
+    elif isinstance(consensus, dict) and consensus:
+        cons = consensus
+
+    raw_grades = None
+    if isinstance(grades, list) and grades:
+        raw_grades = [
+            {
+                "firm": g.get("gradingCompany", ""),
+                "analyst": g.get("analyst", ""),
+                "rating": g.get("newGrade", ""),
+                "previous": g.get("previousGrade", ""),
+                "date": g.get("date", ""),
+                "action": g.get("action", ""),
+            }
+            for g in grades[:30]
+        ]
+
+    return {"consensus": cons, "grades": grade_summary, "rawGrades": raw_grades}
+
+
+# ---------------------------------------------------------------------------
+# 11. Historical earnings (actual vs estimated)
+# ---------------------------------------------------------------------------
+
+@router.get("/earnings-history/{symbol}")
+async def get_earnings_history(symbol: str, limit: int = 12):
+    sym = symbol.upper()
+    from skills.financial_modeling_prep.scripts.earnings.earnings_calendar import (
+        get_historical_earnings,
+    )
+
+    try:
+        data = await asyncio.to_thread(get_historical_earnings, sym)
+    except Exception:
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    items = sorted(data, key=lambda x: x.get("date", ""))[-limit:]
+    return [
+        {
+            "date": e.get("date"),
+            "eps": e.get("eps"),
+            "epsEstimated": e.get("epsEstimated"),
+            "revenue": e.get("revenue"),
+            "revenueEstimated": e.get("revenueEstimated"),
+            "fiscalDateEnding": e.get("fiscalDateEnding"),
+            "time": e.get("time"),
+        }
+        for e in items
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 12. Earnings transcript
+# ---------------------------------------------------------------------------
+
+@router.get("/earnings-transcript/{symbol}")
+async def get_earnings_transcript(symbol: str, quarter: int = 4, year: int = 2025):
+    sym = symbol.upper()
+    from skills.financial_modeling_prep.scripts.api import fmp
+
+    try:
+        data = await asyncio.to_thread(
+            fmp, f"/earning_call_transcript/{sym}", {"quarter": quarter, "year": year}
+        )
+    except Exception:
+        return {"content": None}
+
+    if isinstance(data, dict) and data.get("content"):
+        return {"date": data.get("date"), "content": data["content"], "quarter": quarter, "year": year}
+    if isinstance(data, list) and data:
+        item = data[0]
+        return {"date": item.get("date"), "content": item.get("content"), "quarter": quarter, "year": year}
+    return {"content": None}
+
+
+# ---------------------------------------------------------------------------
+# 13. SEC filings
+# ---------------------------------------------------------------------------
+
+@router.get("/sec-filings/{symbol}")
+async def get_sec_filings(symbol: str, type: str = None, limit: int = 20):
+    sym = symbol.upper()
+    from skills.financial_modeling_prep.scripts.api import fmp
+
+    params = {"limit": limit}
+    if type:
+        params["type"] = type
+
+    try:
+        data = await asyncio.to_thread(fmp, f"/sec_filings/{sym}", params)
+    except Exception:
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    return [
+        {
+            "fillingDate": e.get("fillingDate"),
+            "type": e.get("type"),
+            "link": e.get("link"),
+            "finalLink": e.get("finalLink"),
+        }
+        for e in data
+    ][:limit]
+
+
+# ---------------------------------------------------------------------------
+# 14. Financials — income statement, balance sheet, cash flow, key metrics, ratios
+# ---------------------------------------------------------------------------
+
+@router.get("/financials/{symbol}")
+async def get_financials(
+    symbol: str,
+    statement: str = Query("income-statement", regex="^(key-stats|income-statement|balance-sheet|cash-flow|ratios)$"),
+    period: str = Query("annual", regex="^(annual|quarter|ttm)$"),
+    limit: int = 6,
+):
+    sym = symbol.upper()
+
+    from skills.financial_modeling_prep.scripts.financials.income_statement import get_income_statement
+    from skills.financial_modeling_prep.scripts.financials.balance_sheet import get_balance_sheet
+    from skills.financial_modeling_prep.scripts.financials.cash_flow import get_cash_flow
+    from skills.financial_modeling_prep.scripts.financials.key_metrics import get_key_metrics, get_key_metrics_ttm
+    from skills.financial_modeling_prep.scripts.financials.ratios import get_ratios
+    from skills.financial_modeling_prep.scripts.api import fmp
+
+    def _merge_by_date(*sources):
+        merged = {}
+        for src in sources:
+            if not isinstance(src, list):
+                continue
+            for item in src:
+                d = item.get("date", "")
+                if d not in merged:
+                    merged[d] = {}
+                merged[d].update(item)
+        return sorted(merged.values(), key=lambda x: x.get("date", ""))
+
+    # TTM = trailing 4 quarters shown individually
+    actual_period = "quarter" if period == "ttm" else period
+    actual_limit = 4 if period == "ttm" else limit
+
+    # --- key-stats: merge income + cash flow + balance sheet + key metrics ---
+    if statement == "key-stats":
+        try:
+            inc, cf, bs, km = await asyncio.gather(
+                asyncio.to_thread(get_income_statement, sym, actual_period, actual_limit),
+                asyncio.to_thread(get_cash_flow, sym, actual_period, actual_limit),
+                asyncio.to_thread(get_balance_sheet, sym, actual_period, actual_limit),
+                asyncio.to_thread(get_key_metrics, sym, actual_period, actual_limit),
+            )
+            return _merge_by_date(inc, cf, bs, km)
+        except Exception:
+            return []
+
+    # --- Standard annual/quarter/ttm ---
+    fetchers = {
+        "income-statement": lambda: get_income_statement(sym, actual_period, actual_limit),
+        "balance-sheet": lambda: get_balance_sheet(sym, actual_period, actual_limit),
+        "cash-flow": lambda: get_cash_flow(sym, actual_period, actual_limit),
+        "ratios": lambda: get_ratios(sym, actual_period, actual_limit),
+    }
+
+    try:
+        data = await asyncio.to_thread(fetchers[statement])
+    except Exception:
+        return []
+
+    return data if isinstance(data, list) else []
+
+
+# ---------------------------------------------------------------------------
+# 15. SEC citation deep-link resolver
+# ---------------------------------------------------------------------------
+
+@router.get("/sec-citation")
+async def get_sec_citation(
+    filing_url: str = Query(..., description="The finalLink URL to the iXBRL filing"),
+    field: str = Query(..., description="FMP camelCase field name"),
+):
+    if not filing_url.startswith("https://www.sec.gov/"):
+        raise HTTPException(status_code=400, detail="filing_url must be an SEC EDGAR URL")
+
+    from skills.financial_modeling_prep.scripts.sec_citation import resolve_anchor
+
+    try:
+        result = await asyncio.to_thread(resolve_anchor, filing_url, field)
+    except Exception:
+        return {"anchor_id": None, "url": filing_url}
+
+    if result is None:
+        return {"anchor_id": None, "url": filing_url}
+
+    return result

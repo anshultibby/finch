@@ -28,6 +28,7 @@ export default function ChatDrawer({
   const { chatDrawerOpen, setChatDrawerOpen, chatContext } = useNavigation();
   const [prefill, setPrefill] = useState<string | undefined>();
   const [prefillLabel, setPrefillLabel] = useState<string | undefined>();
+  const [pageContext, setPageContext] = useState<Record<string, any> | undefined>();
   const [drawerChatId, setDrawerChatId] = useState<string | null>(null);
 
   // Reset to a fresh chat each time the drawer opens with new context
@@ -38,6 +39,7 @@ export default function ChatDrawer({
         setPrefill(chatContext.prefill);
         setPrefillLabel(chatContext.prefillLabel);
       }
+      setPageContext(chatContext?.pageContext);
     }
   }, [chatDrawerOpen, chatContext]);
 
@@ -98,6 +100,7 @@ export default function ChatDrawer({
             sidebarRef={sidebarRef}
             prefillMessage={prefill}
             prefillLabel={prefillLabel}
+            pageContext={pageContext}
             onVisualizationClick={() => {}}
             compact
           />

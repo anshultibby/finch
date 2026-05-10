@@ -8,7 +8,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 
 export type View =
   | { type: 'home' }
-  | { type: 'stock'; symbol: string }
+  | { type: 'stock'; symbol: string; tab?: string }
   | { type: 'watchlist' }
   | { type: 'portfolio' }
   | { type: 'orders' }
@@ -30,8 +30,8 @@ interface NavigationContextType {
   // Chat drawer (for contextual chats anchored to a stock page)
   chatDrawerOpen: boolean;
   setChatDrawerOpen: (open: boolean) => void;
-  chatContext?: { symbol?: string; prefill?: string; prefillLabel?: string };
-  openChatAbout: (symbol: string, prefill?: string) => void;
+  chatContext?: { symbol?: string; prefill?: string; prefillLabel?: string; pageContext?: Record<string, any> };
+  openChatAbout: (symbol: string, prefill?: string, pageContext?: Record<string, any>) => void;
 
   // Chat page (full-page AI workspace)
   currentChatId: string | null;
@@ -41,7 +41,7 @@ interface NavigationContextType {
   loadChat: (chatId: string) => void;
 
   // Helpers
-  openStock: (symbol: string) => void;
+  openStock: (symbol: string, tab?: string) => void;
 }
 
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
@@ -49,7 +49,7 @@ const NavigationContext = createContext<NavigationContextType | undefined>(undef
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<View[]>([{ type: 'home' }]);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
-  const [chatContext, setChatContext] = useState<{ symbol?: string; prefill?: string; prefillLabel?: string }>();
+  const [chatContext, setChatContext] = useState<{ symbol?: string; prefill?: string; prefillLabel?: string; pageContext?: Record<string, any> }>();
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   const currentView = history[history.length - 1];
@@ -66,31 +66,31 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setHistory(prev => prev.length > 1 ? prev.slice(0, -1) : prev);
   }, []);
 
-  const openStock = useCallback((symbol: string) => {
-    navigateTo({ type: 'stock', symbol: symbol.toUpperCase() });
+  const openStock = useCallback((symbol: string, tab?: string) => {
+    navigateTo({ type: 'stock', symbol: symbol.toUpperCase(), tab });
   }, [navigateTo]);
 
-  const openChatAbout = useCallback((symbol: string, prefill?: string) => {
-    setChatContext({ symbol: symbol.toUpperCase(), prefill: prefill || `What do you think about ${symbol.toUpperCase()}?` });
+  const openChatAbout = useCallback((symbol: string, prefill?: string, pageContext?: Record<string, any>) => {
+    setChatContext({ symbol: symbol.toUpperCase(), prefill: prefill || `What do you think about ${symbol.toUpperCase()}?`, pageContext });
     setChatDrawerOpen(true);
   }, []);
 
   const startNewChat = useCallback(() => {
     setCurrentChatId(null);
     setChatContext(undefined);
-    navigateTo({ type: 'home' });
+    navigateTo({ type: 'chat' });
   }, [navigateTo]);
 
   const openChatWithPrompt = useCallback((prompt: string, label?: string) => {
     setCurrentChatId(null);
     setChatContext({ prefill: prompt, prefillLabel: label });
-    navigateTo({ type: 'home' });
+    navigateTo({ type: 'chat' });
   }, [navigateTo]);
 
   const loadChat = useCallback((chatId: string) => {
     setCurrentChatId(chatId);
     setChatContext(undefined);
-    navigateTo({ type: 'home' });
+    navigateTo({ type: 'chat' });
   }, [navigateTo]);
 
   return (

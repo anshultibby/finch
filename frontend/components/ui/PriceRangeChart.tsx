@@ -1,6 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createChart, ColorType, LineStyle, CrosshairMode, LineSeries, AreaSeries } from 'lightweight-charts';
+import type {
+  IChartApi,
+  ISeriesApi,
+  MouseEventParams,
+  Time,
+  SingleValueData,
+} from 'lightweight-charts';
 
 export interface PriceSeriesConfig {
   symbol: string;
@@ -26,7 +34,6 @@ export const DEFAULT_RANGES: RangeOption[] = [
   { label: 'All', days: 3650 },
 ];
 
-// YTD varies by current date, so recompute on each call rather than freezing at module load.
 export const ytdDays = () =>
   Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000);
 
@@ -39,11 +46,6 @@ export const getStockRanges = (): RangeOption[] => [
   { label: '1Y', days: 365 },
   { label: 'MAX', days: 3650 },
 ];
-
-const PAD_T = 12;
-const PAD_B = 8;
-const PAD_L = 2;
-const PAD_R = 2;
 
 type BaseProps = {
   height?: number;
@@ -70,7 +72,6 @@ type DataProps = BaseProps & {
   color?: string;
   label?: string;
   series?: undefined;
-  // Controlled range (parent drives fetch, chart reflects state)
   selectedDays?: number;
   onRangeChange?: (days: number, label: string) => void;
 };
@@ -81,12 +82,11 @@ const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
 
-/**
- * Two modes:
- *   • Symbol: pass `series`; chart fetches /api/market-prices and displays %.
- *   • Data:   pass `data` (+ optional `selectedDays`/`onRangeChange`); parent owns
- *             data + range; chart renders currency or % based on `format`.
- */
+function toUTCTimestamp(dateStr: string): Time {
+  const d = new Date(dateStr.includes('T') || dateStr.includes(' ') ? dateStr.replace(' ', 'T') : dateStr + 'T12:00:00');
+  return Math.floor(d.getTime() / 1000) as Time;
+}
+
 export default function PriceRangeChart(props: Props) {
   const {
     height = 200,
@@ -166,87 +166,193 @@ export default function PriceRangeChart(props: Props) {
   const hasData = lines.some(l => l.data.length >= 2);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [W, setW] = useState(600);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setW(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRefs = useRef<ISeriesApi<any>[]>([]);
 
-  const H = height;
-  const chartW = Math.max(1, W - PAD_L - PAD_R);
-  const chartH = Math.max(1, H - PAD_T - PAD_B);
-
-  const allValues = lines.flatMap(l => l.data.map(p => p.value));
-  const minY = allValues.length ? Math.min(...allValues) : 0;
-  const maxY = allValues.length ? Math.max(...allValues) : 1;
-  const rangeY = maxY - minY || 1;
-
-  const refPts = lines[0]?.data ?? [];
-  const n = refPts.length;
-
-  const toX = (i: number, count: number) =>
-    PAD_L + (i / Math.max(count - 1, 1)) * chartW;
-  const toY = (v: number) => PAD_T + (1 - (v - minY) / rangeY) * chartH;
-
-  const makeLinePath = (pts: SeriesPoint[]) =>
-    pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i, pts.length).toFixed(1)},${toY(p.value).toFixed(1)}`).join(' ');
-
-  const makeAreaPath = (pts: SeriesPoint[]) => {
-    if (pts.length < 2) return '';
-    const line = makeLinePath(pts);
-    const lastX = toX(pts.length - 1, pts.length).toFixed(1);
-    const firstX = toX(0, pts.length).toFixed(1);
-    const bottomY = (H - PAD_B).toFixed(1);
-    return `${line} L${lastX},${bottomY} L${firstX},${bottomY} Z`;
-  };
-
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  const handleMouseMove = (e: React.MouseEvent<SVGElement>) => {
-    if (!n) return;
-    const rect = (e.currentTarget as SVGElement).getBoundingClientRect();
-    const x = e.clientX - rect.left - PAD_L;
-    setHoverIdx(Math.max(0, Math.min(n - 1, Math.round((x / chartW) * (n - 1)))));
-  };
-  const handleMouseLeave = () => setHoverIdx(null);
-
-  const periodEndValue = refPts.length ? refPts[refPts.length - 1].value : 0;
-
-  useEffect(() => {
-    if (!onHoverChange) return;
-    if (hoverIdx === null || !refPts[hoverIdx]) {
-      onHoverChange(null);
-    } else {
-      onHoverChange({ date: refPts[hoverIdx].date, value: refPts[hoverIdx].value, periodEndValue });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hoverIdx]);
+  const periodEndValue = useMemo(() => {
+    const refPts = lines[0]?.data ?? [];
+    return refPts.length ? refPts[refPts.length - 1].value : 0;
+  }, [lines]);
 
   useEffect(() => {
     if (hasData) onPeriodChange?.(periodEndValue);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodEndValue, hasData]);
 
-  const isIntraday = refPts.length > 0 && (refPts[0].date.includes('T') || refPts[0].date.includes(' '));
-  const parseDate = (s: string) => new Date(isIntraday ? s.replace(' ', 'T') : s + 'T12:00:00');
-  const fmtHover = (s: string) => {
-    const d = parseDate(s);
-    if (isNaN(d.getTime())) return s;
-    if (isIntraday) return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-  const hoverDate = hoverIdx !== null && refPts[hoverIdx] ? fmtHover(refPts[hoverIdx].date) : null;
+  const [hoverValue, setHoverValue] = useState<number | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; date: string; value: number } | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  const fmtValue = (v: number) => (format === 'currency' ? fmtCurrency(v) : fmtPct(v));
-  const getDisplayValue = (pts: SeriesPoint[]) =>
-    hoverIdx !== null && pts[hoverIdx] !== undefined
-      ? pts[hoverIdx].value
-      : pts[pts.length - 1]?.value ?? 0;
+  const getDisplayValue = useCallback((pts: SeriesPoint[]) => {
+    return hoverValue ?? pts[pts.length - 1]?.value ?? 0;
+  }, [hoverValue]);
 
-  const firstY = refPts.length ? toY(refPts[0].value) : null;
-  const hoverX = hoverIdx !== null ? toX(hoverIdx, n) : null;
+  useEffect(() => {
+    if (!containerRef.current || loading || !hasData) return;
+
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRefs.current = [];
+    }
+
+    const chart = createChart(containerRef.current, {
+      width: containerRef.current.clientWidth,
+      height,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#9ca3af',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { color: '#f3f4f6', style: LineStyle.Solid },
+      },
+      crosshair: {
+        mode: CrosshairMode.Magnet,
+        vertLine: {
+          width: 1,
+          color: '#d1d5db',
+          style: LineStyle.Dashed,
+          labelVisible: false,
+        },
+        horzLine: {
+          width: 1,
+          color: '#d1d5db',
+          style: LineStyle.Dashed,
+          labelVisible: false,
+        },
+      },
+      rightPriceScale: {
+        visible: false,
+      },
+      leftPriceScale: {
+        visible: true,
+        borderVisible: false,
+        scaleMargins: { top: 0.08, bottom: 0.08 },
+      },
+      timeScale: {
+        visible: true,
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      handleScroll: false,
+      handleScale: false,
+    });
+
+    chartRef.current = chart;
+
+    lines.forEach((line, li) => {
+      if (line.data.length < 2) return;
+
+      const lineColor = line.color;
+      const chartData = line.data.map(p => ({
+        time: toUTCTimestamp(p.date),
+        value: p.value,
+      }));
+
+      if (singleSeries) {
+        const series = chart.addSeries(AreaSeries, {
+          lineColor,
+          lineWidth: 2,
+          topColor: lineColor + '30',
+          bottomColor: lineColor + '05',
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 5,
+          crosshairMarkerBorderColor: '#ffffff',
+          crosshairMarkerBorderWidth: 2,
+          crosshairMarkerBackgroundColor: lineColor,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          priceScaleId: 'left',
+        });
+        series.setData(chartData as any);
+
+        if (format === 'pct' && line.data.length > 0) {
+          series.createPriceLine({
+            price: line.data[0].value,
+            color: '#d1d5db',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+          });
+        }
+
+        seriesRefs.current.push(series);
+      } else {
+        const series = chart.addSeries(LineSeries, {
+          color: lineColor,
+          lineWidth: 2,
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 4,
+          crosshairMarkerBorderColor: '#ffffff',
+          crosshairMarkerBorderWidth: 2,
+          crosshairMarkerBackgroundColor: lineColor,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          priceScaleId: 'left',
+        });
+        series.setData(chartData as any);
+        seriesRefs.current.push(series);
+      }
+    });
+
+    chart.timeScale().fitContent();
+
+    chart.subscribeCrosshairMove((param: MouseEventParams) => {
+      if (!param.time || !param.seriesData || param.seriesData.size === 0) {
+        setHoverValue(null);
+        setHoverInfo(null);
+        onHoverChange?.(null);
+        return;
+      }
+
+      const firstSeries = seriesRefs.current[0];
+      if (!firstSeries) return;
+      const sd = param.seriesData.get(firstSeries) as SingleValueData | undefined;
+      if (!sd || sd.value === undefined) {
+        setHoverValue(null);
+        setHoverInfo(null);
+        onHoverChange?.(null);
+        return;
+      }
+
+      const timeVal = param.time as number;
+      const d = new Date(timeVal * 1000);
+      const dateStr = d.toISOString();
+      const isIntraday = lines[0]?.data[0]?.date?.includes('T');
+      const formattedDate = isIntraday
+        ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      const point = param.point;
+      if (point) {
+        setHoverInfo({ x: point.x, y: point.y, date: formattedDate, value: sd.value });
+      }
+
+      setHoverValue(sd.value);
+      onHoverChange?.({
+        date: dateStr,
+        value: sd.value,
+        periodEndValue,
+      });
+    });
+
+    const ro = new ResizeObserver(([entry]) => {
+      chart.applyOptions({ width: entry.contentRect.width });
+    });
+    ro.observe(containerRef.current);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRefs.current = [];
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasData, lines, height, singleSeries, format]);
 
   return (
     <div className={`flex flex-col ${className}`}>
@@ -291,7 +397,7 @@ export default function PriceRangeChart(props: Props) {
         </div>
       )}
 
-      <div ref={containerRef} className="relative select-none" style={{ height }}>
+      <div ref={containerRef} className="relative select-none [&_a[href*='tradingview']]:hidden [&_a[href*='tradingview']]:!hidden" style={{ height }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
@@ -302,79 +408,26 @@ export default function PriceRangeChart(props: Props) {
             No price data available
           </div>
         )}
-        {!loading && hasData && W > 0 && (
-          <svg
-            width={W} height={H}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
-            style={{ cursor: 'crosshair', display: 'block' }}
-          >
-            <defs>
-              {lines.map((l, li) => (
-                <linearGradient key={li} id={`area-grad-${li}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={l.color} stopOpacity={0.18} />
-                  <stop offset="100%" stopColor={l.color} stopOpacity={0} />
-                </linearGradient>
-              ))}
-            </defs>
-
-            {singleSeries && firstY !== null && (
-              <line
-                x1={PAD_L} y1={firstY} x2={W - PAD_R} y2={firstY}
-                stroke="#d1d5db" strokeWidth={1} strokeDasharray="3,4"
-              />
-            )}
-
-            {singleSeries && lines.map((l, li) => (
-              l.data.length >= 2 && (
-                <path key={`a-${li}`} d={makeAreaPath(l.data)} fill={`url(#area-grad-${li})`} />
-              )
-            ))}
-
-            {lines.map((l, li) => (
-              l.data.length >= 2 && (
-                <path
-                  key={`l-${li}`}
-                  d={makeLinePath(l.data)}
-                  fill="none"
-                  stroke={l.color}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              )
-            ))}
-
-            {hoverIdx !== null && hoverX !== null && (
-              <>
-                <line
-                  x1={hoverX} y1={PAD_T} x2={hoverX} y2={H - PAD_B}
-                  stroke="#9ca3af" strokeWidth={1}
-                />
-                {lines.map((l, li) => {
-                  const pt = l.data[hoverIdx];
-                  if (!pt) return null;
-                  return (
-                    <g key={`h-${li}`}>
-                      <circle cx={hoverX} cy={toY(pt.value)} r={4.5} fill={l.color} />
-                      <circle cx={hoverX} cy={toY(pt.value)} r={2} fill="white" />
-                    </g>
-                  );
-                })}
-              </>
-            )}
-          </svg>
-        )}
-
-        {hoverIdx !== null && hoverX !== null && hoverDate && (
+        {hoverInfo && (
           <div
-            className="absolute text-xs text-gray-500 font-semibold uppercase tracking-wide pointer-events-none whitespace-nowrap tabular-nums"
+            ref={tooltipRef}
+            className="absolute z-10 pointer-events-none bg-white border border-gray-200 rounded-xl shadow-lg px-3.5 py-2.5"
             style={{
-              left: Math.min(Math.max(hoverX - 60, 4), (W || 300) - 124),
-              top: 2,
+              left: Math.min(Math.max(hoverInfo.x - 70, 8), (containerRef.current?.clientWidth ?? 300) - 180),
+              top: Math.max(hoverInfo.y - (currentPrice ? 90 : 76), 4),
             }}
           >
-            {hoverDate}
+            <div className="text-[11px] text-gray-400 font-medium">{hoverInfo.date}</div>
+            {currentPrice && format === 'pct' && (
+              <div className="text-[13px] font-bold tabular-nums mt-0.5 text-gray-900">
+                {fmtCurrency(currentPrice / (1 + (periodEndValue / 100)) * (1 + (hoverInfo.value / 100)))}
+              </div>
+            )}
+            <div className={`text-[12px] font-semibold tabular-nums ${currentPrice ? '' : 'mt-0.5'} ${
+              hoverInfo.value >= 0 ? 'text-emerald-600' : 'text-red-500'
+            }`}>
+              {format === 'currency' ? fmtCurrency(hoverInfo.value) : fmtPct(hoverInfo.value)}
+            </div>
           </div>
         )}
       </div>

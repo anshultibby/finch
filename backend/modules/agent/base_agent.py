@@ -40,11 +40,12 @@ class BaseAgent:
         model: str,
         tool_names: Optional[List[str]] = None,
         enable_tool_streaming: bool = False,
-        chat_logger = None
+        chat_logger = None,
+        system_prompt_suffix: Optional[str] = None
     ):
         """
         Initialize the agent with configuration.
-        
+
         Args:
             context: AgentContext with user_id, chat_id, resource_manager
             system_prompt: System prompt for this agent
@@ -52,9 +53,11 @@ class BaseAgent:
             tool_names: List of tool names (None = all tools, [] = no tools)
             enable_tool_streaming: Whether tools emit real-time events
             chat_logger: Optional ChatLogger for separate conversation tracking (used by executors)
+            system_prompt_suffix: Dynamic content appended after cache breakpoint (e.g. page context)
         """
         self.context = context
         self.system_prompt = system_prompt
+        self.system_prompt_suffix = system_prompt_suffix
         self.model = model
         self.tool_names = tool_names
         self.enable_tool_streaming = enable_tool_streaming
@@ -397,8 +400,9 @@ class BaseAgent:
         Returns:
             List of messages in OpenAI format
         """
-        # Prepend system message and convert to OpenAI format
         system_message = {"role": "system", "content": self.system_prompt}
+        if self.system_prompt_suffix:
+            system_message["_suffix"] = self.system_prompt_suffix
         messages = [system_message]
         messages.extend(chat_history.to_openai_format(limit=history_limit))
         

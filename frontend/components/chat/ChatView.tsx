@@ -34,6 +34,7 @@ interface ChatViewProps {
   sidebarRef?: React.RefObject<AppSidebarRef>;
   prefillMessage?: string;
   prefillLabel?: string;
+  pageContext?: Record<string, any>;
   onVisualizationClick?: (filename: string) => void;
   // If set, this chat is scoped to a trading bot
   botId?: string;
@@ -94,6 +95,7 @@ export default function ChatView({
   sidebarRef,
   prefillMessage,
   prefillLabel,
+  pageContext,
   onVisualizationClick,
   botId,
   rightOffset = 0,
@@ -394,6 +396,8 @@ export default function ChatView({
           setCurrentChatId(newChatId);
         },
         skills,
+        undefined,
+        isFirst ? pageContext : undefined,
       );
     } catch {
       // Errors handled inside useChatStream
@@ -620,6 +624,11 @@ export default function ChatView({
           </div>
         )}
 
+        {messages.length === 0 && !isLoading && (currentChatId || isNewChat) ? (
+          <div className="flex-1 min-h-0">
+            <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} prefillLabel={prefillLabel} />
+          </div>
+        ) : (
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className={`pt-8 pb-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
@@ -630,8 +639,6 @@ export default function ChatView({
                   ))}
                 </div>
               </div>
-            ) : messages.length === 0 && !isLoading ? (
-              <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} prefillLabel={prefillLabel} />
             ) : (
               <>
                 {messages.map((msg, i) => {
@@ -739,6 +746,7 @@ export default function ChatView({
             )}
           </div>
         </div>
+        )}
 
         {error && (
           <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>

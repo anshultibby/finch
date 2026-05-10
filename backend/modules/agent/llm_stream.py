@@ -46,29 +46,31 @@ def _estimate_tokens(text: str) -> int:
 
 def _is_claude_model(model: str) -> bool:
     """Check if the model is a Claude model that supports prompt caching"""
-    return model.lower().startswith("claude")
+    m = model.lower()
+    return m.startswith("claude") or m.startswith("anthropic/")
 
 
-def _add_cache_control_to_system(system_content: str) -> List[Dict[str, Any]]:
+def _add_cache_control_to_system(system_content: str, suffix: str = None) -> List[Dict[str, Any]]:
     """
     Convert system prompt to Claude format with cache control.
-    
-    For Claude models, the system parameter must be a list of content blocks,
-    and we add cache_control to the last block to cache the entire system prompt.
-    
-    Args:
-        system_content: System prompt string
-        
-    Returns:
-        List with single text block containing cache_control
+
+    The static system prompt gets cache_control so it's cached across requests.
+    The optional suffix (e.g. page context) is added as a separate block WITHOUT
+    cache_control, so it doesn't bust the cache when it changes.
     """
-    return [
+    blocks = [
         {
             "type": "text",
             "text": system_content,
             "cache_control": {"type": "ephemeral"}
         }
     ]
+    if suffix:
+        blocks.append({
+            "type": "text",
+            "text": suffix,
+        })
+    return blocks
 
 
 def _add_cache_control_to_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -253,7 +255,8 @@ async def stream_llm_response(
         
         system_tokens_estimate = len(system_message["content"]) // 4 if system_message else 0
         if system_message:
-            llm_kwargs["system"] = _add_cache_control_to_system(system_message["content"])
+            suffix = system_message.get("_suffix")
+            llm_kwargs["system"] = _add_cache_control_to_system(system_message["content"], suffix=suffix)
             logger.debug(f"  📦 System prompt: ~{system_tokens_estimate:,} tokens (cached with tools)")
         
         # Cache tools - this is the ONLY breakpoint for static content (system + tools together)
@@ -297,6 +300,11 @@ async def stream_llm_response(
         logger.debug(f"  📝 Strategy: Prefix caching - each breakpoint caches everything before it")
     else:
         # Non-Claude models or caching disabled: use standard format
+        # Merge any dynamic suffix into the system message content
+        if system_message and system_message.get("_suffix"):
+            merged = {k: v for k, v in messages[0].items() if k != "_suffix"}
+            merged["content"] = merged["content"] + "\n\n" + messages[0]["_suffix"]
+            messages = [merged] + list(messages[1:])
         llm_kwargs["messages"] = messages
         llm_kwargs["tools"] = tools if tools else None
         llm_kwargs["tool_choice"] = "auto" if tools else None

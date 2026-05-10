@@ -26,7 +26,7 @@ import type { SwapData } from '@/lib/types';
 function viewLabel(view: View): string {
   switch (view.type) {
     case 'home': return 'Home';
-    case 'stock': return view.symbol;
+    case 'stock': return view.symbol; // breadcrumbs handle multi-segment stock views separately
     case 'watchlist': return 'Watchlist';
     case 'portfolio': return 'Portfolio';
     case 'orders': return 'Orders';
@@ -100,10 +100,28 @@ function TopBar() {
         </button>
         {currentView.type !== 'home' && (
           <>
-            <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-            </svg>
-            <span className="font-semibold text-gray-900 truncate">{viewLabel(currentView)}</span>
+            {currentView.type === 'stock' && currentView.tab === 'earnings' ? (
+              <>
+                <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                <button onClick={() => { navigateTo({ type: 'home' }); /* could navigate to earnings tab */ }}
+                  className="font-semibold text-gray-400 hover:text-gray-600 transition-colors">
+                  Earnings
+                </button>
+                <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                <span className="font-semibold text-gray-900 truncate">{currentView.symbol}</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                <span className="font-semibold text-gray-900 truncate">{viewLabel(currentView)}</span>
+              </>
+            )}
           </>
         )}
       </div>
@@ -293,7 +311,7 @@ function AppLayoutInner() {
       case 'home':
         return <HomePage />;
       case 'stock':
-        return <StockPage symbol={currentView.symbol} />;
+        return <StockPage symbol={currentView.symbol} initialTab={currentView.tab} />;
       case 'search':
         return <SearchPage />;
       case 'portfolio':

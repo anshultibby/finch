@@ -105,11 +105,13 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
-  const navItems: NavItem[] = [];
+  const navItems: NavItem[] = [
+    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon /> },
+  ];
 
   const mobileNavItems: NavItem[] = [
     { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
-    { id: 'chat', label: 'Chat', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
+    { id: 'chat', label: 'Chat', view: { type: 'chat' }, icon: <ChatIcon />, mobileNav: true },
   ];
 
   const loadChats = useCallback(async () => {
@@ -155,12 +157,12 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   return (
     <>
       {/* Desktop sidebar */}
-      <div className={`hidden md:flex h-full bg-gray-50 border-r border-gray-200 flex-col flex-shrink-0 transition-all duration-200 ${expanded ? 'w-60' : 'w-14'}`}>
+      <div className={`hidden md:flex h-full bg-gray-50 border-r border-gray-200 flex-col flex-shrink-0 transition-all duration-200 ${expanded ? 'w-52' : 'w-14'}`}>
         {/* Header */}
         <div className={`group/header flex items-center py-3 px-3 flex-shrink-0 ${expanded ? 'justify-between' : 'justify-center'}`}>
           {expanded ? (
             <>
-              <FinchLogo size={22} showText />
+              <FinchLogo size={22} />
               <button onClick={() => setExpanded(false)}
                 className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors"
                 title="Collapse">
@@ -185,23 +187,6 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           )}
         </div>
 
-        {/* New Chat — pen-in-square compose icon, ChatGPT-style */}
-        <div className="px-2 pb-1 flex-shrink-0">
-          <button
-            onClick={onNewChat}
-            className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors ${
-              expanded ? '' : 'justify-center'
-            }`}
-            title={!expanded ? 'New chat' : undefined}
-          >
-            <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}>
-              <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
-            </svg>
-            {expanded && <span className="font-medium">New chat</span>}
-          </button>
-        </div>
-
         {/* Main nav */}
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="px-2 space-y-0.5">
@@ -221,6 +206,21 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                 </button>
               );
             })}
+
+            {/* New Chat */}
+            <button
+              onClick={onNewChat}
+              className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
+                currentView.type === 'chat' ? 'bg-white shadow-sm border border-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              } ${expanded ? '' : 'justify-center'}`}
+              title={!expanded ? 'New chat' : undefined}
+            >
+              <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}>
+                <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
+              </svg>
+              {expanded && <span className="font-medium">New chat</span>}
+            </button>
           </div>
 
           {/* Divider */}
@@ -285,7 +285,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
             const active = viewMatch(currentView, item.view);
             const isHome = item.id === 'home';
             return (
-              <button key={item.id} onClick={() => onNavigate(item.view)}
+              <button key={item.id} onClick={() => item.id === 'chat' ? onNewChat() : onNavigate(item.view)}
                 className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors min-w-[56px] ${
                   active ? 'text-emerald-600' : 'text-gray-400'
                 }`}>

@@ -39,6 +39,7 @@ class ChatService:
         skill_ids: List[str] = None,
         auth_token: str = None,
         investor_persona: str = None,
+        page_context: dict = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send a message and stream SSE events as they happen.
@@ -147,6 +148,8 @@ class ChatService:
                 
                 if auth_token:
                     context["auth_token"] = auth_token
+                if page_context:
+                    context["page_context"] = page_context
                 agent_context = AgentContext(
                     agent_id=generate_agent_id(),  # Unique ID for this master agent instance
                     user_id=user_id,

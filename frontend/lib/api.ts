@@ -119,7 +119,8 @@ export const chatApi = {
     handlers: SSEEventHandlers,
     images?: ImageAttachment[],
     skills?: string[],
-    investorPersona?: string
+    investorPersona?: string,
+    pageContext?: Record<string, any>
   ): { close: () => void; reconnect: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
     const abortController = new AbortController();
@@ -131,6 +132,7 @@ export const chatApi = {
       ...(images && images.length > 0 && { images }),
       ...(skills && skills.length > 0 && { skills }),
       ...(investorPersona && { investor_persona: investorPersona }),
+      ...(pageContext && { page_context: pageContext }),
     };
 
     // Track if we're closed to prevent processing after abort
@@ -994,10 +996,6 @@ export const marketApi = {
     const response = await api.get(`/market/quote/${symbol}`);
     return response.data;
   },
-  getBatchQuotes: async (symbols: string[]) => {
-    const response = await api.get('/market/batch-quotes', { params: { symbols: symbols.join(',') } });
-    return response.data;
-  },
   getProfile: async (symbol: string) => {
     const response = await api.get(`/market/profile/${symbol}`);
     return response.data;
@@ -1022,8 +1020,43 @@ export const marketApi = {
     const response = await api.get('/market/general-news', { params: { limit } });
     return response.data;
   },
-  getEarnings: async () => {
-    const response = await api.get('/market/earnings');
+  getEarnings: async (fromDate?: string, toDate?: string, market?: string) => {
+    const params: Record<string, string> = {};
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
+    if (market) params.market = market;
+    const response = await api.get('/market/earnings', { params });
+    return response.data;
+  },
+  getBatchQuotes: async (symbols: string[]) => {
+    if (!symbols.length) return [];
+    const response = await api.get('/market/batch-quote', { params: { symbols: symbols.join(',') } });
+    return response.data;
+  },
+  getAnalyst: async (symbol: string) => {
+    const response = await api.get(`/market/analyst/${symbol}`);
+    return response.data;
+  },
+  getEarningsHistory: async (symbol: string, limit = 12) => {
+    const response = await api.get(`/market/earnings-history/${symbol}`, { params: { limit } });
+    return response.data;
+  },
+  getEarningsTranscript: async (symbol: string, quarter: number, year: number) => {
+    const response = await api.get(`/market/earnings-transcript/${symbol}`, { params: { quarter, year } });
+    return response.data;
+  },
+  getSecFilings: async (symbol: string, type?: string, limit = 20) => {
+    const params: Record<string, any> = { limit };
+    if (type) params.type = type;
+    const response = await api.get(`/market/sec-filings/${symbol}`, { params });
+    return response.data;
+  },
+  getFinancials: async (symbol: string, statement = 'income-statement', period = 'annual', limit = 6) => {
+    const response = await api.get(`/market/financials/${symbol}`, { params: { statement, period, limit } });
+    return response.data;
+  },
+  getSecCitation: async (filingUrl: string, field: string): Promise<{ anchor_id: string | null; url: string }> => {
+    const response = await api.get('/market/sec-citation', { params: { filing_url: filingUrl, field } });
     return response.data;
   },
 };

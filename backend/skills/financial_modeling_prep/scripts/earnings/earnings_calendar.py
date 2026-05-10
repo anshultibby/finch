@@ -22,7 +22,7 @@ def get_earnings_calendar(from_date: str = None, to_date: str = None):
         params['from'] = from_date
     if to_date:
         params['to'] = to_date
-    return fmp('/earnings_calendar', params if params else None)
+    return fmp('/earning_calendar', params if params else None)
 
 
 def get_historical_earnings(symbol: str):

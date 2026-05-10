@@ -130,7 +130,7 @@ function IndexCard({ symbol, label, quote, onClick }: {
 
   return (
     <button onClick={onClick}
-      className="text-left p-4 rounded-2xl border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all bg-white group">
+      className="text-left p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all bg-white group">
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="text-sm font-semibold text-gray-900">{label}</div>
@@ -183,8 +183,11 @@ function WatchlistItem({ item, onClick }: { item: any; onClick: () => void }) {
 
 // ── Earnings Calendar ────────────────────────────────────────────────────────
 
-function EarningsCalendar({ earnings, onStockClick }: { earnings: any[]; onStockClick: (s: string) => void }) {
+function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) => void; market: Market }) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [earnings, setEarnings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [quotes, setQuotes] = useState<Record<string, any>>({});
 
   const today = new Date();
   const startOfWeek = new Date(today);
@@ -198,6 +201,17 @@ function EarningsCalendar({ earnings, onStockClick }: { earnings: any[]; onStock
 
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+  useEffect(() => {
+    setLoading(true);
+    setQuotes({});
+    const fromDate = days[0].toISOString().split('T')[0];
+    const toDate = days[6].toISOString().split('T')[0];
+    marketApi.getEarnings(fromDate, toDate, market)
+      .then(data => setEarnings(Array.isArray(data) ? data : []))
+      .catch(() => setEarnings([]))
+      .finally(() => setLoading(false));
+  }, [weekOffset, market]);
+
   const earningsByDate: Record<string, any[]> = {};
   earnings.forEach(e => {
     const key = e.date;
@@ -206,10 +220,28 @@ function EarningsCalendar({ earnings, onStockClick }: { earnings: any[]; onStock
   });
 
   const isToday = (d: Date) => d.toDateString() === today.toDateString();
-  const selectedDay = days.find(isToday) || days[0];
-  const [activeDay, setActiveDay] = useState<string>(selectedDay.toISOString().split('T')[0]);
+  const [activeDay, setActiveDay] = useState<string>(days[0].toISOString().split('T')[0]);
+
+  useEffect(() => {
+    const todayDay = days.find(isToday);
+    setActiveDay((todayDay || days[0]).toISOString().split('T')[0]);
+  }, [weekOffset]);
 
   const activeDayEarnings = earningsByDate[activeDay] || [];
+
+  useEffect(() => {
+    if (!activeDayEarnings.length) return;
+    const syms = activeDayEarnings.map((e: any) => e.symbol).filter(Boolean);
+    const missing = syms.filter((s: string) => !quotes[s]);
+    if (!missing.length) return;
+    marketApi.getBatchQuotes(missing)
+      .then((data: any[]) => {
+        const map: Record<string, any> = {};
+        data.forEach((q: any) => { map[q.symbol] = q; });
+        setQuotes(prev => ({ ...prev, ...map }));
+      })
+      .catch(() => {});
+  }, [activeDay, earnings]);
 
   return (
     <div>
@@ -257,30 +289,59 @@ function EarningsCalendar({ earnings, onStockClick }: { earnings: any[]; onStock
       </div>
 
       <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 min-h-[200px]">
-        {activeDayEarnings.length > 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-[200px]">
+            <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+          </div>
+        ) : activeDayEarnings.length > 0 ? (
           <div className="divide-y divide-gray-100">
-            {activeDayEarnings.map((e, i) => (
-              <button key={i} onClick={() => onStockClick(e.symbol)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white transition-colors text-left">
-                <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-bold text-gray-600">{e.symbol?.slice(0, 2)}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-gray-900">{e.symbol}</div>
-                  <div className="text-xs text-gray-400 truncate">{e.name || ''}</div>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <div className="text-xs text-gray-500">
-                    {e.time === 'bmo' ? 'Before open' : e.time === 'amc' ? 'After close' : e.time || ''}
+            {activeDayEarnings.map((e, i) => {
+              const q = quotes[e.symbol];
+              const mcap = q?.marketCap;
+              const mcapStr = mcap ? (mcap >= 1e12 ? `${(mcap/1e12).toFixed(1)}T` : mcap >= 1e9 ? `${(mcap/1e9).toFixed(1)}B` : mcap >= 1e6 ? `${(mcap/1e6).toFixed(0)}M` : '') : '';
+              const chg = q?.changePercent;
+              return (
+                <button key={i} onClick={() => onStockClick(e.symbol)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white transition-colors text-left">
+                  <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-bold text-gray-600">{e.symbol?.slice(0, 2)}</span>
                   </div>
-                  {e.epsEstimated != null && (
-                    <div className="text-xs text-gray-400">
-                      EPS est: <span className="font-semibold text-gray-600">${e.epsEstimated?.toFixed(2)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">{e.symbol}</span>
+                      {q?.price != null && chg != null && (
+                        <span className={`text-xs font-medium ${chg >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          ${q.price.toFixed(2)} ({chg >= 0 ? '+' : ''}{chg.toFixed(2)}%)
+                        </span>
+                      )}
                     </div>
-                  )}
-                </div>
-              </button>
-            ))}
+                    <div className="text-xs text-gray-600 truncate">
+                      {q?.name || e.name || ''}
+                      {mcapStr && <span className="text-gray-500"> · {mcapStr}</span>}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-xs font-medium text-gray-700">
+                      {e.time === 'bmo' ? 'Before open' : e.time === 'amc' ? 'After close' : e.time || ''}
+                    </div>
+                    {e.eps != null ? (
+                      <div className="text-xs text-gray-600">
+                        EPS: <span className={`font-semibold ${e.epsEstimated != null && e.eps >= e.epsEstimated ? 'text-emerald-600' : e.epsEstimated != null && e.eps < e.epsEstimated ? 'text-red-500' : 'text-gray-900'}`}>
+                          ${e.eps?.toFixed(2)}
+                        </span>
+                        {e.epsEstimated != null && (
+                          <span className="text-gray-500"> / est ${e.epsEstimated?.toFixed(2)}</span>
+                        )}
+                      </div>
+                    ) : e.epsEstimated != null ? (
+                      <div className="text-xs text-gray-600">
+                        EPS est: <span className="font-semibold text-gray-900">${e.epsEstimated?.toFixed(2)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         ) : (
           <div className="flex items-center justify-center h-[200px] text-sm text-gray-400">
@@ -294,31 +355,130 @@ function EarningsCalendar({ earnings, onStockClick }: { earnings: any[]; onStock
 
 // ── Accounts Sidebar ─────────────────────────────────────────────────────────
 
+const INSTITUTION_DOMAINS: Record<string, string> = {
+  robinhood: 'robinhood.com',
+  fidelity: 'fidelity.com',
+  schwab: 'schwab.com',
+  vanguard: 'vanguard.com',
+  'td ameritrade': 'tdameritrade.com',
+  etrade: 'etrade.com',
+  'e*trade': 'etrade.com',
+  interactive: 'interactivebrokers.com',
+  'interactive brokers': 'interactivebrokers.com',
+  webull: 'webull.com',
+  sofi: 'sofi.com',
+  merrill: 'merrilledge.com',
+  'merrill lynch': 'merrilledge.com',
+  'jp morgan': 'jpmorgan.com',
+  jpmorgan: 'jpmorgan.com',
+  chase: 'chase.com',
+  wealthfront: 'wealthfront.com',
+  betterment: 'betterment.com',
+  coinbase: 'coinbase.com',
+  'wells fargo': 'wellsfargo.com',
+  ally: 'ally.com',
+};
+
+function institutionLogo(institution: string) {
+  const key = institution.toLowerCase();
+  const domain = Object.entries(INSTITUTION_DOMAINS).find(([k]) => key.includes(k))?.[1];
+  if (!domain) return null;
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
+
+function InstitutionLogo({ institution }: { institution: string }) {
+  const logoUrl = institutionLogo(institution);
+  const [failed, setFailed] = useState(false);
+
+  if (!logoUrl || failed) {
+    return (
+      <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 text-sm font-bold text-gray-500">
+        {institution.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img src={logoUrl} alt={institution} className="w-8 h-8 rounded-lg object-contain flex-shrink-0"
+      onError={() => setFailed(true)} />
+  );
+}
+
+function InstitutionGroup({ institution, accounts, groupValue, expanded, onToggle, onSelectAccount, selectedAccountId }: {
+  institution: string; accounts: any[]; groupValue: number; expanded: boolean;
+  onToggle: () => void; onSelectAccount: (id: string) => void; selectedAccountId?: string | null;
+}) {
+  return (
+    <>
+      <button onClick={onToggle}
+        className="group w-full flex items-center gap-3 pl-4 pr-5 py-3.5 hover:bg-gray-50 transition-colors text-left">
+        <div className="relative w-8 h-8 flex-shrink-0">
+          <div className="group-hover:opacity-0 transition-opacity">
+            <InstitutionLogo institution={institution} />
+          </div>
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <svg className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? '' : '-rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-900">{institution}</div>
+          <div className="text-xs text-gray-400 mt-0.5">
+            {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+        <div className="text-sm font-semibold text-gray-900 tabular-nums flex-shrink-0">
+          {fmt(groupValue)}
+        </div>
+      </button>
+
+      {expanded && accounts.map((acct, i) => (
+        <button key={acct.id || i} onClick={() => onSelectAccount(acct.id)}
+          className={`w-full flex items-center gap-2.5 pl-6 pr-5 py-2.5 border-t border-gray-100 text-left transition-colors ${
+            selectedAccountId === acct.id ? 'bg-gray-50' : 'hover:bg-gray-50'
+          }`}>
+          <div className="w-4 flex items-center justify-center flex-shrink-0">
+            {accountTypeIcon(acct.type)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] text-gray-700">{acct.name}</div>
+            <div className="text-[11px] text-gray-400 capitalize">{acct.type.replace(/_/g, ' ').toLowerCase()}</div>
+          </div>
+          <div className="text-[13px] text-gray-600 tabular-nums flex-shrink-0">
+            {fmt(acct.total_value)}
+          </div>
+        </button>
+      ))}
+    </>
+  );
+}
+
 function accountTypeIcon(type: string) {
   const t = type.toLowerCase();
   if (t.includes('roth')) return (
-    <svg className="w-[18px] h-[18px] text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
     </svg>
   );
   if (t.includes('ira')) return (
-    <svg className="w-[18px] h-[18px] text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
     </svg>
   );
   if (t.includes('saving')) return (
-    <svg className="w-[18px] h-[18px] text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
     </svg>
   );
   if (t.includes('check')) return (
-    <svg className="w-[18px] h-[18px] text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
     </svg>
   );
   // Default: brokerage
   return (
-    <svg className="w-[18px] h-[18px] text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
     </svg>
   );
@@ -330,13 +490,20 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
   equity: number; onConnect: () => void; onManage: () => void; onViewPortfolio: () => void;
   onSelectAccount: (id: string) => void; selectedAccountId?: string | null;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expandedInstitutions, setExpandedInstitutions] = useState<Set<string>>(new Set());
+  const toggleInstitution = (inst: string) => {
+    setExpandedInstitutions(prev => {
+      const next = new Set(prev);
+      if (next.has(inst)) next.delete(inst); else next.add(inst);
+      return next;
+    });
+  };
 
   if (!hasBrokerage && !hasAccount) {
     return (
       <div className="p-5 border-b border-gray-100">
         <h2 className="text-base font-semibold text-gray-900 mb-4">Connect your accounts</h2>
-        <div className="rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="divide-y divide-gray-100">
             <div className="flex items-start gap-3.5 px-4 py-4">
               <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -387,7 +554,12 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
   return (
     <div className="p-5 border-b border-gray-100">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={onViewPortfolio} className="text-base font-semibold text-gray-900 hover:text-gray-700 transition-colors">Accounts</button>
+        <button onClick={onViewPortfolio} className="group flex items-center gap-1 text-base font-semibold text-gray-900 hover:text-gray-700 transition-colors">
+          Accounts
+          <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
         <button onClick={onManage} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -396,45 +568,30 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
         </button>
       </div>
 
-      <div className="rounded-2xl border border-gray-100 overflow-hidden">
-        {/* Brokerage accounts */}
-        {hasBrokerage && externalPortfolio && (
-          <>
-            <button onClick={() => setExpanded(!expanded)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 transition-colors text-left">
-              <svg className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${expanded ? '' : '-rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-              </svg>
-              <div className="flex-1 min-w-0">
-                <div className="text-[15px] font-semibold text-gray-900">Brokerage</div>
-                <div className="text-xs text-gray-400 mt-0.5">
-                  {externalPortfolio.account_count} account{externalPortfolio.account_count !== 1 ? 's' : ''}
-                </div>
-              </div>
-              <div className="text-[15px] font-bold text-gray-900 tabular-nums flex-shrink-0">
-                {fmt(externalPortfolio.total_value)}
-              </div>
-            </button>
-
-            {expanded && externalPortfolio.accounts?.map((acct, i) => (
-              <button key={acct.id || i} onClick={() => onSelectAccount(acct.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 border-t border-gray-100 text-left transition-colors ${
-                  selectedAccountId === acct.id ? 'bg-gray-50' : 'hover:bg-gray-50'
-                }`}>
-                <div className="w-5 flex items-center justify-center flex-shrink-0">
-                  {accountTypeIcon(acct.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[15px] text-gray-900">{acct.name}</div>
-                  <div className="text-xs text-gray-400 capitalize mt-0.5">{acct.type.replace(/_/g, ' ').toLowerCase()}</div>
-                </div>
-                <div className="text-[15px] text-gray-900 tabular-nums flex-shrink-0">
-                  {fmt(acct.total_value)}
-                </div>
-              </button>
-            ))}
-          </>
-        )}
+      <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Brokerage accounts grouped by institution */}
+        {hasBrokerage && externalPortfolio && (() => {
+          const groups = new Map<string, typeof externalPortfolio.accounts>();
+          for (const acct of externalPortfolio.accounts || []) {
+            const inst = acct.institution || 'Brokerage';
+            if (!groups.has(inst)) groups.set(inst, []);
+            groups.get(inst)!.push(acct);
+          }
+          return Array.from(groups.entries()).map(([institution, accounts]) => {
+            const groupValue = accounts.reduce((s, a) => s + a.total_value, 0);
+            return (
+              <InstitutionGroup key={institution}
+                institution={institution}
+                accounts={accounts}
+                groupValue={groupValue}
+                expanded={expandedInstitutions.has(institution)}
+                onToggle={() => toggleInstitution(institution)}
+                onSelectAccount={onSelectAccount}
+                selectedAccountId={selectedAccountId}
+              />
+            );
+          });
+        })()}
 
         {/* Add Account button */}
         <button onClick={onConnect}
@@ -555,7 +712,7 @@ function WatchlistTabView({ userId, watchlist, onWatchlistChange, onStockClick }
             const isUp = (item.changesPercentage || 0) >= 0;
             return (
               <div key={item.symbol || i}
-                className="relative group p-4 rounded-2xl border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all bg-white">
+                className="relative group p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all bg-white">
                 <button onClick={() => onStockClick(item.symbol)} className="w-full text-left">
                   <div className="flex items-start justify-between mb-3">
                     <div>
@@ -712,7 +869,7 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
   return (
     <div>
       {/* Net Worth / Account card */}
-      <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 mb-5">
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 mb-5">
         {externalPortfolio && externalPortfolio.accounts && externalPortfolio.accounts.length > 1 ? (
           <div className="mb-1">
             <AccountDropdown
@@ -736,7 +893,7 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
 
       {/* Stats row */}
       <h3 className="text-sm font-semibold text-gray-900 mb-3">Investment Holdings</h3>
-      <div className="rounded-2xl border border-gray-100 p-4 mb-4">
+      <div className="rounded-2xl border border-gray-200 shadow-sm p-4 mb-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <div className="text-xs text-gray-400 mb-1">Total Gain/Loss</div>
@@ -777,7 +934,7 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
 
       {/* Holdings list */}
       {allPositions.length > 0 && (
-        <div className="rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="divide-y divide-gray-100">
             {allPositions.sort((a, b) => b.value - a.value).map((p, i) => {
               const gl = p.gain_loss || 0;
@@ -908,7 +1065,6 @@ export default function HomePage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [indexQuotes, setIndexQuotes] = useState<Record<string, any>>({});
   const [movers, setMovers] = useState<{ gainers: any[]; losers: any[] }>({ gainers: [], losers: [] });
-  const [earnings, setEarnings] = useState<any[]>([]);
   const [news, setNews] = useState<any[]>([]);
   const [watchlist, setWatchlist] = useState<any[]>([]);
   const [portfolio, setPortfolio] = useState<AlpacaPortfolioResponse | null>(null);
@@ -927,17 +1083,15 @@ export default function HomePage() {
       marketApi.getBatchQuotes(allSymbols).catch(() => []),
       marketApi.getMovers().catch(() => ({ gainers: [], losers: [] })),
       marketApi.getGeneralNews(6).catch(() => []),
-      marketApi.getEarnings().catch(() => []),
       watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })),
       alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })),
       snaptradeApi.checkStatus(user.id).catch(() => ({ is_connected: false })),
-    ]).then(([quotes, m, n, earn, wl, status, brokerage]) => {
+    ]).then(([quotes, m, n, wl, status, brokerage]) => {
       const quoteMap: Record<string, any> = {};
       if (Array.isArray(quotes)) quotes.forEach((q: any) => { quoteMap[q.symbol] = q; });
       setIndexQuotes(quoteMap);
       setMovers({ gainers: m.gainers || [], losers: m.losers || [] });
       setNews(Array.isArray(n) ? n : []);
-      setEarnings(Array.isArray(earn) ? earn : []);
       setWatchlist(wl.symbols || []);
 
       const s = status as any;
@@ -1028,7 +1182,7 @@ export default function HomePage() {
             )}
 
             {activeTab === 'earnings' && (
-              <EarningsCalendar earnings={earnings} onStockClick={openStock} />
+              <EarningsCalendar onStockClick={(s) => openStock(s, 'earnings')} market={market} />
             )}
 
             {activeTab === 'watchlist' && (
@@ -1054,7 +1208,7 @@ export default function HomePage() {
           </div>
 
           {/* ── Right: Sidebar ──────────────────────────────────────────── */}
-          <div className="hidden lg:block w-[340px] border-l border-gray-100 overflow-y-auto flex-shrink-0">
+          <div className="hidden lg:block w-[340px] border-l border-gray-100 overflow-y-auto flex-shrink-0 pr-2">
             {/* Accounts */}
             <AccountsSidebar
               hasBrokerage={hasBrokerage}
