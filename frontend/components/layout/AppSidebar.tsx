@@ -105,19 +105,11 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
-  const navItems: NavItem[] = [
-    { id: 'search', label: 'Search', view: { type: 'search' }, icon: <SearchIcon /> },
-    { id: 'portfolio', label: 'Agent Portfolio', view: { type: 'portfolio' }, icon: <AgentPortfolioIcon /> },
-    { id: 'watchlist', label: 'Watchlist', view: { type: 'watchlist' }, icon: <WatchlistIcon /> },
-    { id: 'connections', label: 'Linked Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon /> },
-  ];
+  const navItems: NavItem[] = [];
 
-  // Mobile nav order: Search, Accounts, Chat (center), Portfolio
   const mobileNavItems: NavItem[] = [
-    navItems[0], // Search
-    { id: 'connections', label: 'Accounts', view: { type: 'connections' }, icon: <LinkedAccountsIcon />, mobileNav: true },
-    { id: 'home', label: 'Chat', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
-    navItems[1], // Agent Portfolio
+    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
+    { id: 'chat', label: 'Chat', view: { type: 'home' }, icon: <ChatIcon />, mobileNav: true },
   ];
 
   const loadChats = useCallback(async () => {

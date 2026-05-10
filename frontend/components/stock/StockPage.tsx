@@ -171,27 +171,32 @@ export default function StockPage({ symbol }: { symbol: string }) {
   const fetchData = useCallback(() => {
     setLoading(true);
     setPosition(null);
-    Promise.all([
-      marketApi.getQuote(symbol).catch(() => null),
-      marketApi.getProfile(symbol).catch(() => null),
-      marketApi.getNews(symbol, 8).catch(() => []),
-      marketApi.getPeers(symbol, 6).catch(() => []),
-      user ? alpacaBrokerApi.getPortfolio(user.id).catch(() => null) : null,
-      user ? watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })) : null,
-      user ? alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })) : null,
-    ]).then(([q, p, n, pe, portfolio, wl, status]) => {
+    setNews([]);
+    setPeers([]);
+
+    marketApi.getQuote(symbol).catch(() => null).then(q => {
       setQuote(q);
-      setProfile(p);
-      setNews(Array.isArray(n) ? n : []);
-      setPeers(Array.isArray(pe) ? pe : []);
-      if (portfolio?.positions) {
-        const pos = portfolio.positions.find((x: any) => x.symbol === symbol);
-        if (pos) setPosition(pos);
-      }
-      if (wl?.symbols) setWatchlisted(wl.symbols.some((s: any) => s.symbol === symbol));
-      const st = status as any;
-      setHasAccount(st?.exists && st?.status === 'ACTIVE');
-    }).finally(() => setLoading(false));
+      setLoading(false);
+    });
+    marketApi.getProfile(symbol).catch(() => null).then(p => setProfile(p));
+
+    marketApi.getNews(symbol, 8).catch(() => []).then(n => setNews(Array.isArray(n) ? n : []));
+    marketApi.getPeers(symbol, 6).catch(() => []).then(pe => setPeers(Array.isArray(pe) ? pe : []));
+
+    if (user) {
+      alpacaBrokerApi.getPortfolio(user.id).catch(() => null).then(portfolio => {
+        if (portfolio?.positions) {
+          const pos = portfolio.positions.find((x: any) => x.symbol === symbol);
+          if (pos) setPosition(pos);
+        }
+      });
+      watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })).then(wl => {
+        if (wl?.symbols) setWatchlisted(wl.symbols.some((s: any) => s.symbol === symbol));
+      });
+      alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })).then((status: any) => {
+        setHasAccount(status?.exists && status?.status === 'ACTIVE');
+      });
+    }
   }, [symbol, user]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -272,7 +277,7 @@ export default function StockPage({ symbol }: { symbol: string }) {
         {/* Chart */}
         <div className="px-2 sm:px-4">
           <PriceRangeChart
-            series={[{ symbol, color: '#10b981' }]}
+            series={[{ symbol, color: '' }]}
             currentPrice={price}
             defaultDays={1}
             ranges={getStockRanges()}
