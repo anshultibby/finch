@@ -6,7 +6,6 @@ import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext'
 import AppSidebar, { type AppSidebarRef } from './AppSidebar';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { ChatModeProvider } from '@/contexts/ChatModeContext';
-import HomePage from '@/components/home/HomePage';
 import StockPage from '@/components/stock/StockPage';
 import SearchPage from '@/components/search/SearchPage';
 import WatchlistPage from '@/components/watchlist/WatchlistPage';
@@ -122,7 +121,7 @@ function AppLayoutInner() {
       case 'stock':
         return <StockPage symbol={currentView.symbol} />;
       case 'search':
-        return <HomePage />;
+        return <SearchPage />;
       case 'portfolio':
         return <PortfolioPanel />;
       case 'orders':
@@ -146,7 +145,7 @@ function AppLayoutInner() {
       case 'chat':
         return null;
       default:
-        return <HomePage />;
+        return null;
     }
   };
 
