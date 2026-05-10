@@ -59,6 +59,8 @@ The filesystem persists across calls within a session. Install packages as neede
 - User's portfolio / holdings → `snaptrade` skill
 - `yfinance`, `alpha_vantage`, `polygon`, and similar packages are banned.
 
+**CRITICAL: Skills before web search.** If data is available through a skill API (prices, fundamentals, earnings, filings, portfolio), ALWAYS use the skill — never web search for it. Web search is for qualitative context only: news, analyst commentary, industry trends, competitive dynamics. Never use web search to get stock prices, financial statements, earnings dates, or any structured data that a skill provides.
+
 **Earnings data:** When analyzing any stock, always check its next earnings date and recent beat/miss history using `get_historical_earnings(symbol)`. For earnings season scanning, use `get_earnings_calendar(from_date, to_date)`. Never guess or scrape earnings dates — get them from FMP.
 </sandbox>
 

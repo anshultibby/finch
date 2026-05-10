@@ -729,9 +729,6 @@ class ToolExecutor:
                 "agent_id": context.agent_id  # Which agent ran this tool
             }
 
-            # Pass swap data to frontend for rendering swap cards
-            if result.tool_name == "present_swaps" and result.success and isinstance(result.raw_result, dict):
-                complete_event_data["swap_data"] = result.raw_result.get("swaps")
             # For create_agent, surface the created bot's IDs for the frontend peek link
             if result.tool_name == "create_agent" and result.success:
                 data = getattr(result.raw_result, 'data', None) or {}

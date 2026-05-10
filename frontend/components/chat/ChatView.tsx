@@ -135,9 +135,14 @@ export default function ChatView({
   const { requestPermission, sendNotification } = useNotifications();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const skipNextHistoryLoad = useRef(false);
   const currentChatIdRef = useRef<string | null>(null);
   const prevIsLoadingRef = useRef(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [oldestSequence, setOldestSequence] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Sync display state from a ChatStreamState snapshot
   const syncDisplay = useCallback((state: ChatStreamState) => {
@@ -174,6 +179,9 @@ export default function ChatView({
     setPendingOptions(null);
     setStreamStartTime(null);
     setTimeEstimate(null);
+    setHasMoreMessages(false);
+    setOldestSequence(null);
+    setLoadingHistory(false);
   }, []);
 
   // Sync external chat id changes (e.g. sidebar selection)
@@ -277,6 +285,7 @@ export default function ChatView({
       }
 
       // Load from backend only if no messages cached
+      setLoadingHistory(true);
       try {
         const displayData = await chatApi.getChatHistoryForDisplay(currentChatId);
 
@@ -287,13 +296,56 @@ export default function ChatView({
           toolCalls: msg.tool_calls,
         }));
 
+        setHasMoreMessages(displayData.has_more);
+        setOldestSequence(displayData.oldest_sequence);
         updateChatState(currentChatId, { messages: loadedMessages }, syncDisplay);
       } catch {
         // Silently fail — user can retry
+      } finally {
+        setLoadingHistory(false);
       }
     };
     load();
   }, [currentChatId, getChatState, syncDisplay, updateChatState]);
+
+  // Load older messages on scroll-up
+  const loadMoreMessages = useCallback(async () => {
+    if (!currentChatId || !hasMoreMessages || !oldestSequence || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const container = scrollContainerRef.current;
+      const prevScrollHeight = container?.scrollHeight ?? 0;
+
+      const displayData = await chatApi.getChatHistoryForDisplay(currentChatId, {
+        before_sequence: oldestSequence,
+      });
+
+      const olderMessages: Message[] = displayData.messages.map((msg: any) => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp || new Date().toISOString(),
+        toolCalls: msg.tool_calls,
+      }));
+
+      if (olderMessages.length > 0) {
+        setHasMoreMessages(displayData.has_more);
+        setOldestSequence(displayData.oldest_sequence);
+        const state = getChatState(currentChatId);
+        updateChatState(currentChatId, { messages: [...olderMessages, ...state.messages] }, syncDisplay);
+
+        // Preserve scroll position after prepending
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - prevScrollHeight;
+          }
+        });
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [currentChatId, hasMoreMessages, oldestSequence, loadingMore, getChatState, updateChatState, syncDisplay]);
 
   // Check portfolio connection status
   useEffect(() => {
@@ -588,7 +640,7 @@ export default function ChatView({
     <div className="flex h-full bg-white">
 
       <div
-        className={`flex-1 flex flex-col relative min-w-0 overflow-hidden transition-all duration-300`}
+        className={`flex-1 flex flex-col min-w-0 overflow-hidden relative transition-all duration-300`}
         style={showComputerPanel ? {
           marginRight: selectedTool?.file_content
             ? `${650 + rightOffset}px`
@@ -624,12 +676,23 @@ export default function ChatView({
           </div>
         )}
 
-        {messages.length === 0 && !isLoading && (currentChatId || isNewChat) ? (
+        {messages.length === 0 && !isLoading && !loadingHistory && (currentChatId || isNewChat) ? (
           <div className="flex-1 min-h-0">
             <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} prefillLabel={prefillLabel} />
           </div>
+        ) : loadingHistory ? (
+          <div className="flex-1 min-h-0" />
         ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 min-h-0 overflow-y-auto"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            if (target.scrollTop < 100 && hasMoreMessages && !loadingMore) {
+              loadMoreMessages();
+            }
+          }}
+        >
           <div className={`pt-8 pb-4 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
@@ -641,6 +704,15 @@ export default function ChatView({
               </div>
             ) : (
               <>
+                {loadingMore && (
+                  <div className="flex justify-center py-3">
+                    <div className="flex space-x-1.5">
+                      {[0, 0.1, 0.2].map((delay, i) => (
+                        <div key={i} className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}s` }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {messages.map((msg, i) => {
                   // Only show actions when fully idle — never during streaming
                   const nextIsUser = messages[i + 1]?.role === 'user';
@@ -741,7 +813,7 @@ export default function ChatView({
                 )}
 
                 <div ref={messagesEndRef} />
-                <div className="h-40" />
+                <div className="h-24" />
               </>
             )}
           </div>
@@ -755,8 +827,8 @@ export default function ChatView({
         )}
 
         {messages.length > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 z-10">
-            <div className="max-w-3xl mx-auto px-4 sm:px-8 relative z-10">
+          <div className="absolute bottom-3 left-0 right-0 z-10">
+            <div className="max-w-3xl mx-auto px-4 sm:px-8">
               <ChatInput
                 onSendMessage={handleSendMessage}
                 onStop={handleStopStream}
@@ -766,7 +838,6 @@ export default function ChatView({
                 chatId={currentChatId || undefined}
               />
             </div>
-            <div className="h-10 bg-white -mt-6" />
           </div>
         )}
       </div>

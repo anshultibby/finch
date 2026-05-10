@@ -3,8 +3,8 @@ Async CRUD operations for chats and chat messages
 """
 from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func, desc
+from sqlalchemy.orm import selectinload, load_only
 from models.chat_models import Chat, ChatMessageDB as ChatMessage
 from datetime import datetime
 
@@ -249,6 +249,62 @@ async def get_chat_messages(db: AsyncSession, chat_id: str) -> List[ChatMessage]
         .order_by(ChatMessage.sequence.asc())
     )
     return list(result.scalars().all())
+
+
+async def get_chat_messages_for_display(
+    db: AsyncSession, chat_id: str, limit: int = 50, before_sequence: Optional[int] = None
+) -> tuple[list[dict], bool]:
+    """Get messages for display with cursor-based pagination.
+    Returns lightweight dicts instead of full ORM objects — skips heavy columns
+    and extracts only needed tool_results fields via SQL.
+    Returns (messages_in_asc_order, has_more)."""
+    from sqlalchemy import text, literal_column
+
+    filters = "chat_id = :chat_id AND role IN ('user', 'assistant')"
+    params: dict = {"chat_id": chat_id, "fetch_limit": limit + 1}
+    if before_sequence is not None:
+        filters += " AND sequence < :before_sequence"
+        params["before_sequence"] = before_sequence
+
+    sql = text(f"""
+        SELECT id, role, content, sequence, tool_calls, timestamp,
+               CASE WHEN tool_results IS NOT NULL THEN (
+                   SELECT jsonb_object_agg(
+                       key,
+                       jsonb_build_object(
+                           'status', COALESCE(value->>'status', 'completed'),
+                           'error', value->>'error',
+                           'result_summary', value->>'result_summary',
+                           'code_output', LEFT(value->>'code_output', 2000)
+                       )
+                   )
+                   FROM jsonb_each(tool_results)
+               ) END AS tool_results_light
+        FROM chat_messages
+        WHERE {filters}
+        ORDER BY sequence DESC
+        LIMIT :fetch_limit
+    """)
+    result = await db.execute(sql, params)
+    rows = result.mappings().all()
+
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
+
+    messages = [
+        {
+            "id": r["id"],
+            "role": r["role"],
+            "content": r["content"],
+            "sequence": r["sequence"],
+            "tool_calls": r["tool_calls"],
+            "tool_results": r["tool_results_light"],
+            "timestamp": r["timestamp"],
+        }
+        for r in reversed(rows)
+    ]
+    return messages, has_more
 
 
 async def delete_messages_by_ids(db: AsyncSession, message_ids: List[int]) -> int:

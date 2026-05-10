@@ -350,8 +350,10 @@ export const chatApi = {
     return response.data;
   },
 
-  getChatHistoryForDisplay: async (chatId: string): Promise<{
+  getChatHistoryForDisplay: async (chatId: string, options?: { limit?: number; before_sequence?: number }): Promise<{
     chat_id: string;
+    has_more: boolean;
+    oldest_sequence: number | null;
     messages: Array<{
       role: 'user' | 'assistant';
       content: string;
@@ -359,7 +361,10 @@ export const chatApi = {
       tool_calls?: ToolCallStatus[];
     }>;
   }> => {
-    const response = await api.get(`/chat/history/${chatId}/display`);
+    const params: Record<string, string> = {};
+    if (options?.limit) params.limit = String(options.limit);
+    if (options?.before_sequence) params.before_sequence = String(options.before_sequence);
+    const response = await api.get(`/chat/history/${chatId}/display`, { params });
     return response.data;
   },
 

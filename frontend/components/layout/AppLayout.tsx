@@ -369,7 +369,7 @@ function AppLayoutInner() {
           )}
 
           {/* ChatPage always mounted so streams survive navigation */}
-          <div className={currentView.type === 'chat' ? 'h-full' : 'hidden'}>
+          <div className={currentView.type === 'chat' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}>
             <ChatPage
               sidebarRef={sidebarRef}
               onCreatingChatChange={setIsCreatingChat}

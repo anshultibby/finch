@@ -252,28 +252,6 @@ async def get_portfolio(*, context: AgentContext) -> Dict[str, Any]:
     return await snaptrade_impl.get_portfolio_impl(context)
 
 
-# ============================================================================
-# TLH / SWAP PRESENTATION TOOL
-# ============================================================================
-
-from modules.tools.implementations import alpaca as alpaca_impl
-
-PRESENT_SWAPS_DESC = """Present tax loss harvesting results to the user as interactive swap cards.
-Pass the path to the saved TLH plan JSON file (e.g. '/home/user/data/tlh_plan.json').
-The tool reads the file from the sandbox, extracts harvest_now + borderline opportunities,
-and renders them as cards in the 'Opportunities' sidebar tab.
-After calling this, tell the user to check the Opportunities tab."""
-
-
-@tool(
-    name="present_swaps",
-    description=PRESENT_SWAPS_DESC,
-    category="swaps"
-)
-async def present_swaps(*, context: AgentContext, plan_file: str):
-    """Present TLH swap opportunities as interactive cards."""
-    return await alpaca_impl.present_swaps_impl(context, plan_file)
-
 
 # ============================================================================
 # AGENT MANAGEMENT TOOLS
@@ -319,8 +297,7 @@ __all__ = [
     'web_search_tool', 'news_search', 'scrape_url',
     # Brokerage / Portfolio
     'connect_brokerage', 'get_brokerage_status', 'get_portfolio',
-    # TLH
-    'present_swaps',
+    # TLH — removed
     # Agent Management — disabled for now
     # 'create_agent',
 ]

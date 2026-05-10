@@ -28,6 +28,7 @@ Rules:
 - Be thorough but concise. Include data, findings, and conclusions — not process narration.
 - You have full access to the sandbox, web search, code execution, and financial data tools.
 - You CANNOT delegate to other sub-agents. Do the work yourself.
+- **Skills before web search.** For stock prices, fundamentals, earnings, filings, or any structured financial data, ALWAYS use skill APIs (read SKILL.md files in /home/user/skills/). Only use web search for qualitative context: news, analyst commentary, industry trends.
 
 After completing your work, write a summary of your findings as your final message."""
 

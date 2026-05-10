@@ -195,10 +195,8 @@ class Settings(BaseSettings):
             'connect_brokerage',
             'get_brokerage_status',
             'get_portfolio',
-            # TLH Swaps
-            'present_swaps',
             # Orchestration
-            'delegate',
+            # 'delegate',
         ],
         description="All agent tools"
     )
@@ -219,11 +217,11 @@ class Settings(BaseSettings):
         description="Number of recent assistant messages whose tool results are protected from eviction"
     )
     CONTEXT_BUDGET_RATIO: float = Field(
-        default=0.75,
+        default=0.50,
         description="Fraction of context window allocated to total content (tool results evicted oldest-first beyond this)"
     )
     CONTEXT_SINGLE_TOOL_RESULT_RATIO: float = Field(
-        default=0.30,
+        default=0.15,
         description="Max fraction of context window any single tool result may occupy"
     )
     CONTEXT_OVERFLOW_RATIO: float = Field(

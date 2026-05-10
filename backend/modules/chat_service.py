@@ -502,35 +502,36 @@ class ChatService:
         else:
             return await chat_async.is_chat_processing(db, chat_id)
     
-    async def get_chat_history_for_display(self, chat_id: str, db=None) -> Dict[str, Any]:
+    async def get_chat_history_for_display(self, chat_id: str, db=None, limit: int = 50, before_sequence: int | None = None) -> Dict[str, Any]:
         """
         Get chat history formatted for UI display.
-        
+
         SIMPLE: Each message has content and optional tool_calls attached directly.
         Frontend just renders messages in order.
         """
         if db is None:
             async with get_db_session() as db:
-                return await self._get_chat_history_for_display_impl(db, chat_id)
+                return await self._get_chat_history_for_display_impl(db, chat_id, limit, before_sequence)
         else:
-            return await self._get_chat_history_for_display_impl(db, chat_id)
+            return await self._get_chat_history_for_display_impl(db, chat_id, limit, before_sequence)
     
-    async def _get_chat_history_for_display_impl(self, db, chat_id: str) -> Dict[str, Any]:
+    async def _get_chat_history_for_display_impl(self, db, chat_id: str, limit: int = 50, before_sequence: int | None = None) -> Dict[str, Any]:
         """Internal implementation of get_chat_history_for_display"""
-        messages = await chat_async.get_chat_messages(db, chat_id)
-        
+        messages, has_more = await chat_async.get_chat_messages_for_display(db, chat_id, limit, before_sequence)
+
         if not messages:
-            return {"messages": []}
-        
+            return {"messages": [], "has_more": False, "oldest_sequence": None}
+
         display_messages = []
 
-        def _parse_tool_calls(msg):
-            """Extract visible tool calls from an assistant message."""
+        def _parse_tool_calls(msg: dict):
+            """Extract visible tool calls from an assistant message dict."""
             tool_calls = []
-            tool_results = msg.tool_results or {}
-            if not msg.tool_calls:
+            tool_results = msg.get("tool_results") or {}
+            raw_tool_calls = msg.get("tool_calls")
+            if not raw_tool_calls:
                 return tool_calls
-            for tc in msg.tool_calls:
+            for tc in raw_tool_calls:
                 tool_name = tc.get("function", {}).get("name")
                 tool_call_id = tc.get("id")
                 tool_obj = tool_registry.get_tool(tool_name)
@@ -555,30 +556,31 @@ class ChatService:
                         "error": stored_result.get("error"),
                         "result_summary": stored_result.get("result_summary"),
                     }
-                    if "code_output" in stored_result:
-                        tool_call_data["code_output"] = stored_result["code_output"]
+                    code_output = stored_result.get("code_output")
+                    if code_output is not None:
+                        tool_call_data["code_output"] = code_output
                     tool_calls.append(tool_call_data)
                 except Exception as e:
                     logger.warning(f"Failed to parse tool call {tool_name}: {e}")
             return tool_calls
 
         for msg in messages:
-            if msg.role == "user":
+            if msg["role"] == "user":
+                ts = msg["timestamp"]
                 display_messages.append({
                     "role": "user",
-                    "content": msg.content,
-                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None
+                    "content": msg["content"],
+                    "timestamp": ts.isoformat() if ts else None
                 })
-            elif msg.role == "assistant":
+            elif msg["role"] == "assistant":
                 tool_calls = _parse_tool_calls(msg)
-                if not msg.content and not tool_calls:
+                if not msg["content"] and not tool_calls:
                     continue
 
-                # Merge consecutive tool-only assistant messages into one
-                # so the UI renders a single grouped summary bar per turn
+                ts = msg["timestamp"]
                 if (
                     tool_calls
-                    and not msg.content
+                    and not msg["content"]
                     and display_messages
                     and display_messages[-1]["role"] == "assistant"
                     and not display_messages[-1]["content"]
@@ -588,14 +590,13 @@ class ChatService:
                 else:
                     display_messages.append({
                         "role": "assistant",
-                        "content": msg.content or "",
-                        "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                        "content": msg["content"] or "",
+                        "timestamp": ts.isoformat() if ts else None,
                         "tool_calls": tool_calls if tool_calls else None
                     })
-            elif msg.role in ("tool", "compaction"):
-                continue
 
-        return {"messages": display_messages}
+        oldest_sequence = messages[0]["sequence"] if messages else None
+        return {"messages": display_messages, "has_more": has_more, "oldest_sequence": oldest_sequence}
 
 
 async def _persist_chat_to_sandbox(user_id: str, chat_id: str, db) -> None:

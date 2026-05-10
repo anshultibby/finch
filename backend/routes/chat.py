@@ -158,10 +158,13 @@ async def get_chat_history(
 async def get_chat_history_display(
     chat_id: str,
     authenticated_user_id: str = Depends(get_current_user_id),
+    limit: int = 50,
+    before_sequence: int | None = None,
 ):
     """
     Retrieve chat history formatted for UI display.
     Returns a structured format with grouped tool calls and filtered messages.
+    Supports cursor-based pagination via limit and before_sequence.
     """
     async with get_db_session() as db:
         chat = await chat_async.get_chat(db, chat_id)
@@ -169,7 +172,7 @@ async def get_chat_history_display(
             raise HTTPException(status_code=404, detail="Chat not found")
         await verify_user_access(chat.user_id, authenticated_user_id)
     try:
-        display_data = await chat_service.get_chat_history_for_display(chat_id)
+        display_data = await chat_service.get_chat_history_for_display(chat_id, limit=limit, before_sequence=before_sequence)
         return {
             "chat_id": chat_id,
             **display_data
