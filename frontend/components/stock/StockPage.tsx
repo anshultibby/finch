@@ -574,7 +574,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
   }, [symbol, statement, period]);
 
   const rows = STATEMENT_ROWS[statement];
-  const columns = data.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const columns = data.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
   const downloadCsv = () => {
     if (!columns.length) return;
@@ -584,7 +584,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
       if (row.t === 's') { csvRows.push(''); csvRows.push(row.label); continue; }
       if (row.t === 'g') {
         const vals = columns.map((col, i) => {
-          const curr = col[row.of]; const prev = columns[i - 1]?.[row.of];
+          const curr = col[row.of]; const prev = columns[i + 1]?.[row.of];
           return curr != null && prev != null && prev !== 0 ? `${((curr - prev) / Math.abs(prev) * 100).toFixed(1)}%` : '';
         });
         csvRows.push([`"${row.label}"`, ...vals].join(','));
@@ -721,7 +721,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                 const stickyBg = isEven ? 'bg-[#f8f8f9]' : 'bg-white';
                 const isIndent = (row.t === 'g' || row.t === 'm' || (row.t === 'd' && row.indent));
                 if (row.t === 'g') {
-                  const hasAny = columns.some((_, i) => i > 0 && columns[i]?.[row.of] != null && columns[i - 1]?.[row.of] != null);
+                  const hasAny = columns.some((_, i) => i < columns.length - 1 && columns[i]?.[row.of] != null && columns[i + 1]?.[row.of] != null);
                   if (!hasAny) return null;
                   dataRowIdx++;
                   return (
@@ -729,7 +729,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                       <td className={`py-2.5 px-4 pl-8 text-[13px] text-gray-500 sticky left-0 ${stickyBg} z-10 whitespace-nowrap`}>{row.label}</td>
                       {columns.map((col, i) => (
                         <td key={i} className="text-right py-2.5 px-4 tabular-nums text-[13px] text-gray-600 whitespace-nowrap">
-                          {fmtGrowth(col[row.of], columns[i - 1]?.[row.of] ?? null)}
+                          {fmtGrowth(col[row.of], columns[i + 1]?.[row.of] ?? null)}
                         </td>
                       ))}
                     </tr>
