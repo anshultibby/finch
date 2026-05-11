@@ -5,9 +5,26 @@ FMP responses are cached at the fmp() call layer (see scripts/api.py).
 """
 import asyncio
 from fastapi import APIRouter, HTTPException, Query
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, time as dtime, timezone
+from zoneinfo import ZoneInfo
 
 router = APIRouter(prefix="/market", tags=["market"])
+
+ET = ZoneInfo("America/New_York")
+
+
+def _market_session() -> str:
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        return "closed"
+    t = now.time()
+    if dtime(4, 0) <= t < dtime(9, 30):
+        return "pre"
+    if dtime(9, 30) <= t < dtime(16, 0):
+        return "regular"
+    if dtime(16, 0) <= t < dtime(20, 0):
+        return "after"
+    return "closed"
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +79,10 @@ async def get_prices(symbols: str, days: int = 365):
             if d[:10] < cutoff_day:
                 base = c
             else:
-                iso = d.replace(" ", "T") if " " in d else d
+                if " " in d:
+                    iso = d.replace(" ", "T") + "Z"
+                else:
+                    iso = d
                 in_window.append((iso, c))
         return base, in_window
 
@@ -127,9 +147,15 @@ async def get_quote(symbol: str):
         raise HTTPException(status_code=502, detail="Failed to fetch quote")
 
     if isinstance(data, list) and len(data) > 0:
-        return data[0]
-    if isinstance(data, dict) and data.get("symbol"):
-        return data
+        result = data[0]
+    elif isinstance(data, dict) and data.get("symbol"):
+        result = data
+    else:
+        result = None
+
+    if result:
+        result["marketSession"] = _market_session()
+        return result
 
     # Fallback: try profile endpoint which also has price
     try:
@@ -389,6 +415,7 @@ async def get_batch_quotes(symbols: str):
             "price": q.get("price"),
             "change": q.get("change"),
             "changesPercentage": q.get("changesPercentage"),
+            "previousClose": q.get("previousClose"),
             "marketCap": q.get("marketCap"),
         }
         for q in data

@@ -850,6 +850,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
   const [showMobileTrade, setShowMobileTrade] = useState(false);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [periodPct, setPeriodPct] = useState<number | null>(null);
+  const [chartDays, setChartDays] = useState(1);
   const [activeTab, setActiveTab] = useState<StockTab>(
     (initialTab && STOCK_TABS.some(t => t.key === initialTab) ? initialTab : 'overview') as StockTab
   );
@@ -903,6 +904,8 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
   const price = quote?.price || profile?.price || 0;
   const change = quote?.change || profile?.changes || 0;
   const changePct = quote?.changesPercentage || 0;
+  const previousClose = quote?.previousClose || 0;
+  const marketSession = quote?.marketSession as string | undefined;
   const name = profile?.companyName || quote?.name || symbol;
 
   if (loading) {
@@ -972,7 +975,6 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
         {activeTab === 'overview' && (
           <>
             <div className="px-4 sm:px-6 pt-4 pb-2">
-              {/* Price — updates on chart hover */}
               {(() => {
                 const endPct = periodPct ?? changePct;
                 const periodStart = price / (1 + endPct / 100 || 1);
@@ -982,14 +984,33 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                   : price;
                 const displayDollar = periodStart * (activePct / 100);
                 const up = displayDollar >= 0;
+
+                const isExtended = marketSession === 'pre' || marketSession === 'after';
+                const is1D = chartDays === 1;
+                const showExtended = isExtended && is1D && previousClose > 0 && hoverPct === null;
+
+                const closeChange = change;
+                const closePct = changePct;
+                const closeUp = closeChange >= 0;
+
                 return (
                   <>
                     <div className="mb-1">
                       <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(displayPrice)}</span>
                     </div>
-                    <div className={`text-sm font-medium tabular-nums mb-1 ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                    <div className={`text-sm font-medium tabular-nums ${up ? 'text-emerald-600' : 'text-red-500'}`}>
                       {up ? '+' : '-'}{fmt(Math.abs(displayDollar))} ({pct(activePct)})
                     </div>
+                    {showExtended && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className={`text-xs font-medium tabular-nums ${closeUp ? 'text-emerald-500' : 'text-red-400'}`}>
+                          {closeUp ? '+' : ''}{fmt(closeChange)} ({pct(closePct)})
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          from prev close · {marketSession === 'pre' ? 'Pre-market' : 'After hours'}
+                        </span>
+                      </div>
+                    )}
                   </>
                 );
               })()}
@@ -998,6 +1019,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
               <PriceRangeChart
                 series={[{ symbol, color: '' }]}
                 currentPrice={price}
+                previousClose={previousClose}
                 defaultDays={1}
                 ranges={getStockRanges()}
                 height={280}
@@ -1006,6 +1028,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                   setHoverPct(info?.value ?? null);
                 }}
                 onPeriodChange={setPeriodPct}
+                onRangeChange={(d) => setChartDays(d)}
               />
             </div>
 

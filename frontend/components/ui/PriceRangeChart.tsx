@@ -64,6 +64,8 @@ type SymbolProps = BaseProps & {
   series: PriceSeriesConfig[];
   defaultDays?: number;
   currentPrice?: number;
+  previousClose?: number;
+  onRangeChange?: (days: number, label: string) => void;
   data?: undefined;
 };
 
@@ -106,8 +108,10 @@ export default function PriceRangeChart(props: Props) {
   const [internalDays, setInternalDays] = useState(isSymbolMode ? (props as SymbolProps).defaultDays ?? 365 : 365);
   const days = isSymbolMode ? internalDays : (props as DataProps).selectedDays ?? internalDays;
   const setDays = (d: number, label: string) => {
-    if (isSymbolMode) setInternalDays(d);
-    else {
+    if (isSymbolMode) {
+      setInternalDays(d);
+      (props as SymbolProps).onRangeChange?.(d, label);
+    } else {
       (props as DataProps).onRangeChange?.(d, label);
       setInternalDays(d);
     }
@@ -324,7 +328,7 @@ export default function PriceRangeChart(props: Props) {
       const dateStr = d.toISOString();
       const isIntraday = lines[0]?.data[0]?.date?.includes('T');
       const formattedDate = isIntraday
-        ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })
         : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
       const point = param.point;
