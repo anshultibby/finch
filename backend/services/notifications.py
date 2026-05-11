@@ -83,12 +83,15 @@ async def send_trade_confirmation_sms(
 
 def _send_resend_email_sync(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
     """Send an email via Resend (blocking). Use send_resend_email() in async code."""
-    raw = from_email or os.getenv("RESEND_FROM_EMAIL")
+    raw = from_email or os.getenv("RESEND_FROM_EMAIL", "notifications@finchapp.ai")
     from_email = f"Finch <{raw}>" if raw and "<" not in raw else raw
     api_key = _get_resend_key()
 
-    if not api_key or not to_email:
-        logger.warning("RESEND_API_KEY or to_email not set")
+    if not api_key:
+        logger.warning("RESEND_API_KEY not set — cannot send email")
+        return False
+    if not to_email:
+        logger.warning("No recipient email — cannot send email")
         return False
 
     try:
