@@ -298,15 +298,22 @@ class BaseAgent:
                             tool_messages = event.data.get("tool_messages", [])
                         yield event
                     
-                    # Track files written to sandbox via bash commands
+                    # Track files written to sandbox
                     self._file_tracker.next_turn()
                     for tc in tool_calls:
-                        if tc.get("function", {}).get("name") == "bash":
-                            try:
-                                args = json.loads(tc["function"].get("arguments", "{}"))
-                                self._file_tracker.process_bash_command(args.get("cmd", ""))
-                            except (json.JSONDecodeError, TypeError):
-                                pass
+                        fn_name = tc.get("function", {}).get("name")
+                        try:
+                            args = json.loads(tc["function"].get("arguments", "{}"))
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        if fn_name == "bash":
+                            self._file_tracker.process_bash_command(args.get("cmd", ""))
+                        elif fn_name == "write_chat_file":
+                            filename = args.get("filename", "")
+                            content = args.get("file_content", "")
+                            if filename:
+                                line_count = content.count("\n") + 1 if content else 0
+                                self._file_tracker.track_file(filename, line_count, "write_chat_file")
 
                     # Log tool results to ChatLogger for complete conversation history
                     if self._chat_logger and tool_messages:

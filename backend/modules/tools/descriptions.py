@@ -50,13 +50,11 @@ Do NOT use this tool if:
 
 # Build EXECUTE_CODE_DESC dynamically with skills README content
 _EXECUTE_CODE_BASE = """Run bash in a persistent sandboxed VM (60s timeout).
-Full Linux — python3, pip, curl, jq, cat, tee, heredoc, whatever you need.
+Full Linux — python3, pip, curl, jq, whatever you need.
 
-The filesystem persists across calls. Write files, read them back, run scripts — it's just a shell.
-
-**Prefer writing code to files over inline commands.** Write a `.py` file and run it — this makes iteration, debugging, and reuse much easier than long inline one-liners or piped commands.
-
-**Build reusable code.** Factor useful helpers, data-fetching logic, or analysis routines into reusable scripts or libraries (e.g. `/home/user/lib/`). Check memory first before rewriting logic — if you've built something useful, save it with `memory_write(durable=True)` for future sessions.
+Use this tool to **run** code, not write it. Write code with `write_chat_file`, then run it here:
+`python3 chat_files/analysis.py`
+Do NOT use bash heredocs (`cat > file << 'EOF'`) — use `write_chat_file` instead.
 
 **Style:**
 - Concise. No verbose comments or progress prints.
@@ -86,14 +84,17 @@ EXECUTE_CODE_DESC = _EXECUTE_CODE_BASE + generate_skills_description() + _EXECUT
 # FILE MANAGEMENT TOOLS
 # ============================================================================
 
-WRITE_CHAT_FILE_DESC = """Write a file to the persistent chat filesystem (syncs to database).
+WRITE_CHAT_FILE_DESC = """Write a file to the persistent sandbox filesystem. This is the PRIMARY way to write code.
+
+**Use this instead of bash heredocs.** Write your code here, then run it with `bash(cmd="python3 filename.py")`.
+This keeps code out of bash tool args, making iteration and debugging much easier.
 
 **CRITICAL: Write CONCISE code without verbose comments. NO explanatory comments unless complex logic requires it.**
 
 **When to use:**
-- Saving reusable scripts/code
-- Storing analysis results for later reference
-- Creating data files that persist across sessions
+- Writing scripts and code to run (analysis, data processing, charting)
+- Creating reusable libraries and helper modules
+- Storing analysis results or data files
 """
 
 READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads and images!**

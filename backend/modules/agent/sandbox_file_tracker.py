@@ -68,6 +68,12 @@ class SandboxFileTracker:
                 f = f.strip()
                 self._files.pop(f, None)
 
+    def track_file(self, filepath: str, line_count: int = 0, method: str = "unknown"):
+        info = {"turn": self._turn, "method": method}
+        if line_count:
+            info["lines"] = line_count
+        self._files[filepath] = info
+
     def get_manifest(self) -> str:
         if not self._files:
             return ""
