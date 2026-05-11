@@ -64,70 +64,16 @@ export default function AuthGate({ children }: AuthGateProps) {
           )}
         </div>
 
-        {/* Features */}
-        <div className="max-w-4xl mx-auto px-4 pb-12">
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center mb-3">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-gray-900 mb-1">Ask anything</h3>
-              <p className="text-sm text-gray-500">
-                &ldquo;Is NVDA overvalued?&rdquo; &ldquo;What did the CEO say on the last earnings call?&rdquo;
-                Finch finds the answer and shows its sources.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center mb-3">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-gray-900 mb-1">Bots that trade</h3>
-              <p className="text-sm text-gray-500">
-                Describe a strategy in plain English. Finch builds a bot, watches the market,
-                and asks before pulling the trigger.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center mb-3">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-gray-900 mb-1">See everything</h3>
-              <p className="text-sm text-gray-500">
-                Link your brokerage and see all your positions, P&L, and what&apos;s moving — with
-                AI commentary on what matters.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Example flows */}
-        <div className="max-w-3xl mx-auto px-4 pb-12">
-          <h2 className="text-lg font-semibold text-gray-800 text-center mb-6">Try saying...</h2>
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl p-5 shadow-sm border-l-4 border-emerald-500">
-              <p className="text-sm font-medium text-gray-800">&ldquo;Who&apos;s buying their own stock this week?&rdquo;</p>
-              <p className="text-xs text-gray-500 mt-1">Insider trades, ranked by size. No more digging through SEC forms.</p>
-            </div>
-            <div className="bg-white rounded-xl p-5 shadow-sm border-l-4 border-emerald-400">
-              <p className="text-sm font-medium text-gray-800">&ldquo;Make a bot that buys NVDA when it dips below the 20-day average&rdquo;</p>
-              <p className="text-xs text-gray-500 mt-1">It watches the market, texts you before trading, and keeps a log of everything.</p>
-            </div>
-            <div className="bg-white rounded-xl p-5 shadow-sm border-l-4 border-teal-500">
-              <p className="text-sm font-medium text-gray-800">&ldquo;How are Apple&apos;s margins doing vs last year?&rdquo;</p>
-              <p className="text-xs text-gray-500 mt-1">Finch reads the latest 10-Q and gives you the numbers side by side.</p>
-            </div>
-            <div className="bg-white rounded-xl p-5 shadow-sm border-l-4 border-teal-400">
-              <p className="text-sm font-medium text-gray-800">&ldquo;What are prediction markets saying about the next Fed meeting?&rdquo;</p>
-              <p className="text-xs text-gray-500 mt-1">Live odds from Kalshi and Polymarket, summarized in plain English.</p>
-            </div>
+        {/* Try saying */}
+        <div className="max-w-lg mx-auto px-4 pb-16">
+          <p className="text-sm text-gray-400 text-center mb-4">Try saying...</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <span className="bg-white px-4 py-2 rounded-full text-sm text-gray-600 shadow-sm">&ldquo;Is NVDA overvalued?&rdquo;</span>
+            <span className="bg-white px-4 py-2 rounded-full text-sm text-gray-600 shadow-sm">&ldquo;Who&apos;s buying their own stock?&rdquo;</span>
+            <span className="bg-white px-4 py-2 rounded-full text-sm text-gray-600 shadow-sm">&ldquo;Build me a trading bot&rdquo;</span>
+            <span className="bg-white px-4 py-2 rounded-full text-sm text-gray-600 shadow-sm">&ldquo;How are Apple&apos;s margins?&rdquo;</span>
+            <span className="bg-white px-4 py-2 rounded-full text-sm text-gray-600 shadow-sm">&ldquo;What&apos;s the Fed doing next?&rdquo;</span>
+            <span className="bg-white px-4 py-2 rounded-full text-sm text-gray-600 shadow-sm">&ldquo;Show me my portfolio&rdquo;</span>
           </div>
         </div>
 
