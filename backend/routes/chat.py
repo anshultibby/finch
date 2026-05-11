@@ -107,9 +107,8 @@ async def send_chat_message_stream(
                 error_msg = str(e)
                 tb = traceback.format_exc()
                 logger.error(f"ERROR in stream: {error_msg}\nFull traceback:\n{tb}")
-                # Send error event
-                # Use string concatenation to avoid f-string interpreting JSON curly braces as format specs
                 yield "event: error\ndata: " + json.dumps({'error': error_msg}) + "\n\n"
+                yield "event: done\ndata: {}\n\n"
         
         return StreamingResponse(
             event_generator(),

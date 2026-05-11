@@ -34,21 +34,9 @@ async def send_due_reminders():
             await db.commit()
 
 async def _send_reminder_email(reminder):
-    import os
-    api_key = os.getenv("RESEND_API_KEY")
-    from_email = os.getenv("RESEND_FROM_EMAIL", "reminders@finch.app")
-    if not api_key:
-        logger.warning("RESEND_API_KEY not set — skipping reminder email")
-        return
-    try:
-        import resend
-        resend.api_key = api_key
-    except ImportError:
-        logger.warning("resend package not installed")
-        return
+    from services.notifications import _send_resend_email
 
-    safe_date = reminder.remind_at.strftime("%B %d, %Y")
-    repurchase_symbol = reminder.symbol_sold  # they sold this, can now rebuy
+    repurchase_symbol = reminder.symbol_sold
     html = f"""
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="color: #111; margin-bottom: 8px;">Wash sale window cleared for {repurchase_symbol}</h2>
@@ -58,12 +46,13 @@ async def _send_reminder_email(reminder):
       <p style="color: #888; font-size: 13px; margin-top: 24px;">This reminder was set on Finch.</p>
     </div>
     """
-    resend.Emails.send({
-        "from": from_email,
-        "to": [reminder.email],
-        "subject": f"You can now repurchase {repurchase_symbol} — wash sale window cleared",
-        "html": html,
-    })
+    sent = await _send_resend_email(
+        reminder.email,
+        f"You can now repurchase {repurchase_symbol} — wash sale window cleared",
+        html,
+    )
+    if not sent:
+        raise RuntimeError(f"Failed to send reminder email to {reminder.email}")
 
 async def run_reminder_loop():
     """Run forever, checking every hour."""

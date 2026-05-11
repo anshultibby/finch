@@ -413,6 +413,10 @@ class BaseAgent:
                 event="error",
                 data=ErrorEvent(error=str(e), details=traceback_module.format_exc()).model_dump()
             )
+            yield SSEEvent(
+                event="done",
+                data=DoneEvent().model_dump()
+            )
     
     def build_messages(
         self,

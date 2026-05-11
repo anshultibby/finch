@@ -420,7 +420,8 @@ class ChatService:
                         from services.notifications import send_chat_complete_email
                         app_base_url = os.environ.get("APP_BASE_URL", "http://localhost:3000")
                         chat_url = f"{app_base_url}/chat/{chat_id}"
-                        await send_chat_complete_email(notify_email, title, chat_url)
+                        preview = await chat_async.get_last_assistant_text(db, chat_id)
+                        await send_chat_complete_email(notify_email, title, chat_url, preview=preview)
                 except Exception as e:
                     logger.warning(f"Email notification failed (non-fatal): {e}")
                     try:

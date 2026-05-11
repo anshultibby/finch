@@ -472,6 +472,24 @@ async def pop_notify_email(db: AsyncSession, chat_id: str) -> Optional[str]:
     return email
 
 
+async def get_last_assistant_text(db: AsyncSession, chat_id: str, max_chars: int = 2000) -> Optional[str]:
+    """Return the content of the last assistant message, truncated."""
+    from sqlalchemy import select
+    result = await db.execute(
+        select(ChatMessage.content)
+        .where(ChatMessage.chat_id == chat_id, ChatMessage.role == "assistant")
+        .order_by(ChatMessage.sequence.desc())
+        .limit(1)
+    )
+    text = result.scalar_one_or_none()
+    if not text:
+        return None
+    text = text.strip()
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit(" ", 1)[0] + "..."
+    return text
+
+
 async def set_chat_processing(db: AsyncSession, chat_id: str, is_processing: bool) -> None:
     """
     Mark a chat as processing or not processing.

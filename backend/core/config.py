@@ -293,8 +293,8 @@ class Settings(BaseSettings):
         description="Your email to receive trade confirmations"
     )
     RESEND_FROM_EMAIL: Optional[str] = Field(
-        default="trades@finch.app",
-        description="Sender email for trade confirmations"
+        default=None,
+        description="Sender email for notifications (must match a verified Resend domain)"
     )
     APP_BASE_URL: str = Field(
         default="https://finchapp.ai",

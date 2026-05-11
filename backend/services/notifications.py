@@ -8,6 +8,8 @@ Configure via environment variables:
 """
 import os
 import logging
+import asyncio
+from functools import partial
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -79,9 +81,10 @@ async def send_trade_confirmation_sms(
         return False
 
 
-def _send_resend_email(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
-    """Send an email via Resend. Returns True if sent successfully."""
-    from_email = from_email or os.getenv("RESEND_FROM_EMAIL", "finch@finch.app")
+def _send_resend_email_sync(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
+    """Send an email via Resend (blocking). Use send_resend_email() in async code."""
+    raw = from_email or os.getenv("RESEND_FROM_EMAIL")
+    from_email = f"Finch <{raw}>" if raw and "<" not in raw else raw
     api_key = _get_resend_key()
 
     if not api_key or not to_email:
@@ -96,17 +99,26 @@ def _send_resend_email(to_email: str, subject: str, html: str, from_email: Optio
         return False
 
     try:
-        resend.Emails.send({
+        result = resend.Emails.send({
             "from": from_email,
             "to": [to_email],
             "subject": subject,
             "html": html,
         })
-        logger.info(f"Email sent to {to_email}: {subject}")
+        email_id = result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
+        logger.info(f"Email sent to {to_email}: {subject} (id={email_id})")
         return True
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
         return False
+
+
+async def _send_resend_email(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
+    """Async wrapper — runs the blocking Resend SDK call in a thread."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, partial(_send_resend_email_sync, to_email, subject, html, from_email)
+    )
 
 
 async def send_trade_confirmation_email(
@@ -143,25 +155,65 @@ async def send_trade_confirmation_email(
     <a href="{reject_url}" style="display:inline-block;padding:12px 24px;background:#dc2626;color:white;text-decoration:none;border-radius:6px;font-weight:bold;">REJECT</a>
     """
 
-    return _send_resend_email(to_email, subject, html, os.getenv("RESEND_FROM_EMAIL", "trades@finch.app"))
+    return await _send_resend_email(to_email, subject, html)
 
 
-async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str) -> bool:
+async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str, preview: str = None) -> bool:
     """Send email notifying user their chat analysis is ready."""
-    subject = f"Your analysis is ready: {chat_title}"
-    html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-      <h2 style="color: #111827; margin-bottom: 8px;">Your analysis is ready</h2>
-      <p style="color: #6b7280; font-size: 14px; margin-bottom: 24px;">
-        {chat_title}
-      </p>
-      <a href="{chat_url}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;">
-        View Results
-      </a>
+    import html as html_mod
+    subject = chat_title
+
+    safe_title = html_mod.escape(chat_title)
+
+    preview_section = ""
+    if preview:
+        safe = html_mod.escape(preview)
+        preview_section = f"""
+        <div style="background: #f4faf7; border-radius: 12px; padding: 20px 24px; margin: 0 0 28px 0;">
+          <p style="color: #1e293b; font-size: 15px; line-height: 1.7; margin: 0; white-space: pre-wrap;">{safe}</p>
+        </div>
+        """
+
+    # Logo: inline SVG of the Finch bar chart mark
+    logo_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" '
+        'width="40" height="40" style="vertical-align: middle;">'
+        '<rect width="512" height="512" rx="112" fill="#4ABA8E"/>'
+        '<rect x="148" y="160" width="56" height="192" rx="28" fill="white"/>'
+        '<rect x="228" y="120" width="56" height="272" rx="28" fill="white"/>'
+        '<rect x="308" y="200" width="56" height="152" rx="28" fill="white"/>'
+        '</svg>'
+    )
+
+    body_html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 680px; margin: 0 auto; padding: 0;">
+      <!-- Header -->
+      <div style="background: #fafaf9; padding: 28px 28px 20px; border-radius: 12px 12px 0 0; border: 1px solid rgba(0,0,0,0.06); border-bottom: none;">
+        <div style="margin-bottom: 20px;">
+          {logo_svg}
+        </div>
+        <h1 style="color: #0f172a; font-size: 22px; font-weight: 600; margin: 0 0 6px 0; line-height: 1.3;">{safe_title}</h1>
+        <p style="color: #64748b; font-size: 14px; margin: 0;">Your research is ready</p>
+      </div>
+
+      <!-- Body -->
+      <div style="background: #ffffff; padding: 24px 28px 28px; border: 1px solid rgba(0,0,0,0.06); border-top: none; border-bottom: none;">
+        {preview_section}
+        <a href="{chat_url}" style="display: inline-block; padding: 14px 32px; background: #4ABA8E; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px;">
+          See full analysis &rarr;
+        </a>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding: 16px 28px; border: 1px solid rgba(0,0,0,0.06); border-top: none; border-radius: 0 0 12px 12px; background: #fafaf9;">
+        <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+          <a href="https://finchapp.ai" style="color: #94a3b8; text-decoration: none;">finchapp.ai</a>
+        </p>
+      </div>
     </div>
     """
 
-    return _send_resend_email(to_email, subject, html)
+    return await _send_resend_email(to_email, subject, body_html)
 
 
 async def send_trade_push_notification(
