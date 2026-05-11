@@ -69,18 +69,11 @@ export default function AuthGate({ children }: AuthGateProps) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50 flex flex-col">
         {/* Nav */}
-        <nav className="flex items-center justify-between px-6 py-5">
+        <nav className="flex items-center px-6 py-5">
           <div className="flex items-center gap-2.5">
             <img src="/logo.svg" alt="Finch" className="w-8 h-8 rounded-lg" />
             <span className="text-lg font-semibold tracking-tight text-gray-900">Finch</span>
           </div>
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={signingIn}
-            className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            {signingIn ? 'Signing in...' : 'Log in'}
-          </button>
         </nav>
 
         {/* Hero */}
@@ -126,7 +119,7 @@ export default function AuthGate({ children }: AuthGateProps) {
             <p className="text-red-500 text-sm mt-3">{error}</p>
           )}
 
-          <p className="text-gray-400 text-xs mt-4">Free to use. No credit card.</p>
+          <p className="text-gray-400 text-xs mt-4">Free to sign up. No credit card.</p>
         </div>
 
         {/* Footer */}
