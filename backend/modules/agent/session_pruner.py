@@ -20,6 +20,8 @@ No soft-trimming (head+tail) — tool results are either kept in full or evicted
 """
 from typing import List, Dict, Any, Tuple, Set
 import copy
+import json
+import re
 
 from core.config import Config
 from utils.logger import get_logger
@@ -98,6 +100,95 @@ def _clear_tool_call_args(messages: List[Dict[str, Any]], evicted_ids: Set[str])
                 }
 
 
+_HEREDOC_PATTERN = re.compile(
+    r"cat\s+>>\s*(\S+)\s*<<\s*['\"]?(\w+)['\"]?\n(.*?)\n\2",
+    re.DOTALL,
+)
+_HEREDOC_OVERWRITE_PATTERN = re.compile(
+    r"cat\s+>\s*(\S+)\s*<<\s*['\"]?(\w+)['\"]?\n(.*?)\n\2",
+    re.DOTALL,
+)
+
+_MIN_LINES_TO_SUMMARIZE = 15
+
+
+def _summarize_file_writes(messages: List[Dict[str, Any]], protected_ids: Set[str]) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Replace heredoc file-writing bash tool call args with a short summary.
+    The script is already on disk — no need to replay it in context.
+
+    Only summarizes calls with >= _MIN_LINES_TO_SUMMARIZE lines of heredoc content.
+    Protected (recent) tool calls are left untouched.
+
+    Returns (new message list, count of summarized calls).
+    """
+    result = []
+    summarized = 0
+
+    for msg in messages:
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            result.append(msg)
+            continue
+
+        new_tool_calls = []
+        changed = False
+        for tc in msg.get("tool_calls", []):
+            tc_id = tc.get("id")
+            fn = tc.get("function", {})
+            if fn.get("name") != "bash" or tc_id in protected_ids:
+                new_tool_calls.append(tc)
+                continue
+
+            args_str = fn.get("arguments", "")
+            try:
+                args = json.loads(args_str) if isinstance(args_str, str) else args_str
+            except (json.JSONDecodeError, TypeError):
+                new_tool_calls.append(tc)
+                continue
+
+            cmd = args.get("cmd", "") if isinstance(args, dict) else ""
+            if not cmd:
+                new_tool_calls.append(tc)
+                continue
+
+            new_cmd = cmd
+            any_replaced = False
+            for pattern in (_HEREDOC_OVERWRITE_PATTERN, _HEREDOC_PATTERN):
+                def _replace_match(m):
+                    nonlocal any_replaced
+                    filepath = m.group(1)
+                    body = m.group(3)
+                    line_count = body.count("\n") + 1
+                    if line_count < _MIN_LINES_TO_SUMMARIZE:
+                        return m.group(0)
+                    any_replaced = True
+                    op = ">>" if pattern is _HEREDOC_PATTERN else ">"
+                    return f"# [wrote {line_count} lines to {filepath}]\ncat {op} {filepath} << 'SUMMARIZED'\n# ... content on disk ...\nSUMMARIZED"
+
+                new_cmd = pattern.sub(_replace_match, new_cmd)
+
+            if any_replaced:
+                new_args = dict(args) if isinstance(args, dict) else {"cmd": new_cmd}
+                if isinstance(args, dict):
+                    new_args["cmd"] = new_cmd
+                new_tc = copy.deepcopy(tc)
+                new_tc["function"]["arguments"] = json.dumps(new_args)
+                new_tool_calls.append(new_tc)
+                changed = True
+                summarized += 1
+            else:
+                new_tool_calls.append(tc)
+
+        if changed:
+            msg_copy = copy.copy(msg)
+            msg_copy["tool_calls"] = new_tool_calls
+            result.append(msg_copy)
+        else:
+            result.append(msg)
+
+    return result, summarized
+
+
 def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], bool]:
     """
     Return a pruned copy of `messages` suitable for sending to the LLM,
@@ -116,6 +207,11 @@ def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]]
 
     protected_ids = _find_protected_tool_call_ids(messages, keep_last)
     evicted_ids: Set[str] = set()
+
+    # --- Phase 0: Summarize file-writing bash calls ---
+    # Scripts written via heredoc are already on disk. Replace the full
+    # source in tool call args with a short summary to save context.
+    messages, file_write_count = _summarize_file_writes(messages, protected_ids)
 
     # --- Phase 1: Cap oversized individual tool results ---
     phase1: List[Dict[str, Any]] = []
@@ -175,9 +271,10 @@ def prune_messages(messages: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]]
                 phase1[i] = copy.deepcopy(msg)
         _clear_tool_call_args(phase1, evicted_ids)
 
-    if capped_count or evicted_count:
+    if capped_count or evicted_count or file_write_count:
         logger.debug(
-            f"Session pruner: capped {capped_count}, evicted {evicted_count} tool results, "
+            f"Session pruner: summarized {file_write_count} file writes, "
+            f"capped {capped_count}, evicted {evicted_count} tool results, "
             f"cleared {len(evicted_ids)} tool call args "
             f"(est. tokens after: {estimated:,}, budget: {budget_tokens:,})"
         )

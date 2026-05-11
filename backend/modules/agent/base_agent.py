@@ -17,6 +17,7 @@ from .llm_stream import stream_llm_response
 from .message_processor import enforce_tool_call_sequence
 from .session_pruner import prune_messages
 from .context import AgentContext
+from .sandbox_file_tracker import SandboxFileTracker
 from utils.logger import get_logger
 from .tracing_utils import AgentTracer
 from datetime import datetime
@@ -75,6 +76,7 @@ class BaseAgent:
         )
         # Create tool executor (no truncation - agents save large outputs to files)
         self._tool_executor = ToolExecutor()
+        self._file_tracker = SandboxFileTracker()
     
     def get_new_messages(self) -> List[HistoryChatMessage]:
         """
@@ -200,6 +202,17 @@ class BaseAgent:
                     # This is transient — the database and chat_history are not affected.
                     # needs_compaction signals the caller to trigger early compaction.
                     messages_for_llm, needs_compaction = prune_messages(messages)
+
+                    # Inject sandbox file manifest into the system prompt suffix
+                    # so the model knows what's on disk. Uses _suffix to avoid
+                    # busting the prompt cache (suffix is a separate uncached block).
+                    file_manifest = self._file_tracker.get_manifest()
+                    if file_manifest and messages_for_llm and messages_for_llm[0].get("role") == "system":
+                        messages_for_llm = list(messages_for_llm)
+                        sys_msg = dict(messages_for_llm[0])
+                        existing_suffix = sys_msg.get("_suffix", "") or ""
+                        sys_msg["_suffix"] = (existing_suffix + "\n\n" + file_manifest).strip()
+                        messages_for_llm[0] = sys_msg
                     if needs_compaction:
                         self._needs_early_compaction = True
 
@@ -285,10 +298,20 @@ class BaseAgent:
                             tool_messages = event.data.get("tool_messages", [])
                         yield event
                     
+                    # Track files written to sandbox via bash commands
+                    self._file_tracker.next_turn()
+                    for tc in tool_calls:
+                        if tc.get("function", {}).get("name") == "bash":
+                            try:
+                                args = json.loads(tc["function"].get("arguments", "{}"))
+                                self._file_tracker.process_bash_command(args.get("cmd", ""))
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+
                     # Log tool results to ChatLogger for complete conversation history
                     if self._chat_logger and tool_messages:
                         self._chat_logger.add_tool_results(tool_messages)
-                    
+
                     # Add tool results to messages and track for DB
                     messages.extend(tool_messages)
                     for tool_msg in tool_messages:

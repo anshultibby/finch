@@ -559,6 +559,93 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Severity classification + dual-channel output
+# ---------------------------------------------------------------------------
+
+# Threshold: outputs larger than this get spilled to a file on the sandbox.
+# The model sees a summary + pointer; it can `cat` the file if needed.
+_LARGE_OUTPUT_LINES = 200
+_LARGE_OUTPUT_CHARS = 8000
+
+_ERROR_HINTS = {
+    "SyntaxError": "Check indentation, parentheses, and quotes.",
+    "IndentationError": "Fix indentation — mixed tabs/spaces or wrong nesting level.",
+    "ModuleNotFoundError": "Missing package. Try: pip install <package> -q",
+    "ImportError": "Check the import path or install the missing package.",
+    "FileNotFoundError": "File or directory doesn't exist. Check the path.",
+    "PermissionError": "No permissions. Try chmod or check file ownership.",
+    "ConnectionRefusedError": "Service not running or wrong port.",
+    "KeyError": "Dict key missing. Print the available keys to debug.",
+    "TypeError": "Wrong argument type or count passed to function.",
+    "JSONDecodeError": "Invalid JSON. Check the raw string before parsing.",
+    "TimeoutError": "Operation timed out. Try a shorter timeout or simpler query.",
+    "Command timed out": "Command exceeded the timeout. Break it into smaller steps.",
+}
+
+
+def _classify_result(exit_code: int, stdout: str, stderr: str) -> tuple:
+    """Return (severity, recovery_hint) for a bash result."""
+    combined = stderr + stdout
+
+    if exit_code == 0:
+        if stderr and any(w in stderr.lower() for w in ["warning", "deprecat"]):
+            return "warning", None
+        return "success", None
+
+    if exit_code == 124:
+        return "fatal", "Command timed out. Break into smaller steps or increase timeout."
+
+    if exit_code == 137:
+        return "fatal", "Process killed (OOM or signal). Reduce memory usage."
+
+    for pattern, hint in _ERROR_HINTS.items():
+        if pattern in combined:
+            return "error", hint
+
+    return "error", None
+
+
+async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
+    """
+    If stdout or stderr is large, write it to a temp file on the sandbox
+    and return (truncated_stdout, truncated_stderr, spill_note).
+    Otherwise return the originals unchanged.
+    """
+    spill_notes = []
+
+    stdout_out = stdout
+    if stdout and (stdout.count("\n") > _LARGE_OUTPUT_LINES or len(stdout) > _LARGE_OUTPUT_CHARS):
+        spill_path = f"/tmp/_output_{int(time.time())}.txt"
+        try:
+            await sbx.files.write(spill_path, stdout)
+            line_count = stdout.count("\n") + 1
+            # Keep first and last few lines as preview
+            lines = stdout.split("\n")
+            head = "\n".join(lines[:15])
+            tail = "\n".join(lines[-10:])
+            stdout_out = f"{head}\n\n... [{line_count} total lines — full output at {spill_path}] ...\n\n{tail}"
+            spill_notes.append(f"Full stdout ({line_count} lines) saved to {spill_path}")
+        except Exception as e:
+            logger.warning(f"Failed to spill stdout to file: {e}")
+
+    stderr_out = stderr
+    if stderr and (stderr.count("\n") > _LARGE_OUTPUT_LINES or len(stderr) > _LARGE_OUTPUT_CHARS):
+        spill_path = f"/tmp/_stderr_{int(time.time())}.txt"
+        try:
+            await sbx.files.write(spill_path, stderr)
+            line_count = stderr.count("\n") + 1
+            lines = stderr.split("\n")
+            tail = "\n".join(lines[-20:])
+            stderr_out = f"... [{line_count} total lines — full output at {spill_path}] ...\n\n{tail}"
+            spill_notes.append(f"Full stderr ({line_count} lines) saved to {spill_path}")
+        except Exception as e:
+            logger.warning(f"Failed to spill stderr to file: {e}")
+
+    spill_note = "; ".join(spill_notes) if spill_notes else ""
+    return stdout_out, stderr_out, spill_note
+
+
+# ---------------------------------------------------------------------------
 # Main execution entry point
 # ---------------------------------------------------------------------------
 
@@ -648,35 +735,49 @@ async def bash_impl(
             "success": exit_code == 0,
         })
 
-        stdout_truncated = stdout_text
-        stderr_truncated = stderr_text
-        truncation_note = ""
+        # --- Severity tagging + dual-channel output ---
+        severity, hint = _classify_result(exit_code, stdout_text, stderr_text)
 
         if exit_code != 0:
-            error_msg = f"Command exited with code {exit_code}\n\n"
-            if stderr_truncated:
-                error_msg += f"**stderr:**\n```\n{stderr_truncated}\n```"
-            if stdout_truncated:
-                error_msg += f"\n\n**stdout:**\n```\n{stdout_truncated}\n```"
+            stdout_out, stderr_out, spill_note = await _maybe_spill_to_file(
+                sbx, stdout_text, stderr_text
+            )
+            error_msg = f"[{severity}] Command exited with code {exit_code}"
+            if hint:
+                error_msg += f"\nHint: {hint}"
+            if spill_note:
+                error_msg += f"\n{spill_note}"
+            if stderr_out:
+                error_msg += f"\n\nstderr:\n{stderr_out}"
+            if stdout_out:
+                error_msg += f"\n\nstdout:\n{stdout_out}"
 
             yield {
                 "success": False,
+                "severity": severity,
                 "error": error_msg,
-                "stderr": stderr_truncated,
-                "stdout": stdout_truncated,
             }
             return
 
+        stdout_out, stderr_out, spill_note = await _maybe_spill_to_file(
+            sbx, stdout_text, stderr_text
+        )
+
         yield SSEEvent(event="tool_status", data={
             "status": "complete",
-            "message": f"Done{truncation_note}"
+            "message": "Done"
         })
+
+        message = f"[{severity}] Done"
+        if spill_note:
+            message += f"\n{spill_note}"
 
         yield {
             "success": True,
-            "stdout": stdout_truncated,
-            "stderr": stderr_truncated,
-            "message": f"Done{truncation_note}",
+            "severity": severity,
+            "stdout": stdout_out,
+            "stderr": stderr_out,
+            "message": message,
         }
 
     except Exception as e:
