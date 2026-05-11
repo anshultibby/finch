@@ -86,8 +86,8 @@ export default function AuthGate({ children }: AuthGateProps) {
         {/* Hero */}
         <div className="flex-1 flex flex-col items-center justify-center px-4 -mt-16">
           <h1 className="text-5xl sm:text-7xl font-bold tracking-tight text-center max-w-3xl leading-[1.1] text-gray-900">
-            Talk to your<br />
-            <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">portfolio</span>
+            Bloomberg Terminal<br />
+            <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">for pennies</span>
           </h1>
 
           <p className="text-gray-500 text-lg mt-5 max-w-md text-center">
