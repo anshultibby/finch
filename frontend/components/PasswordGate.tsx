@@ -91,7 +91,7 @@ export default function AuthGate({ children }: AuthGateProps) {
           </h1>
 
           <div className="flex items-center gap-6 mt-6 text-sm text-gray-500">
-            <span>Plugs into your broker</span>
+            <span>Real-time portfolio sync</span>
             <span className="text-gray-300">|</span>
             <span>Code execution guru</span>
             <span className="text-gray-300">|</span>
