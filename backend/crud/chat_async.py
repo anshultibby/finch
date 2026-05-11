@@ -268,7 +268,7 @@ async def get_chat_messages_for_display(
 
     sql = text(f"""
         SELECT id, role, content, sequence, tool_calls, timestamp,
-               CASE WHEN tool_results IS NOT NULL THEN (
+               CASE WHEN tool_results IS NOT NULL AND jsonb_typeof(tool_results) = 'object' THEN (
                    SELECT jsonb_object_agg(
                        key,
                        jsonb_build_object(
