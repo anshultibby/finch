@@ -93,9 +93,9 @@ export default function AuthGate({ children }: AuthGateProps) {
           <div className="flex items-center gap-6 mt-6 text-sm text-gray-500">
             <span>Real-time portfolio sync</span>
             <span className="text-gray-300">|</span>
-            <span>Code execution guru</span>
+            <span>Built-in code sandbox</span>
             <span className="text-gray-300">|</span>
-            <span>Deep research on autopilot</span>
+            <span>Multi-hour research tasks</span>
           </div>
 
           {/* Fake chat input */}
