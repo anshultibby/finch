@@ -605,11 +605,26 @@ def _classify_result(exit_code: int, stdout: str, stderr: str) -> tuple:
     return "error", None
 
 
+_MAX_SPILL_FILES = 10
+
+
+async def _cleanup_old_spill_files(sbx, prefix: str) -> None:
+    """Keep at most _MAX_SPILL_FILES spill files per prefix. Delete oldest."""
+    try:
+        result = await sbx.commands.run(
+            f"ls -1t /tmp/{prefix}_* 2>/dev/null | tail -n +{_MAX_SPILL_FILES + 1} | xargs -r rm -f",
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
     """
     If stdout or stderr is large, write it to a temp file on the sandbox
     and return (truncated_stdout, truncated_stderr, spill_note).
     Otherwise return the originals unchanged.
+    Keeps at most _MAX_SPILL_FILES per type.
     """
     spill_notes = []
 
@@ -625,6 +640,7 @@ async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
             tail = "\n".join(lines[-10:])
             stdout_out = f"{head}\n\n... [{line_count} total lines — full output at {spill_path}] ...\n\n{tail}"
             spill_notes.append(f"Full stdout ({line_count} lines) saved to {spill_path}")
+            await _cleanup_old_spill_files(sbx, "_output")
         except Exception as e:
             logger.warning(f"Failed to spill stdout to file: {e}")
 
@@ -638,6 +654,7 @@ async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
             tail = "\n".join(lines[-20:])
             stderr_out = f"... [{line_count} total lines — full output at {spill_path}] ...\n\n{tail}"
             spill_notes.append(f"Full stderr ({line_count} lines) saved to {spill_path}")
+            await _cleanup_old_spill_files(sbx, "_stderr")
         except Exception as e:
             logger.warning(f"Failed to spill stderr to file: {e}")
 
