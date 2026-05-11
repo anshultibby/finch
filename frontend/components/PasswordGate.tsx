@@ -91,7 +91,7 @@ export default function AuthGate({ children }: AuthGateProps) {
           </h1>
 
           <p className="text-gray-500 text-lg mt-5 max-w-md text-center">
-            AI that reads filings, tracks markets, and trades for you.
+            AI that reads filings, crunches numbers, and keeps you sharp.
           </p>
 
           {/* Fake chat input */}
