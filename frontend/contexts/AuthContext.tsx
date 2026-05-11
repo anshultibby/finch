@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { useGoogleLogin } from '@react-oauth/google';
+import { useGoogleLogin, googleLogout } from '@react-oauth/google';
 import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
@@ -69,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    googleLogout();
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error);
