@@ -989,8 +989,9 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
   );
 }
 
-export default function ChatMessage({ role, content, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
+  const content = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
   const hasSpecialTags = !isUser && content && (
     HAS_CURLY_TAGS_RE.test(content) ||
     /\[(file|visualization|image):\s*[^\]]+\]/.test(content)

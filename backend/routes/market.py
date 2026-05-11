@@ -387,7 +387,8 @@ async def get_batch_quotes(symbols: str):
             "symbol": q.get("symbol"),
             "name": q.get("name", ""),
             "price": q.get("price"),
-            "changePercent": q.get("changesPercentage"),
+            "change": q.get("change"),
+            "changesPercentage": q.get("changesPercentage"),
             "marketCap": q.get("marketCap"),
         }
         for q in data

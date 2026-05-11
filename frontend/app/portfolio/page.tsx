@@ -129,20 +129,38 @@ function LoadingSkeleton() {
   );
 }
 
+// ── Broker logo ──────────────────────────────────────────────────────────────
+function BrokerLogo({ logo, name }: { logo: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (logo?.startsWith('http') && !failed) {
+    return <img src={logo} alt={name} width={40} height={40} className="w-10 h-10 rounded-lg object-contain bg-slate-50" onError={() => setFailed(true)} />;
+  }
+  return (
+    <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-base font-bold text-slate-400">
+      {name.charAt(0)}
+    </div>
+  );
+}
+
 // ── Connect modal ────────────────────────────────────────────────────────────
 function ConnectModal({
   brokerages,
   connecting,
   selectedBroker,
+  iframeUrl,
   onConnect,
   onClose,
 }: {
   brokerages: Brokerage[];
   connecting: boolean;
   selectedBroker: string | null;
+  iframeUrl: string | null;
   onConnect: (id: string) => void;
   onClose: () => void;
 }) {
+  const [search, setSearch] = useState('');
+  const filtered = brokerages.filter(b => b.name.toLowerCase().startsWith(search.toLowerCase()));
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -150,14 +168,19 @@ function ConnectModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[80vh] overflow-hidden animate-card-in"
+        className={`bg-white rounded-2xl shadow-2xl w-full overflow-hidden animate-card-in transition-all ${
+          iframeUrl ? 'max-w-lg max-h-[90vh]' : 'max-w-xl max-h-[80vh]'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Modal header */}
         <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: 'var(--finch-border)' }}>
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">Connect a brokerage</h3>
-            <p className="text-sm text-slate-500 mt-0.5">All accounts from that broker will be imported</p>
+            <h3 className="text-lg font-semibold text-slate-900">
+              {iframeUrl ? 'Sign in to your broker' : 'Connect a brokerage'}
+            </h3>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {iframeUrl ? 'Complete the sign-in below to link your account' : 'All accounts from that broker will be imported'}
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -169,35 +192,69 @@ function ConnectModal({
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto max-h-[calc(80vh-76px)]">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {brokerages.map((broker) => {
-              const isConnecting = connecting && selectedBroker === broker.id;
-              const isDisabled = connecting && selectedBroker !== broker.id;
-              return (
-                <button
-                  key={broker.id}
-                  onClick={() => onConnect(broker.id)}
-                  disabled={isDisabled}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center
-                    ${isConnecting
-                      ? 'border-green-400 bg-green-50'
-                      : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
-                    }
-                    ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
-                  `}
-                  style={{ background: isConnecting ? undefined : 'var(--finch-surface)', borderColor: isConnecting ? undefined : 'var(--finch-border)' }}
-                >
-                  <span className="text-3xl leading-none">{broker.logo}</span>
-                  <span className="text-xs font-medium text-slate-700 leading-tight">{broker.name}</span>
-                  {isConnecting && (
-                    <span className="text-xs text-green-600 font-medium">Connecting…</span>
-                  )}
-                </button>
-              );
-            })}
+        {iframeUrl ? (
+          <div className="w-full" style={{ height: 'calc(90vh - 76px)' }}>
+            <iframe
+              src={iframeUrl}
+              className="w-full h-full border-0"
+              allow="camera;microphone"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+            />
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="px-5 pt-4 pb-2">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search brokerages..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-300 focus:bg-white transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="px-5 pb-5 overflow-y-auto max-h-[calc(80vh-140px)]">
+              {filtered.length === 0 ? (
+                <div className="py-8 text-center text-sm text-slate-400">No brokerages match &ldquo;{search}&rdquo;</div>
+              ) : (
+                <div className="space-y-1">
+                  {filtered.map((broker) => {
+                    const isConnecting = connecting && selectedBroker === broker.id;
+                    const isDisabled = connecting && selectedBroker !== broker.id;
+                    return (
+                      <button
+                        key={broker.id}
+                        onClick={() => onConnect(broker.id)}
+                        disabled={isDisabled}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
+                          isConnecting ? 'bg-green-50 ring-1 ring-green-200' : 'hover:bg-slate-50'
+                        } ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <BrokerLogo logo={broker.logo} name={broker.name} />
+                        <span className="text-sm font-medium text-slate-900 flex-1">{broker.name}</span>
+                        {isConnecting ? (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3.5 h-3.5 border-2 border-green-200 border-t-green-500 rounded-full animate-spin" />
+                            <span className="text-xs text-green-600 font-medium">Connecting...</span>
+                          </div>
+                        ) : (
+                          <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -316,6 +373,7 @@ export default function PortfolioPage() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
@@ -353,6 +411,28 @@ export default function PortfolioPage() {
     }
   };
 
+  useEffect(() => {
+    if (!iframeUrl) return;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data.type === 'SNAPTRADE_CONNECTION') {
+        window.removeEventListener('message', handleMessage);
+        setConnecting(false);
+        setSelectedBroker(null);
+        setIframeUrl(null);
+        setShowConnectModal(false);
+        if (event.data.success) {
+          loadData();
+          if (user?.id) {
+            snaptradeApi.buildPortfolioHistory(user.id, undefined, true).catch(() => {});
+          }
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [iframeUrl, user?.id]);
+
   const handleConnectBroker = async (brokerId: string) => {
     if (!user?.id) return;
 
@@ -360,50 +440,14 @@ export default function PortfolioPage() {
     setSelectedBroker(brokerId);
 
     try {
-      const redirectUri = `${window.location.origin}${window.location.pathname}?snaptrade_callback=true`;
+      const redirectUri = `${window.location.origin}/snaptrade/callback`;
       const response = await snaptradeApi.connectBroker(user.id, redirectUri, brokerId);
 
       if (response.success && response.redirect_uri) {
-        const popup = window.open(
-          response.redirect_uri,
-          'SnapTrade Connection',
-          'width=500,height=700,resizable=yes,scrollbars=yes'
-        );
-
-        if (!popup || popup.closed) {
-          alert('Popup was blocked. Please allow popups for this site.');
-          setConnecting(false);
-          return;
-        }
-
-        const handleMessage = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return;
-
-          if (event.data.type === 'SNAPTRADE_CONNECTION') {
-            window.removeEventListener('message', handleMessage);
-            setConnecting(false);
-            setSelectedBroker(null);
-            setShowConnectModal(false);
-
-            if (event.data.success) {
-              loadData();
-              // Force-rebuild history to include the newly connected account
-              if (user?.id) {
-                snaptradeApi.buildPortfolioHistory(user.id, undefined, true).catch(() => {});
-              }
-            }
-          }
-        };
-
-        window.addEventListener('message', handleMessage);
-
-        setTimeout(() => {
-          window.removeEventListener('message', handleMessage);
-          if (connecting) {
-            setConnecting(false);
-            setSelectedBroker(null);
-          }
-        }, 300000);
+        setIframeUrl(response.redirect_uri);
+      } else {
+        setConnecting(false);
+        setSelectedBroker(null);
       }
     } catch (err) {
       console.error('Error connecting broker:', err);
@@ -571,8 +615,9 @@ export default function PortfolioPage() {
             brokerages={brokerages}
             connecting={connecting}
             selectedBroker={selectedBroker}
+            iframeUrl={iframeUrl}
             onConnect={handleConnectBroker}
-            onClose={() => setShowConnectModal(false)}
+            onClose={() => { setShowConnectModal(false); setIframeUrl(null); setConnecting(false); setSelectedBroker(null); }}
           />
         )}
       </>
@@ -820,8 +865,9 @@ export default function PortfolioPage() {
           brokerages={brokerages}
           connecting={connecting}
           selectedBroker={selectedBroker}
+          iframeUrl={iframeUrl}
           onConnect={handleConnectBroker}
-          onClose={() => setShowConnectModal(false)}
+          onClose={() => { setShowConnectModal(false); setIframeUrl(null); setConnecting(false); setSelectedBroker(null); }}
         />
       )}
     </div>
