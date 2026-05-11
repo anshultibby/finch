@@ -73,7 +73,8 @@ export default function AuthGate({ children }: AuthGateProps) {
           </div>
 
           <p className="text-xs text-gray-500 text-center mt-6">
-            By signing in, you agree to our Terms of Service
+            By signing in, you agree to our{' '}
+            <a href="/privacy" className="underline hover:text-gray-700">Privacy Policy</a>
           </p>
         </div>
       </div>
