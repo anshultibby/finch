@@ -6,7 +6,8 @@ import { useNavigation } from '@/contexts/NavigationContext';
 import { alpacaBrokerApi, marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
-import type { AlpacaPortfolioResponse, PortfolioResponse } from '@/lib/types';
+import { SnapTradeReact } from 'snaptrade-react';
+import type { AlpacaPortfolioResponse, Brokerage, PortfolioResponse } from '@/lib/types';
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
@@ -311,7 +312,7 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
                       <span className="text-sm font-semibold text-gray-900">{e.symbol}</span>
                       {q?.price != null && chg != null && (
                         <span className={`text-xs font-medium ${chg >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          ${q.price.toFixed(2)} ({chg >= 0 ? '+' : ''}{chg.toFixed(2)}%)
+                          {market === 'india' ? '₹' : '$'}{q.price.toFixed(2)} ({chg >= 0 ? '+' : ''}{chg.toFixed(2)}%)
                         </span>
                       )}
                     </div>
@@ -327,15 +328,15 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
                     {e.eps != null ? (
                       <div className="text-xs text-gray-600">
                         EPS: <span className={`font-semibold ${e.epsEstimated != null && e.eps >= e.epsEstimated ? 'text-emerald-600' : e.epsEstimated != null && e.eps < e.epsEstimated ? 'text-red-500' : 'text-gray-900'}`}>
-                          ${e.eps?.toFixed(2)}
+                          {market === 'india' ? '₹' : '$'}{e.eps?.toFixed(2)}
                         </span>
                         {e.epsEstimated != null && (
-                          <span className="text-gray-500"> / est ${e.epsEstimated?.toFixed(2)}</span>
+                          <span className="text-gray-500"> / est {market === 'india' ? '₹' : '$'}{e.epsEstimated?.toFixed(2)}</span>
                         )}
                       </div>
                     ) : e.epsEstimated != null ? (
                       <div className="text-xs text-gray-600">
-                        EPS est: <span className="font-semibold text-gray-900">${e.epsEstimated?.toFixed(2)}</span>
+                        EPS est: <span className="font-semibold text-gray-900">{market === 'india' ? '₹' : '$'}{e.epsEstimated?.toFixed(2)}</span>
                       </div>
                     ) : null}
                   </div>
@@ -383,72 +384,116 @@ function institutionLogo(institution: string) {
   const key = institution.toLowerCase();
   const domain = Object.entries(INSTITUTION_DOMAINS).find(([k]) => key.includes(k))?.[1];
   if (!domain) return null;
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  return `https://logo.clearbit.com/${domain}`;
+}
+
+function institutionLogoFallback(institution: string) {
+  const key = institution.toLowerCase();
+  const domain = Object.entries(INSTITUTION_DOMAINS).find(([k]) => key.includes(k))?.[1];
+  if (!domain) return null;
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
 }
 
 function InstitutionLogo({ institution }: { institution: string }) {
   const logoUrl = institutionLogo(institution);
+  const fallbackUrl = institutionLogoFallback(institution);
+  const [src, setSrc] = useState(logoUrl);
   const [failed, setFailed] = useState(false);
 
-  if (!logoUrl || failed) {
+  if (!src || failed) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 text-sm font-bold text-gray-500">
+      <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-500">
         {institution.charAt(0).toUpperCase()}
       </div>
     );
   }
 
   return (
-    <img src={logoUrl} alt={institution} className="w-8 h-8 rounded-lg object-contain flex-shrink-0"
-      onError={() => setFailed(true)} />
+    <img src={src} alt={institution} className="w-7 h-7 rounded-lg object-contain flex-shrink-0 bg-white"
+      onError={() => {
+        if (src === logoUrl && fallbackUrl) setSrc(fallbackUrl);
+        else setFailed(true);
+      }} />
   );
 }
 
-function InstitutionGroup({ institution, accounts, groupValue, expanded, onToggle, onSelectAccount, selectedAccountId }: {
-  institution: string; accounts: any[]; groupValue: number; expanded: boolean;
-  onToggle: () => void; onSelectAccount: (id: string) => void; selectedAccountId?: string | null;
+function InstitutionGroup({ institution, accounts, groupValue, expanded, editing, onToggle, onSelectAccount, onDisconnect, selectedAccountId }: {
+  institution: string; accounts: any[]; groupValue: number; expanded: boolean; editing?: boolean;
+  onToggle: () => void; onSelectAccount: (id: string) => void; onDisconnect?: (accountId: string, accountName: string) => void; selectedAccountId?: string | null;
 }) {
   return (
     <>
-      <button onClick={onToggle}
-        className="group w-full flex items-center gap-3 pl-4 pr-5 py-3.5 hover:bg-gray-50 transition-colors text-left">
-        <div className="relative w-8 h-8 flex-shrink-0">
-          <div className="group-hover:opacity-0 transition-opacity">
-            <InstitutionLogo institution={institution} />
-          </div>
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <svg className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? '' : '-rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </div>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-gray-900">{institution}</div>
-          <div className="text-xs text-gray-400 mt-0.5">
-            {accounts.length} account{accounts.length !== 1 ? 's' : ''}
-          </div>
-        </div>
-        <div className="text-sm font-semibold text-gray-900 tabular-nums flex-shrink-0">
-          {fmt(groupValue)}
-        </div>
-      </button>
-
-      {expanded && accounts.map((acct, i) => (
-        <button key={acct.id || i} onClick={() => onSelectAccount(acct.id)}
-          className={`w-full flex items-center gap-2.5 pl-6 pr-5 py-2.5 border-t border-gray-100 text-left transition-colors ${
-            selectedAccountId === acct.id ? 'bg-gray-50' : 'hover:bg-gray-50'
-          }`}>
-          <div className="w-4 flex items-center justify-center flex-shrink-0">
-            {accountTypeIcon(acct.type)}
+      <div className="flex items-center">
+        <button onClick={onToggle}
+          className="group flex-1 flex items-center gap-3 px-3.5 py-3 hover:bg-gray-50 transition-colors text-left">
+          <div className="relative w-7 h-7 flex-shrink-0">
+            <div className="group-hover:opacity-0 transition-opacity">
+              <InstitutionLogo institution={institution} />
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? '' : '-rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </div>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] text-gray-700">{acct.name}</div>
-            <div className="text-[11px] text-gray-400 capitalize">{acct.type.replace(/_/g, ' ').toLowerCase()}</div>
+            <div className="text-[13px] font-semibold text-gray-900">{institution}</div>
+            <div className="text-xs text-gray-400">
+              {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+            </div>
           </div>
-          <div className="text-[13px] text-gray-600 tabular-nums flex-shrink-0">
-            {fmt(acct.total_value)}
-          </div>
+          {!editing && (
+            <div className="text-sm font-semibold text-gray-900 tabular-nums flex-shrink-0">
+              {fmt(groupValue)}
+            </div>
+          )}
         </button>
+        {editing && onDisconnect && (
+          <button
+            onClick={() => {
+              for (const acct of accounts) onDisconnect(acct.id, acct.name);
+            }}
+            className="mr-4 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+            title={`Remove ${institution}`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {expanded && accounts.map((acct, i) => (
+        <div key={acct.id || i} className={`flex items-center border-t border-gray-100 ${
+          selectedAccountId === acct.id ? 'bg-gray-50' : 'hover:bg-gray-50'
+        }`}>
+          <button onClick={() => !editing && onSelectAccount(acct.id)}
+            className={`flex-1 flex items-center gap-2.5 pl-6 pr-5 py-2.5 text-left transition-colors ${editing ? 'cursor-default' : ''}`}>
+            <div className="w-4 flex items-center justify-center flex-shrink-0">
+              {accountTypeIcon(acct.type)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] text-gray-700">{acct.name}</div>
+              <div className="text-[11px] text-gray-400 capitalize">{acct.type.replace(/_/g, ' ').toLowerCase()}</div>
+            </div>
+            {!editing && (
+              <div className="text-[13px] text-gray-600 tabular-nums flex-shrink-0">
+                {fmt(acct.total_value)}
+              </div>
+            )}
+          </button>
+          {editing && onDisconnect && (
+            <button
+              onClick={() => onDisconnect(acct.id, acct.name)}
+              className="mr-4 p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+              title={`Remove ${acct.name}`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+            </button>
+          )}
+        </div>
       ))}
     </>
   );
@@ -484,13 +529,14 @@ function accountTypeIcon(type: string) {
   );
 }
 
-function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfolio, equity, onConnect, onManage, onViewPortfolio, onSelectAccount, selectedAccountId }: {
+function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfolio, equity, onConnect, onDisconnect, onViewPortfolio, onSelectAccount, selectedAccountId }: {
   hasBrokerage: boolean; externalPortfolio: PortfolioResponse | null;
   hasAccount: boolean; portfolio: AlpacaPortfolioResponse | null;
-  equity: number; onConnect: () => void; onManage: () => void; onViewPortfolio: () => void;
+  equity: number; onConnect: () => void; onDisconnect: (accountId: string, accountName: string) => void; onViewPortfolio: () => void;
   onSelectAccount: (id: string) => void; selectedAccountId?: string | null;
 }) {
   const [expandedInstitutions, setExpandedInstitutions] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState(false);
   const toggleInstitution = (inst: string) => {
     setExpandedInstitutions(prev => {
       const next = new Set(prev);
@@ -502,47 +548,47 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
   if (!hasBrokerage && !hasAccount) {
     return (
       <div className="p-5 border-b border-gray-100">
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Connect your accounts</h2>
-        <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <h2 className="text-sm font-semibold text-gray-900 mb-3">Connect your accounts</h2>
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
           <div className="divide-y divide-gray-100">
-            <div className="flex items-start gap-3.5 px-4 py-4">
-              <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-[18px] h-[18px] text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-3 px-3.5 py-3">
+              <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                <svg className="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
                 </svg>
               </div>
-              <div>
-                <div className="text-sm font-semibold text-gray-900">Real-time sync</div>
-                <div className="text-[13px] text-gray-400 leading-snug">Holdings, transactions, and liabilities</div>
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-gray-900">Real-time sync</div>
+                <div className="text-xs text-gray-400">Holdings, transactions, and liabilities</div>
               </div>
             </div>
-            <div className="flex items-start gap-3.5 px-4 py-4">
-              <div className="w-9 h-9 rounded-xl bg-violet-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-[18px] h-[18px] text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-3 px-3.5 py-3">
+              <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0">
+                <svg className="w-3.5 h-3.5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
                 </svg>
               </div>
-              <div>
-                <div className="text-sm font-semibold text-gray-900">AI insights</div>
-                <div className="text-[13px] text-gray-400 leading-snug">Portfolio, spending, and loans</div>
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-gray-900">AI insights</div>
+                <div className="text-xs text-gray-400">Portfolio, spending, and loans</div>
               </div>
             </div>
-            <div className="flex items-start gap-3.5 px-4 py-4">
-              <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-[18px] h-[18px] text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-3 px-3.5 py-3">
+              <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
                 </svg>
               </div>
-              <div>
-                <div className="text-sm font-semibold text-gray-900">Bank-level security</div>
-                <div className="text-[13px] text-gray-400 leading-snug">Secured by SnapTrade &middot; 256-bit encryption</div>
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-gray-900">Bank-level security</div>
+                <div className="text-xs text-gray-400">SnapTrade · 256-bit encryption</div>
               </div>
             </div>
           </div>
           <button onClick={onConnect}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3.5 border-t border-gray-100 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m9.86-2.504a4.5 4.5 0 0 0-1.242-7.244l4.5-4.5a4.5 4.5 0 0 1 6.364 6.364l-1.757 1.757" />
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 border-t border-gray-100 text-[13px] font-medium text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             Connect Accounts
           </button>
@@ -553,22 +599,33 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
 
   return (
     <div className="p-5 border-b border-gray-100">
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={onViewPortfolio} className="group flex items-center gap-1 text-base font-semibold text-gray-900 hover:text-gray-700 transition-colors">
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={onViewPortfolio} className="group flex items-center gap-1 text-sm font-semibold text-gray-900 hover:text-gray-700 transition-colors">
           Accounts
           <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
           </svg>
         </button>
-        <button onClick={onManage} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
-          </svg>
-          Edit
+        <button onClick={() => setEditing(e => !e)} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+          {editing ? (
+            <>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+              Done
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+              </svg>
+              Edit
+            </>
+          )}
         </button>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
         {/* Brokerage accounts grouped by institution */}
         {hasBrokerage && externalPortfolio && (() => {
           const groups = new Map<string, typeof externalPortfolio.accounts>();
@@ -585,8 +642,10 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
                 accounts={accounts}
                 groupValue={groupValue}
                 expanded={expandedInstitutions.has(institution)}
+                editing={editing}
                 onToggle={() => toggleInstitution(institution)}
                 onSelectAccount={onSelectAccount}
+                onDisconnect={onDisconnect}
                 selectedAccountId={selectedAccountId}
               />
             );
@@ -1054,6 +1113,101 @@ function MarketSummarySection({ news, onStockClick }: { news: any[]; onStockClic
   );
 }
 
+// ── Connect Modal (for homepage) ─────────────────────────────────────────────
+
+function BrokerLogo({ logo, name }: { logo: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (logo?.startsWith('http') && !failed) {
+    return <img src={logo} alt={name} width={40} height={40} className="w-10 h-10 rounded-lg object-contain bg-gray-50" onError={() => setFailed(true)} />;
+  }
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-base font-bold text-gray-400">
+      {name.charAt(0)}
+    </div>
+  );
+}
+
+function HomeConnectModal({ brokerages, connecting, selectedBroker, onConnect, onClose }: {
+  brokerages: Brokerage[];
+  connecting: boolean;
+  selectedBroker: string | null;
+  onConnect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const filtered = brokerages.filter(b => b.name.toLowerCase().startsWith(search.toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full overflow-hidden transition-all max-w-xl max-h-[80vh]"
+        onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Connect a brokerage</h3>
+            <p className="text-sm text-gray-500 mt-0.5">Select your broker to securely link your account</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg p-1.5 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-5 pt-4 pb-2">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search brokerages..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-300 focus:bg-white transition-colors"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="px-5 pb-5 overflow-y-auto max-h-[calc(80vh-140px)]">
+          {brokerages.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">No brokerages match &ldquo;{search}&rdquo;</div>
+          ) : (
+            <div className="space-y-1">
+              {filtered.map(broker => {
+                const isThis = connecting && selectedBroker === broker.id;
+                const isOther = connecting && selectedBroker !== broker.id;
+                return (
+                  <button key={broker.id} onClick={() => onConnect(broker.id)} disabled={isOther}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
+                      isThis ? 'bg-emerald-50 ring-1 ring-emerald-200' : 'hover:bg-gray-50'
+                    } ${isOther ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
+                    <BrokerLogo logo={broker.logo} name={broker.name} />
+                    <span className="text-sm font-medium text-gray-900 flex-1">{broker.name}</span>
+                    {isThis ? (
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3.5 h-3.5 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+                        <span className="text-xs text-emerald-600 font-medium">Connecting...</span>
+                      </div>
+                    ) : (
+                      <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export default function HomePage() {
@@ -1072,6 +1226,12 @@ export default function HomePage() {
   const [hasAccount, setHasAccount] = useState<boolean | null>(null);
   const [hasBrokerage, setHasBrokerage] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [brokerages, setBrokerages] = useState<Brokerage[]>([]);
+  const [connectingBroker, setConnectingBroker] = useState(false);
+  const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
 
   const indices = market === 'us' ? US_INDICES : INDIA_INDICES;
 
@@ -1107,12 +1267,85 @@ export default function HomePage() {
     }).finally(() => setLoading(false));
   }, [user]);
 
+  const handleDisconnectAccount = useCallback(async (accountId: string, accountName: string) => {
+    if (!user?.id) return;
+    if (!confirm(`Disconnect ${accountName}? This will remove it from your portfolio.`)) return;
+
+    setExternalPortfolio(prev => {
+      if (!prev) return prev;
+      const remaining = prev.accounts.filter(a => a.id !== accountId);
+      if (!remaining.length) { setHasBrokerage(false); return null; }
+      return { ...prev, accounts: remaining, account_count: remaining.length };
+    });
+
+    try {
+      await snaptradeApi.disconnectAccount(user.id, accountId);
+    } catch (e) {
+      console.error('Failed to disconnect account:', e);
+    }
+
+    try {
+      const res = await snaptradeApi.getPortfolio(user.id);
+      if (res?.success) {
+        setExternalPortfolio(res);
+        if (!res.accounts?.length) setHasBrokerage(false);
+      }
+    } catch {}
+  }, [user?.id]);
+
   const handleChatSend = useCallback((msg: string) => {
     openChatWithPrompt(msg, 'Your question');
   }, [openChatWithPrompt]);
 
   const handleTabChange = useCallback((tab: HomeTab) => {
     setActiveTab(tab);
+  }, []);
+
+  const openConnectModal = useCallback(async () => {
+    setShowConnectModal(true);
+    if (brokerages.length === 0) {
+      const res = await snaptradeApi.getBrokerages().catch(() => null);
+      if (res?.success) setBrokerages(res.brokerages);
+    }
+  }, [brokerages.length]);
+
+  const handleConnectBroker = useCallback(async (brokerId: string) => {
+    if (!user?.id) return;
+    setConnectingBroker(true);
+    setSelectedBroker(brokerId);
+    try {
+      const redirectUri = `${window.location.origin}/snaptrade/callback`;
+      const response = await snaptradeApi.connectBroker(user.id, redirectUri, brokerId);
+      if (response.success && response.redirect_uri) {
+        setShowConnectModal(false);
+        setIframeUrl(response.redirect_uri);
+      } else {
+        setConnectingBroker(false);
+        setSelectedBroker(null);
+      }
+    } catch {
+      setConnectingBroker(false);
+      setSelectedBroker(null);
+    }
+  }, [user?.id]);
+
+  const handleSnapTradeSuccess = useCallback(async () => {
+    setIframeUrl(null);
+    setConnectingBroker(false);
+    setSelectedBroker(null);
+    if (!user?.id) return;
+    try {
+      await snaptradeApi.handleCallback(user.id);
+    } catch {}
+    setHasBrokerage(true);
+    snaptradeApi.getPortfolio(user.id).then(setExternalPortfolio).catch(() => {});
+    snaptradeApi.buildPortfolioHistory(user.id, undefined, true).catch(() => {});
+  }, [user?.id]);
+
+  const handleSnapTradeClose = useCallback(() => {
+    setIframeUrl(null);
+    setConnectingBroker(false);
+    setSelectedBroker(null);
   }, []);
 
   if (loading) {
@@ -1216,8 +1449,8 @@ export default function HomePage() {
               hasAccount={!!hasAccount}
               portfolio={portfolio}
               equity={equity}
-              onConnect={() => navigateTo({ type: 'connections' })}
-              onManage={() => navigateTo({ type: 'connections' })}
+              onConnect={openConnectModal}
+              onDisconnect={handleDisconnectAccount}
               onViewPortfolio={() => { setSelectedAccountId(null); setActiveTab('portfolio'); }}
               onSelectAccount={(id) => { setSelectedAccountId(id); setActiveTab('portfolio'); }}
               selectedAccountId={selectedAccountId}
@@ -1293,6 +1526,23 @@ export default function HomePage() {
 
       {/* ── Bottom Chat Bar ──────────────────────────────────────────── */}
       <BottomChatBar onSend={handleChatSend} />
+
+      {showConnectModal && <HomeConnectModal
+        brokerages={brokerages}
+        connecting={connectingBroker}
+        selectedBroker={selectedBroker}
+        onConnect={handleConnectBroker}
+        onClose={() => { setShowConnectModal(false); setConnectingBroker(false); setSelectedBroker(null); }}
+      />}
+
+      <SnapTradeReact
+        loginLink={iframeUrl || ''}
+        isOpen={!!iframeUrl}
+        close={handleSnapTradeClose}
+        onSuccess={handleSnapTradeSuccess}
+        onError={() => handleSnapTradeClose()}
+        onExit={() => handleSnapTradeClose()}
+      />
     </div>
   );
 }

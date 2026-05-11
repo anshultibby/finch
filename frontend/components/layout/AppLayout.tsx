@@ -12,7 +12,6 @@ import SearchPage from '@/components/search/SearchPage';
 import WatchlistPage from '@/components/watchlist/WatchlistPage';
 import OrdersPage from '@/components/orders/OrdersPage';
 import PortfolioPanel from '@/components/PortfolioPanel';
-import ConnectionsPanel from '@/components/ConnectionsPanel';
 import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
@@ -30,7 +29,7 @@ function viewLabel(view: View): string {
     case 'watchlist': return 'Watchlist';
     case 'portfolio': return 'Portfolio';
     case 'orders': return 'Orders';
-    case 'connections': return 'Connections';
+    case 'connections': return 'Home';
     case 'swaps': return 'Swaps';
     case 'chat': return 'Chat';
     case 'search': return 'Search';
@@ -321,7 +320,7 @@ function AppLayoutInner() {
       case 'watchlist':
         return <WatchlistPage />;
       case 'connections':
-        return <ConnectionsPanel />;
+        return <HomePage />;
       case 'swaps':
         return (
           <SwapsPanel

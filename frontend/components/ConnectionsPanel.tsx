@@ -66,20 +66,42 @@ function brokerEmoji(name: string): string {
 // Connect modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ConnectModal({ brokerages, connecting, selectedBroker, onConnect, onClose }: {
+function BrokerLogo({ logo, name }: { logo: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (logo?.startsWith('http') && !failed) {
+    return <img src={logo} alt={name} width={40} height={40} className="w-10 h-10 rounded-lg object-contain bg-gray-50" onError={() => setFailed(true)} />;
+  }
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-base font-bold text-gray-400">
+      {name.charAt(0)}
+    </div>
+  );
+}
+
+function ConnectModal({ brokerages, connecting, selectedBroker, iframeUrl, onConnect, onClose }: {
   brokerages: Brokerage[];
   connecting: boolean;
   selectedBroker: string | null;
+  iframeUrl: string | null;
   onConnect: (id: string) => void;
   onClose: () => void;
 }) {
+  const [search, setSearch] = useState('');
+  const filtered = brokerages.filter(b => b.name.toLowerCase().startsWith(search.toLowerCase()));
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className={`bg-white rounded-2xl shadow-2xl w-full overflow-hidden transition-all ${
+        iframeUrl ? 'max-w-2xl max-h-[90vh]' : 'max-w-xl max-h-[80vh]'
+      }`} onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Connect a brokerage</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Select your broker to securely link your account</p>
+            <h3 className="text-lg font-semibold text-gray-900">
+              {iframeUrl ? 'Sign in to your broker' : 'Connect a brokerage'}
+            </h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {iframeUrl ? 'Complete the sign-in below to link your account' : 'Select your broker to securely link your account'}
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg p-1.5 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -87,24 +109,67 @@ function ConnectModal({ brokerages, connecting, selectedBroker, onConnect, onClo
             </svg>
           </button>
         </div>
-        <div className="p-5 overflow-y-auto max-h-[calc(80vh-76px)]">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {brokerages.map(broker => {
-              const isThis = connecting && selectedBroker === broker.id;
-              const isOther = connecting && selectedBroker !== broker.id;
-              return (
-                <button key={broker.id} onClick={() => onConnect(broker.id)} disabled={isOther}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center ${
-                    isThis ? 'border-emerald-400 bg-emerald-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
-                  } ${isOther ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-                  <span className="text-3xl leading-none">{broker.logo}</span>
-                  <span className="text-xs font-medium text-gray-700 leading-tight">{broker.name}</span>
-                  {isThis && <span className="text-xs text-emerald-600 font-medium">Connecting...</span>}
-                </button>
-              );
-            })}
+
+        {iframeUrl ? (
+          <div className="w-full" style={{ height: 'calc(90vh - 76px)' }}>
+            <iframe
+              src={iframeUrl}
+              className="w-full h-full border-0"
+              allow="camera;microphone"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+            />
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="px-5 pt-4 pb-2">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search brokerages..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-300 focus:bg-white transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="px-5 pb-5 overflow-y-auto max-h-[calc(80vh-140px)]">
+              {filtered.length === 0 ? (
+                <div className="py-8 text-center text-sm text-gray-400">No brokerages match &ldquo;{search}&rdquo;</div>
+              ) : (
+                <div className="space-y-1">
+                  {filtered.map(broker => {
+                    const isThis = connecting && selectedBroker === broker.id;
+                    const isOther = connecting && selectedBroker !== broker.id;
+                    return (
+                      <button key={broker.id} onClick={() => onConnect(broker.id)} disabled={isOther}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
+                          isThis ? 'bg-emerald-50 ring-1 ring-emerald-200' : 'hover:bg-gray-50'
+                        } ${isOther ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <BrokerLogo logo={broker.logo} name={broker.name} />
+                        <span className="text-sm font-medium text-gray-900 flex-1">{broker.name}</span>
+                        {isThis && (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3.5 h-3.5 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+                            <span className="text-xs text-emerald-600 font-medium">Connecting...</span>
+                          </div>
+                        )}
+                        {!isThis && (
+                          <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -614,6 +679,7 @@ export default function ConnectionsPanel() {
   const [showModal, setShowModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const initRef = useRef(false);
   const chartCacheRef = useRef<Record<number, SeriesPoint[]>>({});
 
@@ -687,42 +753,44 @@ export default function ConnectionsPanel() {
     loadChart(days);
   }, [loadChart]);
 
+  useEffect(() => {
+    if (!iframeUrl) return;
+    const handleMessage = (event: MessageEvent) => {
+      const isOurCallback = event.origin === window.location.origin
+        && event.data?.type === 'SNAPTRADE_CONNECTION';
+      const isSnapTradeSuccess = event.data?.status === 'SUCCESS';
+
+      if (isOurCallback || isSnapTradeSuccess) {
+        window.removeEventListener('message', handleMessage);
+        setConnecting(false);
+        setSelectedBroker(null);
+        setIframeUrl(null);
+        setShowModal(false);
+        initRef.current = false;
+        chartCacheRef.current = {};
+        loadData();
+        loadChart(chartDays, { force: true });
+        if (user?.id) {
+          snaptradeApi.buildPortfolioHistory(user.id, undefined, true).catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [iframeUrl, chartDays, loadData, loadChart, user?.id]);
+
   const handleConnect = async (brokerId: string) => {
     if (!user?.id) return;
     setConnecting(true);
     setSelectedBroker(brokerId);
     try {
-      const redirectUri = `${window.location.origin}/portfolio?snaptrade_callback=true`;
+      const redirectUri = `${window.location.origin}/snaptrade/callback`;
       const response = await snaptradeApi.connectBroker(user.id, redirectUri, brokerId);
       if (response.success && response.redirect_uri) {
-        const popup = window.open(response.redirect_uri, 'SnapTrade Connection', 'width=500,height=700,resizable=yes,scrollbars=yes');
-        if (!popup || popup.closed) {
-          alert('Popup was blocked. Please allow popups for this site.');
-          setConnecting(false);
-          return;
-        }
-        const handleMessage = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return;
-          if (event.data.type === 'SNAPTRADE_CONNECTION') {
-            window.removeEventListener('message', handleMessage);
-            setConnecting(false);
-            setSelectedBroker(null);
-            setShowModal(false);
-            if (event.data.success) {
-              initRef.current = false;
-              chartCacheRef.current = {};
-              loadData();
-              loadChart(chartDays, { force: true });
-              snaptradeApi.buildPortfolioHistory(user.id, undefined, true).catch(() => {});
-            }
-          }
-        };
-        window.addEventListener('message', handleMessage);
-        setTimeout(() => {
-          window.removeEventListener('message', handleMessage);
-          setConnecting(false);
-          setSelectedBroker(null);
-        }, 300000);
+        setIframeUrl(response.redirect_uri);
+      } else {
+        setConnecting(false);
+        setSelectedBroker(null);
       }
     } catch {
       setConnecting(false);
@@ -819,7 +887,7 @@ export default function ConnectionsPanel() {
         </div>
         <EmptyState onConnect={() => setShowModal(true)} />
         {showModal && (
-          <ConnectModal brokerages={brokerages} connecting={connecting} selectedBroker={selectedBroker} onConnect={handleConnect} onClose={() => setShowModal(false)} />
+          <ConnectModal brokerages={brokerages} connecting={connecting} selectedBroker={selectedBroker} iframeUrl={iframeUrl} onConnect={handleConnect} onClose={() => { setShowModal(false); setIframeUrl(null); setConnecting(false); setSelectedBroker(null); }} />
         )}
       </div>
     );
@@ -988,8 +1056,9 @@ export default function ConnectionsPanel() {
           brokerages={brokerages}
           connecting={connecting}
           selectedBroker={selectedBroker}
+          iframeUrl={iframeUrl}
           onConnect={handleConnect}
-          onClose={() => setShowModal(false)}
+          onClose={() => { setShowModal(false); setIframeUrl(null); setConnecting(false); setSelectedBroker(null); }}
         />
       )}
     </div>

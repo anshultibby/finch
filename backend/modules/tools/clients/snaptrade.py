@@ -452,33 +452,45 @@ class SnapTradeTools:
     
     def get_available_brokerages(self) -> Dict[str, Any]:
         """
-        Get list of available brokerages that can be connected
-        
-        Returns:
-            Dictionary with list of supported brokerages
+        Get list of available brokerages from SnapTrade API.
+        Returns only generally-available brokerages with square logo URLs.
+        Falls back to a hardcoded list if the API call fails.
         """
-        # List of major brokerages supported by SnapTrade
-        # This is a curated list of the most popular ones
+        try:
+            response = self.client.reference_data.list_all_brokerages()
+            data = response.body if hasattr(response, "body") else response
+            raw = data if isinstance(data, list) else [data]
+            brokerages = []
+            for b in raw:
+                brokerage = b if isinstance(b, dict) else (b.__dict__ if hasattr(b, "__dict__") else {})
+                stage = brokerage.get("release_stage", "")
+                if stage == "DEVELOPMENT":
+                    continue
+                slug = brokerage.get("slug") or ""
+                name = brokerage.get("display_name") or brokerage.get("name") or slug
+                logo_url = brokerage.get("aws_s3_square_logo_url") or brokerage.get("aws_s3_logo_url") or ""
+                if slug and name:
+                    brokerages.append({"id": slug, "name": name, "logo": logo_url})
+            if brokerages:
+                return {"success": True, "brokerages": brokerages, "message": f"{len(brokerages)} brokerages available"}
+        except Exception as e:
+            print(f"Failed to fetch brokerages from SnapTrade API: {e}", flush=True)
+
         brokerages = [
-            {"id": "ROBINHOOD", "name": "Robinhood", "logo": "🏹"},
-            {"id": "ALPACA", "name": "Alpaca", "logo": "🦙"},
-            {"id": "TRADIER", "name": "Tradier", "logo": "📊"},
-            {"id": "QUESTRADE", "name": "Questrade", "logo": "🍁"},
-            {"id": "INTERACTIVE_BROKERS", "name": "Interactive Brokers", "logo": "🌐"},
-            {"id": "TD", "name": "TD Ameritrade", "logo": "🏦"},
-            {"id": "SCHWAB", "name": "Charles Schwab", "logo": "💼"},
-            {"id": "ETRADE", "name": "E*TRADE", "logo": "📈"},
-            {"id": "FIDELITY", "name": "Fidelity", "logo": "🏛️"},
-            {"id": "WEBULL", "name": "Webull", "logo": "🐂"},
-            {"id": "MOOMOO", "name": "Moomoo", "logo": "🐄"},
-            {"id": "WEALTHSIMPLE", "name": "Wealthsimple", "logo": "🇨🇦"},
+            {"id": "ROBINHOOD", "name": "Robinhood", "logo": ""},
+            {"id": "ALPACA", "name": "Alpaca", "logo": ""},
+            {"id": "TRADIER", "name": "Tradier", "logo": ""},
+            {"id": "QUESTRADE", "name": "Questrade", "logo": ""},
+            {"id": "INTERACTIVE_BROKERS", "name": "Interactive Brokers", "logo": ""},
+            {"id": "TD", "name": "TD Ameritrade", "logo": ""},
+            {"id": "SCHWAB", "name": "Charles Schwab", "logo": ""},
+            {"id": "ETRADE", "name": "E*TRADE", "logo": ""},
+            {"id": "FIDELITY", "name": "Fidelity", "logo": ""},
+            {"id": "WEBULL", "name": "Webull", "logo": ""},
+            {"id": "MOOMOO", "name": "Moomoo", "logo": ""},
+            {"id": "WEALTHSIMPLE", "name": "Wealthsimple", "logo": ""},
         ]
-        
-        return {
-            "success": True,
-            "brokerages": brokerages,
-            "message": f"{len(brokerages)} brokerages available"
-        }
+        return {"success": True, "brokerages": brokerages, "message": f"{len(brokerages)} brokerages available"}
     
     async def get_login_redirect_uri_for_broker(self, user_id: str, redirect_uri: str, broker_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -510,12 +522,11 @@ class SnapTradeTools:
                 }
             
             # Build request body
+            # immediateRedirect and customRedirect are ignored when loaded in an iframe
+            # (snaptrade-react SDK uses iframe), so we omit them to avoid URL pollution
             body = {
-                "immediateRedirect": True,
-                "customRedirect": redirect_uri,
-                "reconnect": "",
                 "connectionType": "read",
-                "connectionPortalVersion": "v3"
+                "connectionPortalVersion": "v4"
             }
             
             # Add broker if specified
