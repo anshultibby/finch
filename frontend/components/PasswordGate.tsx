@@ -90,9 +90,13 @@ export default function AuthGate({ children }: AuthGateProps) {
             <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">for pennies</span>
           </h1>
 
-          <p className="text-gray-500 text-lg mt-5 max-w-md text-center">
-            AI that reads filings, crunches numbers, and keeps you sharp.
-          </p>
+          <div className="flex items-center gap-6 mt-6 text-sm text-gray-500">
+            <span>Plugs into your broker</span>
+            <span className="text-gray-300">|</span>
+            <span>Writes and runs code</span>
+            <span className="text-gray-300">|</span>
+            <span>Deep research on autopilot</span>
+          </div>
 
           {/* Fake chat input */}
           <div className="mt-10 w-full max-w-xl">
