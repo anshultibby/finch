@@ -40,7 +40,7 @@ export default function AuthGate({ children }: AuthGateProps) {
             <img src="/logo.svg" alt="Finch" className="w-12 h-12 rounded-xl" />
             <h1 className="text-5xl font-bold text-gray-900">Finch</h1>
           </div>
-          <p className="text-xl text-gray-600 mb-3">Talk to your money</p>
+          <p className="text-xl text-gray-600 mb-3">Talk to your portfolio</p>
           <p className="text-gray-500 max-w-xl text-center mb-8">
             Ask questions, get real answers. Finch digs through filings, crunches numbers,
             and even trades for you — so you don&apos;t have to.
