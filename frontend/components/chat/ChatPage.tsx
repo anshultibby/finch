@@ -36,7 +36,6 @@ export default function ChatPage({
           sidebarRef={sidebarRef}
           prefillMessage={chatContext?.prefill}
           prefillLabel={chatContext?.prefillLabel}
-          onVisualizationClick={() => {}}
         />
       </div>
     </div>

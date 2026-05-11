@@ -101,7 +101,6 @@ export default function ChatDrawer({
             prefillMessage={prefill}
             prefillLabel={prefillLabel}
             pageContext={pageContext}
-            onVisualizationClick={() => {}}
             compact
           />
         </div>

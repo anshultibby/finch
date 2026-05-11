@@ -35,7 +35,6 @@ interface ChatViewProps {
   prefillMessage?: string;
   prefillLabel?: string;
   pageContext?: Record<string, any>;
-  onVisualizationClick?: (filename: string) => void;
   // If set, this chat is scoped to a trading bot
   botId?: string;
   rightOffset?: number;
@@ -96,7 +95,6 @@ export default function ChatView({
   prefillMessage,
   prefillLabel,
   pageContext,
-  onVisualizationClick,
   botId,
   rightOffset = 0,
 }: ChatViewProps) {
@@ -758,7 +756,7 @@ export default function ChatView({
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
                       onFileClick={(filename) => setSelectedFile(filename)}
-                      onVisualizationClick={onVisualizationClick}
+                      onVisualizationClick={(filename) => setSelectedFile(filename)}
                       onSendMessage={(text) => handleSendMessage(text)}
                       onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                       actions={messageActions}
@@ -775,7 +773,7 @@ export default function ChatView({
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     onFileClick={(filename) => setSelectedFile(filename)}
-                    onVisualizationClick={onVisualizationClick}
+                    onVisualizationClick={(filename) => setSelectedFile(filename)}
                     onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                     isStreaming={true}
                     startTime={streamStartTime}
