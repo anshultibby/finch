@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@react-oauth/google": "^0.13.5",
     "@supabase/supabase-js": "^2.78.0",
     "axios": "^1.6.2",
     "katex": "^0.16.9",

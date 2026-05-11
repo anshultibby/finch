@@ -2,13 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
+import { useGoogleLogin } from '@react-oauth/google';
 import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -20,14 +21,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -39,17 +38,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-    if (error) {
-      console.error('Error signing in with Google:', error);
-      throw error;
-    }
+  const googleLogin = useGoogleLogin({
+    flow: 'auth-code',
+    onSuccess: async (codeResponse) => {
+      try {
+        const res = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: codeResponse.code }),
+        });
+        const { id_token } = await res.json();
+        if (!id_token) throw new Error('No ID token returned');
+
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: id_token,
+        });
+        if (error) console.error('Supabase sign-in error:', error);
+      } catch (err) {
+        console.error('Error exchanging Google code:', err);
+      }
+    },
+    onError: (error) => {
+      console.error('Google sign-in error:', error);
+    },
+  });
+
+  const signInWithGoogle = () => {
+    googleLogin();
   };
 
   const signOut = async () => {
