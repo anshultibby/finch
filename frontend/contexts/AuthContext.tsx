@@ -70,11 +70,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     googleLogout();
-    const { error } = await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) {
       console.error('Error signing out:', error);
-      throw error;
     }
+    setSession(null);
+    setUser(null);
   };
 
   return (
