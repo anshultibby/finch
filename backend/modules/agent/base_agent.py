@@ -216,12 +216,14 @@ class BaseAgent:
                         top_tools = sorted(tool_call_counts.items(), key=lambda x: -x[1])
                         tool_summary = ", ".join(f"{n}×{name}" for name, n in top_tools[:5])
                         dynamic_parts.append(f"[Turn {iteration}/{max_iterations} | {total_calls} tool calls so far: {tool_summary}]")
-                    if dynamic_parts:
-                        context_block = "\n".join(dynamic_parts)
-                        messages_for_llm = list(messages_for_llm)
-                        last = dict(messages_for_llm[-1])
-                        last["content"] = (last.get("content") or "") + "\n\n" + context_block
-                        messages_for_llm[-1] = last
+                    if dynamic_parts and messages_for_llm:
+                        last_msg = messages_for_llm[-1]
+                        if last_msg.get("role") == "tool":
+                            context_block = "\n".join(dynamic_parts)
+                            messages_for_llm = list(messages_for_llm)
+                            last = dict(last_msg)
+                            last["content"] = (last.get("content") or "") + "\n\n" + context_block
+                            messages_for_llm[-1] = last
 
                     if needs_compaction:
                         self._needs_early_compaction = True
