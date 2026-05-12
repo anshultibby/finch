@@ -138,41 +138,6 @@ def search_pubmed(query: str, max_results: int = 10) -> list[dict]:
     return articles
 
 
-def get_abstract(pmid: str) -> dict:
-    """
-    Fetch full metadata and abstract for a single PubMed article.
-
-    Args:
-        pmid: PubMed ID (e.g., "39012345")
-
-    Returns:
-        Article dict with pmid, title, authors, journal, pub_date, abstract, doi, pmc_id.
-    """
-    from ._http import get_xml
-
-    params = {
-        **_NCBI_PARAMS,
-        "db": "pubmed",
-        "id": str(pmid),
-        "rettype": "abstract",
-        "retmode": "xml",
-    }
-    xml_text = get_xml(f"{_EUTILS}/efetch.fcgi", params=params)
-    if not xml_text:
-        return {"error": f"Failed to fetch PMID {pmid}"}
-
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return {"error": "Failed to parse PubMed XML"}
-
-    article_el = root.find("PubmedArticle")
-    if article_el is None:
-        return {"error": f"No article found for PMID {pmid}"}
-
-    return _parse_article(article_el)
-
-
 def get_full_text(pmid_or_pmcid: str, max_chars: int = 80000) -> dict:
     """
     Get full text from PubMed Central (open access only).
@@ -281,15 +246,3 @@ def get_full_text(pmid_or_pmcid: str, max_chars: int = 80000) -> dict:
     }
 
 
-def search_by_nct(nct_id: str, max_results: int = 10) -> list[dict]:
-    """
-    Find PubMed articles linked to a specific clinical trial NCT ID.
-
-    Args:
-        nct_id: ClinicalTrials.gov ID (e.g., "NCT04280705")
-        max_results: Max articles (default 10)
-
-    Returns:
-        List of article dicts (same format as search_pubmed).
-    """
-    return search_pubmed(f"{nct_id}[si]", max_results=max_results)

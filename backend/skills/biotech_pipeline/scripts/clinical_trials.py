@@ -2,13 +2,6 @@
 
 _BASE = "https://clinicaltrials.gov/api/v2/studies"
 
-_SEARCH_FIELDS = (
-    "NCTId,BriefTitle,OfficialTitle,OverallStatus,Phase,"
-    "EnrollmentInfo,StartDateStruct,PrimaryCompletionDateStruct,"
-    "CompletionDateStruct,LeadSponsorName,Condition,InterventionName,"
-    "BriefSummary"
-)
-
 
 def _safe_date(date_struct: dict | None) -> str | None:
     if not date_struct or not isinstance(date_struct, dict):
@@ -51,13 +44,40 @@ def _flatten_study(study: dict) -> dict:
     }
 
 
+def _paginated_fetch(params: dict, max_results: int) -> list[dict]:
+    """Fetch studies with pagination, hard cap at max_results."""
+    from ._http import get_json
+
+    all_studies = []
+    while len(all_studies) < max_results:
+        params["pageSize"] = min(100, max_results - len(all_studies))
+        data = get_json(_BASE, params=params)
+        if isinstance(data, dict) and "error" in data:
+            if not all_studies:
+                return [data]
+            break
+
+        studies = data.get("studies", [])
+        all_studies.extend(studies)
+
+        next_token = data.get("nextPageToken")
+        if not next_token or not studies:
+            break
+        params["pageToken"] = next_token
+
+    return all_studies
+
+
 def search_trials(
     condition: str = None,
     intervention: str = None,
     sponsor: str = None,
     phase: str = None,
     status: str = None,
+    intervention_type: list[str] = None,
+    completion_date_range: tuple[str, str] = None,
     max_results: int = 20,
+    paginate: bool = False,
 ) -> list[dict]:
     """
     Search ClinicalTrials.gov for trials.
@@ -68,13 +88,19 @@ def search_trials(
         sponsor: Sponsor company (e.g., "Pfizer")
         phase: "PHASE1", "PHASE2", "PHASE3", or "PHASE4"
         status: "RECRUITING", "COMPLETED", "ACTIVE_NOT_RECRUITING", etc.
+        intervention_type: Filter by type, e.g. ["DRUG", "BIOLOGICAL"]. Applied client-side.
+        completion_date_range: Tuple of (start, end) dates as "MM/DD/YYYY" strings.
         max_results: Max trials to return (default 20)
+        paginate: If True, follow nextPageToken up to max_results (capped at 1000)
 
     Returns:
         List of trial dicts with nct_id, title, status, phase, enrollment,
         dates, sponsor, conditions, interventions, summary.
     """
     from ._http import get_json
+
+    if paginate:
+        max_results = min(max_results, 1000)
 
     params = {"pageSize": min(max_results, 100), "format": "json"}
     if condition:
@@ -83,25 +109,47 @@ def search_trials(
         params["query.intr"] = intervention
     if sponsor:
         params["query.spons"] = sponsor
-    if phase:
-        params["filter.phase"] = phase
     if status:
         params["filter.overallStatus"] = status
 
-    data = get_json(_BASE, params=params)
-    if isinstance(data, dict) and "error" in data:
-        return [data]
+    term_parts = []
+    if phase:
+        term_parts.append(f"AREA[Phase]{phase}")
+    if completion_date_range:
+        start, end = completion_date_range
+        term_parts.append(f"AREA[CompletionDate]RANGE[{start},{end}]")
+    if term_parts:
+        params["query.term"] = " AND ".join(term_parts)
 
-    studies = data.get("studies", [])
-    return [_flatten_study(s) for s in studies]
+    if paginate:
+        studies = _paginated_fetch(params, max_results)
+        if studies and isinstance(studies[0], dict) and "error" in studies[0]:
+            return studies
+    else:
+        data = get_json(_BASE, params=params)
+        if isinstance(data, dict) and "error" in data:
+            return [data]
+        studies = data.get("studies", [])
+
+    results = [_flatten_study(s) for s in studies]
+
+    if intervention_type:
+        allowed = set(intervention_type)
+        results = [
+            r for r in results
+            if any(i["type"] in allowed for i in r["interventions"])
+        ]
+
+    return results
 
 
-def get_trial_detail(nct_id: str) -> dict:
+def get_trial(nct_id: str) -> dict:
     """
-    Get full detail for a single trial by NCT ID.
+    Get full detail and posted results for a single trial by NCT ID.
 
     Returns dict with: identification, status, design, eligibility,
-    endpoints (primary/secondary outcomes), arms, and results summary if posted.
+    endpoints (primary/secondary outcomes), arms, and if results are
+    posted: outcome measures with statistical data and adverse events.
     """
     from ._http import get_json
 
@@ -110,7 +158,7 @@ def get_trial_detail(nct_id: str) -> dict:
         return data
 
     proto = data.get("protocolSection", {})
-    results = data.get("resultsSection", {})
+    results_section = data.get("resultsSection", {})
 
     base = _flatten_study(data)
 
@@ -150,99 +198,70 @@ def get_trial_detail(nct_id: str) -> dict:
         for a in arms.get("armGroups", [])
     ]
 
-    # Results summary
-    base["has_results"] = bool(results)
-    if results:
-        baseline = results.get("baselineCharacteristicsModule", {})
+    # Results
+    base["has_results"] = bool(results_section)
+    if results_section:
+        baseline = results_section.get("baselineCharacteristicsModule", {})
         base["results_enrollment"] = baseline.get("populationDescription")
 
-    return base
-
-
-def get_trial_results(nct_id: str) -> dict:
-    """
-    Get posted results for a trial (outcome measures with statistical data).
-
-    Returns:
-        {"nct_id": str, "has_results": bool, "outcomes": [...]} where each
-        outcome has title, type, time_frame, groups, and measurements with
-        statistical values (p-values, CIs) when available.
-    """
-    from ._http import get_json
-
-    data = get_json(f"{_BASE}/{nct_id}", params={"format": "json"})
-    if isinstance(data, dict) and "error" in data:
-        return data
-
-    results = data.get("resultsSection", {})
-    if not results:
-        return {"nct_id": nct_id, "has_results": False, "outcomes": []}
-
-    outcome_measures = results.get("outcomeMeasuresModule", {}).get("outcomeMeasures", [])
-    outcomes = []
-    for om in outcome_measures:
-        groups = [
-            {"id": g.get("id"), "title": g.get("title"), "description": g.get("description")}
-            for g in om.get("groups", [])
-        ]
-
-        measurements = []
-        for cls in om.get("classes", []):
-            for cat in cls.get("categories", []):
-                for m in cat.get("measurements", []):
-                    measurements.append({
-                        "group_id": m.get("groupId"),
-                        "value": m.get("value"),
-                        "spread": m.get("spread"),
-                        "lower_limit": m.get("lowerLimit"),
-                        "upper_limit": m.get("upperLimit"),
-                    })
-
-        analyses = []
-        for a in om.get("analyses", []):
-            analyses.append({
-                "groups": a.get("groupIds", []),
-                "method": a.get("statisticalMethod"),
-                "p_value": a.get("pValue"),
-                "ci_lower": a.get("ciLowerLimit"),
-                "ci_upper": a.get("ciUpperLimit"),
-                "estimate": a.get("estimateComment"),
+        # Outcome measures
+        outcome_measures = results_section.get("outcomeMeasuresModule", {}).get("outcomeMeasures", [])
+        parsed_outcomes = []
+        for om in outcome_measures:
+            groups = [
+                {"id": g.get("id"), "title": g.get("title"), "description": g.get("description")}
+                for g in om.get("groups", [])
+            ]
+            measurements = []
+            for cls in om.get("classes", []):
+                for cat in cls.get("categories", []):
+                    for m in cat.get("measurements", []):
+                        measurements.append({
+                            "group_id": m.get("groupId"),
+                            "value": m.get("value"),
+                            "spread": m.get("spread"),
+                            "lower_limit": m.get("lowerLimit"),
+                            "upper_limit": m.get("upperLimit"),
+                        })
+            analyses = []
+            for a in om.get("analyses", []):
+                analyses.append({
+                    "groups": a.get("groupIds", []),
+                    "method": a.get("statisticalMethod"),
+                    "p_value": a.get("pValue"),
+                    "ci_lower": a.get("ciLowerLimit"),
+                    "ci_upper": a.get("ciUpperLimit"),
+                    "estimate": a.get("estimateComment"),
+                })
+            parsed_outcomes.append({
+                "title": om.get("title"),
+                "type": om.get("type"),
+                "time_frame": om.get("timeFrame"),
+                "description": om.get("description"),
+                "units": om.get("unitOfMeasure"),
+                "groups": groups,
+                "measurements": measurements,
+                "analyses": analyses,
             })
+        base["outcomes"] = parsed_outcomes
 
-        outcomes.append({
-            "title": om.get("title"),
-            "type": om.get("type"),
-            "time_frame": om.get("timeFrame"),
-            "description": om.get("description"),
-            "units": om.get("unitOfMeasure"),
-            "groups": groups,
-            "measurements": measurements,
-            "analyses": analyses,
-        })
+        # Adverse events
+        adverse = results_section.get("adverseEventsModule", {})
+        if adverse:
+            base["adverse_events"] = {
+                "frequency_threshold": adverse.get("frequencyThreshold"),
+                "time_frame": adverse.get("timeFrame"),
+                "description": adverse.get("description"),
+                "serious_count": sum(
+                    int(s.get("numAffected", 0))
+                    for e in adverse.get("seriousEvents", [])
+                    for s in e.get("stats", [])
+                ),
+                "other_count": sum(
+                    int(s.get("numAffected", 0))
+                    for e in adverse.get("otherEvents", [])
+                    for s in e.get("stats", [])
+                ),
+            }
 
-    # Adverse events summary
-    adverse = results.get("adverseEventsModule", {})
-    adverse_summary = None
-    if adverse:
-        adverse_summary = {
-            "frequency_threshold": adverse.get("frequencyThreshold"),
-            "time_frame": adverse.get("timeFrame"),
-            "description": adverse.get("description"),
-            "serious_count": sum(
-                int(s.get("numAffected", 0))
-                for e in adverse.get("seriousEvents", [])
-                for s in e.get("stats", [])
-            ),
-            "other_count": sum(
-                int(s.get("numAffected", 0))
-                for e in adverse.get("otherEvents", [])
-                for s in e.get("stats", [])
-            ),
-        }
-
-    return {
-        "nct_id": nct_id,
-        "has_results": True,
-        "outcomes": outcomes,
-        "adverse_events": adverse_summary,
-    }
+    return base

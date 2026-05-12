@@ -10,7 +10,8 @@ def get_json(url: str, params: dict = None) -> dict | list:
     try:
         resp = httpx.get(url, params=params or {}, headers=_HEADERS,
                          timeout=_TIMEOUT, follow_redirects=True)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            return {"error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
         return resp.json()
     except Exception as e:
         return {"error": f"HTTP request failed: {e}"}

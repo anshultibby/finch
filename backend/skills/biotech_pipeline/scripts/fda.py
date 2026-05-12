@@ -122,7 +122,7 @@ def get_application_docs(application_number: str) -> list[dict]:
 
 def fetch_review_document(url: str, max_chars: int = 50000, max_pages: int = 80) -> dict:
     """
-    Download an FDA review document PDF and extract text.
+    Download an FDA review document PDF and extract text + tables.
 
     Args:
         url: Direct URL to the PDF
@@ -130,7 +130,10 @@ def fetch_review_document(url: str, max_chars: int = 50000, max_pages: int = 80)
         max_pages: Max pages to extract (default 80)
 
     Returns:
-        {"url": str, "text": str, "pages_extracted": int, "total_pages": int, "truncated": bool}
+        {"url": str, "text": str, "tables": list, "pages_extracted": int,
+         "total_pages": int, "truncated": bool}
+        Tables are lists of dicts (header→value) when headers are detectable,
+        otherwise lists of lists (raw rows).
     """
     from ._http import get_bytes
 
@@ -139,23 +142,25 @@ def fetch_review_document(url: str, max_chars: int = 50000, max_pages: int = 80)
         return {"error": f"Failed to download PDF from {url}"}
 
     try:
-        from pypdf import PdfReader
+        import pdfplumber
     except ImportError:
-        return {"error": "pypdf not installed — run: pip install pypdf"}
+        return {"error": "pdfplumber not installed — run: pip install pdfplumber"}
 
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes))
+        pdf = pdfplumber.open(io.BytesIO(pdf_bytes))
     except Exception as e:
         return {"error": f"Failed to parse PDF: {e}"}
 
-    total_pages = len(reader.pages)
+    total_pages = len(pdf.pages)
     pages_to_read = min(total_pages, max_pages)
     parts = []
+    all_tables = []
     chars = 0
     pages_extracted = 0
 
     for i in range(pages_to_read):
-        text = reader.pages[i].extract_text() or ""
+        page = pdf.pages[i]
+        text = page.extract_text() or ""
         if chars + len(text) > max_chars:
             remaining = max_chars - chars
             if remaining > 0:
@@ -166,10 +171,29 @@ def fetch_review_document(url: str, max_chars: int = 50000, max_pages: int = 80)
         chars += len(text)
         pages_extracted = i + 1
 
+        for raw_table in page.extract_tables() or []:
+            if not raw_table or len(raw_table) < 2:
+                continue
+            headers = [str(c or "").strip() for c in raw_table[0]]
+            if any(headers):
+                table_dicts = []
+                for row in raw_table[1:]:
+                    table_dicts.append({
+                        h: str(v or "").strip()
+                        for h, v in zip(headers, row)
+                    })
+                all_tables.append({"page": i + 1, "data": table_dicts})
+            else:
+                all_tables.append({"page": i + 1, "data": [
+                    [str(c or "").strip() for c in row] for row in raw_table
+                ]})
+
+    pdf.close()
     full_text = "\n".join(parts)
     return {
         "url": url,
         "text": full_text,
+        "tables": all_tables,
         "pages_extracted": pages_extracted,
         "total_pages": total_pages,
         "truncated": pages_extracted < total_pages or len(full_text) >= max_chars,
