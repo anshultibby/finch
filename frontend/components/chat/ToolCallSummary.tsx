@@ -131,9 +131,7 @@ export default function ToolCallSummary({
   let estimateLabel = '';
   if (isStreaming && timeEstimate) {
     const remaining = Math.max(0, timeEstimate.seconds - elapsedSeconds);
-    if (remaining <= 0) {
-      estimateLabel = 'Almost done...';
-    } else {
+    if (remaining > 0) {
       estimateLabel = `${formatEstimate(remaining)} remaining`;
     }
   }
