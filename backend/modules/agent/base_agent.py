@@ -217,11 +217,11 @@ class BaseAgent:
                         tool_summary = ", ".join(f"{n}×{name}" for name, n in top_tools[:5])
                         dynamic_parts.append(f"[Turn {iteration}/{max_iterations} | {total_calls} tool calls so far: {tool_summary}]")
                     if dynamic_parts:
+                        context_block = "\n".join(dynamic_parts)
                         messages_for_llm = list(messages_for_llm)
-                        messages_for_llm.append({
-                            "role": "user",
-                            "content": "[system context]\n" + "\n".join(dynamic_parts)
-                        })
+                        last = dict(messages_for_llm[-1])
+                        last["content"] = (last.get("content") or "") + "\n\n" + context_block
+                        messages_for_llm[-1] = last
 
                     if needs_compaction:
                         self._needs_early_compaction = True
