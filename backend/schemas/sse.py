@@ -23,7 +23,6 @@ class ToolCallStartEvent(BaseModel):
     tool_call_id: str
     tool_name: str
     arguments: Dict[str, Any]
-    user_description: Optional[str] = None  # User-friendly description for display
     timestamp: str = datetime.now().isoformat()
 
 

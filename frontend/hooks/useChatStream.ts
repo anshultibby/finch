@@ -252,7 +252,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           tool_call_id: event.tool_call_id,
           tool_name: event.tool_name,
           status: 'calling',
-          statusMessage: event.user_description || event.tool_name,
+          statusMessage: event.tool_name,
           arguments: event.arguments,
           agent_id: event.agent_id,
           parent_agent_id: event.parent_agent_id,

@@ -440,16 +440,12 @@ class ToolExecutor:
                 logger.debug(f"⏭️  Skipping tool_call_start for hidden tool: {call.name}")
                 continue  # Don't emit event for hidden tools like 'idle'
 
-            # Extract user_description from arguments (provided by LLM)
-            user_description = call.arguments.get('user_description', None)
-
             logger.info(f"📤 Emitting tool_call_start event: {call.name} (id: {call.id})")
             event_data = {
                 "tool_call_id": call.id,
                 "tool_name": call.name,
                 "arguments": call.arguments,
-                "user_description": user_description,
-                "agent_id": context.agent_id  # Which agent is running this tool
+                "agent_id": context.agent_id,
             }
             # Include parent_agent_id if this is a sub-agent (e.g., executor)
             if context.parent_agent_id:

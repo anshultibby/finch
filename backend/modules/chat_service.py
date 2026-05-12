@@ -553,7 +553,7 @@ class ChatService:
                         args = args_str
                     else:
                         args = {}
-                    status_message = args.get("user_description") or tool_name
+                    status_message = tool_name
                     stored_result = tool_results.get(tool_call_id, {})
                     tool_call_data = {
                         "tool_call_id": tool_call_id,

@@ -89,14 +89,12 @@ class ToolRunner:
                 sig = inspect.signature(tool.handler)
                 kwargs = {"context": context}
                 
-                # Strip out special parameters that shouldn't be passed to the tool
-                # 'user_description' is provided by LLM for user display, not for the tool function
-                tool_arguments = {k: v for k, v in arguments.items() if k != 'user_description'}
+                tool_arguments = arguments
                 
-                # Check if any parameter (excluding 'context' and 'user_description') is a Pydantic model
+                # Check if any parameter (excluding 'context') is a Pydantic model
                 pydantic_param = None
                 for param_name, param in sig.parameters.items():
-                    if param_name in ('context', 'user_description'):
+                    if param_name == 'context':
                         continue
                     
                     # Check if this parameter is a Pydantic BaseModel
@@ -143,7 +141,7 @@ class ToolRunner:
                         logger.debug(f"Arguments flattened, constructing {param_class.__name__} from: {list(tool_arguments.keys())}")
                         kwargs[param_name] = param_class(**tool_arguments)
                 else:
-                    # No Pydantic models, just unpack arguments normally (excluding 'user_description')
+                    # No Pydantic models, just unpack arguments normally
                     kwargs.update(tool_arguments)
                 
                 # Execute tool (async or sync)

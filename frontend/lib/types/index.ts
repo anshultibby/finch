@@ -123,7 +123,6 @@ export interface SSEToolCallStartEvent {
   tool_call_id: string;
   tool_name: string;
   arguments: Record<string, any>;
-  user_description?: string;
   agent_id: string;
   parent_agent_id?: string;
   timestamp: string;
