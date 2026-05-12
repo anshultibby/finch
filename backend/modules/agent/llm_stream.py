@@ -404,14 +404,16 @@ async def stream_llm_response(
             break  # success — exit retry loop
 
         except TimeoutError:
-            has_content = bool(content.strip()) or bool(tool_calls)
-            if has_content or attempt >= MAX_ATTEMPTS:
-                if has_content:
-                    logger.warning(f"⏰ LLM stream timed out but already streamed content — not retrying")
+            # Only skip retry if we have a complete text response (no pending tool calls).
+            # Incomplete tool call arguments are unusable, so retrying is worth it.
+            has_final_text = bool(content.strip()) and not tool_calls
+            if has_final_text or attempt >= MAX_ATTEMPTS:
+                if has_final_text:
+                    logger.warning(f"⏰ LLM stream timed out but has complete text response — not retrying")
                 else:
-                    logger.error(f"⏰ LLM stream timed out with no content after {attempt} attempt(s)")
+                    logger.error(f"⏰ LLM stream timed out after {attempt} attempt(s) (content={len(content)} chars, tool_calls={len(tool_calls)})")
                 raise
-            logger.warning(f"⏰ LLM stream timed out with no content — retrying ({attempt}/{MAX_ATTEMPTS})")
+            logger.warning(f"⏰ LLM stream timed out — retrying ({attempt}/{MAX_ATTEMPTS}, had {len(content)} chars text, {len(tool_calls)} incomplete tool calls)")
             continue
 
         except Exception as e:
