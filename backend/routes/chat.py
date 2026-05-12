@@ -351,8 +351,8 @@ async def request_email_notification(
     if not email:
         raise HTTPException(status_code=400, detail="Could not determine email from token")
 
-    async with get_db_session() as db:
-        await chat_async.set_notify_email(db, chat_id, email)
+    from services.email_notify_registry import register
+    register(chat_id, email)
     logger.info(f"Email notification registered for chat {chat_id} -> {email}")
     return {"status": "registered", "email": email}
 

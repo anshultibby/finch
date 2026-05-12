@@ -415,7 +415,8 @@ class ChatService:
                         pass
 
                 try:
-                    notify_email = await chat_async.pop_notify_email(db, chat_id)
+                    from services.email_notify_registry import pop as pop_notify_email
+                    notify_email = pop_notify_email(chat_id)
                     if notify_email:
                         logger.info(f"📧 Sending completion email to {notify_email} for chat {chat_id}")
                         from services.notifications import send_chat_complete_email

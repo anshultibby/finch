@@ -314,9 +314,8 @@ async def stream_llm_response(
     # Always set this to override any default from llm_config
     llm_kwargs["stream_options"] = {"include_usage": True} if is_claude else {"include_usage": False}
     
-    # Stream response with 1 retry on timeout (only if no content was streamed yet)
-    MAX_ATTEMPTS = 2
-    CHUNK_TIMEOUT_SECONDS = 90
+    # Stream response
+    CHUNK_TIMEOUT_SECONDS = 120
 
     content = ""
     tool_calls = []
@@ -324,102 +323,81 @@ async def stream_llm_response(
     deferred_file_streams: Dict[int, tuple] = {}
     chunk_count = 0
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        logger.info(f"🔄 Starting LLM stream request...{f' (retry {attempt-1})' if attempt > 1 else ''}")
-        stream_response = await llm_handler.acompletion(**llm_kwargs)
-        logger.info("🔄 LLM acompletion returned, starting to iterate chunks...")
+    logger.info("🔄 Starting LLM stream request...")
+    stream_response = await llm_handler.acompletion(**llm_kwargs)
+    logger.info("🔄 LLM acompletion returned, starting to iterate chunks...")
 
-        content = ""
-        tool_calls = []
-        reasoning_content = ""
-        deferred_file_streams = {}
-        chunk_count = 0
+    try:
+        chunk_iter = stream_response.__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=CHUNK_TIMEOUT_SECONDS)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ LLM stream stalled - no chunk received in {CHUNK_TIMEOUT_SECONDS}s after {chunk_count} chunks")
+                raise TimeoutError(f"LLM stream stalled after {chunk_count} chunks (no data for {CHUNK_TIMEOUT_SECONDS}s)")
+            chunk_count += 1
+            if chunk_count == 1:
+                logger.info("🔄 First chunk received from LLM stream")
+            if not hasattr(chunk, 'choices') or not chunk.choices:
+                continue
 
-        try:
-            chunk_iter = stream_response.__aiter__()
-            while True:
-                try:
-                    chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=CHUNK_TIMEOUT_SECONDS)
-                except StopAsyncIteration:
-                    break
-                except asyncio.TimeoutError:
-                    logger.error(f"⏰ LLM stream stalled - no chunk received in {CHUNK_TIMEOUT_SECONDS}s after {chunk_count} chunks")
-                    raise TimeoutError(f"LLM stream stalled after {chunk_count} chunks (no data for {CHUNK_TIMEOUT_SECONDS}s)")
-                chunk_count += 1
-                if chunk_count == 1:
-                    logger.info("🔄 First chunk received from LLM stream")
-                if not hasattr(chunk, 'choices') or not chunk.choices:
-                    continue
+            delta = chunk.choices[0].delta
 
-                delta = chunk.choices[0].delta
+            if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                reasoning_content += delta.reasoning_content
+                yield SSEEvent(
+                    event="assistant_message_delta",
+                    data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
+                )
+                if on_content_delta:
+                    async for event in on_content_delta(delta.reasoning_content):
+                        yield event
 
-                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                    reasoning_content += delta.reasoning_content
-                    yield SSEEvent(
-                        event="assistant_message_delta",
-                        data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
-                    )
-                    if on_content_delta:
-                        async for event in on_content_delta(delta.reasoning_content):
-                            yield event
+            if hasattr(delta, 'content') and delta.content:
+                content += delta.content
+                yield SSEEvent(
+                    event="assistant_message_delta",
+                    data=AssistantMessageDeltaEvent(delta=delta.content).model_dump()
+                )
+                if on_content_delta:
+                    async for event in on_content_delta(delta.content):
+                        yield event
 
-                if hasattr(delta, 'content') and delta.content:
-                    content += delta.content
-                    yield SSEEvent(
-                        event="assistant_message_delta",
-                        data=AssistantMessageDeltaEvent(delta=delta.content).model_dump()
-                    )
-                    if on_content_delta:
-                        async for event in on_content_delta(delta.content):
-                            yield event
+            if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    while len(tool_calls) <= idx:
+                        tool_calls.append({
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""}
+                        })
+                    if tc.id:
+                        tool_calls[idx]["id"] = tc.id
+                    if hasattr(tc, 'function') and tc.function:
+                        if tc.function.name:
+                            if not tool_calls[idx]["function"]["name"]:
+                                yield SSEEvent(
+                                    event="tool_call_detected",
+                                    data=ToolCallDetectedEvent(
+                                        tool_call_id=tool_calls[idx]["id"],
+                                        tool_name=tc.function.name,
+                                        index=idx,
+                                    ).model_dump()
+                                )
+                            tool_calls[idx]["function"]["name"] = tc.function.name
 
-                if hasattr(delta, 'tool_calls') and delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        while len(tool_calls) <= idx:
-                            tool_calls.append({
-                                "id": "",
-                                "type": "function",
-                                "function": {"name": "", "arguments": ""}
-                            })
-                        if tc.id:
-                            tool_calls[idx]["id"] = tc.id
-                        if hasattr(tc, 'function') and tc.function:
-                            if tc.function.name:
-                                if not tool_calls[idx]["function"]["name"]:
-                                    yield SSEEvent(
-                                        event="tool_call_detected",
-                                        data=ToolCallDetectedEvent(
-                                            tool_call_id=tool_calls[idx]["id"],
-                                            tool_name=tc.function.name,
-                                            index=idx,
-                                        ).model_dump()
-                                    )
-                                tool_calls[idx]["function"]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_calls[idx]["function"]["arguments"] += tc.function.arguments
 
-                            if tc.function.arguments:
-                                tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+        logger.info(f"🔄 LLM stream completed after {chunk_count} chunks (content: {len(content)} chars, tool_calls: {len(tool_calls)})")
 
-            logger.info(f"🔄 LLM stream completed after {chunk_count} chunks (content: {len(content)} chars, tool_calls: {len(tool_calls)})")
-            break  # success — exit retry loop
-
-        except TimeoutError:
-            # Only skip retry if we have a complete text response (no pending tool calls).
-            # Incomplete tool call arguments are unusable, so retrying is worth it.
-            has_final_text = bool(content.strip()) and not tool_calls
-            if has_final_text or attempt >= MAX_ATTEMPTS:
-                if has_final_text:
-                    logger.warning(f"⏰ LLM stream timed out but has complete text response — not retrying")
-                else:
-                    logger.error(f"⏰ LLM stream timed out after {attempt} attempt(s) (content={len(content)} chars, tool_calls={len(tool_calls)})")
-                raise
-            logger.warning(f"⏰ LLM stream timed out — retrying ({attempt}/{MAX_ATTEMPTS}, had {len(content)} chars text, {len(tool_calls)} incomplete tool calls)")
-            continue
-
-        except Exception as e:
-            logger.error(f"❌ Error during LLM streaming: {e}")
-            logger.error(f"Traceback: {traceback_module.format_exc()}")
-            raise
+    except Exception as e:
+        logger.error(f"❌ Error during LLM streaming: {e}")
+        logger.error(f"Traceback: {traceback_module.format_exc()}")
+        raise
     
     # Validate tool calls before emitting - fix any malformed JSON arguments
     # This prevents litellm from failing when sending these back to Anthropic
