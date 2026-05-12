@@ -167,12 +167,14 @@ def _add_cache_control_to_messages(
     if msg_count >= 1:
         add_cache_to_message(msg_count - 1)  # Cache up to and including latest message
     
-    # For longer conversations (>20 messages), add a midpoint breakpoint
-    # This helps with the 20-block lookback window limitation
+    # For longer conversations, add a stable early breakpoint.
+    # IMPORTANT: This must NOT shift as the conversation grows, otherwise
+    # the prefix before it gets re-hashed every turn and we get massive
+    # cache misses. We anchor at the first user message (index 0 in
+    # conversation_messages, which follows the system prompt) so that
+    # system + tools + first user message form a stable cached prefix.
     if msg_count > 20:
-        # Add a breakpoint around the middle to ensure earlier content can be cached
-        mid_position = msg_count // 2
-        add_cache_to_message(mid_position)
+        add_cache_to_message(0)
     
     return messages_copy
 
@@ -251,53 +253,24 @@ async def stream_llm_response(
     is_claude = _is_claude_model(llm_kwargs["model"])
     
     if is_claude and llm_config.caching:
-        logger.debug("🔄 Applying Claude prompt caching (MAXIMUM strategy)")
-        
-        system_tokens_estimate = len(system_message["content"]) // 4 if system_message else 0
+        # Automatic prompt caching — Anthropic caches the longest common
+        # prefix between consecutive requests.  No cache_control breakpoints
+        # needed; we just pass system / tools / messages in the right shape.
         if system_message:
             suffix = system_message.get("_suffix")
-            llm_kwargs["system"] = _add_cache_control_to_system(system_message["content"], suffix=suffix)
-            logger.debug(f"  📦 System prompt: ~{system_tokens_estimate:,} tokens (cached with tools)")
-        
-        # Cache tools - this is the ONLY breakpoint for static content (system + tools together)
+            # System prompt as structured content blocks (required by Anthropic API)
+            blocks = [{"type": "text", "text": system_message["content"]}]
+            if suffix:
+                blocks.append({"type": "text", "text": suffix})
+            llm_kwargs["system"] = blocks
+            logger.debug(f"  📦 System prompt: ~{len(system_message['content']) // 4:,} tokens (auto-cached)")
+
         if tools:
-            llm_kwargs["tools"] = _add_cache_control_to_tools(tools)
+            llm_kwargs["tools"] = tools
             llm_kwargs["tool_choice"] = "auto"
-            tools_tokens_estimate = sum(len(str(tool)) for tool in tools) // 4
-            logger.debug(f"  📌 Breakpoint 1: Tools ({len(tools)} tools, ~{tools_tokens_estimate:,} tokens)")
-            logger.debug(f"     ↳ This caches system + tools together (~{system_tokens_estimate + tools_tokens_estimate:,} total)")
-        
-        # Cache conversation history with ALL remaining breakpoints (3 for messages!)
-        original_message_count = len(conversation_messages)
-        llm_kwargs["messages"] = _add_cache_control_to_messages(conversation_messages)
-        
-        # Count cache breakpoints in messages and show what's being cached
-        breakpoints = []
-        for i, msg in enumerate(llm_kwargs["messages"]):
-            content = msg.get("content")
-            has_cache = False
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and "cache_control" in block:
-                        has_cache = True
-                        break
-            if has_cache:
-                role = msg.get("role", "unknown")
-                # Estimate token count
-                content_str = str(content) if isinstance(content, str) else str(content)
-                tokens_est = len(content_str) // 4
-                breakpoints.append(f"msg{i}({role}, ~{tokens_est:,}tok)")
-        
-        if breakpoints:
-            for i, bp in enumerate(breakpoints, start=2):
-                logger.debug(f"  📌 Breakpoint {i}: {bp}")
-            logger.debug(f"     ↳ Total: {len(breakpoints)} message breakpoint(s) covering {original_message_count} messages")
-        else:
-            logger.debug(f"  📌 No message breakpoints yet (conversation too short)")
-        
-        total_breakpoints = (1 if system_message else 0) + (1 if tools else 0) + len(breakpoints)
-        logger.debug(f"  ✅ Using {total_breakpoints}/4 cache breakpoints")
-        logger.debug(f"  📝 Strategy: Prefix caching - each breakpoint caches everything before it")
+
+        llm_kwargs["messages"] = conversation_messages
+        logger.debug(f"  📝 Automatic prompt caching with {len(conversation_messages)} messages")
     else:
         # Non-Claude models or caching disabled: use standard format
         # Merge any dynamic suffix into the system message content

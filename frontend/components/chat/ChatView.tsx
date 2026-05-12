@@ -207,6 +207,7 @@ export default function ChatView({
     window.addEventListener('chat:prompt', handler);
     return () => window.removeEventListener('chat:prompt', handler);
   }, []);
+
   const setCurrentChatId = useCallback((id: string | null) => {
     setCurrentChatIdLocal(id);
     onChatIdChange?.(id);
@@ -234,6 +235,28 @@ export default function ChatView({
   useEffect(() => {
     setStreamChatId(currentChatId);
   }, [currentChatId, setStreamChatId]);
+
+  // Reload messages when a disconnected stream finishes on the backend
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const recoveredChatId = (e as CustomEvent<string>).detail;
+      if (recoveredChatId !== currentChatId) return;
+      try {
+        const displayData = await chatApi.getChatHistoryForDisplay(recoveredChatId);
+        const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp || new Date().toISOString(),
+          toolCalls: msg.tool_calls,
+        }));
+        updateChatState(recoveredChatId, { messages: loadedMessages }, syncDisplay);
+      } catch {
+        // Will be shown with whatever partial data we had
+      }
+    };
+    window.addEventListener('chat:stream-recovered', handler);
+    return () => window.removeEventListener('chat:stream-recovered', handler);
+  }, [currentChatId, updateChatState, syncDisplay]);
 
   // Update selected tool when streaming tools change
   useEffect(() => {
@@ -367,11 +390,6 @@ export default function ChatView({
       try {
         const status = await chatApi.checkChatStatus(currentChatId);
 
-        if (status.is_processing && state.stream) {
-          state.stream.reconnect?.();
-          return;
-        }
-
         updateChatState(currentChatId, {
           streamingText: '',
           streamingTools: [],
@@ -381,13 +399,28 @@ export default function ChatView({
         }, syncDisplay);
 
         if (status.is_processing) {
+          const chatIdToReload = currentChatId;
           const pollInterval = setInterval(async () => {
-            const current = await chatApi.checkChatStatus(currentChatId);
+            const current = await chatApi.checkChatStatus(chatIdToReload);
             if (!current.is_processing) {
               clearInterval(pollInterval);
-              updateChatState(currentChatId, {
-                isLoading: false,
-              }, syncDisplay);
+              // Reload full message history from backend since we missed events
+              try {
+                const displayData = await chatApi.getChatHistoryForDisplay(chatIdToReload);
+                const loadedMessages: Message[] = displayData.messages.map((msg: any) => ({
+                  role: msg.role,
+                  content: msg.content,
+                  timestamp: msg.timestamp || new Date().toISOString(),
+                  toolCalls: msg.tool_calls,
+                }));
+                updateChatState(chatIdToReload, {
+                  messages: loadedMessages,
+                  isLoading: false,
+                }, syncDisplay);
+              } catch {
+                updateChatState(chatIdToReload, { isLoading: false }, syncDisplay);
+              }
+              onHistoryRefresh?.();
             }
           }, 2000);
         }

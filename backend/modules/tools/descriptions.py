@@ -12,18 +12,19 @@ from modules.tools.skills_registry import generate_skills_description
 # CONTROL TOOLS
 # ============================================================================
 
-ESTIMATE_TIME_DESC = """Estimate how long this task will take. Call this FIRST before any other tools.
+ESTIMATE_TIME_DESC = """Estimate how long this task will take. You MUST call this FIRST before any other tools.
 
-Give a single overall time estimate for the entire task. The user has nothing to do while waiting, so just tell them roughly how long.
+Give a single overall time estimate for the entire task based on how many tool calls you expect to make.
 
-Guidelines:
-- Quick question / data lookup: ~30 seconds
-- Stock research: ~2-3 minutes
-- Portfolio review or analysis: ~5 minutes
-- Tax-loss harvesting or strategy creation: ~5-7 minutes
-- Complex multi-step analysis: ~8-10 minutes
+Time guidelines based on historical data:
+- 1-2 tool calls (quick lookup, simple question): ~45 seconds
+- 3-5 tool calls (stock research, data fetch + analysis): ~2 minutes
+- 6-10 tool calls (portfolio review, multi-step research): ~3 minutes
+- 11+ tool calls (complex analysis, strategy creation, tax-loss harvesting): ~5-6 minutes
 
-Set estimated_tools to the number of tool calls you expect to make (used for progress bar).
+Always round UP — users prefer finishing early over "Almost done..." that drags on.
+
+Set estimated_tools to the number of tool calls you expect to make.
 Set description to a short phrase the user sees while waiting (e.g. "Analyzing your portfolio...").
 
 If the task requires no tools (just a text response), skip calling this tool entirely."""

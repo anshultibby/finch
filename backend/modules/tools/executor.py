@@ -411,7 +411,7 @@ class ToolExecutor:
                 1 for c in tool_calls
                 if not (tool_registry.get_tool(c.name) and tool_registry.get_tool(c.name).hidden_from_ui)
             )
-            est_seconds = max(10, visible_count * 6)
+            est_seconds = max(45, visible_count * 20)
             yield SSEEvent(
                 event="time_estimate",
                 data=TimeEstimateEvent(

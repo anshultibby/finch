@@ -84,24 +84,47 @@ async def send_chat_message_stream(
         auth_header = request.headers.get("authorization", "")
         auth_token = auth_header[7:] if auth_header.startswith("Bearer ") else None
 
-        # Create streaming generator with explicit flushing
+        # Create streaming generator with heartbeats to prevent proxy/network timeouts.
+        # Events are produced via an asyncio.Queue so we can inject keepalive
+        # comments during long pauses without cancelling the inner generator.
+        HEARTBEAT_INTERVAL = 15  # seconds
+
         async def event_generator():
+            queue: asyncio.Queue = asyncio.Queue()
+
+            async def _producer():
+                try:
+                    async for sse_data in chat_service.send_message_stream(
+                        message=chat_message.message,
+                        chat_id=chat_message.chat_id,
+                        user_id=chat_message.user_id,
+                        images=images,
+                        skill_ids=skill_ids if skill_ids else None,
+                        auth_token=auth_token,
+                        investor_persona=chat_message.investor_persona,
+                        page_context=chat_message.page_context,
+                    ):
+                        await queue.put(sse_data)
+                    await queue.put(None)  # end sentinel
+                except Exception as exc:
+                    await queue.put(exc)
+
+            producer_task = asyncio.create_task(_producer())
             try:
-                async for sse_data in chat_service.send_message_stream(
-                    message=chat_message.message,
-                    chat_id=chat_message.chat_id,
-                    user_id=chat_message.user_id,
-                    images=images,
-                    skill_ids=skill_ids if skill_ids else None,
-                    auth_token=auth_token,
-                    investor_persona=chat_message.investor_persona,
-                    page_context=chat_message.page_context,
-                ):
-                    # Yield event immediately
-                    yield sse_data
-                    # Force flush by yielding empty string (hack to prevent buffering)
-                    # This triggers uvicorn to send data immediately
-                    await asyncio.sleep(0)  # Give control back to event loop
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL)
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                        continue
+
+                    if item is None:
+                        break
+                    if isinstance(item, BaseException):
+                        raise item
+
+                    yield item
+                    await asyncio.sleep(0)
             except Exception as e:
                 import traceback
                 error_msg = str(e)
@@ -109,6 +132,13 @@ async def send_chat_message_stream(
                 logger.error(f"ERROR in stream: {error_msg}\nFull traceback:\n{tb}")
                 yield "event: error\ndata: " + json.dumps({'error': error_msg}) + "\n\n"
                 yield "event: done\ndata: {}\n\n"
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+                    try:
+                        await producer_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
         
         return StreamingResponse(
             event_generator(),

@@ -225,6 +225,9 @@ export const chatApi = {
 
         if (!eventStr.trim()) continue;
 
+        // Skip SSE comments (heartbeat keepalives from the server)
+        if (eventStr.startsWith(':')) continue;
+
         const eventMatch = eventStr.match(/event:\s*(\w+)/);
         const dataMatch = eventStr.match(/data:\s*([\s\S]+)/);
 
@@ -297,31 +300,44 @@ export const chatApi = {
 
           await processStream();
         })
-        .catch((error) => {
+        .catch(async (error) => {
           if (!isClosed && error.name !== 'AbortError') {
             console.error('SSE stream error:', error);
-            
-            // Attempt to reconnect if not at max attempts
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && !isReconnecting) {
+
+            // Instead of re-sending the message, poll the backend to see if the
+            // chat is still being processed.  When processing finishes, fire the
+            // done handler so the UI loads the completed result from history.
+            if (!isReconnecting) {
               isReconnecting = true;
-              reconnectAttempts++;
-              console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-              
-              setTimeout(() => {
-                if (!isClosed) {
-                  startStream();
+              console.log('Stream disconnected — polling backend for completion...');
+
+              const pollForCompletion = async () => {
+                const POLL_INTERVAL = 3000;
+                const MAX_POLLS = 60; // 3 minutes max
+                for (let i = 0; i < MAX_POLLS && !isClosed; i++) {
+                  try {
+                    const status = await chatApi.checkChatStatus(chatId);
+                    if (!status.is_processing) {
+                      console.log('Backend finished processing — triggering history reload');
+                      // Signal that a disconnected stream completed — ChatView
+                      // listens for this and reloads messages from the backend.
+                      window.dispatchEvent(new CustomEvent('chat:stream-recovered', { detail: chatId }));
+                      handlers.onDone?.({ message: 'Stream recovered', timestamp: new Date().toISOString() });
+                      return;
+                    }
+                  } catch {
+                    // Status check failed — keep trying
+                  }
+                  await new Promise(r => setTimeout(r, POLL_INTERVAL));
                 }
-              }, RECONNECT_DELAY * reconnectAttempts); // Exponential backoff
-            } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-              handlers.onError?.({
-                error: 'Connection lost. Please refresh to continue.',
-                timestamp: new Date().toISOString(),
-              });
-            } else {
-              handlers.onError?.({
-                error: error.message,
-                timestamp: new Date().toISOString(),
-              });
+                // Timed out waiting
+                handlers.onError?.({
+                  error: 'Connection lost. Please refresh to continue.',
+                  timestamp: new Date().toISOString(),
+                });
+              };
+
+              pollForCompletion();
             }
           }
         });

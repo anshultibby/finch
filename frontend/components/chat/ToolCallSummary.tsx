@@ -127,23 +127,14 @@ export default function ToolCallSummary({
     );
   }
 
-  // Compute remaining time estimate
+  // Simple time-based countdown from initial estimate
   let estimateLabel = '';
   if (isStreaming && timeEstimate) {
-    const estimatedTotal = timeEstimate.seconds;
-    if (elapsedSeconds < 3) {
-      estimateLabel = formatEstimate(estimatedTotal);
-    } else if (totalCount > 0 && timeEstimate.tools > 0) {
-      // Adjust estimate based on actual progress
-      const toolProgress = completedCount / timeEstimate.tools;
-      const remaining = Math.max(0, Math.round(estimatedTotal * (1 - toolProgress)));
-      if (remaining <= 0 || elapsedSeconds > estimatedTotal * 1.5) {
-        estimateLabel = 'Almost done...';
-      } else {
-        estimateLabel = `${formatEstimate(remaining)} remaining`;
-      }
+    const remaining = Math.max(0, timeEstimate.seconds - elapsedSeconds);
+    if (remaining <= 0) {
+      estimateLabel = 'Almost done...';
     } else {
-      estimateLabel = formatEstimate(Math.max(0, estimatedTotal - elapsedSeconds));
+      estimateLabel = `${formatEstimate(remaining)} remaining`;
     }
   }
 

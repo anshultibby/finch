@@ -178,7 +178,8 @@ class BaseAgent:
         # Get messages for LLM (will update as we go)
         messages = initial_messages.copy()
         iteration = 0
-        
+        tool_call_counts: Dict[str, int] = {}
+
         # Start overall agent interaction span (clean abstraction)
         async with self._agent_tracer.interaction(max_iterations):
             while iteration < max_iterations:
@@ -203,16 +204,25 @@ class BaseAgent:
                     # needs_compaction signals the caller to trigger early compaction.
                     messages_for_llm, needs_compaction = prune_messages(messages)
 
-                    # Inject sandbox file manifest into the system prompt suffix
-                    # so the model knows what's on disk. Uses _suffix to avoid
-                    # busting the prompt cache (suffix is a separate uncached block).
+                    # Build dynamic context (file manifest + budget) and append
+                    # at the END of messages so the prefix stays stable for
+                    # automatic prompt caching.
+                    dynamic_parts = []
                     file_manifest = self._file_tracker.get_manifest()
-                    if file_manifest and messages_for_llm and messages_for_llm[0].get("role") == "system":
+                    if file_manifest:
+                        dynamic_parts.append(file_manifest)
+                    if iteration > 1:
+                        total_calls = sum(tool_call_counts.values())
+                        top_tools = sorted(tool_call_counts.items(), key=lambda x: -x[1])
+                        tool_summary = ", ".join(f"{n}×{name}" for name, n in top_tools[:5])
+                        dynamic_parts.append(f"[Turn {iteration}/{max_iterations} | {total_calls} tool calls so far: {tool_summary}]")
+                    if dynamic_parts:
                         messages_for_llm = list(messages_for_llm)
-                        sys_msg = dict(messages_for_llm[0])
-                        existing_suffix = sys_msg.get("_suffix", "") or ""
-                        sys_msg["_suffix"] = (existing_suffix + "\n\n" + file_manifest).strip()
-                        messages_for_llm[0] = sys_msg
+                        messages_for_llm.append({
+                            "role": "user",
+                            "content": "[system context]\n" + "\n".join(dynamic_parts)
+                        })
+
                     if needs_compaction:
                         self._needs_early_compaction = True
 
@@ -261,7 +271,10 @@ class BaseAgent:
                     
                     # Record tool calls requested
                     self._agent_tracer.record_tool_calls_requested(tool_calls)
-                    
+                    for tc in tool_calls:
+                        fn = tc.get("function", {}).get("name", "unknown")
+                        tool_call_counts[fn] = tool_call_counts.get(fn, 0) + 1
+
                     # Add assistant message with tool calls to history
                     assistant_msg = {
                         "role": "assistant",
