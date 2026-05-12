@@ -253,24 +253,27 @@ async def stream_llm_response(
     is_claude = _is_claude_model(llm_kwargs["model"])
     
     if is_claude and llm_config.caching:
-        # Automatic prompt caching — Anthropic caches the longest common
-        # prefix between consecutive requests.  No cache_control breakpoints
-        # needed; we just pass system / tools / messages in the right shape.
+        # Build a system message with cache_control on its content blocks.
+        # litellm expects system messages inside the messages array (role="system")
+        # — it extracts them and forwards cache_control to the Anthropic API.
+        cached_messages: List[Dict[str, Any]] = []
         if system_message:
             suffix = system_message.get("_suffix")
-            # System prompt as structured content blocks (required by Anthropic API)
-            blocks = [{"type": "text", "text": system_message["content"]}]
-            if suffix:
-                blocks.append({"type": "text", "text": suffix})
-            llm_kwargs["system"] = blocks
-            logger.debug(f"  📦 System prompt: ~{len(system_message['content']) // 4:,} tokens (auto-cached)")
+            cached_messages.append({
+                "role": "system",
+                "content": _add_cache_control_to_system(
+                    system_message["content"], suffix=suffix
+                ),
+            })
+            logger.debug(f"  📦 System prompt: ~{len(system_message['content']) // 4:,} tokens (cached)")
 
         if tools:
-            llm_kwargs["tools"] = tools
+            llm_kwargs["tools"] = _add_cache_control_to_tools(tools)
             llm_kwargs["tool_choice"] = "auto"
 
-        llm_kwargs["messages"] = conversation_messages
-        logger.debug(f"  📝 Automatic prompt caching with {len(conversation_messages)} messages")
+        cached_messages.extend(_add_cache_control_to_messages(conversation_messages))
+        llm_kwargs["messages"] = cached_messages
+        logger.debug(f"  📝 Prompt caching with {len(conversation_messages)} messages, cache breakpoints applied")
     else:
         # Non-Claude models or caching disabled: use standard format
         # Merge any dynamic suffix into the system message content

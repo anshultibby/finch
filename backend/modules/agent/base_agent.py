@@ -222,7 +222,13 @@ class BaseAgent:
                             context_block = "\n".join(dynamic_parts)
                             messages_for_llm = list(messages_for_llm)
                             last = dict(last_msg)
-                            last["content"] = (last.get("content") or "") + "\n\n" + context_block
+                            existing = last.get("content") or ""
+                            if isinstance(existing, list):
+                                existing = "\n".join(
+                                    b.get("text", "") if isinstance(b, dict) else str(b)
+                                    for b in existing
+                                )
+                            last["content"] = existing + "\n\n" + context_block
                             messages_for_llm[-1] = last
 
                     if needs_compaction:
