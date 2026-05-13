@@ -692,7 +692,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
           <table className="w-full text-sm min-w-[360px] sm:min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2.5 px-2 sm:px-4 text-xs font-medium text-gray-400 sm:sticky sm:left-0 bg-white sm:z-10 w-[80px] sm:min-w-[180px]" />
+                <th className="text-left py-2.5 px-2 sm:px-4 text-xs font-medium text-gray-400 sm:sticky sm:left-0 bg-white w-[80px] sm:min-w-[180px]" />
                 {columns.map((col, i) => {
                   const d = col.date ? new Date(col.date) : null;
                   const label = d
@@ -728,7 +728,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                   dataRowIdx++;
                   return (
                     <tr key={ri} className={stripe}>
-                      <td className={`py-2 sm:py-2.5 px-2 sm:px-4 pl-5 sm:pl-8 text-[11px] sm:text-[13px] text-gray-500 sm:sticky sm:left-0 ${stickyBg} sm:z-10 max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap`} title={row.label}>{row.label}</td>
+                      <td className={`py-2 sm:py-2.5 px-2 sm:px-4 pl-5 sm:pl-8 text-[11px] sm:text-[13px] text-gray-500 sm:sticky sm:left-0 ${stickyBg} max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap`} title={row.label}>{row.label}</td>
                       {columns.map((col, i) => (
                         <td key={i} className="text-right py-2 sm:py-2.5 px-2 sm:px-4 tabular-nums text-[12px] sm:text-[13px] text-gray-600 whitespace-nowrap">
                           {fmtGrowth(col[row.of], columns[i + 1]?.[row.of] ?? null)}
@@ -743,7 +743,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                   dataRowIdx++;
                   return (
                     <tr key={ri} className={stripe}>
-                      <td className={`py-2 sm:py-2.5 px-2 sm:px-4 pl-5 sm:pl-8 text-[11px] sm:text-[13px] text-gray-500 sm:sticky sm:left-0 ${stickyBg} sm:z-10 max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap`} title={row.label}>{row.label}</td>
+                      <td className={`py-2 sm:py-2.5 px-2 sm:px-4 pl-5 sm:pl-8 text-[11px] sm:text-[13px] text-gray-500 sm:sticky sm:left-0 ${stickyBg} max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap`} title={row.label}>{row.label}</td>
                       {columns.map((col, i) => (
                         <td key={i} className="text-right py-2 sm:py-2.5 px-2 sm:px-4 tabular-nums text-[12px] sm:text-[13px] text-gray-600 whitespace-nowrap">
                           {fmtMargin(col[row.num], col[row.den])}
@@ -757,7 +757,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                 dataRowIdx++;
                 return (
                   <tr key={ri} className={`${stripe} hover:bg-gray-100/50 transition-colors`}>
-                    <td className={`py-2 sm:py-2.5 px-2 sm:px-4 sm:sticky sm:left-0 ${stickyBg} sm:z-10 max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap ${
+                    <td className={`py-2 sm:py-2.5 px-2 sm:px-4 sm:sticky sm:left-0 ${stickyBg} max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap ${
                       isIndent ? 'pl-5 sm:pl-8 text-gray-500 text-[11px] sm:text-[13px]' : 'text-gray-800 font-medium text-[11px] sm:text-[13px]'
                     }`} title={row.label}>
                       {row.label}
