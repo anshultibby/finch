@@ -199,8 +199,8 @@ function StockChatBar({ symbol, openChatAbout, pageContext }: {
   };
 
   return (
-    <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3">
-      <div className="flex items-end gap-2 max-w-3xl">
+    <div className="sticky bottom-3 mb-3 max-w-3xl px-3 sm:px-4">
+      <div className="flex items-end gap-2 backdrop-blur-xl bg-white/70 border border-gray-200/60 rounded-2xl px-3 py-2 shadow-lg">
         <textarea
           ref={textareaRef}
           value={message}
@@ -213,8 +213,8 @@ function StockChatBar({ symbol, openChatAbout, pageContext }: {
           onKeyDown={handleKeyDown}
           placeholder={`Ask about ${symbol}...`}
           rows={1}
-          className="flex-1 resize-none bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-300 focus:bg-white transition-colors"
-          style={{ minHeight: '40px', maxHeight: '120px' }}
+          className="flex-1 resize-none bg-transparent border-0 px-1 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
+          style={{ minHeight: '36px', maxHeight: '120px' }}
         />
         <button onClick={handleSend} disabled={!message.trim()}
           className="shrink-0 p-2.5 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 text-white disabled:text-gray-400 rounded-xl transition-colors">
