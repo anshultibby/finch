@@ -75,6 +75,51 @@ async def _get_sandbox(user_id: str):
     return await get_or_create_sandbox(user_id, envs={})
 
 
+_STOCK_ANALYSIS_MD_PATTERN = re.compile(r"^stocks/([A-Z0-9]+)/[^/]+\.md$", re.IGNORECASE)
+
+
+def _extract_title(content: str) -> str | None:
+    """Extract the first markdown heading as the note title."""
+    for line in content.split('\n'):
+        line = line.strip()
+        if line.startswith('# '):
+            return line[2:].strip()[:200]
+    return None
+
+
+async def _maybe_sync_stock_analysis(filename: str, content: str, context: AgentContext):
+    """If filename matches stocks/{SYMBOL}/*.md, insert a new note and auto-add to watchlist."""
+    m = _STOCK_ANALYSIS_MD_PATTERN.match(filename)
+    if not m:
+        return
+    symbol = m.group(1).upper()
+    title = _extract_title(content)
+    try:
+        from core.database import get_db_session
+        from sqlalchemy import text
+        chat_id = (context.data or {}).get("chat_id")
+        async with get_db_session() as db:
+            await db.execute(
+                text(
+                    "INSERT INTO stock_analysis (id, user_id, symbol, title, content, chat_id, created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :user_id, :symbol, :title, :content, :chat_id, now(), now())"
+                ),
+                {"user_id": context.user_id, "symbol": symbol, "title": title, "content": content, "chat_id": chat_id},
+            )
+            await db.execute(
+                text(
+                    "INSERT INTO user_watchlist (id, user_id, symbol) "
+                    "VALUES (gen_random_uuid(), :user_id, :symbol) "
+                    "ON CONFLICT (user_id, symbol) DO NOTHING"
+                ),
+                {"user_id": context.user_id, "symbol": symbol},
+            )
+            await db.commit()
+        logger.info(f"Auto-synced stock analysis + watchlist for {symbol} (user {context.user_id})")
+    except Exception as e:
+        logger.warning(f"Stock analysis sync failed for {symbol} (non-fatal): {e}")
+
+
 def _sandbox_path(filename: str, context: AgentContext) -> str:
     """Build full sandbox path for a chat file."""
     return f"{_files_dir(context)}/{filename}"
@@ -107,6 +152,8 @@ async def write_chat_file_impl(
         chat_dir = _files_dir(context)
         await entry.sbx.commands.run(f"mkdir -p {chat_dir}", timeout=5)
         await entry.sbx.files.write(_sandbox_path(filename, context), content)
+
+        await _maybe_sync_stock_analysis(filename, content, context)
 
         yield {
             "success": True,
@@ -289,6 +336,8 @@ async def replace_in_chat_file_impl(
         # Write back to sandbox
         entry = await _get_sandbox(context.user_id)
         await entry.sbx.files.write(_sandbox_path(filename, context), content)
+
+        await _maybe_sync_stock_analysis(filename, content, context)
 
         yield {
             "success": True,

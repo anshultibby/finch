@@ -1,7 +1,7 @@
 """
-Brokerage ORM models: BrokerageAccount, Transaction, TransactionSyncJob, PortfolioSnapshot, PortfolioIntradayCache, TradeAnalytics, UserWatchlist
+Brokerage ORM models: BrokerageAccount, Transaction, TransactionSyncJob, PortfolioSnapshot, PortfolioIntradayCache, TradeAnalytics, UserWatchlist, StockAnalysis
 """
-from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Date, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Date, UniqueConstraint, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from core.database import Base
@@ -159,3 +159,17 @@ class UserWatchlist(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'symbol', name='uq_watchlist_user_symbol'),
     )
+
+
+class StockAnalysis(Base):
+    """AI-generated stock analysis notes. Multiple notes per stock allowed."""
+    __tablename__ = "stock_analysis"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    symbol = Column(String(10), nullable=False, index=True)
+    title = Column(String(200), nullable=True)
+    content = Column(Text, nullable=False)
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

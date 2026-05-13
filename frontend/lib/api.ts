@@ -1101,4 +1101,19 @@ export const watchlistApi = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock Analysis API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const analysisApi = {
+  list: async () => {
+    const response = await api.get('/analysis');
+    return response.data;
+  },
+  get: async (symbol: string) => {
+    const response = await api.get(`/analysis/${symbol}`);
+    return response.data;
+  },
+};
+
 export default api;

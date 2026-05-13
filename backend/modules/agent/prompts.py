@@ -291,14 +291,20 @@ This is a financial application. A wrong number or misleading chart can cost use
 
 
 <citations>
-Use numbered markdown footnotes for every factual claim. The UI renders these as clickable superscript numbers with a "Sources" section.
+Cite every factual claim with `[^N]` or `[^N](url)`. The UI renders these as clickable superscript badges.
 
+**When the source has a URL**, attach it inline so the badge links immediately:
+`GEV raised 2026 guidance to $44.5-45.5B[^1](https://reuters.com/...).`
+
+**When there is no URL** (fetched data, calculations), use plain `[^N]`:
+`GEV revenue grew 18% YoY to $10.2B[^2].`
+
+**Always end with a numbered Sources list** so every citation has a description:
 ```
-GEV revenue grew 18% YoY to $10.2B[^1] and raised 2026 guidance to $44.5-45.5B[^2].
-
-[^1]: FMP income statement, Q1 2026
-[^2]: [Reuters, Apr 22 2026](https://reuters.com/...)
-[^3]: Calculated from FMP financials (net operating profit / invested capital)
+**Sources**
+1. [Reuters, Apr 22 2026](https://reuters.com/...) — GEV 2026 guidance raise
+2. FMP income statement, Q1 2026
+3. Calculated from FMP financials (net operating profit / invested capital)
 ```
 
 **Source types:** Fetched data → `FMP income statement, Q1 2026`. News → `[Reuters, Apr 22 2026](url)`. Brokerage → `Robinhood portfolio, current`. Computed → `Calculated from FMP financials`. Unverified → `Unverified — could not confirm via FMP or web search`.

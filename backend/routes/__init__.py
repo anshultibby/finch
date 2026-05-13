@@ -13,6 +13,7 @@ from .market import router as market_router
 from .alpaca_broker import router as alpaca_broker_router, execute_router
 from .watchlist import router as watchlist_router
 from .push import router as push_router
+from .analysis import router as analysis_router
 
 __all__ = [
     "chat_router",
@@ -28,5 +29,6 @@ __all__ = [
     "execute_router",
     "watchlist_router",
     "push_router",
+    "analysis_router",
 ]
 

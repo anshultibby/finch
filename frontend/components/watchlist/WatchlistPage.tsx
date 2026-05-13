@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { watchlistApi, marketApi } from '@/lib/api';
+import { watchlistApi, marketApi, analysisApi } from '@/lib/api';
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
@@ -22,10 +22,17 @@ interface WatchlistItem {
   added_at?: string;
 }
 
+interface ResearchItem {
+  symbol: string;
+  note_count: number;
+  updated_at: string | null;
+}
+
 export default function WatchlistPage() {
   const { user } = useAuth();
   const { openStock } = useNavigation();
   const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [research, setResearch] = useState<ResearchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [addSymbol, setAddSymbol] = useState('');
   const [adding, setAdding] = useState(false);
@@ -33,10 +40,15 @@ export default function WatchlistPage() {
   const fetchWatchlist = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await watchlistApi.getWatchlist(user.id);
-      setItems(data.symbols || []);
+      const [wlData, resData] = await Promise.all([
+        watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })),
+        analysisApi.list().catch(() => ({ analyses: [] })),
+      ]);
+      setItems(wlData.symbols || []);
+      setResearch(resData.analyses || []);
     } catch {
       setItems([]);
+      setResearch([]);
     } finally {
       setLoading(false);
     }
@@ -154,6 +166,40 @@ export default function WatchlistPage() {
               </div>
             );
           })
+        )}
+
+        {/* Research section */}
+        {research.length > 0 && (
+          <div className="px-4 sm:px-6 pt-4 pb-2">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}>
+                <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+                </svg>
+              </div>
+              <span className="text-sm font-bold text-gray-900">Research</span>
+            </div>
+            {research.map(item => (
+              <button
+                key={item.symbol}
+                onClick={() => openStock(item.symbol, 'analysis')}
+                className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold text-gray-900">{item.symbol}</span>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium border border-emerald-100">
+                    {item.note_count} note{item.note_count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="text-[11px] text-gray-400">
+                  {item.updated_at
+                    ? new Date(item.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    : ''}
+                </div>
+              </button>
+            ))}
+          </div>
         )}
 
         <div className="h-20 md:h-4" />

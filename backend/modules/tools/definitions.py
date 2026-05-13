@@ -297,7 +297,6 @@ __all__ = [
     'web_search_tool', 'news_search', 'scrape_url',
     # Brokerage / Portfolio
     'connect_brokerage', 'get_brokerage_status', 'get_portfolio',
-    # TLH — removed
     # Agent Management — disabled for now
     # 'create_agent',
 ]

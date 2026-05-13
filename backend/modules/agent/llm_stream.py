@@ -20,8 +20,8 @@ This ordering is critical to prevent message reordering bugs where file content
 interleaves with assistant messages during multi-turn conversations.
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
+import copy
 import json
-import re
 import asyncio
 import traceback as traceback_module
 from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent, ToolCallDetectedEvent
@@ -37,73 +37,30 @@ logger = get_logger(__name__)
 FILE_STREAMING_TOOLS = {'write_chat_file', 'replace_in_chat_file'}
 
 
-def _estimate_tokens(text: str) -> int:
-    """Rough token estimation: ~4 chars per token"""
-    return len(text) // 4
-
-
-
-
 def _is_claude_model(model: str) -> bool:
     """Check if the model is a Claude model that supports prompt caching"""
     m = model.lower()
     return m.startswith("claude") or m.startswith("anthropic/")
 
 
-def _add_cache_control_to_system(system_content: str, suffix: str = None) -> List[Dict[str, Any]]:
-    """
-    Convert system prompt to Claude format with cache control.
-
-    The static system prompt gets cache_control so it's cached across requests.
-    The optional suffix (e.g. page context) is added as a separate block WITHOUT
-    cache_control, so it doesn't bust the cache when it changes.
-    """
-    blocks = [
-        {
-            "type": "text",
-            "text": system_content,
-            "cache_control": {"type": "ephemeral"}
-        }
-    ]
-    if suffix:
-        blocks.append({
-            "type": "text",
-            "text": suffix,
-        })
-    return blocks
-
-
 def _add_cache_control_to_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Add cache control to the last tool definition.
-    
-    IMPORTANT: Tools get their own cache breakpoint, but it comes AFTER system prompt
-    in the cache, so system+tools effectively share cache space but tools get the
-    actual cache_control marker (they're cached together as one unit).
-    
-    Args:
-        tools: List of tool definitions
-        
-    Returns:
-        Tools list with cache_control added to last tool
-    """
+    """Add cache_control to the last tool definition to mark end of static content."""
     if not tools:
         return tools
-    
-    # Copy tools to avoid mutating original
     tools_copy = [tool.copy() for tool in tools]
-    
-    # Add cache_control to the last tool
-    # This marks the end of the "static" content (system + tools)
     tools_copy[-1]["cache_control"] = {"type": "ephemeral"}
-    
     return tools_copy
 
 
-def _deep_copy_message(msg: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep copy a message to avoid mutating the original."""
-    import copy
-    return copy.deepcopy(msg)
+def _mark_message_cached(msg: Dict[str, Any]) -> None:
+    """Add cache_control breakpoint to a message (mutates in place)."""
+    content = msg.get("content")
+    if isinstance(content, str):
+        msg["content"] = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    elif isinstance(content, list) and content and isinstance(content[-1], dict):
+        content[-1]["cache_control"] = {"type": "ephemeral"}
 
 
 def _add_cache_control_to_messages(
@@ -111,71 +68,23 @@ def _add_cache_control_to_messages(
 ) -> List[Dict[str, Any]]:
     """
     Add cache control breakpoints to conversation history.
-    
-    IMPORTANT: Returns a deep copy to avoid mutating original messages.
-    Cache control should NEVER be persisted to the database.
-    
-    KEY INSIGHT: Each cache_control breakpoint caches the ENTIRE PREFIX up to that point
-    (system + tools + all messages up to the breakpoint).
-    
-    Strategy per Anthropic docs:
-    - System (1) + Tools (1) = 2 breakpoints used
-    - We have 2 remaining for messages
-    - Place breakpoint at the END of conversation to cache everything
-    - Optionally add one more in the middle for very long conversations
-    
-    Args:
-        messages: List of conversation messages
-        
-    Returns:
-        Deep copy of messages with cache_control added at strategic positions
+
+    Returns a deep copy to avoid mutating originals (which get saved to DB).
+    Places a breakpoint at the last message (always) and the first message
+    (for conversations longer than 20 messages) to maximize cache hits.
     """
     if not messages:
         return []
 
-    # Deep copy to avoid mutating originals (which get saved to DB)
-    messages_copy = [_deep_copy_message(m) for m in messages]
-    
-    def add_cache_to_message(idx: int):
-        """Add cache control to message at given index"""
-        if idx < 0 or idx >= len(messages_copy):
-            return
-            
-        msg = messages_copy[idx]
-        
-        if isinstance(msg.get("content"), str):
-            messages_copy[idx]["content"] = [
-                {
-                    "type": "text",
-                    "text": msg["content"],
-                    "cache_control": {"type": "ephemeral"}
-                }
-            ]
-        elif isinstance(msg.get("content"), list):
-            # Already deep copied, safe to modify
-            content_blocks = msg["content"]
-            if content_blocks and isinstance(content_blocks[-1], dict):
-                content_blocks[-1]["cache_control"] = {"type": "ephemeral"}
-    
-    msg_count = len(messages)
-    
-    # Per Anthropic docs: "Always set an explicit cache breakpoint at the end 
-    # of your conversation to maximize your chances of cache hits"
-    
-    # ALWAYS cache at the VERY END - this includes the current user message
-    # The only thing NOT cached is the assistant's response (which hasn't been generated yet)
-    if msg_count >= 1:
-        add_cache_to_message(msg_count - 1)  # Cache up to and including latest message
-    
-    # For longer conversations, add a stable early breakpoint.
-    # IMPORTANT: This must NOT shift as the conversation grows, otherwise
-    # the prefix before it gets re-hashed every turn and we get massive
-    # cache misses. We anchor at the first user message (index 0 in
-    # conversation_messages, which follows the system prompt) so that
-    # system + tools + first user message form a stable cached prefix.
-    if msg_count > 20:
-        add_cache_to_message(0)
-    
+    messages_copy = copy.deepcopy(messages)
+
+    # Always cache the last message — caches entire prefix up to this point
+    _mark_message_cached(messages_copy[-1])
+
+    # For longer conversations, anchor a stable early breakpoint
+    if len(messages_copy) > 20:
+        _mark_message_cached(messages_copy[0])
+
     return messages_copy
 
 
@@ -253,37 +162,27 @@ async def stream_llm_response(
     is_claude = _is_claude_model(llm_kwargs["model"])
     
     if is_claude and llm_config.caching:
-        # Build a system message with cache_control on its content blocks.
         # litellm expects system messages inside the messages array (role="system")
         # — it extracts them and forwards cache_control to the Anthropic API.
         cached_messages: List[Dict[str, Any]] = []
         if system_message:
-            suffix = system_message.get("_suffix")
             cached_messages.append({
                 "role": "system",
-                "content": _add_cache_control_to_system(
-                    system_message["content"], suffix=suffix
-                ),
+                "content": [{"type": "text", "text": system_message["content"], "cache_control": {"type": "ephemeral"}}],
             })
-            logger.debug(f"  📦 System prompt: ~{len(system_message['content']) // 4:,} tokens (cached)")
+        cached_messages.extend(_add_cache_control_to_messages(conversation_messages))
+        llm_kwargs["messages"] = cached_messages
 
         if tools:
             llm_kwargs["tools"] = _add_cache_control_to_tools(tools)
             llm_kwargs["tool_choice"] = "auto"
 
-        cached_messages.extend(_add_cache_control_to_messages(conversation_messages))
-        llm_kwargs["messages"] = cached_messages
         logger.debug(f"  📝 Prompt caching with {len(conversation_messages)} messages, cache breakpoints applied")
     else:
-        # Non-Claude models or caching disabled: use standard format
-        # Merge any dynamic suffix into the system message content
-        if system_message and system_message.get("_suffix"):
-            merged = {k: v for k, v in messages[0].items() if k != "_suffix"}
-            merged["content"] = merged["content"] + "\n\n" + messages[0]["_suffix"]
-            messages = [merged] + list(messages[1:])
         llm_kwargs["messages"] = messages
-        llm_kwargs["tools"] = tools if tools else None
-        llm_kwargs["tool_choice"] = "auto" if tools else None
+        if tools:
+            llm_kwargs["tools"] = tools
+            llm_kwargs["tool_choice"] = "auto"
     
     llm_kwargs["stream"] = True
     # Enable usage tracking in streaming for cache statistics (Claude supports this)
@@ -296,7 +195,6 @@ async def stream_llm_response(
     content = ""
     tool_calls = []
     reasoning_content = ""
-    deferred_file_streams: Dict[int, tuple] = {}
     chunk_count = 0
 
     logger.info("🔄 Starting LLM stream request...")

@@ -2,7 +2,9 @@
 
 import React, { useEffect, useState, useCallback, useRef, KeyboardEvent } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, alpacaBrokerApi, watchlistApi } from '@/lib/api';
+import { marketApi, alpacaBrokerApi, watchlistApi, analysisApi } from '@/lib/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/contexts/AuthContext';
 import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
 import EarningsTab from '@/components/stock/EarningsTab';
@@ -615,11 +617,11 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
   return (
     <div ref={containerRef} className="mb-5 rounded-xl border border-gray-200 bg-white overflow-hidden relative">
       {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-gray-100">
-        <div className="flex flex-wrap gap-1">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 px-4 py-3 border-b border-gray-100">
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
           {FINANCIAL_STATEMENTS.map(s => (
             <button key={s.key} onClick={() => setStatement(s.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 statement === s.key
                   ? 'bg-gray-900 text-white'
                   : 'text-gray-500 hover:bg-gray-100'
@@ -687,17 +689,17 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
         <div className="text-sm text-gray-400 py-8 text-center">No financial data available</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[600px]">
+          <table className="w-full text-sm min-w-[360px] sm:min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-400 sticky left-0 bg-white z-10 min-w-[180px]" />
+                <th className="text-left py-2.5 px-2 sm:px-4 text-xs font-medium text-gray-400 sm:sticky sm:left-0 bg-white sm:z-10 w-[80px] sm:min-w-[180px]" />
                 {columns.map((col, i) => {
                   const d = col.date ? new Date(col.date) : null;
                   const label = d
                     ? d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
                     : '';
                   return (
-                    <th key={i} className="text-right py-2.5 px-4 text-xs font-medium text-gray-400 whitespace-nowrap">
+                    <th key={i} className="text-right py-2.5 px-2 sm:px-4 text-xs font-medium text-gray-400 whitespace-nowrap">
                       {label}
                     </th>
                   );
@@ -710,7 +712,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                   dataRowIdx = 0;
                   return (
                     <tr key={ri}>
-                      <td colSpan={columns.length + 1} className="pt-5 pb-1.5 px-4 text-[13px] font-semibold text-gray-900 border-b border-gray-200">
+                      <td colSpan={columns.length + 1} className="pt-4 sm:pt-5 pb-1.5 px-2 sm:px-4 text-[11px] sm:text-[13px] font-semibold text-gray-900 border-b border-gray-200">
                         {row.label}
                       </td>
                     </tr>
@@ -726,9 +728,9 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                   dataRowIdx++;
                   return (
                     <tr key={ri} className={stripe}>
-                      <td className={`py-2.5 px-4 pl-8 text-[13px] text-gray-500 sticky left-0 ${stickyBg} z-10 whitespace-nowrap`}>{row.label}</td>
+                      <td className={`py-2 sm:py-2.5 px-2 sm:px-4 pl-5 sm:pl-8 text-[11px] sm:text-[13px] text-gray-500 sm:sticky sm:left-0 ${stickyBg} sm:z-10 max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap`} title={row.label}>{row.label}</td>
                       {columns.map((col, i) => (
-                        <td key={i} className="text-right py-2.5 px-4 tabular-nums text-[13px] text-gray-600 whitespace-nowrap">
+                        <td key={i} className="text-right py-2 sm:py-2.5 px-2 sm:px-4 tabular-nums text-[12px] sm:text-[13px] text-gray-600 whitespace-nowrap">
                           {fmtGrowth(col[row.of], columns[i + 1]?.[row.of] ?? null)}
                         </td>
                       ))}
@@ -741,9 +743,9 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                   dataRowIdx++;
                   return (
                     <tr key={ri} className={stripe}>
-                      <td className={`py-2.5 px-4 pl-8 text-[13px] text-gray-500 sticky left-0 ${stickyBg} z-10 whitespace-nowrap`}>{row.label}</td>
+                      <td className={`py-2 sm:py-2.5 px-2 sm:px-4 pl-5 sm:pl-8 text-[11px] sm:text-[13px] text-gray-500 sm:sticky sm:left-0 ${stickyBg} sm:z-10 max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap`} title={row.label}>{row.label}</td>
                       {columns.map((col, i) => (
-                        <td key={i} className="text-right py-2.5 px-4 tabular-nums text-[13px] text-gray-600 whitespace-nowrap">
+                        <td key={i} className="text-right py-2 sm:py-2.5 px-2 sm:px-4 tabular-nums text-[12px] sm:text-[13px] text-gray-600 whitespace-nowrap">
                           {fmtMargin(col[row.num], col[row.den])}
                         </td>
                       ))}
@@ -755,14 +757,14 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                 dataRowIdx++;
                 return (
                   <tr key={ri} className={`${stripe} hover:bg-gray-100/50 transition-colors`}>
-                    <td className={`py-2.5 px-4 sticky left-0 ${stickyBg} z-10 whitespace-nowrap ${
-                      isIndent ? 'pl-8 text-gray-500 text-[13px]' : 'text-gray-800 font-medium text-[13px]'
-                    }`}>
+                    <td className={`py-2 sm:py-2.5 px-2 sm:px-4 sm:sticky sm:left-0 ${stickyBg} sm:z-10 max-w-[80px] sm:max-w-none truncate sm:overflow-visible sm:text-clip whitespace-nowrap ${
+                      isIndent ? 'pl-5 sm:pl-8 text-gray-500 text-[11px] sm:text-[13px]' : 'text-gray-800 font-medium text-[11px] sm:text-[13px]'
+                    }`} title={row.label}>
                       {row.label}
                     </td>
                     {columns.map((col, i) => (
-                      <td key={i} className={`group/cell text-right py-2.5 px-4 tabular-nums whitespace-nowrap ${
-                        isIndent ? 'text-[13px] text-gray-600' : 'text-[13px] text-gray-900'
+                      <td key={i} className={`group/cell text-right py-2 sm:py-2.5 px-2 sm:px-4 tabular-nums whitespace-nowrap ${
+                        isIndent ? 'text-[12px] sm:text-[13px] text-gray-600' : 'text-[12px] sm:text-[13px] text-gray-900'
                       }`}>
                         <CitationCell
                           value={col[row.key]}
@@ -858,6 +860,8 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
   const [earningsHistory, setEarningsHistory] = useState<any[]>([]);
   const [finStatement, setFinStatement] = useState<FinancialStatement>('key-stats');
   const [finPeriod, setFinPeriod] = useState<FinancialPeriod>('annual');
+  const [aiNotes, setAiNotes] = useState<{ id: string; title: string | null; content: string; created_at: string | null; updated_at: string | null; chat_id: string | null }[]>([]);
+  const [expandedNote, setExpandedNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialTab && STOCK_TABS.some(t => t.key === initialTab)) {
@@ -881,6 +885,11 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
     marketApi.getPeers(symbol, 6).catch(() => []).then(pe => setPeers(Array.isArray(pe) ? pe : []));
     marketApi.getAnalyst(symbol).catch(() => null).then(a => setAnalyst(a));
     marketApi.getEarningsHistory(symbol, 12).catch(() => []).then(e => setEarningsHistory(Array.isArray(e) ? e : []));
+    analysisApi.get(symbol).catch(() => ({ notes: [] })).then(a => {
+      const notes = a?.notes || [];
+      setAiNotes(notes);
+      if (notes.length > 0) setExpandedNote(notes[0].id);
+    });
 
     if (user) {
       alpacaBrokerApi.getPortfolio(user.id).catch(() => null).then(portfolio => {
@@ -1149,6 +1158,70 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
 
           {activeTab === 'analysis' && (
             <div className="mb-5">
+              {/* AI research notes */}
+              {aiNotes.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                      style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}>
+                      <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-bold text-gray-900">AI Research Notes</span>
+                    <span className="text-[11px] text-gray-400">{aiNotes.length} note{aiNotes.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {aiNotes.map(note => {
+                      const isExpanded = expandedNote === note.id;
+                      return (
+                        <div key={note.id} className="rounded-xl border border-gray-200 overflow-hidden">
+                          <button
+                            onClick={() => setExpandedNote(isExpanded ? null : note.id)}
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <svg className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                              </svg>
+                              <span className="text-sm font-medium text-gray-900 truncate">
+                                {note.title || `Research Note`}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              {note.created_at && (
+                                <span className="text-[11px] text-gray-400">
+                                  {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </span>
+                              )}
+                              {note.chat_id && (
+                                <span
+                                  onClick={e => { e.stopPropagation(); openChatAbout(symbol, undefined, { page: 'stock', symbol, name }); }}
+                                  className="text-[11px] text-emerald-600 hover:text-emerald-700 font-medium cursor-pointer"
+                                >
+                                  Chat
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                          {isExpanded && (
+                            <div className="px-5 pb-5 prose prose-sm prose-gray max-w-none
+                              prose-headings:text-gray-900 prose-headings:font-bold prose-headings:mt-4 prose-headings:mb-2
+                              prose-p:text-gray-600 prose-p:leading-relaxed
+                              prose-li:text-gray-600
+                              prose-strong:text-gray-900
+                              prose-a:text-emerald-600 prose-a:no-underline hover:prose-a:underline">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.content}</ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Analyst Consensus + Price Targets */}
               {analyst?.grades && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">

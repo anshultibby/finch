@@ -136,6 +136,28 @@ function SandboxImage({
   );
 }
 
+const SUPERSCRIPT_DIGITS = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+function toSuperscript(n: string): string {
+  return n.split('').map(d => SUPERSCRIPT_DIGITS[parseInt(d)] || d).join('');
+}
+const CITE_BADGE_RE = /^[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/;
+
+// Convert [^N](url) → linked superscript badge, [^N] → non-linked badge.
+// Uses unicode superscript digits so remark-gfm doesn't treat them as footnotes.
+function preprocessCitations(md: string): string {
+  // [^N](url) → linked badge
+  let result = md.replace(/\[\^(\d+)\]\((https?:\/\/[^)]+)\)/g, (_m, n, url) =>
+    `[${toSuperscript(n)}](${url})`
+  );
+  // [^N] not followed by : (not a GFM definition) → non-linked badge
+  result = result.replace(/\[\^(\d+)\](?![:(])/g, (_m, n) =>
+    toSuperscript(n)
+  );
+  // Remove leftover GFM footnote definitions (model may still emit them)
+  result = result.replace(/^\[\^\d+\]:.*$/gm, '');
+  return result;
+}
+
 // Custom ReactMarkdown components that route sandbox image paths through the API
 const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filename: string) => void) => ({
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
@@ -152,48 +174,21 @@ const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filen
     }
     return <img src={src} alt={alt} {...props} />;
   },
-  sup: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
-    return (
-      <sup className="inline-flex" {...props}>
-        {React.Children.map(children, (child) => {
-          if (React.isValidElement(child) && (child.props as Record<string, unknown>)?.['data-footnote-ref'] !== undefined) {
-            return React.cloneElement(child as React.ReactElement<React.AnchorHTMLAttributes<HTMLAnchorElement>>, {
-              className: 'no-underline inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1 relative',
-            });
-          }
-          return child;
-        })}
-      </sup>
-    );
-  },
-  section: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
-    const className = props.className || '';
-    if (className.includes('footnotes')) {
-      return (
-        <section className="mt-4 pt-3 border-t border-slate-200">
-          <details className="group" open>
-            <summary className="text-xs font-medium text-slate-500 cursor-pointer hover:text-slate-700 select-none list-none flex items-center gap-1">
-              <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-              Sources
-            </summary>
-            <div className="mt-2 text-xs text-slate-600 [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:space-y-1 [&_a]:text-blue-600 [&_a:hover]:text-blue-800 [&_a]:underline [&_p]:inline [&_a[data-footnote-backref]]:hidden">
-              {children}
-            </div>
-          </details>
-        </section>
-      );
-    }
-    return <section {...props}>{children}</section>;
-  },
   a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
-    const dataProps = props as Record<string, unknown>;
-    if (dataProps['data-footnote-ref'] !== undefined) {
-      return <a href={href} {...props}>{children}</a>;
-    }
-    if (dataProps['data-footnote-backref'] !== undefined) {
-      return null;
+    const text = typeof children === 'string' ? children
+      : Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+    if (CITE_BADGE_RE.test(text)) {
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="no-underline inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1 relative"
+          {...props}
+        >
+          {text}
+        </a>
+      );
     }
     if (href?.startsWith('http')) {
       return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline" {...props}>{children}</a>;
@@ -991,7 +986,8 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
 
 export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
-  const content = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
+  const contentCleaned = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
+  const content = !isUser && contentCleaned ? preprocessCitations(contentCleaned) : contentCleaned;
   const hasSpecialTags = !isUser && content && (
     HAS_CURLY_TAGS_RE.test(content) ||
     /\[(file|visualization|image):\s*[^\]]+\]/.test(content)
@@ -1020,7 +1016,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
               {parsedContent?.map((part, idx) =>
                 typeof part === 'string' ? (
                   <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
-                    {part}
+                    {preprocessCitations(part)}
                   </ReactMarkdown>
                 ) : part
               )}
@@ -1059,7 +1055,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
               {parsedContent?.map((part, idx) =>
                 typeof part === 'string' ? (
                   <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
-                    {part}
+                    {preprocessCitations(part)}
                   </ReactMarkdown>
                 ) : part
               )}

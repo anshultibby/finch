@@ -42,7 +42,6 @@ class BaseAgent:
         tool_names: Optional[List[str]] = None,
         enable_tool_streaming: bool = False,
         chat_logger = None,
-        system_prompt_suffix: Optional[str] = None
     ):
         """
         Initialize the agent with configuration.
@@ -54,11 +53,9 @@ class BaseAgent:
             tool_names: List of tool names (None = all tools, [] = no tools)
             enable_tool_streaming: Whether tools emit real-time events
             chat_logger: Optional ChatLogger for separate conversation tracking (used by executors)
-            system_prompt_suffix: Dynamic content appended after cache breakpoint (e.g. page context)
         """
         self.context = context
         self.system_prompt = system_prompt
-        self.system_prompt_suffix = system_prompt_suffix
         self.model = model
         self.tool_names = tool_names
         self.enable_tool_streaming = enable_tool_streaming
@@ -203,33 +200,6 @@ class BaseAgent:
                     # This is transient — the database and chat_history are not affected.
                     # needs_compaction signals the caller to trigger early compaction.
                     messages_for_llm, needs_compaction = prune_messages(messages)
-
-                    # Build dynamic context (file manifest + budget) and append
-                    # at the END of messages so the prefix stays stable for
-                    # automatic prompt caching.
-                    dynamic_parts = []
-                    file_manifest = self._file_tracker.get_manifest()
-                    if file_manifest:
-                        dynamic_parts.append(file_manifest)
-                    if iteration > 1:
-                        total_calls = sum(tool_call_counts.values())
-                        top_tools = sorted(tool_call_counts.items(), key=lambda x: -x[1])
-                        tool_summary = ", ".join(f"{n}×{name}" for name, n in top_tools[:5])
-                        dynamic_parts.append(f"[Turn {iteration}/{max_iterations} | {total_calls} tool calls so far: {tool_summary}]")
-                    if dynamic_parts and messages_for_llm:
-                        last_msg = messages_for_llm[-1]
-                        if last_msg.get("role") == "tool":
-                            context_block = "\n".join(dynamic_parts)
-                            messages_for_llm = list(messages_for_llm)
-                            last = dict(last_msg)
-                            existing = last.get("content") or ""
-                            if isinstance(existing, list):
-                                existing = "\n".join(
-                                    b.get("text", "") if isinstance(b, dict) else str(b)
-                                    for b in existing
-                                )
-                            last["content"] = existing + "\n\n" + context_block
-                            messages_for_llm[-1] = last
 
                     if needs_compaction:
                         self._needs_early_compaction = True
@@ -456,8 +426,6 @@ class BaseAgent:
             List of messages in OpenAI format
         """
         system_message = {"role": "system", "content": self.system_prompt}
-        if self.system_prompt_suffix:
-            system_message["_suffix"] = self.system_prompt_suffix
         messages = [system_message]
         messages.extend(chat_history.to_openai_format(limit=history_limit))
         
