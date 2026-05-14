@@ -483,7 +483,6 @@ export default function ChatView({
           setCurrentChatId(newChatId);
         },
         skills,
-        undefined,
         isFirst ? pageContext : undefined,
       );
     } catch {
