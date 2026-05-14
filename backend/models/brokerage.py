@@ -173,3 +173,24 @@ class StockAnalysis(Base):
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Visualization(Base):
+    """Agent-generated HTML visualizations (dashboards, trackers, charts)."""
+    __tablename__ = "visualizations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    chat_id = Column(String, ForeignKey("chats.chat_id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(200), nullable=True)
+    description = Column(String(500), nullable=True)
+    filename = Column(String(200), nullable=False)
+    html_content = Column(Text, nullable=False)
+    category = Column(String(100), nullable=True)
+    tags = Column(JSONB, nullable=True, server_default="[]")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'filename', name='uq_viz_user_filename'),
+    )

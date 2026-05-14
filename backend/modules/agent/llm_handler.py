@@ -28,10 +28,13 @@ tracer = get_tracer(__name__)
 # Pricing per million tokens (as of Dec 2024)
 # Format: {model_prefix: {"input": price, "output": price, "cache_read": price, "cache_write": price}}
 MODEL_PRICING = {
-    # Claude 4 models (Sonnet 4.5 and Opus 4.5)
+    # Claude 4.6 models
+    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
+    "claude-opus-4-6": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
+    # Claude 4.5 models
     "claude-sonnet-4-5": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
     "claude-opus-4-5": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
-    # Claude 4 models (Sonnet 4 and Opus 4)
+    # Claude 4 models
     "claude-sonnet-4": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
     "claude-opus-4": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
     # Claude 3.5 models
@@ -48,8 +51,10 @@ MODEL_PRICING = {
 
 
 def _get_model_pricing(model: str) -> Dict[str, float]:
-    """Get pricing for a model by matching prefix."""
+    """Get pricing for a model by matching prefix (strips provider prefix like 'anthropic/')."""
     model_lower = model.lower()
+    if "/" in model_lower:
+        model_lower = model_lower.split("/", 1)[1]
     for prefix, pricing in MODEL_PRICING.items():
         if model_lower.startswith(prefix):
             return pricing

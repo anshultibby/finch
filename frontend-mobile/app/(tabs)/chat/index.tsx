@@ -1,127 +1,100 @@
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDrawer } from '@/contexts/DrawerContext';
 import { useRouter } from 'expo-router';
-import { useState, useEffect, useCallback } from 'react';
 import { chatApi } from '@/lib/api';
-import { Plus, MessageSquare } from 'lucide-react-native';
+import { Menu, SquarePen, MessageSquare } from 'lucide-react-native';
+import FinchLogo from '@/components/FinchLogo';
 
-interface ChatItem {
-  chat_id: string;
-  title: string | null;
-  icon: string | null;
-  created_at: string;
-  updated_at: string;
-  last_message?: string;
-}
-
-export default function ChatListScreen() {
+export default function ChatIndexScreen() {
   const { user } = useAuth();
+  const { openDrawer } = useDrawer();
   const router = useRouter();
-  const [chats, setChats] = useState<ChatItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchChats = useCallback(async () => {
-    if (!user) return;
-    try {
-      const data = await chatApi.getUserChats(user.id);
-      setChats(data.chats || []);
-    } catch (err) {
-      console.error('Failed to fetch chats:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => { fetchChats(); }, [fetchChats]);
 
   const createNewChat = async () => {
     if (!user) return;
     try {
       const chatId = await chatApi.createChat(user.id);
       router.push(`/(tabs)/chat/${chatId}`);
-    } catch (err) {
-      console.error('Failed to create chat:', err);
-    }
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    } catch {}
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-finch-bg" edges={['top']}>
-      <View className="flex-row items-center justify-between px-5 py-3">
-        <Text className="text-2xl font-body-bold text-slate-900">Chats</Text>
-        <TouchableOpacity
-          onPress={createNewChat}
-          className="bg-emerald-600 rounded-full w-10 h-10 items-center justify-center"
-          activeOpacity={0.8}
-        >
-          <Plus size={20} color="#ffffff" />
+    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={openDrawer} style={styles.iconBtn} activeOpacity={0.7}>
+          <Menu size={22} color="#111827" />
+        </TouchableOpacity>
+        <FinchLogo size={22} showText />
+        <TouchableOpacity onPress={createNewChat} style={styles.iconBtn} activeOpacity={0.7}>
+          <SquarePen size={20} color="#6b7280" />
         </TouchableOpacity>
       </View>
 
-      {loading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#059669" />
+      <View className="flex-1 items-center justify-center px-8">
+        <View style={styles.iconCircle}>
+          <MessageSquare size={28} color="#9ca3af" />
         </View>
-      ) : chats.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-8">
-          <MessageSquare size={48} color="#cbd5e1" />
-          <Text className="text-lg font-body-medium text-slate-400 mt-4 text-center">
-            No chats yet
-          </Text>
-          <Text className="text-sm font-body text-slate-400 mt-1 text-center">
-            Start a conversation to get AI-powered trading insights
-          </Text>
-          <TouchableOpacity
-            onPress={createNewChat}
-            className="mt-6 bg-emerald-600 rounded-2xl px-6 py-3"
-            activeOpacity={0.8}
-          >
-            <Text className="text-white font-body-medium">Start a Chat</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={chats}
-          keyExtractor={(item) => item.chat_id}
-          contentContainerClassName="px-5 pb-4"
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              onPress={() => router.push(`/(tabs)/chat/${item.chat_id}`)}
-              className="bg-white rounded-2xl p-4 mb-3 border border-black/5"
-              activeOpacity={0.7}
-            >
-              <View className="flex-row items-start justify-between">
-                <View className="flex-1 mr-3">
-                  <Text className="text-base font-body-medium text-slate-900" numberOfLines={1}>
-                    {item.icon ? `${item.icon} ` : ''}{item.title || 'New Chat'}
-                  </Text>
-                  {item.last_message && (
-                    <Text className="text-sm font-body text-slate-500 mt-1" numberOfLines={2}>
-                      {item.last_message}
-                    </Text>
-                  )}
-                </View>
-                <Text className="text-xs font-body text-slate-400">
-                  {formatDate(item.updated_at)}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
-        />
-      )}
+        <Text style={styles.title}>Start a conversation</Text>
+        <Text style={styles.subtitle}>
+          Ask about stocks, analyze your portfolio, or get investment research.
+        </Text>
+        <TouchableOpacity onPress={createNewChat} style={styles.newChatBtn} activeOpacity={0.8}>
+          <Text style={styles.newChatText}>New Chat</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    height: 48,
+  },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+  },
+  iconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 18,
+    fontFamily: 'DMSans-Bold',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: 'DMSans',
+    color: '#9ca3af',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  newChatBtn: {
+    backgroundColor: '#111827',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  newChatText: {
+    fontSize: 14,
+    fontFamily: 'DMSans-Medium',
+    color: '#fff',
+  },
+});

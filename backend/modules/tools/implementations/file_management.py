@@ -76,6 +76,7 @@ async def _get_sandbox(user_id: str):
 
 
 _STOCK_ANALYSIS_MD_PATTERN = re.compile(r"^stocks/([A-Z0-9]+)/[^/]+\.md$", re.IGNORECASE)
+_VISUALIZATION_HTML_PATTERN = re.compile(r"^visualizations/[^/]+\.html$", re.IGNORECASE)
 
 
 def _extract_title(content: str) -> str | None:
@@ -120,6 +121,37 @@ async def _maybe_sync_stock_analysis(filename: str, content: str, context: Agent
         logger.warning(f"Stock analysis sync failed for {symbol} (non-fatal): {e}")
 
 
+def _extract_html_title(content: str) -> str | None:
+    m = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE | re.DOTALL)
+    return m.group(1).strip()[:200] if m else None
+
+
+async def _maybe_sync_visualization(filename: str, content: str, context: AgentContext):
+    """If filename matches visualizations/*.html, upsert into visualizations table."""
+    if not _VISUALIZATION_HTML_PATTERN.match(filename):
+        return
+    title = _extract_html_title(content)
+    try:
+        from core.database import get_db_session
+        from sqlalchemy import text
+        chat_id = (context.data or {}).get("chat_id")
+        async with get_db_session() as db:
+            await db.execute(
+                text(
+                    "INSERT INTO visualizations (id, user_id, chat_id, title, filename, html_content, created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :user_id, :chat_id, :title, :filename, :html_content, now(), now()) "
+                    "ON CONFLICT ON CONSTRAINT uq_viz_user_filename DO UPDATE SET "
+                    "html_content = EXCLUDED.html_content, title = EXCLUDED.title, "
+                    "chat_id = COALESCE(EXCLUDED.chat_id, visualizations.chat_id), updated_at = now()"
+                ),
+                {"user_id": context.user_id, "chat_id": chat_id, "title": title, "filename": filename, "html_content": content},
+            )
+            await db.commit()
+        logger.info(f"Auto-synced visualization '{filename}' for user {context.user_id}")
+    except Exception as e:
+        logger.warning(f"Visualization sync failed for {filename} (non-fatal): {e}")
+
+
 def _sandbox_path(filename: str, context: AgentContext) -> str:
     """Build full sandbox path for a chat file."""
     return f"{_files_dir(context)}/{filename}"
@@ -154,6 +186,7 @@ async def write_chat_file_impl(
         await entry.sbx.files.write(_sandbox_path(filename, context), content)
 
         await _maybe_sync_stock_analysis(filename, content, context)
+        await _maybe_sync_visualization(filename, content, context)
 
         yield {
             "success": True,
@@ -338,6 +371,7 @@ async def replace_in_chat_file_impl(
         await entry.sbx.files.write(_sandbox_path(filename, context), content)
 
         await _maybe_sync_stock_analysis(filename, content, context)
+        await _maybe_sync_visualization(filename, content, context)
 
         yield {
             "success": True,

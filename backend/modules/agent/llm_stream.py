@@ -24,6 +24,8 @@ import copy
 import json
 import asyncio
 import traceback as traceback_module
+from pathlib import Path
+from datetime import datetime
 from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent, ToolCallDetectedEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
@@ -71,21 +73,107 @@ def _add_cache_control_to_messages(
 
     Returns a deep copy to avoid mutating originals (which get saved to DB).
     Places a breakpoint at the last message (always) and the first message
-    (for conversations longer than 20 messages) to maximize cache hits.
+    (for conversations longer than 20 messages).
     """
     if not messages:
         return []
 
     messages_copy = copy.deepcopy(messages)
 
-    # Always cache the last message — caches entire prefix up to this point
     _mark_message_cached(messages_copy[-1])
 
-    # For longer conversations, anchor a stable early breakpoint
     if len(messages_copy) > 20:
         _mark_message_cached(messages_copy[0])
 
     return messages_copy
+
+
+# Track call index per chat for cache diagnostics
+_call_counters: Dict[str, int] = {}
+
+
+def _msg_tokens(msg: Dict[str, Any]) -> int:
+    """Rough token estimate for a single message."""
+    chars = 0
+    content = msg.get("content") or ""
+    if isinstance(content, str):
+        chars += len(content)
+    elif isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict):
+                chars += len(block.get("text", ""))
+    for tc in msg.get("tool_calls") or []:
+        args = tc.get("function", {}).get("arguments", "")
+        chars += len(args) if isinstance(args, str) else 0
+    return chars // 4
+
+
+def _log_cache_diagnostics(
+    chat_id: Optional[str],
+    call_idx: int,
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+    usage_info: Any,
+) -> None:
+    """Write per-call cache diagnostics to chat_logs for offline analysis."""
+    if not chat_id:
+        return
+    try:
+        from .chat_logger import get_chat_log_dir
+        backend_dir = Path(__file__).resolve().parent.parent.parent
+        log_dir = get_chat_log_dir(chat_id, backend_dir)
+        cache_log = log_dir / "cache_diagnostics.jsonl"
+
+        breakpoint_positions = []
+        for i, msg in enumerate(messages):
+            content = msg.get("content")
+            has_bp = False
+            if isinstance(content, list):
+                has_bp = any(
+                    isinstance(b, dict) and "cache_control" in b
+                    for b in content
+                )
+            if has_bp:
+                breakpoint_positions.append({
+                    "index": i,
+                    "role": msg.get("role", "?"),
+                    "est_tokens": _msg_tokens(msg),
+                    "prefix_tokens": sum(_msg_tokens(messages[j]) for j in range(i + 1)),
+                })
+
+        tool_bp = None
+        for i, t in enumerate(tools or []):
+            if "cache_control" in t:
+                tool_bp = {"tool_index": i, "tool_name": t.get("function", {}).get("name", "?")}
+
+        per_msg = [
+            {"i": i, "role": m.get("role", "?"), "tokens": _msg_tokens(m)}
+            for i, m in enumerate(messages)
+        ]
+
+        entry = {
+            "ts": datetime.utcnow().isoformat(),
+            "call_idx": call_idx,
+            "msg_count": len(messages),
+            "tool_count": len(tools or []),
+            "breakpoints": breakpoint_positions,
+            "tool_breakpoint": tool_bp,
+            "messages": per_msg,
+        }
+
+        if usage_info:
+            entry["usage"] = {
+                "prompt_tokens": getattr(usage_info, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage_info, "completion_tokens", 0),
+                "cache_read": getattr(usage_info, "cache_read_input_tokens", 0),
+                "cache_creation": getattr(usage_info, "cache_creation_input_tokens", 0),
+            }
+
+        cache_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_log, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        logger.debug(f"Cache diagnostics log failed (non-fatal): {exc}")
 
 
 async def stream_llm_response(
@@ -189,15 +277,31 @@ async def stream_llm_response(
     # Always set this to override any default from llm_config
     llm_kwargs["stream_options"] = {"include_usage": True} if is_claude else {"include_usage": False}
     
-    # Stream response
-    CHUNK_TIMEOUT_SECONDS = 120
+    # Stream response — scale timeout with context size so large conversations
+    # don't get killed while the model is still processing.
+    estimated_tokens = sum(
+        len(str(m.get("content", ""))) // 4 for m in llm_kwargs.get("messages", [])
+    )
+    if estimated_tokens > 200_000:
+        chunk_timeout = 600
+    elif estimated_tokens > 100_000:
+        chunk_timeout = 300
+    else:
+        chunk_timeout = 120
 
     content = ""
     tool_calls = []
     reasoning_content = ""
     chunk_count = 0
+    stream_usage_info = None
 
-    logger.info("🔄 Starting LLM stream request...")
+    # Track per-call index for cache diagnostics
+    cache_diag_key = chat_id or "unknown"
+    _call_counters.setdefault(cache_diag_key, 0)
+    _call_counters[cache_diag_key] += 1
+    call_idx = _call_counters[cache_diag_key]
+
+    logger.info(f"🔄 Starting LLM stream request (call #{call_idx}, ~{estimated_tokens:,} est. tokens, chunk timeout: {chunk_timeout}s)...")
     stream_response = await llm_handler.acompletion(**llm_kwargs)
     logger.info("🔄 LLM acompletion returned, starting to iterate chunks...")
 
@@ -205,15 +309,19 @@ async def stream_llm_response(
         chunk_iter = stream_response.__aiter__()
         while True:
             try:
-                chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=CHUNK_TIMEOUT_SECONDS)
+                chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=chunk_timeout)
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
-                logger.error(f"⏰ LLM stream stalled - no chunk received in {CHUNK_TIMEOUT_SECONDS}s after {chunk_count} chunks")
-                raise TimeoutError(f"LLM stream stalled after {chunk_count} chunks (no data for {CHUNK_TIMEOUT_SECONDS}s)")
+                logger.error(f"⏰ LLM stream stalled - no chunk received in {chunk_timeout}s after {chunk_count} chunks (~{estimated_tokens:,} tokens)")
+                raise TimeoutError(f"LLM stream stalled after {chunk_count} chunks (no data for {chunk_timeout}s)")
             chunk_count += 1
             if chunk_count == 1:
                 logger.info("🔄 First chunk received from LLM stream")
+
+            if hasattr(chunk, 'usage') and chunk.usage:
+                stream_usage_info = chunk.usage
+
             if not hasattr(chunk, 'choices') or not chunk.choices:
                 continue
 
@@ -320,6 +428,15 @@ async def stream_llm_response(
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"Could not extract file content for streaming: {e}")
     
+    # Log per-call cache diagnostics for offline analysis
+    _log_cache_diagnostics(
+        chat_id=chat_id,
+        call_idx=call_idx,
+        messages=llm_kwargs.get("messages", []),
+        tools=llm_kwargs.get("tools", []),
+        usage_info=stream_usage_info,
+    )
+
     # Emit end event
     logger.info(f"🔄 Emitting llm_end event (content_length={len(content)}, tool_calls_count={len(validated_tool_calls)})")
     yield SSEEvent(

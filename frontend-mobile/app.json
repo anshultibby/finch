@@ -15,9 +15,18 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.finch.app",
+      "bundleIdentifier": "ai.finchapp.mobile",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow Finch to access your camera to take photos for chat attachments."
+        "NSCameraUsageDescription": "Allow Finch to access your camera to take photos for chat attachments.",
+        "NSPhotoLibraryUsageDescription": "Allow Finch to access your photos to attach images to chat.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:finchapp.ai"
+      ],
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -25,7 +34,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#fafaf9"
       },
-      "package": "com.finch.app"
+      "package": "ai.finchapp.mobile",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
@@ -45,6 +55,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fb2a5134-5259-43e6-b51d-06c7ba0265f1"
+      },
+      "router": {}
+    },
+    "owner": "anshul2203"
   }
 }

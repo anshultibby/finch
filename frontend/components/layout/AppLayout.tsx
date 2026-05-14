@@ -15,6 +15,7 @@ import PortfolioPanel from '@/components/PortfolioPanel';
 import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
+import VisualizationsPanel from '@/components/VisualizationsPanel';
 import { marketApi } from '@/lib/api';
 import type { SwapData } from '@/lib/types';
 
@@ -33,6 +34,7 @@ function viewLabel(view: View): string {
     case 'swaps': return 'Swaps';
     case 'chat': return 'Chat';
     case 'search': return 'Search';
+    case 'visualizations': return 'Visualizations';
     default: return '';
   }
 }
@@ -333,6 +335,8 @@ function AppLayoutInner() {
             onSelectCandidate={handleSelectCandidate}
           />
         );
+      case 'visualizations':
+        return <VisualizationsPanel vizId={currentView.vizId} />;
       case 'chat':
         return null;
       default:

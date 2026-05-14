@@ -283,6 +283,23 @@ export interface Resource {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Visualization Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface Visualization {
+  id: string;
+  user_id: string;
+  chat_id: string | null;
+  title: string | null;
+  description: string | null;
+  filename: string;
+  category: string | null;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // API Response Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -625,6 +642,20 @@ export interface TradeLog {
   approval_token?: string;
   error?: string;
   dry_run: boolean;
+  created_at: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock Transactions (SnapTrade synced)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface StockTransaction {
+  id: string;
+  symbol: string;
+  type: string;
+  date: string;
+  account_id: string;
+  data: Record<string, any>;
   created_at: string;
 }
 

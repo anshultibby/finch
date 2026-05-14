@@ -365,6 +365,8 @@ async def _upload_skills(sbx) -> str:
                 except Exception as e:
                     logger.warning(f"Could not read skill file {file_path}: {e}")
 
+        upload_tasks.append((f"{SKILLS_DIR}/__init__.py", b""))
+
         # Upload files sequentially in small batches to avoid E2B read timeouts
         BATCH_SIZE = 5
         for i in range(0, len(upload_tasks), BATCH_SIZE):

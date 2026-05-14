@@ -990,6 +990,33 @@ export const skillsApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Analytics / Transactions API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const analyticsApi = {
+  async getTransactions(userId: string, symbol?: string, limit: number = 200) {
+    const params = new URLSearchParams({ user_id: userId, limit: String(limit) });
+    if (symbol) params.set('symbol', symbol);
+    const auth = await getAuthHeader();
+    const response = await fetch(`${API_BASE_URL}/api/analytics/transactions?${params}`, {
+      headers: { 'X-User-ID': userId, ...auth },
+    });
+    if (!response.ok) return { transactions: [], count: 0 };
+    return response.json() as Promise<{ transactions: import('./types').StockTransaction[]; count: number }>;
+  },
+
+  async syncTransactions(userId: string) {
+    const auth = await getAuthHeader();
+    const response = await fetch(`${API_BASE_URL}/api/analytics/transactions/sync?user_id=${userId}`, {
+      method: 'POST',
+      headers: { 'X-User-ID': userId, ...auth },
+    });
+    if (!response.ok) return { success: false };
+    return response.json();
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Chat Files API
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1112,6 +1139,37 @@ export const analysisApi = {
   },
   get: async (symbol: string) => {
     const response = await api.get(`/analysis/${symbol}`);
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Visualizations API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const visualizationsApi = {
+  list: async () => {
+    const response = await api.get('/api/visualizations');
+    return response.data;
+  },
+  get: async (id: string) => {
+    const response = await api.get(`/api/visualizations/${id}`);
+    return response.data;
+  },
+  getRenderHtml: async (id: string) => {
+    const response = await api.get(`/api/visualizations/${id}/render`, { responseType: 'text' });
+    return response.data as string;
+  },
+  update: async (id: string, data: { title?: string; description?: string; category?: string; tags?: string[] }) => {
+    const response = await api.patch(`/api/visualizations/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: string) => {
+    const response = await api.delete(`/api/visualizations/${id}`);
+    return response.data;
+  },
+  runScript: async (script: string) => {
+    const response = await api.post('/api/visualizations/run-script', { script });
     return response.data;
   },
 };

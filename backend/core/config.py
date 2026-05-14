@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     # =========================================================================
     AGENT_LLM_MODEL: str = Field(
-        default=Models.CLAUDE_SONNET_4_6,
+        default=Models.CLAUDE_OPUS_4_6,
         description="LLM model for the agent"
     )
     OPENAI_API_KEY: Optional[str] = Field(
@@ -164,7 +164,7 @@ class Settings(BaseSettings):
         description="Port for the API server"
     )
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,https://finch-omega.vercel.app,https://finchapp.ai,https://www.finchapp.ai",
+        default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:8081,http://192.168.1.66:8081,http://192.168.1.66:19006,https://finch-omega.vercel.app,https://finchapp.ai,https://www.finchapp.ai",
         description="Allowed CORS origins (comma-separated)"
     )
 

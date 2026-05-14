@@ -22,7 +22,7 @@ def upgrade():
         sa.Column("symbol", sa.String(10), nullable=False, index=True),
         sa.Column("title", sa.String(200), nullable=True),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("chat_id", UUID(as_uuid=True), sa.ForeignKey("chats.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("chat_id", sa.String(), sa.ForeignKey("chats.chat_id", ondelete="SET NULL"), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

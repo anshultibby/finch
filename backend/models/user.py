@@ -1,7 +1,7 @@
 """
 User-related ORM models: SnapTradeUser, UserSettings, UserSandbox, CreditTransaction
 """
-from sqlalchemy import Column, String, DateTime, Date, Text, Boolean, Integer, Float
+from sqlalchemy import Column, String, DateTime, Date, Text, Boolean, Integer, Float, JSON
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from core.database import Base
@@ -138,3 +138,16 @@ class DeviceToken(Base):
     platform = Column(String, nullable=False)  # 'ios' | 'android' | 'web'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    type = Column(String, nullable=False, default="general")  # general | chat | trade | system
+    data = Column(JSON, nullable=True)
+    read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

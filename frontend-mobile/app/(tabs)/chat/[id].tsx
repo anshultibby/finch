@@ -1,54 +1,23 @@
-import { View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDrawer } from '@/contexts/DrawerContext';
 import { useChatStream } from '@/hooks/useChatStream';
 import { chatApi } from '@/lib/api';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft } from 'lucide-react-native';
-import type { Message, ImageAttachment } from '@/lib/types';
-import ChatMessage from '@/components/ChatMessage';
-import ChatInput from '@/components/ChatInput';
-import ToolCallCard from '@/components/ToolCallCard';
-import NewChatWelcome from '@/components/NewChatWelcome';
-import Markdown from 'react-native-markdown-display';
-
-const streamingMarkdownStyles = {
-  body: { color: '#1e293b', fontSize: 15, lineHeight: 24, fontFamily: 'DMSans' },
-  strong: { fontWeight: '700' as const, fontFamily: 'DMSans-Bold' },
-  code_inline: { backgroundColor: '#f1f5f9', color: '#475569', fontSize: 13, fontFamily: 'SpaceMono', paddingHorizontal: 4, borderRadius: 4 },
-  fence: { backgroundColor: '#1e293b', color: '#e2e8f0', fontSize: 13, fontFamily: 'SpaceMono', padding: 12, borderRadius: 8, marginVertical: 8 },
-  link: { color: '#2563eb' },
-  paragraph: { marginVertical: 4 },
-};
-
-function StreamingView({ text, tools }: { text: string; tools: Array<{ tool_call_id: string; tool_name: string; status: string; arguments?: Record<string, any>; result_summary?: string; error?: string }> }) {
-  return (
-    <View className="items-start mb-3">
-      {tools.length > 0 && (
-        <View className="w-full max-w-[90%] mb-2">
-          {tools.map((tc) => (
-            <ToolCallCard key={tc.tool_call_id} toolCall={tc as any} />
-          ))}
-        </View>
-      )}
-      {text.length > 0 && (
-        <View className="bg-white rounded-2xl px-4 py-3 border border-black/5 max-w-[90%]">
-          <Markdown style={streamingMarkdownStyles}>{text}</Markdown>
-        </View>
-      )}
-      {text.length === 0 && tools.length === 0 && (
-        <View className="bg-white rounded-2xl px-4 py-3 border border-black/5">
-          <ActivityIndicator size="small" color="#94a3b8" />
-        </View>
-      )}
-    </View>
-  );
-}
+import { Menu, SquarePen } from 'lucide-react-native';
+import type { ImageAttachment } from '@/lib/types';
+import ChatMessage from '@/components/chat/ChatMessage';
+import ChatInput from '@/components/chat/ChatInput';
+import StreamingView from '@/components/chat/StreamingView';
+import NewChatWelcome from '@/components/chat/NewChatWelcome';
+import { COLORS } from '@/lib/constants';
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
+  const { openDrawer } = useDrawer();
   const router = useRouter();
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [chatTitle, setChatTitle] = useState('Chat');
@@ -70,7 +39,7 @@ export default function ChatScreen() {
     const loadHistory = async () => {
       try {
         const data = await chatApi.getChatHistoryForDisplay(id);
-        if (data.messages && data.messages.length > 0) {
+        if (data.messages?.length > 0) {
           setMessages(data.messages.map(m => ({
             role: m.role,
             content: m.content,
@@ -80,7 +49,6 @@ export default function ChatScreen() {
           hasGeneratedTitle.current = true;
         }
       } catch {
-        // New chat
       } finally {
         setLoadingHistory(false);
       }
@@ -88,7 +56,6 @@ export default function ChatScreen() {
     loadHistory();
   }, [id, setMessages]);
 
-  // Auto-generate title after first user message
   useEffect(() => {
     if (hasGeneratedTitle.current) return;
     const userMessages = messages.filter(m => m.role === 'user');
@@ -105,7 +72,7 @@ export default function ChatScreen() {
     sendMessage(text, images);
   }, [isStreaming, sendMessage]);
 
-  const handleWelcomeSend = useCallback((text: string, investorPersona?: string) => {
+  const handleWelcomeSend = useCallback((text: string, _investorPersona?: string) => {
     if (!text.trim() || isStreaming) return;
     sendMessage(text);
   }, [isStreaming, sendMessage]);
@@ -113,15 +80,28 @@ export default function ChatScreen() {
   const showWelcome = !loadingHistory && messages.length === 0 && !isStreaming;
 
   return (
-    <SafeAreaView className="flex-1 bg-finch-bg" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
       {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-black/5">
-        <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" activeOpacity={0.7}>
-          <ArrowLeft size={22} color="#0f172a" />
+      <View style={chatStyles.header}>
+        <TouchableOpacity onPress={openDrawer} style={chatStyles.iconBtn} activeOpacity={0.7}>
+          <Menu size={22} color={COLORS.gray900} />
         </TouchableOpacity>
-        <Text className="text-lg font-body-medium text-slate-900 flex-1" numberOfLines={1}>
+        <Text style={chatStyles.headerTitle} numberOfLines={1}>
           {chatTitle}
         </Text>
+        <TouchableOpacity
+          onPress={async () => {
+            if (!user) return;
+            try {
+              const newId = await chatApi.createChat(user.id);
+              router.push(`/(tabs)/chat/${newId}`);
+            } catch {}
+          }}
+          style={chatStyles.iconBtn}
+          activeOpacity={0.7}
+        >
+          <SquarePen size={20} color="#6b7280" />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -131,38 +111,58 @@ export default function ChatScreen() {
       >
         {loadingHistory ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator size="large" color="#0f172a" />
+            <ActivityIndicator color={COLORS.gray400} />
           </View>
         ) : showWelcome ? (
           <NewChatWelcome onSendMessage={handleWelcomeSend} disabled={isStreaming} />
         ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(_, index) => index.toString()}
-            renderItem={({ item }) => <ChatMessage message={item} />}
-            contentContainerClassName="px-4 pt-4 pb-2"
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            ListFooterComponent={
-              isStreaming ? (
-                <StreamingView text={streamingText} tools={streamingTools} />
-              ) : error ? (
-                <View className="bg-red-50 rounded-2xl p-4 mb-3">
-                  <Text className="text-sm font-body text-red-600">{error}</Text>
-                </View>
-              ) : null
-            }
-          />
-        )}
-
-        {!showWelcome && (
-          <ChatInput
-            onSend={handleSend}
-            onStop={stopStream}
-            isStreaming={isStreaming}
-          />
+          <>
+            <FlatList
+              ref={flatListRef}
+              data={messages}
+              keyExtractor={(_, index) => index.toString()}
+              renderItem={({ item }) => <ChatMessage message={item} />}
+              contentContainerClassName="px-4 pt-3 pb-4"
+              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              ListFooterComponent={
+                isStreaming ? (
+                  <StreamingView text={streamingText} tools={streamingTools} />
+                ) : error ? (
+                  <View className="bg-red-50 rounded-xl p-3 mb-3">
+                    <Text className="text-[13px] font-body text-red-600">{error}</Text>
+                  </View>
+                ) : null
+              }
+            />
+            <ChatInput onSend={handleSend} onStop={stopStream} isStreaming={isStreaming} />
+          </>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
+
+const chatStyles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: 'DMSans-Medium',
+    color: '#111827',
+    textAlign: 'center',
+    marginHorizontal: 8,
+  },
+});

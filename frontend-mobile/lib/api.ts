@@ -37,7 +37,11 @@ import type {
   AlpacaOrder,
 } from './types';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+import { Platform } from 'react-native';
+
+const API_BASE_URL = Platform.OS === 'web'
+  ? 'http://localhost:8000'
+  : (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -332,6 +336,52 @@ export const marketApi = {
     const response = await api.get(`/market/peers/${symbol}`, { params: { limit } });
     return response.data;
   },
+  getAnalyst: async (symbol: string) => {
+    const response = await api.get(`/market/analyst/${symbol}`);
+    return response.data;
+  },
+  getEarningsHistory: async (symbol: string, limit = 8) => {
+    const response = await api.get(`/market/earnings-history/${symbol}`, { params: { limit } });
+    return response.data;
+  },
+  getFinancials: async (symbol: string, statement = 'income-statement', period = 'annual', limit = 4) => {
+    const response = await api.get(`/market/financials/${symbol}`, { params: { statement, period, limit } });
+    return response.data;
+  },
+  getPrices: async (symbols: string[], days = 365) => {
+    const response = await api.get('/market/prices', { params: { symbols: symbols.join(','), days } });
+    return response.data;
+  },
+};
+
+export const analysisApi = {
+  getAll: async () => {
+    const response = await api.get('/analysis');
+    return response.data;
+  },
+  getBySymbol: async (symbol: string) => {
+    const response = await api.get(`/analysis/${symbol}`);
+    return response.data;
+  },
+};
+
+export const apiKeysApi = {
+  getKeys: async (userId: string) => {
+    const response = await api.get(`/api-keys/${userId}`);
+    return response.data;
+  },
+  saveKey: async (userId: string, service: string, credentials: Record<string, string>) => {
+    const response = await api.post(`/api-keys/${userId}`, { service, credentials });
+    return response.data;
+  },
+  deleteKey: async (userId: string, service: string) => {
+    const response = await api.delete(`/api-keys/${userId}/${service}`);
+    return response.data;
+  },
+  testKey: async (userId: string, service: string) => {
+    const response = await api.post(`/api-keys/${userId}/test`, { service });
+    return response.data;
+  },
 };
 
 export const watchlistApi = {
@@ -349,9 +399,67 @@ export const watchlistApi = {
   },
 };
 
+export const snaptradeApi = {
+  getStatus: async (userId: string) => {
+    const response = await api.get(`/snaptrade/status/${userId}`);
+    return response.data as SnapTradeStatusResponse;
+  },
+  connect: async (userId: string, redirectUri: string) => {
+    const response = await api.post('/snaptrade/connect', { user_id: userId, redirect_uri: redirectUri });
+    return response.data as SnapTradeConnectionResponse;
+  },
+  connectBroker: async (userId: string, redirectUri: string, brokerId?: string) => {
+    const response = await api.post('/snaptrade/connect/broker', { user_id: userId, redirect_uri: redirectUri, broker_id: brokerId });
+    return response.data as SnapTradeConnectionResponse;
+  },
+  callback: async (userId: string) => {
+    const response = await api.post('/snaptrade/callback', { user_id: userId });
+    return response.data as SnapTradeStatusResponse;
+  },
+  getBrokerages: async () => {
+    const response = await api.get('/snaptrade/brokerages');
+    return response.data as { success: boolean; brokerages: Array<{ id: string; name: string; logo: string }>; message: string };
+  },
+  getAccounts: async (userId: string) => {
+    const response = await api.get(`/snaptrade/accounts/${userId}`);
+    return response.data as { success: boolean; accounts: Array<{ id: string; name: string; number: string; institution: string; type: string; balance: number }>; message: string };
+  },
+  deleteAccount: async (userId: string, accountId: string) => {
+    const response = await api.delete(`/snaptrade/accounts/${userId}/${accountId}`);
+    return response.data;
+  },
+  disconnect: async (userId: string) => {
+    const response = await api.delete(`/snaptrade/disconnect/${userId}`);
+    return response.data;
+  },
+  getPortfolio: async (userId: string) => {
+    const response = await api.get(`/snaptrade/portfolio/${userId}`);
+    return response.data as PortfolioResponse;
+  },
+  getPerformance: async (userId: string) => {
+    const response = await api.get(`/snaptrade/portfolio/${userId}/performance`);
+    return response.data as PortfolioPerformance;
+  },
+};
+
 export const creditsApi = {
   getBalance: async (userId: string) => {
     const response = await api.get(`/credits/balance/${userId}`);
+    return response.data;
+  },
+};
+
+export const notificationsApi = {
+  getNotifications: async (limit = 50, unreadOnly = false) => {
+    const response = await api.get('/push/notifications', { params: { limit, unread_only: unreadOnly } });
+    return response.data;
+  },
+  getUnreadCount: async () => {
+    const response = await api.get('/push/notifications/count');
+    return response.data;
+  },
+  markRead: async (notificationIds?: string[]) => {
+    const response = await api.post('/push/notifications/read', { notification_ids: notificationIds || null });
     return response.data;
   },
 };

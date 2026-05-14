@@ -37,7 +37,7 @@ export default function FinchLogo({ size = 28, showText = false }: FinchLogoProp
         <Circle cx="28" cy="12" r="1" fill="rgba(255,255,255,0.6)" />
       </Svg>
       {showText && (
-        <Text className="text-base font-body-bold text-slate-900 tracking-tight">Finch</Text>
+        <Text className="text-base font-body-bold text-gray-900 tracking-tight">Finch</Text>
       )}
     </View>
   );

@@ -1,10 +1,13 @@
 import { View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'expo-router';
-import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 import { watchlistApi, marketApi } from '@/lib/api';
 import { Star, Trash2 } from 'lucide-react-native';
+import { COLORS, formatCurrency, formatPct } from '@/lib/constants';
+import * as Haptics from 'expo-haptics';
+import EmptyState from '@/components/ui/EmptyState';
 
 interface WatchlistItem {
   symbol: string;
@@ -54,7 +57,9 @@ export default function WatchlistScreen() {
     }
   }, [user]);
 
-  useEffect(() => { fetchWatchlist(); }, [fetchWatchlist]);
+  useFocusEffect(useCallback(() => {
+    fetchWatchlist();
+  }, [fetchWatchlist]));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -62,8 +67,9 @@ export default function WatchlistScreen() {
     setRefreshing(false);
   }, [fetchWatchlist]);
 
-  const removeSymbol = async (symbol: string) => {
+  const removeSymbol = (symbol: string) => {
     if (!user) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert('Remove', `Remove ${symbol} from watchlist?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -80,23 +86,23 @@ export default function WatchlistScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-finch-bg" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
       <View className="px-5 pt-2 pb-3">
-        <Text className="text-2xl font-body-bold text-slate-900">Watchlist</Text>
+        <Text className="text-2xl font-body-bold text-gray-900">Watchlist</Text>
       </View>
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#0f172a" />
+          <ActivityIndicator size="large" color={COLORS.gray900} />
         </View>
       ) : items.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-8">
-          <Star size={48} color="#cbd5e1" />
-          <Text className="text-lg font-body-medium text-slate-400 mt-4">No stocks watched</Text>
-          <Text className="text-sm font-body text-slate-400 mt-1 text-center">
-            Search for stocks and add them to your watchlist
-          </Text>
-        </View>
+        <EmptyState
+          icon={<Star size={48} color="#cbd5e1" />}
+          title="No stocks watched"
+          description="Search for stocks and add them to your watchlist"
+          actionLabel="Search Stocks"
+          onAction={() => router.push('/(tabs)/markets' as any)}
+        />
       ) : (
         <FlatList
           data={items}
@@ -106,28 +112,30 @@ export default function WatchlistScreen() {
           renderItem={({ item }) => (
             <TouchableOpacity
               onPress={() => router.push(`/stock/${item.symbol}`)}
-              className="bg-white rounded-2xl p-4 mb-3 border border-black/5 flex-row items-center justify-between"
+              className="bg-white rounded-2xl p-4 mb-2.5 border border-gray-200 flex-row items-center justify-between"
               activeOpacity={0.7}
             >
               <View className="flex-1 mr-3">
-                <Text className="text-base font-body-bold text-slate-900">{item.symbol}</Text>
+                <Text className="text-[15px] font-body-bold text-gray-900">{item.symbol}</Text>
                 {item.name && (
-                  <Text className="text-sm font-body text-slate-500" numberOfLines={1}>{item.name}</Text>
+                  <Text className="text-sm font-body text-gray-500 mt-0.5" numberOfLines={1}>{item.name}</Text>
                 )}
               </View>
               <View className="flex-row items-center gap-3">
                 {item.price !== undefined && (
                   <View className="items-end">
-                    <Text className="text-base font-body-medium text-slate-900">${item.price.toFixed(2)}</Text>
+                    <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">
+                      {formatCurrency(item.price)}
+                    </Text>
                     {item.change_pct !== undefined && (
-                      <Text className={`text-sm font-body ${item.change_pct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {item.change_pct >= 0 ? '+' : ''}{item.change_pct.toFixed(2)}%
+                      <Text className={`text-sm font-body tabular-nums ${item.change_pct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {formatPct(item.change_pct)}
                       </Text>
                     )}
                   </View>
                 )}
-                <TouchableOpacity onPress={() => removeSymbol(item.symbol)} className="p-1" activeOpacity={0.7}>
-                  <Trash2 size={16} color="#94a3b8" />
+                <TouchableOpacity onPress={() => removeSymbol(item.symbol)} className="p-1.5" activeOpacity={0.7}>
+                  <Trash2 size={16} color={COLORS.gray400} />
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>

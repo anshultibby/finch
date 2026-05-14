@@ -31,10 +31,10 @@ You generate self-contained HTML files that render in the user's Charts tab. Eac
 
 ## Output Pattern
 
-Every visualization is a single `.html` file saved to the sandbox:
+Every visualization is a single `.html` file saved to the `visualizations/` directory:
 
 ```bash
-cat > /home/user/visualization_name.html << 'HTMLEOF'
+cat > /home/user/visualizations/visualization_name.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -55,22 +55,73 @@ HTMLEOF
 Then reference it in your reply using the visualization marker:
 
 ```
-[visualization:visualization_name.html]
+[visualization:visualizations/visualization_name.html]
 ```
 
-This renders as a clickable chip in the chat. When the user clicks it, it navigates them directly to the Charts tab with that visualization open.
+This renders as a clickable chip in the chat. When the user clicks it, it navigates them directly to the Visualizations panel with that visualization open.
 
-You can also still use `[file:/home/user/visualization_name.html]` to show an inline preview in the chat itself. Use both when you want to give the user an inline preview AND a link to the full Charts tab view:
+You can also still use `[file:/home/user/visualizations/visualization_name.html]` to show an inline preview in the chat itself. Use both when you want to give the user an inline preview AND a link to the full Visualizations panel:
 
 ```
 Here's your portfolio breakdown:
 
-[file:/home/user/portfolio_overview.html]
+[file:/home/user/visualizations/portfolio_overview.html]
 
-Open it full-screen: [visualization:portfolio_overview.html]
+Open it full-screen: [visualization:visualizations/portfolio_overview.html]
 ```
 
-The Charts tab renders visualizations in a full-width, full-height iframe. Design for that context — no fixed widths, use the full viewport.
+The Visualizations panel renders visualizations in a full-width, full-height iframe. Design for that context — no fixed widths, use the full viewport.
+
+## Auto-Sync to Visualizations Panel
+
+Any `.html` file written via `write_chat_file` to the `visualizations/` directory (e.g. `visualizations/fda_tracker.html`) is automatically synced to the database and appears in the user's Visualizations panel. The `<title>` tag is extracted as the visualization title. Visualizations persist beyond sandbox lifecycle — they're stored in the database.
+
+Writing the same filename again updates the existing visualization (upsert by filename).
+
+## Live Data with the Finch Bridge
+
+Visualizations can fetch live data from the Finch backend API using a postMessage bridge. The iframe is sandboxed and cannot make authenticated API calls directly — the parent page proxies requests on its behalf.
+
+**Include this bridge snippet** in any visualization that needs live data:
+
+```html
+<script>
+window.finch={_cb:{},fetch(url,body){return new Promise((resolve,reject)=>{const id=Math.random().toString(36).slice(2);this._cb[id]={resolve,reject};parent.postMessage({type:'finch-fetch',url,body,id},'*');setTimeout(()=>{if(this._cb[id]){delete this._cb[id];reject(new Error('timeout'))}},30000)})}};
+addEventListener('message',e=>{if(e.data?.type==='finch-response'&&finch._cb[e.data.id]){const h=finch._cb[e.data.id];delete finch._cb[e.data.id];e.data.error?h.reject(new Error(e.data.error)):h.resolve(e.data.data)}});
+</script>
+```
+
+**Usage:**
+```javascript
+// Run a data script in the sandbox (returns stdout parsed as JSON)
+const data = await finch.fetch('/api/visualizations/run-script', { script: '_data/fda_pipeline.py' });
+
+// Call any Finch API endpoint
+const portfolio = await finch.fetch('/api/portfolio');
+```
+
+### Data Scripts Pattern
+
+For live data that requires skill APIs (FMP, Polygon, etc.), write a Python script that fetches and processes data:
+
+1. Write the script to `_data/{name}.py` — it should `print(json.dumps(result))` to stdout
+2. The visualization calls `finch.fetch('/api/visualizations/run-script', { script: '_data/{name}.py' })` to execute it
+3. Data scripts should be fast (<30s) — do focused fetches, not full analyses
+
+**Best practice:** Always embed a static data snapshot as the baseline, then attempt live refresh in the background. Show a "Last updated" timestamp. If the live fetch fails, the static data still works.
+
+```javascript
+// Pattern: static fallback + live refresh
+const STATIC_DATA = /* embedded at generation time */;
+let data = STATIC_DATA;
+try {
+  data = await finch.fetch('/api/visualizations/run-script', { script: '_data/my_data.py' });
+  document.getElementById('updated').textContent = 'Updated: just now';
+} catch (e) {
+  document.getElementById('updated').textContent = 'Using cached data';
+}
+renderChart(data);
+```
 
 ## Library Selection
 

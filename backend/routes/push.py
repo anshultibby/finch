@@ -1,7 +1,8 @@
 """
-Push notification registration routes.
+Push notification registration and notification history routes.
 """
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,9 @@ from services.push_notifications import (
     register_device_token,
     unregister_device_token,
     send_push_notification,
+    get_notifications,
+    get_unread_count,
+    mark_notifications_read,
 )
 
 router = APIRouter(prefix="/push", tags=["push"])
@@ -28,6 +32,10 @@ class UnregisterTokenRequest(BaseModel):
 class TestPushRequest(BaseModel):
     title: str = "Test Notification"
     body: str = "This is a test push notification from Finch."
+
+
+class MarkReadRequest(BaseModel):
+    notification_ids: Optional[list[str]] = None
 
 
 @router.post("/register")
@@ -58,3 +66,46 @@ async def test_push(
 ):
     sent = await send_push_notification(db, user_id, req.title, req.body)
     return {"success": sent, "message": "Push sent" if sent else "No registered devices"}
+
+
+@router.get("/notifications")
+async def list_notifications(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db_session),
+    limit: int = Query(50, le=100),
+    unread_only: bool = Query(False),
+):
+    notifications = await get_notifications(db, user_id, limit, unread_only)
+    return {
+        "notifications": [
+            {
+                "id": str(n.id),
+                "title": n.title,
+                "body": n.body,
+                "type": n.type,
+                "data": n.data,
+                "read": n.read,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notifications
+        ]
+    }
+
+
+@router.get("/notifications/count")
+async def unread_count(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db_session),
+):
+    count = await get_unread_count(db, user_id)
+    return {"unread_count": count}
+
+
+@router.post("/notifications/read")
+async def mark_read(
+    req: MarkReadRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db_session),
+):
+    updated = await mark_notifications_read(db, user_id, req.notification_ids)
+    return {"success": True, "updated": updated}

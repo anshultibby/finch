@@ -216,9 +216,39 @@ async def search_stocks(q: str = Query(..., min_length=1), limit: int = 10):
     try:
         data = await asyncio.to_thread(search, q, limit=limit)
     except Exception:
-        return []
+        data = []
 
-    return data if isinstance(data, list) else []
+    # call_fmp_api unwraps single-item lists to a bare dict — normalize back
+    if isinstance(data, dict) and "symbol" in data:
+        results = [data]
+    elif isinstance(data, list):
+        results = data
+    else:
+        results = []
+    query_upper = q.strip().upper()
+
+    # If query looks like an exact ticker, check if it's already in results
+    # If not, try a direct quote lookup and prepend it
+    if query_upper.isalpha() and len(query_upper) <= 6:
+        already_found = any(
+            r.get("symbol", "").upper() == query_upper for r in results
+        )
+        if not already_found:
+            from skills.financial_modeling_prep.scripts.api import fmp
+
+            try:
+                quote = await asyncio.to_thread(fmp, f"/quote/{query_upper}")
+                if isinstance(quote, list) and quote:
+                    item = quote[0]
+                    results.insert(0, {
+                        "symbol": item.get("symbol", query_upper),
+                        "name": item.get("name", ""),
+                        "exchangeShortName": item.get("exchange", ""),
+                    })
+            except Exception:
+                pass
+
+    return results
 
 
 # ---------------------------------------------------------------------------

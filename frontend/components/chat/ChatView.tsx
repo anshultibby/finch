@@ -10,6 +10,7 @@ import ComputerPanel from '../ComputerPanel';
 import AgentPeekPanel from './AgentPeekPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
+import { useNavigation } from '@/contexts/NavigationContext';
 import { chatApi, snaptradeApi } from '@/lib/api';
 import { getApiBaseUrl } from '@/lib/utils';
 import { useChatStream, ChatStreamState } from '@/hooks/useChatStream';
@@ -100,6 +101,7 @@ export default function ChatView({
 }: ChatViewProps) {
   const { user } = useAuth();
   const { mode } = useChatMode();
+  const { navigateTo } = useNavigation();
 
   const [currentChatId, setCurrentChatIdLocal] = useState<string | null>(
     externalChatId !== undefined ? externalChatId : null
@@ -789,7 +791,7 @@ export default function ChatView({
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
                       onFileClick={(filename) => setSelectedFile(filename)}
-                      onVisualizationClick={(filename) => setSelectedFile(filename)}
+                      onVisualizationClick={(filename) => navigateTo({ type: 'visualizations', vizId: filename })}
                       onSendMessage={(text) => handleSendMessage(text)}
                       onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                       actions={messageActions}
@@ -806,7 +808,7 @@ export default function ChatView({
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     onFileClick={(filename) => setSelectedFile(filename)}
-                    onVisualizationClick={(filename) => setSelectedFile(filename)}
+                    onVisualizationClick={(filename) => navigateTo({ type: 'visualizations', vizId: filename })}
                     onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                     isStreaming={true}
                     startTime={streamStartTime}

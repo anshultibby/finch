@@ -1,11 +1,16 @@
 import { View, Text, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'expo-router';
-import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 import { alpacaBrokerApi } from '@/lib/api';
-import type { AlpacaPortfolioResponse, AlpacaBrokerPosition, AlpacaBrokerAccountDetail } from '@/lib/types';
-import { TrendingUp, TrendingDown, DollarSign } from 'lucide-react-native';
+import type { AlpacaBrokerPosition, AlpacaBrokerAccountDetail } from '@/lib/types';
+import { DollarSign, ClipboardList } from 'lucide-react-native';
+import { COLORS } from '@/lib/constants';
+import AccountSummary from '@/components/portfolio/AccountSummary';
+import PositionRow from '@/components/portfolio/PositionRow';
+import SectionHeader from '@/components/ui/SectionHeader';
+import EmptyState from '@/components/ui/EmptyState';
 
 export default function PortfolioScreen() {
   const { user } = useAuth();
@@ -18,19 +23,20 @@ export default function PortfolioScreen() {
   const fetchPortfolio = useCallback(async () => {
     if (!user) return;
     try {
-      const data: AlpacaPortfolioResponse = await alpacaBrokerApi.getPortfolio(user.id);
+      const data = await alpacaBrokerApi.getPortfolio(user.id);
       if (data.success) {
         setAccount(data.account);
         setPositions(data.positions || []);
       }
     } catch {
-      // Account may not exist
     } finally {
       setLoading(false);
     }
   }, [user]);
 
-  useEffect(() => { fetchPortfolio(); }, [fetchPortfolio]);
+  useFocusEffect(useCallback(() => {
+    fetchPortfolio();
+  }, [fetchPortfolio]));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -41,115 +47,74 @@ export default function PortfolioScreen() {
   const equity = parseFloat(account?.equity || '0');
   const cash = parseFloat(account?.cash || '0');
   const buyingPower = parseFloat(account?.buying_power || '0');
-
   const totalUnrealizedPl = positions.reduce((sum, p) => sum + parseFloat(p.unrealized_pl || '0'), 0);
 
   return (
-    <SafeAreaView className="flex-1 bg-finch-bg" edges={['top']}>
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="px-5 pb-8"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        <Text className="text-2xl font-body-bold text-slate-900 mt-2 mb-4">Portfolio</Text>
+    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+      <View className="flex-row items-center justify-between px-5 pt-2 pb-3">
+        <Text className="text-2xl font-body-bold text-gray-900">Portfolio</Text>
+        <TouchableOpacity
+          onPress={() => router.push('/orders')}
+          className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-gray-200"
+          activeOpacity={0.7}
+        >
+          <ClipboardList size={14} color={COLORS.gray500} />
+          <Text className="text-sm font-body-medium text-gray-600">Orders</Text>
+        </TouchableOpacity>
+      </View>
 
-        {loading ? (
-          <View className="py-20 items-center">
-            <ActivityIndicator size="large" color="#0f172a" />
-          </View>
-        ) : !account ? (
-          <View className="items-center py-20">
-            <DollarSign size={48} color="#cbd5e1" />
-            <Text className="text-lg font-body-medium text-slate-400 mt-4">No account connected</Text>
-            <Text className="text-sm font-body text-slate-400 mt-1 text-center">
-              Set up your trading account to see your portfolio here
-            </Text>
-          </View>
-        ) : (
-          <>
-            {/* Account Summary */}
-            <View className="bg-white rounded-2xl p-5 mb-4 border border-black/5">
-              <View className="flex-row justify-between mb-3">
-                <View>
-                  <Text className="text-sm font-body text-slate-500">Equity</Text>
-                  <Text className="text-2xl font-body-bold text-slate-900">
-                    ${equity.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View className="items-end">
-                  <Text className="text-sm font-body text-slate-500">Unrealized P&L</Text>
-                  <Text className={`text-lg font-body-bold ${totalUnrealizedPl >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {totalUnrealizedPl >= 0 ? '+' : ''}${totalUnrealizedPl.toFixed(2)}
-                  </Text>
-                </View>
-              </View>
-              <View className="flex-row gap-4">
-                <View>
-                  <Text className="text-xs font-body text-slate-400">Cash</Text>
-                  <Text className="text-sm font-body-medium text-slate-700">${cash.toFixed(2)}</Text>
-                </View>
-                <View>
-                  <Text className="text-xs font-body text-slate-400">Buying Power</Text>
-                  <Text className="text-sm font-body-medium text-slate-700">${buyingPower.toFixed(2)}</Text>
-                </View>
-              </View>
-            </View>
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={COLORS.gray900} />
+        </View>
+      ) : !account ? (
+        <EmptyState
+          icon={<DollarSign size={48} color="#cbd5e1" />}
+          title="No account connected"
+          description="Set up your trading account to see your portfolio"
+        />
+      ) : (
+        <ScrollView
+          className="flex-1"
+          contentContainerClassName="px-5 pb-8"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <AccountSummary
+            equity={equity}
+            cash={cash}
+            buyingPower={buyingPower}
+            unrealizedPl={totalUnrealizedPl}
+          />
 
-            {/* Positions */}
-            <Text className="text-lg font-body-bold text-slate-900 mb-3">
-              Positions ({positions.length})
-            </Text>
+          <View className="mt-5">
+            <SectionHeader title="Positions" count={positions.length} />
 
             {positions.length === 0 ? (
-              <View className="bg-white rounded-2xl p-8 items-center border border-black/5">
-                <Text className="text-slate-400 font-body">No open positions</Text>
+              <View className="bg-white rounded-2xl p-8 items-center border border-gray-200">
+                <Text className="text-gray-400 font-body">No open positions</Text>
               </View>
             ) : (
-              <View className="bg-white rounded-2xl border border-black/5 overflow-hidden">
-                {positions.map((pos, i) => {
-                  const pl = parseFloat(pos.unrealized_pl || '0');
-                  const plPct = parseFloat(pos.unrealized_plpc || '0') * 100;
-                  const isPositive = pl >= 0;
-                  const marketValue = parseFloat(pos.market_value || '0');
-
-                  return (
-                    <TouchableOpacity
-                      key={pos.symbol}
-                      onPress={() => router.push(`/stock/${pos.symbol}`)}
-                      className={`p-4 ${i > 0 ? 'border-t border-black/5' : ''}`}
-                      activeOpacity={0.7}
-                    >
-                      <View className="flex-row items-center justify-between">
-                        <View>
-                          <Text className="text-base font-body-bold text-slate-900">{pos.symbol}</Text>
-                          <Text className="text-sm font-body text-slate-500">
-                            {pos.qty} shares @ ${parseFloat(pos.avg_entry_price).toFixed(2)}
-                          </Text>
-                        </View>
-                        <View className="items-end">
-                          <Text className="text-base font-body-medium text-slate-900">
-                            ${marketValue.toFixed(2)}
-                          </Text>
-                          <View className="flex-row items-center gap-1">
-                            {isPositive ? (
-                              <TrendingUp size={12} color="#059669" />
-                            ) : (
-                              <TrendingDown size={12} color="#dc2626" />
-                            )}
-                            <Text className={`text-sm font-body ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                              {isPositive ? '+' : ''}${pl.toFixed(2)} ({plPct.toFixed(1)}%)
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                {positions.map((pos, i) => (
+                  <PositionRow
+                    key={pos.symbol}
+                    symbol={pos.symbol}
+                    qty={pos.qty}
+                    avgEntry={pos.avg_entry_price}
+                    marketValue={pos.market_value}
+                    unrealizedPl={pos.unrealized_pl}
+                    unrealizedPlPc={pos.unrealized_plpc}
+                    currentPrice={pos.current_price}
+                    onPress={() => router.push(`/stock/${pos.symbol}`)}
+                    isLast={i === positions.length - 1}
+                  />
+                ))}
               </View>
             )}
-          </>
-        )}
-      </ScrollView>
+          </View>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

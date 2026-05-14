@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/contexts/AuthContext';
 import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
 import EarningsTab from '@/components/stock/EarningsTab';
+import TradesTab from '@/components/stock/TradesTab';
 import type { AlpacaBrokerPosition } from '@/lib/types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -229,9 +230,10 @@ function StockChatBar({ symbol, openChatAbout, pageContext }: {
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'related' | 'analysis';
+type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'related' | 'analysis' | 'trades';
 const STOCK_TABS: { key: StockTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
+  { key: 'trades', label: 'Trades' },
   { key: 'earnings', label: 'Earnings' },
   { key: 'financials', label: 'Financials' },
   { key: 'news', label: 'News' },
@@ -1370,6 +1372,10 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 </button>
               </div>
             </div>
+          )}
+
+          {activeTab === 'trades' && (
+            <TradesTab symbol={symbol} currentPrice={price} />
           )}
         </div>
 

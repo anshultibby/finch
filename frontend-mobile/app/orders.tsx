@@ -1,10 +1,14 @@
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect, useCallback } from 'react';
 import { alpacaBrokerApi } from '@/lib/api';
 import type { AlpacaOrder } from '@/lib/types';
-import { X } from 'lucide-react-native';
+import { X, ClipboardList } from 'lucide-react-native';
+import { COLORS, formatRelativeTime } from '@/lib/constants';
+import * as Haptics from 'expo-haptics';
+import SegmentedControl from '@/components/ui/SegmentedControl';
+import EmptyState from '@/components/ui/EmptyState';
 
 type TabFilter = 'open' | 'closed' | 'all';
 
@@ -20,11 +24,8 @@ export default function OrdersScreen() {
     try {
       const data = await alpacaBrokerApi.getOrders(user.id, tab, 50);
       setOrders(data || []);
-    } catch {
-      setOrders([]);
-    } finally {
-      setLoading(false);
-    }
+    } catch { setOrders([]); }
+    finally { setLoading(false); }
   }, [user, tab]);
 
   useEffect(() => {
@@ -38,98 +39,93 @@ export default function OrdersScreen() {
     setRefreshing(false);
   }, [fetchOrders]);
 
-  const cancelOrder = async (orderId: string) => {
+  const cancelOrder = (orderId: string) => {
     if (!user) return;
-    Alert.alert('Cancel Order', 'Are you sure you want to cancel this order?', [
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert('Cancel Order', 'Are you sure?', [
       { text: 'No', style: 'cancel' },
       {
-        text: 'Yes, Cancel',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await alpacaBrokerApi.cancelOrder(user.id, orderId);
-            fetchOrders();
-          } catch {}
-        },
+        text: 'Cancel Order', style: 'destructive',
+        onPress: async () => { try { await alpacaBrokerApi.cancelOrder(user.id, orderId); fetchOrders(); } catch {} },
       },
     ]);
   };
 
   const statusColor = (status: string) => {
-    if (['filled', 'partially_filled'].includes(status)) return 'text-emerald-600';
-    if (['canceled', 'expired', 'rejected'].includes(status)) return 'text-red-600';
-    return 'text-amber-600';
+    if (['filled', 'partially_filled'].includes(status)) return { text: 'text-emerald-600', bg: '#ecfdf5' };
+    if (['canceled', 'expired', 'rejected'].includes(status)) return { text: 'text-red-500', bg: '#fef2f2' };
+    return { text: 'text-amber-600', bg: '#fffbeb' };
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-finch-bg" edges={[]}>
-      {/* Tabs */}
-      <View className="flex-row px-5 py-3 gap-2">
-        {(['open', 'closed', 'all'] as TabFilter[]).map(t => (
-          <TouchableOpacity
-            key={t}
-            onPress={() => setTab(t)}
-            className={`px-4 py-2 rounded-full ${tab === t ? 'bg-slate-900' : 'bg-white border border-black/5'}`}
-            activeOpacity={0.8}
-          >
-            <Text className={`text-sm font-body-medium capitalize ${tab === t ? 'text-white' : 'text-slate-600'}`}>
-              {t}
-            </Text>
-          </TouchableOpacity>
-        ))}
+    <SafeAreaView className="flex-1 bg-white" edges={[]}>
+      <View className="px-4 py-2.5">
+        <SegmentedControl options={['open', 'closed', 'all']} selected={tab} onChange={setTab} />
       </View>
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#0f172a" />
+          <ActivityIndicator color={COLORS.gray400} />
         </View>
+      ) : orders.length === 0 ? (
+        <EmptyState icon={<ClipboardList size={40} color="#d1d5db" />} title={`No ${tab} orders`} />
       ) : (
         <FlatList
           data={orders}
           keyExtractor={(item) => item.id}
-          contentContainerClassName="px-5 pb-4"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          renderItem={({ item }) => (
-            <View className="bg-white rounded-2xl p-4 mb-3 border border-black/5">
-              <View className="flex-row items-start justify-between">
-                <View className="flex-1">
-                  <View className="flex-row items-center gap-2">
-                    <Text className="text-base font-body-bold text-slate-900">{item.symbol}</Text>
-                    <View className={`px-2 py-0.5 rounded-full ${item.side === 'buy' ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                      <Text className={`text-xs font-body-medium uppercase ${item.side === 'buy' ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {item.side}
-                      </Text>
+          contentContainerClassName="px-4 pb-4"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
+          renderItem={({ item }) => {
+            const sc = statusColor(item.status);
+            return (
+              <View style={styles.orderCard}>
+                <View className="flex-row items-start justify-between">
+                  <View className="flex-1">
+                    <View className="flex-row items-center gap-1.5 mb-1">
+                      <Text className="text-[14px] font-body-bold text-gray-900">{item.symbol}</Text>
+                      <View className="px-1.5 py-px rounded-md" style={{ backgroundColor: item.side === 'buy' ? '#ecfdf5' : '#fef2f2' }}>
+                        <Text className={`text-[10px] font-body-bold uppercase ${item.side === 'buy' ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {item.side}
+                        </Text>
+                      </View>
+                      <View className="px-1.5 py-px rounded-md" style={{ backgroundColor: sc.bg }}>
+                        <Text className={`text-[10px] font-body-medium capitalize ${sc.text}`}>
+                          {item.status.replace(/_/g, ' ')}
+                        </Text>
+                      </View>
                     </View>
+                    <Text className="text-[12px] font-body text-gray-500">
+                      {item.qty || item.notional} · {item.type} · {item.time_in_force}
+                    </Text>
+                    {item.filled_avg_price && (
+                      <Text className="text-[12px] font-body text-gray-500 mt-px">
+                        Filled @ ${parseFloat(item.filled_avg_price).toFixed(2)}
+                      </Text>
+                    )}
                   </View>
-                  <Text className="text-sm font-body text-slate-500 mt-1">
-                    {item.qty || item.notional} · {item.type} · {item.time_in_force}
-                  </Text>
-                  <Text className={`text-sm font-body mt-1 capitalize ${statusColor(item.status)}`}>
-                    {item.status.replace(/_/g, ' ')}
-                  </Text>
+                  {['new', 'accepted', 'pending_new'].includes(item.status) && (
+                    <TouchableOpacity onPress={() => cancelOrder(item.id)} className="p-1.5" activeOpacity={0.7}>
+                      <X size={16} color="#ef4444" />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                {['new', 'accepted', 'pending_new'].includes(item.status) && (
-                  <TouchableOpacity
-                    onPress={() => cancelOrder(item.id)}
-                    className="p-2"
-                    activeOpacity={0.7}
-                  >
-                    <X size={18} color="#ef4444" />
-                  </TouchableOpacity>
-                )}
+                <Text className="text-[11px] font-body text-gray-400 mt-2">{formatRelativeTime(item.created_at)}</Text>
               </View>
-              <Text className="text-xs font-body text-slate-400 mt-2">
-                {new Date(item.created_at).toLocaleString()}
-              </Text>
-            </View>
-          )}
-          ListEmptyComponent={
-            <View className="py-20 items-center">
-              <Text className="text-slate-400 font-body">No {tab} orders</Text>
-            </View>
-          }
+            );
+          }}
         />
       )}
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  orderCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+});

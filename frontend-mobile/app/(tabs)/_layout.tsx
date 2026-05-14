@@ -1,16 +1,17 @@
 import React from 'react';
-import { Redirect, Tabs } from 'expo-router';
-import { Home, MessageSquare, Search, Star, PieChart } from 'lucide-react-native';
+import { View, ActivityIndicator } from 'react-native';
+import { Redirect, Stack } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { ActivityIndicator, View } from 'react-native';
+import { DrawerProvider } from '@/contexts/DrawerContext';
+import Sidebar from '@/components/Sidebar';
 
-export default function TabLayout() {
+export default function MainLayout() {
   const { user, loading } = useAuth();
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-finch-bg">
-        <ActivityIndicator size="large" color="#059669" />
+      <View className="flex-1 items-center justify-center bg-white">
+        <ActivityIndicator color="#9ca3af" />
       </View>
     );
   }
@@ -20,56 +21,18 @@ export default function TabLayout() {
   }
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: '#059669',
-        tabBarInactiveTintColor: '#94a3b8',
-        tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopColor: 'rgba(0,0,0,0.06)',
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: 'Chat',
-          tabBarIcon: ({ color, size }) => <MessageSquare size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: 'Search',
-          tabBarIcon: ({ color, size }) => <Search size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="watchlist"
-        options={{
-          title: 'Watchlist',
-          tabBarIcon: ({ color, size }) => <Star size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="portfolio"
-        options={{
-          title: 'Portfolio',
-          tabBarIcon: ({ color, size }) => <PieChart size={size} color={color} />,
-        }}
-      />
-    </Tabs>
+    <DrawerProvider>
+      <View style={{ flex: 1 }}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="chat" />
+          <Stack.Screen name="profile" />
+          <Stack.Screen name="markets" />
+          <Stack.Screen name="watchlist" />
+          <Stack.Screen name="portfolio" />
+        </Stack>
+        <Sidebar />
+      </View>
+    </DrawerProvider>
   );
 }

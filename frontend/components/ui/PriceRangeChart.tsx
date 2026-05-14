@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { createChart, ColorType, LineStyle, CrosshairMode, LineSeries, AreaSeries } from 'lightweight-charts';
+import { createChart, ColorType, LineStyle, CrosshairMode, LineSeries, AreaSeries, createSeriesMarkers } from 'lightweight-charts';
 import type {
   IChartApi,
   ISeriesApi,
   MouseEventParams,
   Time,
   SingleValueData,
+  SeriesMarker,
 } from 'lightweight-charts';
 
 export interface PriceSeriesConfig {
@@ -47,6 +48,14 @@ export const getStockRanges = (): RangeOption[] => [
   { label: 'MAX', days: 3650 },
 ];
 
+export interface ChartMarker {
+  time: string;
+  position: 'aboveBar' | 'belowBar';
+  color: string;
+  shape: 'arrowUp' | 'arrowDown' | 'circle' | 'square';
+  text?: string;
+}
+
 type BaseProps = {
   height?: number;
   className?: string;
@@ -58,6 +67,7 @@ type BaseProps = {
   onHoverChange?: (info: { date: string; value: number; periodEndValue: number } | null) => void;
   onPeriodChange?: (periodEndValue: number) => void;
   headerRight?: React.ReactNode;
+  markers?: ChartMarker[];
 };
 
 type SymbolProps = BaseProps & {
@@ -303,6 +313,19 @@ export default function PriceRangeChart(props: Props) {
       }
     });
 
+    if (props.markers && props.markers.length > 0 && seriesRefs.current.length > 0) {
+      const sorted = [...props.markers]
+        .map(m => ({
+          time: toUTCTimestamp(m.time),
+          position: m.position,
+          color: m.color,
+          shape: m.shape,
+          text: m.text ?? '',
+        } as SeriesMarker<Time>))
+        .sort((a, b) => (a.time as number) - (b.time as number));
+      createSeriesMarkers(seriesRefs.current[0], sorted);
+    }
+
     chart.timeScale().fitContent();
 
     chart.subscribeCrosshairMove((param: MouseEventParams) => {
@@ -356,7 +379,7 @@ export default function PriceRangeChart(props: Props) {
       seriesRefs.current = [];
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, hasData, lines, height, singleSeries, format]);
+  }, [loading, hasData, lines, height, singleSeries, format, props.markers]);
 
   return (
     <div className={`flex flex-col ${className}`}>

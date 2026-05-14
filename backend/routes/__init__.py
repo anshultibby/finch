@@ -14,6 +14,7 @@ from .alpaca_broker import router as alpaca_broker_router, execute_router
 from .watchlist import router as watchlist_router
 from .push import router as push_router
 from .analysis import router as analysis_router
+from .visualizations import router as visualizations_router
 
 __all__ = [
     "chat_router",
@@ -30,5 +31,6 @@ __all__ = [
     "watchlist_router",
     "push_router",
     "analysis_router",
+    "visualizations_router",
 ]
 
