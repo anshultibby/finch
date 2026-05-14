@@ -280,6 +280,9 @@ async def stream_llm_response(
     
     # Stream response — scale timeout with context size so large conversations
     # don't get killed while the model is still processing.
+    # The API may buffer large tool call arguments (e.g. write_chat_file with
+    # a big file_content) and deliver them all at once, so we need generous
+    # timeouts — especially mid-tool-call.
     estimated_tokens = sum(
         len(str(m.get("content", ""))) // 4 for m in llm_kwargs.get("messages", [])
     )
@@ -288,7 +291,9 @@ async def stream_llm_response(
     elif estimated_tokens > 100_000:
         chunk_timeout = 300
     else:
-        chunk_timeout = 120
+        chunk_timeout = 180
+    # Even longer when we're mid-tool-call (set dynamically in the loop)
+    TOOL_CALL_CHUNK_TIMEOUT = 300
 
     content = ""
     tool_calls = []
@@ -305,7 +310,7 @@ async def stream_llm_response(
     reasoning_chars = 0
     tool_call_names: List[str] = []
     tool_call_args_chars = 0
-    STALL_WARNING_INTERVALS = [30, 60, 90]
+    STALL_WARNING_INTERVALS = [30, 60, 90, 150, 210, 270]
 
     # Track per-call index for cache diagnostics
     cache_diag_key = chat_id or "unknown"
@@ -335,7 +340,7 @@ async def stream_llm_response(
         ]
         return "\n      ".join(lines)
 
-    logger.info(f"🔄 Starting LLM stream request (call #{call_idx}, ~{estimated_tokens:,} est. tokens, chunk timeout: {chunk_timeout}s)...")
+    logger.info(f"🔄 Starting LLM stream request (call #{call_idx}, ~{estimated_tokens:,} est. tokens, chunk timeout: {chunk_timeout}s, tool-call timeout: {TOOL_CALL_CHUNK_TIMEOUT}s)...")
     stream_response = await llm_handler.acompletion(**llm_kwargs)
     logger.info("🔄 LLM acompletion returned, starting to iterate chunks...")
 
@@ -350,7 +355,8 @@ async def stream_llm_response(
                 warned_intervals = set()
 
                 while True:
-                    remaining = chunk_timeout - (time.monotonic() - wait_start)
+                    effective_timeout = TOOL_CALL_CHUNK_TIMEOUT if tool_call_names else chunk_timeout
+                    remaining = effective_timeout - (time.monotonic() - wait_start)
                     if remaining <= 0:
                         next_chunk_task.cancel()
                         try:
@@ -385,13 +391,14 @@ async def stream_llm_response(
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
+                effective_timeout = TOOL_CALL_CHUNK_TIMEOUT if tool_call_names else chunk_timeout
                 logger.error(
-                    f"⏰ LLM stream stalled after {chunk_count} chunks ({chunk_timeout}s silence)\n"
+                    f"⏰ LLM stream stalled after {chunk_count} chunks ({effective_timeout}s silence)\n"
                     f"      Call #{call_idx}, ~{estimated_tokens:,} est. tokens\n"
                     f"      {_stream_state_summary()}"
                 )
                 raise TimeoutError(
-                    f"LLM stream stalled after {chunk_count} chunks (no data for {chunk_timeout}s). "
+                    f"LLM stream stalled after {chunk_count} chunks (no data for {effective_timeout}s). "
                     f"Last chunk type: {last_chunk_type}"
                 )
 
