@@ -87,7 +87,7 @@ export default function TradeModal({ visible, onClose, symbol, currentPrice, use
 
           <View className="flex-row items-center justify-between mb-3.5">
             <Text className="text-[13px] font-body text-gray-500">Current Price</Text>
-            <Text className="text-[15px] font-body-bold text-gray-900 tabular-nums">{formatCurrency(currentPrice)}</Text>
+            <Text className="text-[15px] font-body-bold text-gray-900 tabular-nums">{formatCurrency(currentPrice, false, symbol)}</Text>
           </View>
 
           <View className="mb-3.5">
@@ -136,7 +136,7 @@ export default function TradeModal({ visible, onClose, symbol, currentPrice, use
               <Text className="text-[13px] font-body text-gray-500">
                 Est. {side === 'buy' ? 'Cost' : 'Proceeds'}
               </Text>
-              <Text className="text-base font-body-bold text-gray-900 tabular-nums">{formatCurrency(estimatedCost)}</Text>
+              <Text className="text-base font-body-bold text-gray-900 tabular-nums">{formatCurrency(estimatedCost, false, symbol)}</Text>
             </View>
           )}
 

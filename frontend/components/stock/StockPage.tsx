@@ -10,18 +10,9 @@ import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart
 import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
 import type { AlpacaBrokerPosition } from '@/lib/types';
+import { formatCurrency as fmt, formatCurrencyCompact as fmtB } from '@/lib/currency';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
-}
-function fmtB(n: number) {
-  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  return fmt(n);
-}
 function fmtN(n: number) {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
@@ -82,11 +73,11 @@ function TradePanel({ symbol, price, userId, onSuccess }: {
         </div>
         <div className="flex items-center justify-between pt-1 border-t border-gray-100">
           <span className="text-sm text-emerald-600 font-medium">Market price</span>
-          <span className="text-sm font-bold text-gray-900 tabular-nums">{fmt(price)}</span>
+          <span className="text-sm font-bold text-gray-900 tabular-nums">{fmt(price, symbol)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-500">Estimated {side === 'buy' ? 'cost' : 'credit'}</span>
-          <span className="text-sm font-bold text-gray-900 tabular-nums">{fmt(est)}</span>
+          <span className="text-sm font-bold text-gray-900 tabular-nums">{fmt(est, symbol)}</span>
         </div>
 
         {error && <div className="text-xs text-red-500 font-medium">{error}</div>}
@@ -233,12 +224,12 @@ function StockChatBar({ symbol, openChatAbout, pageContext }: {
 type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'related' | 'analysis' | 'trades';
 const STOCK_TABS: { key: StockTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
-  { key: 'trades', label: 'Trades' },
   { key: 'earnings', label: 'Earnings' },
   { key: 'financials', label: 'Financials' },
   { key: 'news', label: 'News' },
   { key: 'related', label: 'Related' },
   { key: 'analysis', label: 'Analysis' },
+  { key: 'trades', label: 'Trades' },
 ];
 
 type FinancialStatement = 'key-stats' | 'income-statement' | 'balance-sheet' | 'cash-flow' | 'ratios';
@@ -1007,15 +998,15 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 return (
                   <>
                     <div className="mb-1">
-                      <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(displayPrice)}</span>
+                      <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(displayPrice, symbol)}</span>
                     </div>
                     <div className={`text-sm font-medium tabular-nums ${up ? 'text-emerald-600' : 'text-red-500'}`}>
-                      {up ? '+' : '-'}{fmt(Math.abs(displayDollar))} ({pct(activePct)})
+                      {up ? '+' : '-'}{fmt(Math.abs(displayDollar), symbol)} ({pct(activePct)})
                     </div>
                     {showExtended && (
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className={`text-xs font-medium tabular-nums ${closeUp ? 'text-emerald-500' : 'text-red-400'}`}>
-                          {closeUp ? '+' : ''}{fmt(closeChange)} ({pct(closePct)})
+                          {closeUp ? '+' : ''}{fmt(closeChange, symbol)} ({pct(closePct)})
                         </span>
                         <span className="text-xs text-gray-400">
                           from prev close · {marketSession === 'pre' ? 'Pre-market' : 'After hours'}
@@ -1073,14 +1064,14 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                   <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Your Position</div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-lg font-bold text-gray-900 tabular-nums">{fmt(parseFloat(position.market_value || '0'))}</div>
+                      <div className="text-lg font-bold text-gray-900 tabular-nums">{fmt(parseFloat(position.market_value || '0'), symbol)}</div>
                       <div className="text-xs text-gray-400">
-                        {parseFloat(position.qty || '0')} shares @ {fmt(parseFloat(position.avg_entry_price || '0'))}
+                        {parseFloat(position.qty || '0')} shares @ {fmt(parseFloat(position.avg_entry_price || '0'), symbol)}
                       </div>
                     </div>
                     <div className="text-right">
                       <div className={`text-sm font-bold tabular-nums ${parseFloat(position.unrealized_pl || '0') >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {parseFloat(position.unrealized_pl || '0') >= 0 ? '+' : ''}{fmt(parseFloat(position.unrealized_pl || '0'))}
+                        {parseFloat(position.unrealized_pl || '0') >= 0 ? '+' : ''}{fmt(parseFloat(position.unrealized_pl || '0'), symbol)}
                       </div>
                       <div className={`text-xs tabular-nums ${parseFloat(position.unrealized_plpc || '0') >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                         {pct(parseFloat(position.unrealized_plpc || '0') * 100)}
@@ -1096,19 +1087,19 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                   <div className="text-base font-bold text-gray-900 mb-3">Key Statistics</div>
                   <div className="border-t border-gray-100" />
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6">
-                    <Stat label="Market Cap" value={fmtB(quote.marketCap || profile?.mktCap || 0)} />
+                    <Stat label="Market Cap" value={fmtB(quote.marketCap || profile?.mktCap || 0, symbol)} />
                     <Stat label="P/E Ratio" value={quote.pe ? quote.pe.toFixed(2) : '--'} />
                     {(quote.dividendYielPercentageTTM || profile?.lastDiv) && (
                       <Stat label="Dividend Yield" value={quote.dividendYielPercentageTTM ? `${quote.dividendYielPercentageTTM.toFixed(2)}%` : profile?.lastDiv ? `$${profile.lastDiv.toFixed(2)}` : '--'} />
                     )}
                     <Stat label="Avg Volume" value={fmtN(quote.avgVolume || 0)} />
-                    <Stat label="High Today" value={fmt(quote.dayHigh || 0)} />
-                    <Stat label="Low Today" value={fmt(quote.dayLow || 0)} />
-                    <Stat label="Open" value={fmt(quote.open || 0)} />
+                    <Stat label="High Today" value={fmt(quote.dayHigh || 0, symbol)} />
+                    <Stat label="Low Today" value={fmt(quote.dayLow || 0, symbol)} />
+                    <Stat label="Open" value={fmt(quote.open || 0, symbol)} />
                     <Stat label="Volume" value={fmtN(quote.volume || 0)} />
-                    <Stat label="52 Week High" value={fmt(quote.yearHigh || 0)} />
-                    <Stat label="52 Week Low" value={fmt(quote.yearLow || 0)} />
-                    <Stat label="EPS" value={quote.eps ? `$${quote.eps.toFixed(2)}` : '--'} />
+                    <Stat label="52 Week High" value={fmt(quote.yearHigh || 0, symbol)} />
+                    <Stat label="52 Week Low" value={fmt(quote.yearLow || 0, symbol)} />
+                    <Stat label="EPS" value={quote.eps ? fmt(quote.eps, symbol) : '--'} />
                     {profile?.beta && <Stat label="Beta" value={profile.beta.toFixed(2)} />}
                   </div>
                 </div>
@@ -1144,9 +1135,9 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                       <div className="text-sm font-bold text-gray-900">{p.symbol}</div>
                       {p.name && <div className="text-xs text-gray-400 truncate mb-1.5">{p.name}</div>}
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-sm font-semibold text-gray-900 tabular-nums">{p.price != null ? fmt(p.price) : '--'}</span>
+                        <span className="text-sm font-semibold text-gray-900 tabular-nums">{p.price != null ? fmt(p.price, symbol) : '--'}</span>
                         {p.marketCap != null && (
-                          <span className="text-xs font-medium text-gray-400 tabular-nums">{fmtB(p.marketCap)}</span>
+                          <span className="text-xs font-medium text-gray-400 tabular-nums">{fmtB(p.marketCap, symbol)}</span>
                         )}
                       </div>
                     </button>
@@ -1261,10 +1252,10 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                     <div className="rounded-xl border border-gray-200 p-4">
                       <div className="text-sm font-bold text-gray-900 mb-3">Analyst 52W Price Targets</div>
                       <div className="flex justify-between text-xs mb-3">
-                        <div><span className="text-base font-bold text-gray-900">{fmt(analyst.consensus.targetLow || 0)}</span><br/><span className="text-red-400">Low</span></div>
-                        <div className="text-center"><span className="text-base font-bold text-gray-900">{fmt(price)}</span><br/><span className="text-gray-400">Current</span></div>
-                        <div className="text-center"><span className="text-base font-bold text-gray-900">{fmt(analyst.consensus.targetMedian || analyst.consensus.targetConsensus || 0)}</span><br/><span className="text-emerald-500">Average</span></div>
-                        <div className="text-right"><span className="text-base font-bold text-gray-900">{fmt(analyst.consensus.targetHigh || 0)}</span><br/><span className="text-blue-500">High</span></div>
+                        <div><span className="text-base font-bold text-gray-900">{fmt(analyst.consensus.targetLow || 0, symbol)}</span><br/><span className="text-red-400">Low</span></div>
+                        <div className="text-center"><span className="text-base font-bold text-gray-900">{fmt(price, symbol)}</span><br/><span className="text-gray-400">Current</span></div>
+                        <div className="text-center"><span className="text-base font-bold text-gray-900">{fmt(analyst.consensus.targetMedian || analyst.consensus.targetConsensus || 0, symbol)}</span><br/><span className="text-emerald-500">Average</span></div>
+                        <div className="text-right"><span className="text-base font-bold text-gray-900">{fmt(analyst.consensus.targetHigh || 0, symbol)}</span><br/><span className="text-blue-500">High</span></div>
                       </div>
                       {(() => {
                         const low = analyst.consensus.targetLow || 0;
@@ -1466,10 +1457,10 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
             {analyst.consensus && (
               <div className="mt-4">
                 <div className="flex justify-between text-xs mb-1">
-                  <div><span className="font-bold text-gray-900">{fmt(analyst.consensus.targetLow || 0)}</span><br/><span className="text-red-400">Low</span></div>
-                  <div className="text-center"><span className="font-bold text-gray-900">{fmt(price)}</span><br/><span className="text-gray-400">Current</span></div>
-                  <div className="text-center"><span className="font-bold text-gray-900">{fmt(analyst.consensus.targetMedian || analyst.consensus.targetConsensus || 0)}</span><br/><span className="text-emerald-500">Average</span></div>
-                  <div className="text-right"><span className="font-bold text-gray-900">{fmt(analyst.consensus.targetHigh || 0)}</span><br/><span className="text-blue-500">High</span></div>
+                  <div><span className="font-bold text-gray-900">{fmt(analyst.consensus.targetLow || 0, symbol)}</span><br/><span className="text-red-400">Low</span></div>
+                  <div className="text-center"><span className="font-bold text-gray-900">{fmt(price, symbol)}</span><br/><span className="text-gray-400">Current</span></div>
+                  <div className="text-center"><span className="font-bold text-gray-900">{fmt(analyst.consensus.targetMedian || analyst.consensus.targetConsensus || 0, symbol)}</span><br/><span className="text-emerald-500">Average</span></div>
+                  <div className="text-right"><span className="font-bold text-gray-900">{fmt(analyst.consensus.targetHigh || 0, symbol)}</span><br/><span className="text-blue-500">High</span></div>
                 </div>
                 {/* Range visualization */}
                 {(() => {

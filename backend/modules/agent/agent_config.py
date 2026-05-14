@@ -6,11 +6,11 @@ from core.config import Config
 from .prompts import get_agent_system_prompt
 
 
-async def create_agent(context, user_id: str = None, skill_ids: list[str] = None, investor_persona: str = None):
+async def create_agent(context, user_id: str = None, skill_ids: list[str] = None):
     """Create an agent with the base system prompt."""
     from .base_agent import BaseAgent
 
-    system_prompt = await get_agent_system_prompt(user_id, skill_ids, investor_persona=investor_persona)
+    system_prompt = await get_agent_system_prompt(user_id, skill_ids)
 
     page_context = context.data.get("page_context") if context.data else None
     if page_context:

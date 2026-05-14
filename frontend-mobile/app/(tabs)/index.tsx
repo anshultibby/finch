@@ -6,7 +6,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback, useRef } from 'react';
 import { snaptradeApi, marketApi, watchlistApi, notificationsApi } from '@/lib/api';
 import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell } from 'lucide-react-native';
-import { formatCurrency, formatPct, COLORS } from '@/lib/constants';
+import { formatCurrency, formatPct, COLORS, isIndianStock, currencySymbol } from '@/lib/constants';
 import FinchLogo from '@/components/FinchLogo';
 import SectionHeader from '@/components/ui/SectionHeader';
 import MoverCard from '@/components/market/MoverCard';
@@ -304,7 +304,7 @@ export default function HomeScreen() {
                   </View>
                   {item.price != null && (
                     <View className="items-end">
-                      <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(item.price)}</Text>
+                      <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(item.price, false, item.symbol)}</Text>
                       <Text className={`text-sm font-body tabular-nums ${(item.changesPercentage ?? item.change_pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                         {formatPct(item.changesPercentage ?? item.change_pct ?? 0)}
                       </Text>
@@ -460,7 +460,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
               <Text style={idxStyles.cardLabel}>{idx.label}</Text>
               <View className="flex-row items-end justify-between mt-1">
                 <View>
-                  <Text style={idxStyles.cardPrice}>{q.price ? formatCurrency(q.price) : '—'}</Text>
+                  <Text style={idxStyles.cardPrice}>{q.price ? formatCurrency(q.price, false, idx.symbol) : '—'}</Text>
                   {q.changesPercentage != null && (
                     <Text style={[idxStyles.cardChange, { color: q.changesPercentage >= 0 ? '#059669' : '#ef4444' }]}>
                       {q.changesPercentage >= 0 ? '↗' : '↘'} {formatPct(q.changesPercentage)}
@@ -512,7 +512,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
                   <Text className="text-sm font-body text-gray-500" numberOfLines={1}>{m.name || m.companyName}</Text>
                 </View>
                 <View className="items-end">
-                  <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(m.price)}</Text>
+                  <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(m.price, false, m.symbol)}</Text>
                   <Text className={`text-sm font-body tabular-nums ${m.changesPercentage >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {formatPct(m.changesPercentage)}
                   </Text>
@@ -634,7 +634,7 @@ function WatchlistTab({ items, loading, refreshing, onRefresh, onStockPress, onR
             <MiniSparkline symbol={item.symbol} width={48} height={20} days={30} />
             {item.price !== undefined && (
               <View className="items-end">
-                <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(item.price)}</Text>
+                <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(item.price, false, item.symbol)}</Text>
                 {item.change_pct !== undefined && (
                   <Text className={`text-sm font-body tabular-nums ${item.change_pct >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {formatPct(item.change_pct)}
@@ -868,10 +868,10 @@ function PortfolioTab({ isConnected, portfolioData, accounts, performance, broke
                   <Text style={pStyles.holdingQty}>{pos.quantity?.toFixed(2)} shares</Text>
                 </View>
                 <View className="items-end">
-                  <Text style={pStyles.holdingValue}>{formatCurrency(pos.value || 0)}</Text>
+                  <Text style={pStyles.holdingValue}>{formatCurrency(pos.value || 0, false, pos.symbol)}</Text>
                   {pos.gain_loss != null && (
                     <Text style={[pStyles.holdingGain, { color: pos.gain_loss >= 0 ? '#059669' : '#ef4444' }]}>
-                      {pos.gain_loss >= 0 ? '+' : ''}{formatCurrency(pos.gain_loss)} ({pos.gain_loss_percent?.toFixed(1) || '0.0'}%)
+                      {pos.gain_loss >= 0 ? '+' : ''}{formatCurrency(pos.gain_loss, false, pos.symbol)} ({pos.gain_loss_percent?.toFixed(1) || '0.0'}%)
                     </Text>
                   )}
                 </View>

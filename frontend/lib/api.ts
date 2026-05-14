@@ -119,7 +119,6 @@ export const chatApi = {
     handlers: SSEEventHandlers,
     images?: ImageAttachment[],
     skills?: string[],
-    investorPersona?: string,
     pageContext?: Record<string, any>
   ): { close: () => void; reconnect: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
@@ -131,7 +130,6 @@ export const chatApi = {
       chat_id: chatId,
       ...(images && images.length > 0 && { images }),
       ...(skills && skills.length > 0 && { skills }),
-      ...(investorPersona && { investor_persona: investorPersona }),
       ...(pageContext && { page_context: pageContext }),
     };
 
@@ -1171,6 +1169,18 @@ export const visualizationsApi = {
   runScript: async (script: string) => {
     const response = await api.post('/api/visualizations/run-script', { script });
     return response.data;
+  },
+  toggleShare: async (id: string) => {
+    const response = await api.post(`/api/visualizations/${id}/share`);
+    return response.data as { is_public: boolean; share_token: string | null };
+  },
+  getShared: async (shareToken: string) => {
+    const response = await api.get(`/api/visualizations/shared/${shareToken}`);
+    return response.data;
+  },
+  getSharedHtml: async (shareToken: string) => {
+    const response = await api.get(`/api/visualizations/shared/${shareToken}/render`, { responseType: 'text' });
+    return response.data as string;
   },
 };
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { ArrowLeft, Trash2, ExternalLink, BarChart3, LayoutGrid, Clock, Tag } from 'lucide-react';
+import { ArrowLeft, Trash2, ExternalLink, BarChart3, LayoutGrid, Clock, Tag, Share2, Link, Check, Lock } from 'lucide-react';
 import { Visualization } from '@/lib/types';
 import { visualizationsApi } from '@/lib/api';
 import api from '@/lib/api';
@@ -69,6 +69,8 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [htmlLoading, setHtmlLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // ── Fetch list ──
@@ -161,6 +163,29 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
     if (blobUrl) window.open(blobUrl, '_blank');
   };
 
+  const handleToggleShare = async () => {
+    if (!selectedId) return;
+    setShareLoading(true);
+    try {
+      const result = await visualizationsApi.toggleShare(selectedId);
+      setVisualizations(prev => prev.map(v =>
+        v.id === selectedId ? { ...v, is_public: result.is_public, share_token: result.share_token } : v
+      ));
+    } catch (e) {
+      console.error('Failed to toggle share', e);
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!selectedViz?.share_token) return;
+    const url = `${window.location.origin}/share/viz/${selectedViz.share_token}`;
+    await navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
   // ── Detail view ──
   if (selectedViz) {
     return (
@@ -184,6 +209,29 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
             )}
           </div>
           <div className="flex items-center gap-1">
+            {/* Share controls */}
+            <button
+              onClick={handleToggleShare}
+              disabled={shareLoading}
+              className={`p-1.5 rounded-lg transition-colors ${
+                selectedViz.is_public
+                  ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+              }`}
+              title={selectedViz.is_public ? 'Make private' : 'Share via link'}
+            >
+              {selectedViz.is_public ? <Share2 className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            </button>
+            {selectedViz.is_public && selectedViz.share_token && (
+              <button
+                onClick={handleCopyLink}
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+              >
+                {linkCopied ? <Check className="w-3 h-3" /> : <Link className="w-3 h-3" />}
+                {linkCopied ? 'Copied!' : 'Copy link'}
+              </button>
+            )}
+            <div className="w-px h-4 bg-gray-200 mx-0.5" />
             <button
               onClick={handleOpenNewTab}
               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600"

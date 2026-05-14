@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { marketApi, chatApi, watchlistApi, analysisApi, alpacaBrokerApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { MessageSquare, Star, ShoppingCart, BarChart3, FileText, TrendingUp, ChevronRight } from 'lucide-react-native';
-import { COLORS, formatCurrency, formatPct, formatVolume } from '@/lib/constants';
+import { COLORS, formatCurrency, formatPct, formatVolume, currencySymbol } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import TradeModal from '@/components/trade/TradeModal';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -132,7 +132,7 @@ export default function StockDetailScreen() {
                 {profile?.companyName || quote.name || symbol}
               </Text>
               <View className="flex-row items-baseline gap-2.5 mt-0.5">
-                <Text style={s.price}>{formatCurrency(quote.price)}</Text>
+                <Text style={s.price}>{formatCurrency(quote.price, false, symbol)}</Text>
                 <PriceChange value={quote.change || 0} percent={quote.changesPercentage} size="lg" />
               </View>
               {profile?.exchangeShortName && (
@@ -154,16 +154,16 @@ export default function StockDetailScreen() {
                     </View>
                     <View>
                       <Text style={s.holdingsLabel}>Avg Price</Text>
-                      <Text style={s.holdingsValue}>{formatCurrency(parseFloat(holdings.avg_entry_price || holdings.cost_basis || 0))}</Text>
+                      <Text style={s.holdingsValue}>{formatCurrency(parseFloat(holdings.avg_entry_price || holdings.cost_basis || '0'), false, symbol)}</Text>
                     </View>
                     <View>
                       <Text style={s.holdingsLabel}>Mkt Value</Text>
-                      <Text style={s.holdingsValue}>{formatCurrency(parseFloat(holdings.market_value || 0))}</Text>
+                      <Text style={s.holdingsValue}>{formatCurrency(parseFloat(holdings.market_value || '0'), false, symbol)}</Text>
                     </View>
                     <View className="items-end">
                       <Text style={s.holdingsLabel}>P&L</Text>
                       <Text style={[s.holdingsValue, { color: parseFloat(holdings.unrealized_pl || 0) >= 0 ? '#059669' : '#ef4444' }]}>
-                        {parseFloat(holdings.unrealized_pl || 0) >= 0 ? '+' : ''}{formatCurrency(parseFloat(holdings.unrealized_pl || 0))}
+                        {parseFloat(holdings.unrealized_pl || 0) >= 0 ? '+' : ''}{formatCurrency(parseFloat(holdings.unrealized_pl || '0'), false, symbol)}
                       </Text>
                     </View>
                   </View>
@@ -216,6 +216,7 @@ export default function StockDetailScreen() {
             {/* Tab Content */}
             {activeTab === 'overview' && (
               <OverviewTab
+                symbol={symbol}
                 quote={quote}
                 profile={profile}
                 analyst={analyst}
@@ -241,7 +242,7 @@ export default function StockDetailScreen() {
               />
             )}
             {activeTab === 'trades' && (
-              <TradesTab orders={orders} />
+              <TradesTab orders={orders} symbol={symbol} />
             )}
           </>
         ) : (
@@ -266,8 +267,8 @@ export default function StockDetailScreen() {
 
 // ── Overview Tab ────────────────────────────────────────────────────────────────
 
-function OverviewTab({ quote, profile, analyst, peers, router }: {
-  quote: any; profile: any; analyst: any; peers: any[]; router: any;
+function OverviewTab({ symbol, quote, profile, analyst, peers, router }: {
+  symbol: string; quote: any; profile: any; analyst: any; peers: any[]; router: any;
 }) {
   return (
     <>
@@ -277,18 +278,18 @@ function OverviewTab({ quote, profile, analyst, peers, router }: {
           <Text style={s.cardTitle}>Key Stats</Text>
           <View className="flex-row flex-wrap gap-y-3.5">
             {[
-              { label: 'Day High', value: quote.dayHigh ? formatCurrency(quote.dayHigh) : '—' },
-              { label: 'Day Low', value: quote.dayLow ? formatCurrency(quote.dayLow) : '—' },
-              { label: 'Open', value: quote.open ? formatCurrency(quote.open) : '—' },
-              { label: 'Prev Close', value: quote.previousClose ? formatCurrency(quote.previousClose) : '—' },
+              { label: 'Day High', value: quote.dayHigh ? formatCurrency(quote.dayHigh, false, symbol) : '—' },
+              { label: 'Day Low', value: quote.dayLow ? formatCurrency(quote.dayLow, false, symbol) : '—' },
+              { label: 'Open', value: quote.open ? formatCurrency(quote.open, false, symbol) : '—' },
+              { label: 'Prev Close', value: quote.previousClose ? formatCurrency(quote.previousClose, false, symbol) : '—' },
               { label: 'Volume', value: formatVolume(quote.volume || 0) },
               { label: 'Avg Volume', value: formatVolume(quote.avgVolume || 0) },
               { label: 'Mkt Cap', value: formatVolume(quote.marketCap || profile?.mktCap || 0) },
               { label: 'P/E', value: (quote.pe || profile?.peRatio) ? (quote.pe || profile.peRatio).toFixed(1) : '—' },
-              { label: 'EPS', value: (quote.eps || profile?.eps) ? `$${(quote.eps || profile.eps).toFixed(2)}` : '—' },
+              { label: 'EPS', value: (quote.eps || profile?.eps) ? `${currencySymbol(symbol)}${(quote.eps || profile.eps).toFixed(2)}` : '—' },
               { label: 'Div Yield', value: profile?.lastDiv ? `${((profile.lastDiv / quote.price) * 100).toFixed(2)}%` : '—' },
-              { label: '52w High', value: quote.yearHigh ? formatCurrency(quote.yearHigh) : '—' },
-              { label: '52w Low', value: quote.yearLow ? formatCurrency(quote.yearLow) : '—' },
+              { label: '52w High', value: quote.yearHigh ? formatCurrency(quote.yearHigh, false, symbol) : '—' },
+              { label: '52w Low', value: quote.yearLow ? formatCurrency(quote.yearLow, false, symbol) : '—' },
             ].map(stat => (
               <View key={stat.label} className="w-1/3">
                 <Text style={s.statLabel}>{stat.label}</Text>
@@ -305,7 +306,7 @@ function OverviewTab({ quote, profile, analyst, peers, router }: {
           <View style={s.card}>
             <Text style={s.cardTitle}>52-Week Range</Text>
             <View className="flex-row items-center gap-2 mt-1">
-              <Text style={s.rangeLabel}>{formatCurrency(quote.yearLow)}</Text>
+              <Text style={s.rangeLabel}>{formatCurrency(quote.yearLow, false, symbol)}</Text>
               <View style={s.rangeTrack}>
                 <View
                   style={[s.rangeFill, {
@@ -318,7 +319,7 @@ function OverviewTab({ quote, profile, analyst, peers, router }: {
                   }]}
                 />
               </View>
-              <Text style={s.rangeLabel}>{formatCurrency(quote.yearHigh)}</Text>
+              <Text style={s.rangeLabel}>{formatCurrency(quote.yearHigh, false, symbol)}</Text>
             </View>
           </View>
         </View>
@@ -336,15 +337,15 @@ function OverviewTab({ quote, profile, analyst, peers, router }: {
                 <View className="flex-row justify-between mb-2">
                   <View>
                     <Text style={s.statLabel}>Low</Text>
-                    <Text style={s.targetPrice}>{formatCurrency(analyst.targetConsensus.targetLow || 0)}</Text>
+                    <Text style={s.targetPrice}>{formatCurrency(analyst.targetConsensus.targetLow || 0, false, symbol)}</Text>
                   </View>
                   <View className="items-center">
                     <Text style={s.statLabel}>Average</Text>
-                    <Text style={[s.targetPrice, { color: '#059669' }]}>{formatCurrency(analyst.targetConsensus.targetMedian || analyst.targetConsensus.targetConsensus || 0)}</Text>
+                    <Text style={[s.targetPrice, { color: '#059669' }]}>{formatCurrency(analyst.targetConsensus.targetMedian || analyst.targetConsensus.targetConsensus || 0, false, symbol)}</Text>
                   </View>
                   <View className="items-end">
                     <Text style={s.statLabel}>High</Text>
-                    <Text style={s.targetPrice}>{formatCurrency(analyst.targetConsensus.targetHigh || 0)}</Text>
+                    <Text style={s.targetPrice}>{formatCurrency(analyst.targetConsensus.targetHigh || 0, false, symbol)}</Text>
                   </View>
                 </View>
                 {/* Price target bar */}
@@ -406,7 +407,7 @@ function OverviewTab({ quote, profile, analyst, peers, router }: {
                 </View>
                 {peer.price && (
                   <View className="items-end">
-                    <Text style={s.peerPrice}>{formatCurrency(peer.price)}</Text>
+                    <Text style={s.peerPrice}>{formatCurrency(peer.price, false, symbol)}</Text>
                     {peer.changesPercentage != null && (
                       <Text style={[s.peerChange, { color: peer.changesPercentage >= 0 ? '#059669' : '#ef4444' }]}>
                         {formatPct(peer.changesPercentage)}
@@ -927,7 +928,7 @@ function AnalysisTab({ analyst, analysis, quote, onChat }: {
 
 // ── Trades Tab ────────────────────────────────────────────────────────────────
 
-function TradesTab({ orders }: { orders: any[] }) {
+function TradesTab({ orders, symbol }: { orders: any[]; symbol: string }) {
   if (orders.length === 0) {
     return (
       <View className="py-16 items-center">
@@ -949,11 +950,11 @@ function TradesTab({ orders }: { orders: any[] }) {
       {filled.length > 0 && (
         <View className="flex-row gap-2 mb-4">
           <View style={s.miniStat}>
-            <Text style={s.miniStatValue}>{formatCurrency(totalBought)}</Text>
+            <Text style={s.miniStatValue}>{formatCurrency(totalBought, false, symbol)}</Text>
             <Text style={s.miniStatLabel}>Total Invested</Text>
           </View>
           <View style={s.miniStat}>
-            <Text style={s.miniStatValue}>{formatCurrency(totalSold)}</Text>
+            <Text style={s.miniStatValue}>{formatCurrency(totalSold, false, symbol)}</Text>
             <Text style={s.miniStatLabel}>Total Returned</Text>
           </View>
         </View>
@@ -973,13 +974,13 @@ function TradesTab({ orders }: { orders: any[] }) {
                 </Text>
               </View>
               <View className="flex-1 ml-3">
-                <Text style={tStyles.orderQty}>{qty.toFixed(2)} shares @ {formatCurrency(price)}</Text>
+                <Text style={tStyles.orderQty}>{qty.toFixed(2)} shares @ {formatCurrency(price, false, symbol)}</Text>
                 <Text style={tStyles.orderDate}>
                   {date ? new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                 </Text>
               </View>
               <View className="items-end">
-                <Text style={tStyles.orderTotal}>{formatCurrency(qty * price)}</Text>
+                <Text style={tStyles.orderTotal}>{formatCurrency(qty * price, false, symbol)}</Text>
                 <Text style={[tStyles.orderStatus, {
                   color: order.status === 'filled' ? '#059669' : order.status === 'canceled' ? '#9ca3af' : '#d97706'
                 }]}>

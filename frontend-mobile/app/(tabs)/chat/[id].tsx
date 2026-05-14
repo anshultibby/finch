@@ -72,7 +72,7 @@ export default function ChatScreen() {
     sendMessage(text, images);
   }, [isStreaming, sendMessage]);
 
-  const handleWelcomeSend = useCallback((text: string, _investorPersona?: string) => {
+  const handleWelcomeSend = useCallback((text: string) => {
     if (!text.trim() || isStreaming) return;
     sendMessage(text);
   }, [isStreaming, sendMessage]);

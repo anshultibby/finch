@@ -99,8 +99,7 @@ export const chatApi = {
     chatId: string,
     handlers: SSEEventHandlers,
     images?: ImageAttachment[],
-    skills?: string[],
-    investorPersona?: string
+    skills?: string[]
   ): { close: () => void } => {
     const url = `${API_BASE_URL}/chat/stream`;
     const abortController = new AbortController();
@@ -111,7 +110,6 @@ export const chatApi = {
       chat_id: chatId,
       ...(images && images.length > 0 && { images }),
       ...(skills && skills.length > 0 && { skills }),
-      ...(investorPersona && { investor_persona: investorPersona }),
     };
 
     let isClosed = false;

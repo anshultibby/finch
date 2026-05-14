@@ -9,9 +9,7 @@ import PriceRangeChart, { getStockRanges, type ChartMarker, type SeriesPoint } f
 import { createChart, ColorType, LineStyle, LineSeries } from 'lightweight-charts';
 import type { IChartApi, Time } from 'lightweight-charts';
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
-}
+import { formatCurrency as fmt } from '@/lib/currency';
 
 function fmtDate(iso: string) {
   const d = new Date(iso);
@@ -258,7 +256,7 @@ export default function TradesTab({ symbol, currentPrice }: { symbol: string; cu
 
   const chatAboutTrade = (trade: StockTransaction) => {
     const qty = trade.data?.quantity ?? trade.data?.units ?? '?';
-    const price = trade.data?.price ? fmt(trade.data.price) : '?';
+    const price = trade.data?.price ? fmt(trade.data.price, symbol) : '?';
     const date = fmtDate(trade.date);
     const action = trade.type === 'BUY' ? 'bought' : 'sold';
     openChatAbout(
@@ -300,16 +298,16 @@ export default function TradesTab({ symbol, currentPrice }: { symbol: string; cu
       <div className="grid grid-cols-3 gap-4 mb-5">
         <div>
           <div className="text-xs text-gray-400">Invested</div>
-          <div className="text-sm font-bold text-gray-900 tabular-nums">{fmt(totalBought)}</div>
+          <div className="text-sm font-bold text-gray-900 tabular-nums">{fmt(totalBought, symbol)}</div>
         </div>
         <div>
           <div className="text-xs text-gray-400">Returned</div>
-          <div className="text-sm font-bold text-gray-900 tabular-nums">{fmt(totalSold)}</div>
+          <div className="text-sm font-bold text-gray-900 tabular-nums">{fmt(totalSold, symbol)}</div>
         </div>
         <div>
           <div className="text-xs text-gray-400">Net P&L</div>
           <div className={`text-sm font-bold tabular-nums ${netPnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {netPnl >= 0 ? '+' : ''}{fmt(netPnl)}
+            {netPnl >= 0 ? '+' : ''}{fmt(netPnl, symbol)}
           </div>
         </div>
       </div>
@@ -362,14 +360,14 @@ export default function TradesTab({ symbol, currentPrice }: { symbol: string; cu
 
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-gray-900">
-                    {qty} {qty === 1 ? 'share' : 'shares'} @ {fmt(price)}
+                    {qty} {qty === 1 ? 'share' : 'shares'} @ {fmt(price, symbol)}
                   </div>
                   <div className="text-xs text-gray-400">{fmtDate(trade.date)}</div>
                 </div>
 
                 <div className="text-right mr-2">
                   <div className={`text-sm font-bold tabular-nums ${isBuy ? 'text-gray-900' : 'text-emerald-600'}`}>
-                    {isBuy ? '-' : '+'}{fmt(Math.abs(total))}
+                    {isBuy ? '-' : '+'}{fmt(Math.abs(total), symbol)}
                   </div>
                 </div>
 

@@ -193,7 +193,7 @@ export default function MarketsScreen() {
                           <Text className="text-sm font-body text-gray-500" numberOfLines={1}>{m.name || m.companyName}</Text>
                         </View>
                         <View className="items-end">
-                          <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(m.price)}</Text>
+                          <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(m.price, false, m.symbol)}</Text>
                           <Text className={`text-sm font-body tabular-nums ${m.changesPercentage >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                             {formatPct(m.changesPercentage)}
                           </Text>

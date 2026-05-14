@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, TextInput, Alert } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -65,8 +65,11 @@ function useTypingAnimation() {
 }
 
 export default function LoginScreen() {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, signInWithEmail } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [showEmailLogin, setShowEmailLogin] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const typingText = useTypingAnimation();
 
   const handleSignIn = async () => {
@@ -75,6 +78,18 @@ export default function LoginScreen() {
       await signInWithGoogle();
     } catch (error) {
       console.error('Sign in error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEmailSignIn = async () => {
+    if (!email || !password) return;
+    setIsLoading(true);
+    try {
+      await signInWithEmail(email, password);
+    } catch (error: any) {
+      Alert.alert('Sign in failed', error.message || 'Invalid credentials');
     } finally {
       setIsLoading(false);
     }
@@ -137,6 +152,44 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>Free to sign up · No credit card required</Text>
+
+        {showEmailLogin ? (
+          <View style={styles.emailForm}>
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="#9ca3af"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#9ca3af"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+            <TouchableOpacity
+              onPress={handleEmailSignIn}
+              disabled={isLoading}
+              style={styles.emailBtn}
+              activeOpacity={0.85}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.emailBtnText}>Sign in</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity onPress={() => setShowEmailLogin(true)} style={styles.emailToggle}>
+            <Text style={styles.emailToggleText}>Sign in with email</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <Text style={styles.legal}>
@@ -253,6 +306,41 @@ const styles = StyleSheet.create({
     fontFamily: 'DMSans',
     color: '#9ca3af',
     marginTop: 12,
+  },
+  emailToggle: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  emailToggleText: {
+    fontSize: 13,
+    fontFamily: 'DMSans',
+    color: '#9ca3af',
+  },
+  emailForm: {
+    marginTop: 12,
+    gap: 10,
+  },
+  input: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 15,
+    fontFamily: 'DMSans',
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  emailBtn: {
+    backgroundColor: '#059669',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  emailBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontFamily: 'DMSans-Medium',
   },
   legal: {
     textAlign: 'center',

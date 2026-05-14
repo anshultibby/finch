@@ -18,14 +18,24 @@ export const COLORS = {
   white: '#ffffff',
 } as const;
 
-export function formatCurrency(value: number, compact = false): string {
+export function isIndianStock(symbol?: string): boolean {
+  return !!symbol && (/\.(NS|BO)$/i.test(symbol) || /^\^(NSEI|BSESN|NSEBANK)$/.test(symbol));
+}
+
+export function currencySymbol(symbol?: string): string {
+  return isIndianStock(symbol) ? '₹' : '$';
+}
+
+export function formatCurrency(value: number, compact = false, symbol?: string): string {
+  const cs = currencySymbol(symbol);
   if (compact) {
-    if (Math.abs(value) >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
-    if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-    if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
-    if (Math.abs(value) >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+    if (Math.abs(value) >= 1e12) return `${cs}${(value / 1e12).toFixed(1)}T`;
+    if (Math.abs(value) >= 1e9) return `${cs}${(value / 1e9).toFixed(1)}B`;
+    if (Math.abs(value) >= 1e6) return `${cs}${(value / 1e6).toFixed(1)}M`;
+    if (Math.abs(value) >= 1e3) return `${cs}${(value / 1e3).toFixed(1)}K`;
   }
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const locale = isIndianStock(symbol) ? 'en-IN' : 'en-US';
+  return `${cs}${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function formatPct(value: number): string {

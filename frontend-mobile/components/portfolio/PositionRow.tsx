@@ -30,12 +30,12 @@ export default function PositionRow({ symbol, qty, avgEntry, marketValue, unreal
         <View className="flex-1">
           <Text className="text-[14px] font-body-bold text-gray-900">{symbol}</Text>
           <Text className="text-[12px] font-body text-gray-500 mt-px">
-            {parseFloat(qty).toFixed(qty.includes('.') ? 4 : 0)} shares @ {formatCurrency(parseFloat(avgEntry))}
+            {parseFloat(qty).toFixed(qty.includes('.') ? 4 : 0)} shares @ {formatCurrency(parseFloat(avgEntry), false, symbol)}
           </Text>
         </View>
         <View className="items-end">
           <Text className="text-[14px] font-body-medium text-gray-900 tabular-nums">
-            {formatCurrency(mv)}
+            {formatCurrency(mv, false, symbol)}
           </Text>
           <PriceChange value={pl} percent={plPct} showDollar size="sm" />
         </View>

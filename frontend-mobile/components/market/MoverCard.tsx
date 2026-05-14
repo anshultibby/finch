@@ -24,7 +24,7 @@ export default function MoverCard({ symbol, name, price, changePct, onPress }: M
         <MiniSparkline symbol={symbol} width={44} height={20} days={7} />
       </View>
       <Text className="text-[14px] font-body-medium text-gray-900 mt-2 tabular-nums">
-        {formatCurrency(price)}
+        {formatCurrency(price, false, symbol)}
       </Text>
       <View className={`mt-1.5 self-start px-1.5 py-px rounded-md ${isPositive ? 'bg-emerald-50' : 'bg-red-50'}`}>
         <Text className={`text-[11px] font-body-bold tabular-nums ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>

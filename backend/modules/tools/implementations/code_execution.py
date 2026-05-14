@@ -504,6 +504,10 @@ class BashParams(BaseModel):
     cmd: str = Field(
         description="Bash command or script to run. The sandbox is a full Linux environment — use python3, pip, curl, cat, tee, heredoc, etc."
     )
+    truncate: bool = Field(
+        default=True,
+        description="If false, return full stdout without truncation. Use truncate=false when reading files with cat to get complete content."
+    )
 
 
 async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
@@ -760,7 +764,7 @@ async def bash_impl(
         if exit_code != 0:
             stdout_out, stderr_out, spill_note = await _maybe_spill_to_file(
                 sbx, stdout_text, stderr_text
-            )
+            ) if params.truncate else (stdout_text, stderr_text, "")
             error_msg = f"[{severity}] Command exited with code {exit_code}"
             if hint:
                 error_msg += f"\nHint: {hint}"
@@ -778,9 +782,12 @@ async def bash_impl(
             }
             return
 
-        stdout_out, stderr_out, spill_note = await _maybe_spill_to_file(
-            sbx, stdout_text, stderr_text
-        )
+        if params.truncate:
+            stdout_out, stderr_out, spill_note = await _maybe_spill_to_file(
+                sbx, stdout_text, stderr_text
+            )
+        else:
+            stdout_out, stderr_out, spill_note = stdout_text, stderr_text, ""
 
         yield SSEEvent(event="tool_status", data={
             "status": "complete",

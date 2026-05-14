@@ -63,3 +63,13 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | PDF export | ✅ | ❌ | |
 | Earnings transcript | ✅ | ❌ | |
 | Privacy page | ✅ | ❌ | |
+
+## Chat Logs
+
+Agent chat logs are saved locally at `backend/chat_logs/YYYYMMDD/<timestamp>_<chat_id>/master/`. Each chat directory contains:
+- `messages.jsonl` — full message history (user, assistant, tool calls and results)
+- `conversation.json` — conversation metadata
+- `cache_diagnostics.jsonl` — prompt caching stats
+- `code_executions/` — sandbox execution logs
+
+Use these to debug agent behavior (e.g., which tools the model called, truncated outputs, etc.).

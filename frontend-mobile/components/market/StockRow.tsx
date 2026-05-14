@@ -32,7 +32,7 @@ export default function StockRow({ symbol, name, price, changePct, onPress, righ
         <View className="items-end">
           {price !== undefined && (
             <Text className="text-[14px] font-body-medium text-gray-900 tabular-nums">
-              {formatCurrency(price)}
+              {formatCurrency(price, false, symbol)}
             </Text>
           )}
           {changePct !== undefined && (

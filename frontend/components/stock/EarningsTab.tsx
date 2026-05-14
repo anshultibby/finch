@@ -2,13 +2,7 @@
 
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { marketApi } from '@/lib/api';
-
-function fmtB(n: number) {
-  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  return `$${n.toLocaleString()}`;
-}
+import { formatCurrencyCompact as fmtB, getCurrency } from '@/lib/currency';
 
 type EarningsSubTab = 'overview' | 'transcript' | 'documents';
 
@@ -175,11 +169,11 @@ function QuarterDetail({ q, symbol, onListen }: { q: EarningsQuarter; symbol: st
             <tr>
               <td className="py-3 px-4 font-medium text-gray-700">Revenue</td>
               <td className="py-3 px-4 text-right text-gray-500 tabular-nums">
-                {q.revenueEstimated != null ? fmtB(q.revenueEstimated) : '--'}
+                {q.revenueEstimated != null ? fmtB(q.revenueEstimated, symbol) : '--'}
               </td>
               {!q.isUpcoming && (
                 <td className="py-3 px-4 text-right font-semibold text-gray-900 tabular-nums">
-                  {q.revenue != null ? fmtB(q.revenue) : '--'}
+                  {q.revenue != null ? fmtB(q.revenue, symbol) : '--'}
                 </td>
               )}
               {!q.isUpcoming && (
@@ -195,11 +189,11 @@ function QuarterDetail({ q, symbol, onListen }: { q: EarningsQuarter; symbol: st
             <tr>
               <td className="py-3 px-4 font-medium text-gray-700">EPS (Adj.)</td>
               <td className="py-3 px-4 text-right text-gray-500 tabular-nums">
-                {q.epsEstimated != null ? `$${q.epsEstimated.toFixed(2)}` : '--'}
+                {q.epsEstimated != null ? `${getCurrency(symbol).symbol}${q.epsEstimated.toFixed(2)}` : '--'}
               </td>
               {!q.isUpcoming && (
                 <td className="py-3 px-4 text-right font-semibold text-gray-900 tabular-nums">
-                  {q.eps != null ? `$${q.eps.toFixed(2)}` : '--'}
+                  {q.eps != null ? `${getCurrency(symbol).symbol}${q.eps.toFixed(2)}` : '--'}
                 </td>
               )}
               {!q.isUpcoming && (
@@ -221,7 +215,7 @@ function QuarterDetail({ q, symbol, onListen }: { q: EarningsQuarter; symbol: st
 
 // ── Overview Sub-tab ─────────────────────────────────────────────────────────
 
-function EarningsOverview({ quarters, selectedIdx }: { quarters: EarningsQuarter[]; selectedIdx: number }) {
+function EarningsOverview({ quarters, selectedIdx, symbol }: { quarters: EarningsQuarter[]; selectedIdx: number; symbol: string }) {
   const q = quarters[selectedIdx];
   const reported = quarters.filter(x => !x.isUpcoming);
   const beats = reported.filter(x => x.epsSurprisePct != null && x.epsSurprisePct > 0);
@@ -253,7 +247,7 @@ function EarningsOverview({ quarters, selectedIdx }: { quarters: EarningsQuarter
             {epsYoY >= 0 ? '+' : ''}{epsYoY.toFixed(1)}%
           </div>
           <div className="text-xs text-gray-400 mt-1">
-            vs {sameQLastYear!.fiscalLabel}: ${sameQLastYear!.eps!.toFixed(2)}
+            vs {sameQLastYear!.fiscalLabel}: {getCurrency(symbol).symbol}{sameQLastYear!.eps!.toFixed(2)}
           </div>
         </div>
       )}
@@ -264,7 +258,7 @@ function EarningsOverview({ quarters, selectedIdx }: { quarters: EarningsQuarter
             {revYoY >= 0 ? '+' : ''}{revYoY.toFixed(1)}%
           </div>
           <div className="text-xs text-gray-400 mt-1">
-            vs {sameQLastYear!.fiscalLabel}: {fmtB(sameQLastYear!.revenue!)}
+            vs {sameQLastYear!.fiscalLabel}: {fmtB(sameQLastYear!.revenue!, symbol)}
           </div>
         </div>
       )}
@@ -652,7 +646,7 @@ export default function EarningsTab({ symbol, earningsHistory }: { symbol: strin
       </div>
 
       {subTab === 'overview' && (
-        <EarningsOverview quarters={quarters} selectedIdx={selectedIdx} />
+        <EarningsOverview quarters={quarters} selectedIdx={selectedIdx} symbol={symbol} />
       )}
       {subTab === 'transcript' && (
         <EarningsTranscript symbol={symbol} quarter={selected} />

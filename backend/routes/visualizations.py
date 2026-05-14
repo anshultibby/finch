@@ -3,6 +3,7 @@ API routes for agent-generated HTML visualizations
 """
 import logging
 import re
+import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -34,6 +35,8 @@ async def list_visualizations(
             Visualization.category,
             Visualization.tags,
             Visualization.chat_id,
+            Visualization.is_public,
+            Visualization.share_token,
             Visualization.created_at,
             Visualization.updated_at,
         )
@@ -51,12 +54,54 @@ async def list_visualizations(
                 "category": row.category,
                 "tags": row.tags or [],
                 "chat_id": str(row.chat_id) if row.chat_id else None,
+                "is_public": row.is_public,
+                "share_token": row.share_token,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             }
             for row in rows
         ]
     }
+
+
+@router.get("/shared/{share_token}")
+async def get_shared_visualization(
+    share_token: str,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Get metadata for a publicly shared visualization (no auth required)."""
+    result = await db.execute(
+        select(Visualization)
+        .where(Visualization.share_token == share_token, Visualization.is_public == True)
+    )
+    viz = result.scalar_one_or_none()
+    if not viz:
+        raise HTTPException(status_code=404, detail="Visualization not found or not shared")
+    return {
+        "id": str(viz.id),
+        "title": viz.title,
+        "description": viz.description,
+        "category": viz.category,
+        "tags": viz.tags or [],
+        "created_at": viz.created_at.isoformat() if viz.created_at else None,
+        "updated_at": viz.updated_at.isoformat() if viz.updated_at else None,
+    }
+
+
+@router.get("/shared/{share_token}/render")
+async def render_shared_visualization(
+    share_token: str,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Serve the HTML of a publicly shared visualization (no auth required)."""
+    result = await db.execute(
+        select(Visualization.html_content, Visualization.title)
+        .where(Visualization.share_token == share_token, Visualization.is_public == True)
+    )
+    row = result.one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Visualization not found or not shared")
+    return HTMLResponse(content=row.html_content)
 
 
 @router.get("/{viz_id}")
@@ -81,6 +126,8 @@ async def get_visualization(
         "category": viz.category,
         "tags": viz.tags or [],
         "chat_id": str(viz.chat_id) if viz.chat_id else None,
+        "is_public": viz.is_public,
+        "share_token": viz.share_token,
         "created_at": viz.created_at.isoformat() if viz.created_at else None,
         "updated_at": viz.updated_at.isoformat() if viz.updated_at else None,
     }
@@ -157,6 +204,37 @@ async def delete_visualization(
     await db.delete(viz)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/{viz_id}/share")
+async def toggle_share(
+    viz_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Toggle public sharing for a visualization. Returns the share_token when enabled."""
+    result = await db.execute(
+        select(Visualization)
+        .where(Visualization.id == viz_id, Visualization.user_id == user_id)
+    )
+    viz = result.scalar_one_or_none()
+    if not viz:
+        raise HTTPException(status_code=404, detail="Visualization not found")
+
+    if viz.is_public:
+        viz.is_public = False
+        viz.share_token = None
+    else:
+        viz.is_public = True
+        if not viz.share_token:
+            viz.share_token = secrets.token_urlsafe(16)
+
+    await db.commit()
+    await db.refresh(viz)
+    return {
+        "is_public": viz.is_public,
+        "share_token": viz.share_token,
+    }
 
 
 _SAFE_SCRIPT_PATH = re.compile(r"^[a-zA-Z0-9_/][a-zA-Z0-9_\-./]*\.py$")

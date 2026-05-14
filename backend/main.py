@@ -87,7 +87,7 @@ app.add_middleware(
     allow_origins=Config.cors_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Admin-Secret", "Stripe-Signature"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Secret", "X-User-ID", "Stripe-Signature"],
 )
 
 

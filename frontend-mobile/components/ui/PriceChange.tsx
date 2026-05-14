@@ -9,6 +9,7 @@ interface PriceChangeProps {
   showIcon?: boolean;
   showDollar?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  stockSymbol?: string;
 }
 
 const sizeMap = {
@@ -17,7 +18,7 @@ const sizeMap = {
   lg: { text: 'text-[14px]', icon: 13 },
 };
 
-export default function PriceChange({ value, percent, showIcon = true, showDollar = false, size = 'md' }: PriceChangeProps) {
+export default function PriceChange({ value, percent, showIcon = true, showDollar = false, size = 'md', stockSymbol }: PriceChangeProps) {
   const isPositive = value >= 0;
   const color = isPositive ? COLORS.emerald : COLORS.red;
   const colorClass = isPositive ? 'text-emerald-600' : 'text-red-500';
@@ -32,7 +33,7 @@ export default function PriceChange({ value, percent, showIcon = true, showDolla
       )}
       {showDollar && (
         <Text className={`${s.text} font-body tabular-nums ${colorClass}`}>
-          {isPositive ? '+' : ''}{formatCurrency(value)}
+          {isPositive ? '+' : ''}{formatCurrency(value, false, stockSymbol)}
         </Text>
       )}
       {percent !== undefined && (

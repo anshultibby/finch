@@ -101,7 +101,6 @@ async def send_chat_message_stream(
                         images=images,
                         skill_ids=skill_ids if skill_ids else None,
                         auth_token=auth_token,
-                        investor_persona=chat_message.investor_persona,
                         page_context=chat_message.page_context,
                     ):
                         await queue.put(sse_data)

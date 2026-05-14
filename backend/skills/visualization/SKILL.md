@@ -22,6 +22,8 @@ You generate self-contained HTML files that render in the user's Charts tab. Eac
 
 **Be opinionated about what looks good.** Don't default to the boring option. If an animated entrance makes the chart more engaging, add it. If a custom tooltip with sparklines would be more informative, build it. If the data would be stunning as a 3D surface or animated flow, go for it. Push the boundaries of what the user expects from an AI assistant.
 
+**Your design north stars:** Linear's dashboards (clean density, purposeful whitespace, subtle depth), Stripe's data viz (gradient fills, smooth animations, perfect typography), Vercel's analytics (minimal chrome, bold numbers, elegant transitions), Bloomberg Terminal (information density done right). Study these — they're what "premium" looks like. Generic Chart.js with default colors is the opposite of what we want.
+
 ## When to Use This Skill
 
 - User asks for any chart, graph, plot, dashboard, or visual analysis
@@ -318,6 +320,38 @@ Chart.defaults.plugins.tooltip.cornerRadius = 8;
 Chart.defaults.plugins.legend.labels.usePointStyle = true;
 Chart.defaults.plugins.legend.labels.pointStyleWidth = 8;
 ```
+
+## Hard Rules (Non-Negotiable)
+
+These are not suggestions. Apply every single one to every visualization.
+
+1. **Always hide the Plotly modebar** — `Plotly.newPlot(el, data, layout, { responsive: true, displayModeBar: false })`. The modebar screams "library default." If you need zoom, implement custom controls.
+2. **Always animate entrances** — every card, chart, and KPI must fade/slide in. Stagger siblings by 80-120ms. A chart that just "appears" feels broken.
+3. **Always use gradient fills** on area charts, not solid fills. Fade from 30% opacity to 0% at the baseline.
+4. **Always customize tooltips** — never use library default tooltip styling. Dark bg (`#1a1a1a`), subtle border, `backdrop-filter: blur(12px)`, 8px radius, slight shadow.
+5. **Always add hover states** on interactive elements — cards lift with shadow, rows highlight, buttons scale. Dead-feeling UI is unacceptable.
+6. **Always style scrollbars** — thin, dark, matching the theme (see Micro-Polish section).
+7. **Always use tabular-nums** for any number display — `font-variant-numeric: tabular-nums`. Numbers that jump around when changing are jarring.
+8. **Never use library default colors** — always apply the design system palette. This includes Plotly's default blue, Chart.js rainbow, D3 category10.
+9. **Never leave axes unstyled** — no black text, no default gridlines. Use `--text-tertiary` for labels, `--border-subtle` for gridlines.
+10. **Never use `Times New Roman` or serif fonts** in charts — system sans-serif stack only.
+
+## Design Anti-Patterns (What to Avoid)
+
+These are the hallmarks of "AI-generated chart." Avoid all of them.
+
+| Anti-Pattern | Why It Looks Bad | What to Do Instead |
+|-------------|------------------|-------------------|
+| Plotly modebar visible | Screams "default library output" | `displayModeBar: false`, custom controls if needed |
+| White or light gray background | Clashes with dark app theme, looks like an embed from another site | Always use `--bg-primary` (#0a0a0a) |
+| Rainbow/default colors | Looks like a school project | Use the design system's `--series-*` palette |
+| No entrance animation | Chart appears with a jarring pop | fadeInUp with staggered delays |
+| Giant legend taking up space | Wastes real estate, hard to read | Inline labels on the chart, or small legend at bottom |
+| Axis titles like "Value" or "X Axis" | Meaningless labels | Specific: "Revenue ($M)", "Days Since IPO" |
+| Too much chrome | Borders, shadows, boxes everywhere | Minimal containers, let data breathe |
+| Cramped spacing | Elements touching or overlapping | Consistent 8px grid spacing |
+| Tooltips that just show (x, y) | No context for the user | Show formatted value, label, comparison, % of total |
+| Static when it should be interactive | Missed opportunity for engagement | Add hover, click, filter, zoom where natural |
 
 ## Chart Type Selection
 
@@ -838,21 +872,226 @@ Dashboards should adapt to the viewport, not just scale:
 }
 ```
 
+## Modern CSS Polish
+
+These patterns elevate a visualization from "functional" to "premium." Use them liberally.
+
+### Glassmorphism Cards
+For overlays, floating panels, and tooltip-like elements:
+```css
+.glass-card {
+  background: rgba(20, 20, 20, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+```
+
+### Gradient Borders
+More refined than solid borders — gives depth:
+```css
+.gradient-border {
+  position: relative;
+  background: var(--bg-surface);
+  border-radius: 12px;
+  padding: 20px;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.3), rgba(99,102,241,0));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+```
+
+### Animated Gradient Backgrounds
+For hero sections or dashboard headers — subtle movement draws attention:
+```css
+.gradient-bg {
+  background: linear-gradient(135deg, #0a0a0a 0%, #141428 50%, #0a0a0a 100%);
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease infinite;
+}
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+```
+
+### Glow Effects
+For key data points, active states, or emphasis:
+```css
+.glow-accent {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.15),
+              0 0 60px rgba(99, 102, 241, 0.05);
+}
+.glow-positive {
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.15),
+              0 0 60px rgba(34, 197, 94, 0.05);
+}
+/* Apply to KPI cards that are up/down for instant visual signal */
+```
+
+### Gradient Text for Headers
+For dashboard titles or hero metrics:
+```css
+.gradient-text {
+  background: linear-gradient(135deg, #f5f5f5 0%, #a0a0a0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+```
+
+### Subtle Noise Texture
+Adds depth and prevents flat, digital-looking surfaces:
+```css
+.noise-overlay::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+```
+
+### Card Hover Lift
+Cards should feel interactive — lift on hover:
+```css
+.viz-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.viz-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-color: var(--border-default);
+}
+```
+
+### Smooth Reveal on Scroll
+For long dashboards, reveal sections as user scrolls:
+```javascript
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.viz-card').forEach(el => observer.observe(el));
+```
+```css
+.viz-card { opacity: 0; transform: translateY(20px); transition: all 0.5s ease; }
+.viz-card.visible { opacity: 1; transform: translateY(0); }
+```
+
+## Micro-Polish Details
+
+The difference between "good enough" and "premium" is in the tiny details. Apply these everywhere.
+
+### Custom Scrollbars
+```css
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+```
+
+### Selection Colors
+```css
+::selection { background: rgba(99, 102, 241, 0.3); color: #f5f5f5; }
+```
+
+### Focus States (for keyboard nav)
+```css
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+```
+
+### Smooth Font Rendering
+```css
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+```
+
+### Loading Skeleton
+Show a pulsing placeholder while data loads (for live-data visualizations):
+```css
+.skeleton {
+  background: linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+```
+
+### Divider Lines
+Use subtle gradient dividers instead of hard borders:
+```css
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+  margin: 16px 0;
+}
+```
+
+### Transition Easing
+Never use `linear` for UI transitions. Prefer:
+- `cubic-bezier(0.4, 0, 0.2, 1)` — standard material easing
+- `cubic-bezier(0, 0, 0.2, 1)` — decelerate (entrances)
+- `cubic-bezier(0.4, 0, 1, 1)` — accelerate (exits)
+
 ## Quality Checklist
 
 Before saving any visualization, verify:
 
+**Data & Structure**
 - [ ] Chart type fits the data story (not just the first thing that came to mind)
-- [ ] All axes labeled with units
+- [ ] All axes labeled with units — no generic "Value" or "X Axis" labels
 - [ ] Title is descriptive and specific (not "Chart" or "Data")
-- [ ] Colors follow the design system — no library defaults
-- [ ] Dark theme applied consistently
-- [ ] Tooltips show useful detail on hover
 - [ ] Numbers are formatted correctly (dollars, percentages, dates)
-- [ ] Responsive — uses full width, no fixed pixel widths on the main container
 - [ ] Data makes sense visually (no weird spikes, gaps, or obviously wrong values)
-- [ ] File is self-contained (no external fetches, all data embedded)
+- [ ] File is self-contained (no external fetches, all data embedded or uses finch bridge)
 - [ ] File name is descriptive
 - [ ] `charts.json` manifest is updated with the new chart's entry
+
+**Visual Polish**
+- [ ] Colors follow the design system — no library defaults anywhere
+- [ ] Dark theme applied consistently — no white backgrounds, no light-mode leaks
+- [ ] Plotly modebar is hidden (`displayModeBar: false`)
+- [ ] Custom-styled tooltips with `backdrop-filter: blur`, dark bg, proper formatting
+- [ ] Entrance animations on all cards/sections (fadeInUp with stagger)
+- [ ] Hover states on all interactive elements (cards lift, rows highlight, buttons respond)
+- [ ] `font-variant-numeric: tabular-nums` on all number displays
+- [ ] Custom scrollbar styling applied
+- [ ] Gradient fills on area charts (not solid fills)
+- [ ] Smooth easing curves — no `linear` transitions
+
+**Responsiveness & Interaction**
+- [ ] Responsive — uses full width, no fixed pixel widths on the main container
+- [ ] Tooltips show rich context (formatted value, label, comparison, % of total)
 - [ ] Animations and transitions feel smooth, not janky
+
+**Overall**
+- [ ] Would this look at home in Linear, Stripe, or Vercel's dashboard? If not, it needs more polish.
 - [ ] The visualization is something you'd be proud to show — not just functional, but impressive

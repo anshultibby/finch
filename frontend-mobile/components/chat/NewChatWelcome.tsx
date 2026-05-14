@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { DollarSign, PieChart, Search, Send, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import InvestorPicker from '@/components/InvestorPicker';
-import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT, InvestorPersona } from '@/lib/aiPrompts';
+import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
 import { COLORS } from '@/lib/constants';
 
 const QUICK_ACTIONS = [
@@ -31,21 +30,19 @@ const QUICK_ACTIONS = [
 ];
 
 interface NewChatWelcomeProps {
-  onSendMessage: (message: string, investorPersona?: string) => void;
+  onSendMessage: (message: string) => void;
   disabled?: boolean;
 }
 
 export default function NewChatWelcome({ onSendMessage, disabled }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
-  const [selectedPersona, setSelectedPersona] = useState<InvestorPersona | null>(null);
 
   const handleSend = () => {
     const text = message.trim();
     if (!text || disabled) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onSendMessage(text, selectedPersona?.id);
+    onSendMessage(text);
     setMessage('');
-    setSelectedPersona(null);
   };
 
   const handleQuickAction = (prompt: string) => {
@@ -85,19 +82,11 @@ export default function NewChatWelcome({ onSendMessage, disabled }: NewChatWelco
         ))}
       </View>
 
-      <View className="mb-5">
-        <InvestorPicker
-          selectedId={selectedPersona?.id ?? null}
-          onSelect={setSelectedPersona}
-          disabled={disabled}
-        />
-      </View>
-
       <View style={styles.inputCard}>
         <TextInput
           value={message}
           onChangeText={setMessage}
-          placeholder={selectedPersona ? `Ask ${selectedPersona.name} anything...` : 'Ask anything about your portfolio...'}
+          placeholder="Ask anything about your portfolio..."
           placeholderTextColor={COLORS.gray400}
           multiline
           className="px-3.5 py-2.5 text-[14px] font-body text-gray-900 min-h-[70px] max-h-[140px]"
