@@ -14,6 +14,7 @@ interface WatchlistItem {
   price?: number;
   change_pct?: number;
   name?: string;
+  source?: 'manual' | 'ai';
 }
 
 export default function WatchlistScreen() {
@@ -27,28 +28,39 @@ export default function WatchlistScreen() {
     if (!user) return;
     try {
       const data = await watchlistApi.getWatchlist(user.id);
-      const symbols: string[] = data.symbols || data.watchlist || [];
+      const rawItems: any[] = data.symbols || data.watchlist || [];
 
-      if (symbols.length > 0) {
-        try {
-          const quotes = await marketApi.getBatchQuotes(symbols);
-          const quoteMap = new Map(
-            (quotes.quotes || quotes || []).map((q: any) => [q.symbol, q])
-          );
-          setItems(symbols.map(s => {
-            const q = quoteMap.get(s) as any;
-            return {
-              symbol: s,
-              price: q?.price,
-              change_pct: q?.changesPercentage ?? q?.change_pct,
-              name: q?.name,
-            };
-          }));
-        } catch {
-          setItems(symbols.map(s => ({ symbol: s })));
-        }
+      if (rawItems.length > 0 && typeof rawItems[0] === 'object') {
+        setItems(rawItems.map((item: any) => ({
+          symbol: item.symbol,
+          price: item.price,
+          change_pct: item.changesPercentage ?? item.change_pct,
+          name: item.name,
+          source: item.source,
+        })));
       } else {
-        setItems([]);
+        const symbols: string[] = rawItems.map((s: any) => typeof s === 'string' ? s : s.symbol);
+        if (symbols.length > 0) {
+          try {
+            const quotes = await marketApi.getBatchQuotes(symbols);
+            const quoteMap = new Map(
+              (quotes.quotes || quotes || []).map((q: any) => [q.symbol, q])
+            );
+            setItems(symbols.map(s => {
+              const q = quoteMap.get(s) as any;
+              return {
+                symbol: s,
+                price: q?.price,
+                change_pct: q?.changesPercentage ?? q?.change_pct,
+                name: q?.name,
+              };
+            }));
+          } catch {
+            setItems(symbols.map(s => ({ symbol: s })));
+          }
+        } else {
+          setItems([]);
+        }
       }
     } catch {
       setItems([]);
@@ -116,7 +128,14 @@ export default function WatchlistScreen() {
               activeOpacity={0.7}
             >
               <View className="flex-1 mr-3">
-                <Text className="text-[15px] font-body-bold text-gray-900">{item.symbol}</Text>
+                <View className="flex-row items-center gap-1.5">
+                  <Text className="text-[15px] font-body-bold text-gray-900">{item.symbol}</Text>
+                  {item.source === 'ai' && (
+                    <View className="px-1 py-px rounded bg-violet-50 border border-violet-100">
+                      <Text className="text-[9px] font-body-bold text-violet-500">AI</Text>
+                    </View>
+                  )}
+                </View>
                 {item.name && (
                   <Text className="text-sm font-body text-gray-500 mt-0.5" numberOfLines={1}>{item.name}</Text>
                 )}
@@ -125,7 +144,7 @@ export default function WatchlistScreen() {
                 {item.price !== undefined && (
                   <View className="items-end">
                     <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">
-                      {formatCurrency(item.price)}
+                      {formatCurrency(item.price, false, item.symbol)}
                     </Text>
                     {item.change_pct !== undefined && (
                       <Text className={`text-sm font-body tabular-nums ${item.change_pct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>

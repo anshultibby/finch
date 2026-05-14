@@ -96,6 +96,9 @@ This keeps code out of bash tool args, making iteration and debugging much easie
 - Writing scripts and code to run (analysis, data processing, charting)
 - Creating reusable libraries and helper modules
 - Storing analysis results or data files
+
+**Stock analysis notes:** Files matching `stocks/{SYMBOL}/*.md` auto-sync to the Analysis tab and add the stock to the user's watchlist.
+- `sync_to_analysis` (bool, default true): set to false to skip syncing to the Analysis tab and watchlist (e.g., for draft files or non-stock-specific content).
 """
 
 READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads and images!**

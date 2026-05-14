@@ -41,6 +41,7 @@ async def get_watchlist(
 
         symbols_str = ",".join(item.symbol for item in items)
         added_at_map = {item.symbol: item.added_at.isoformat() if item.added_at else None for item in items}
+        source_map = {item.symbol: item.source for item in items}
 
         from skills.financial_modeling_prep.scripts.market.quote import get_quote_snapshot
 
@@ -63,6 +64,7 @@ async def get_watchlist(
                 "price": q.get("price"),
                 "change": q.get("change"),
                 "changesPercentage": q.get("changesPercentage"),
+                "source": source_map.get(item.symbol, "manual"),
                 "added_at": added_at_map.get(item.symbol),
             })
 

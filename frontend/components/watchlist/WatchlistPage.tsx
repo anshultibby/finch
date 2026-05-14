@@ -4,10 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { watchlistApi, marketApi, analysisApi } from '@/lib/api';
-
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
-}
+import { formatCurrency } from '@/lib/currency';
 
 function formatPct(n: number) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
@@ -19,6 +16,7 @@ interface WatchlistItem {
   price?: number;
   change?: number;
   changesPercentage?: number;
+  source?: 'manual' | 'ai';
   added_at?: string;
 }
 
@@ -131,7 +129,12 @@ export default function WatchlistPage() {
                   className="flex-1 flex items-center gap-3 px-4 sm:px-6 py-3.5 hover:bg-gray-50 transition-colors text-left"
                 >
                   <div className="min-w-[56px]">
-                    <div className="text-sm font-bold text-gray-900">{item.symbol}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-gray-900">{item.symbol}</span>
+                      {item.source === 'ai' && (
+                        <span className="text-[9px] px-1 py-px rounded bg-violet-50 text-violet-500 font-semibold border border-violet-100 leading-tight">AI</span>
+                      )}
+                    </div>
                     {item.name && <div className="text-[11px] text-gray-400 truncate max-w-[120px]">{item.name}</div>}
                   </div>
 
@@ -145,7 +148,7 @@ export default function WatchlistPage() {
                   <div className="text-right min-w-[80px]">
                     {item.price != null ? (
                       <>
-                        <div className="text-sm font-semibold text-gray-900 tabular-nums">{formatCurrency(item.price)}</div>
+                        <div className="text-sm font-semibold text-gray-900 tabular-nums">{formatCurrency(item.price, item.symbol)}</div>
                         <div className={`text-xs font-medium tabular-nums ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
                           {formatPct(item.changesPercentage || 0)}
                         </div>

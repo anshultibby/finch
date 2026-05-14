@@ -8,10 +8,7 @@ import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import { SnapTradeReact } from 'snaptrade-react';
 import type { AlpacaPortfolioResponse, Brokerage, PortfolioResponse } from '@/lib/types';
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
-}
+import { formatCurrency as fmt } from '@/lib/currency';
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; }
 function num(v: string | null | undefined): number { return parseFloat(v || '0') || 0; }
 
@@ -136,7 +133,7 @@ function IndexCard({ symbol, label, quote, onClick }: {
         <div>
           <div className="text-sm font-semibold text-gray-900">{label}</div>
           <div className="text-lg font-bold text-gray-900 tabular-nums mt-0.5">
-            {price != null ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+            {price != null ? fmt(price, symbol) : '--'}
           </div>
         </div>
         <div className="text-right">
@@ -145,7 +142,7 @@ function IndexCard({ symbol, label, quote, onClick }: {
             {fmtPct(changePct)}
           </div>
           <div className={`text-xs tabular-nums mt-0.5 ${isUp ? 'text-emerald-500' : 'text-red-400'}`}>
-            {change >= 0 ? '+' : ''}{fmt(change)}
+            {change >= 0 ? '+' : ''}{fmt(change, symbol)}
           </div>
         </div>
       </div>
@@ -168,11 +165,16 @@ function WatchlistItem({ item, onClick }: { item: any; onClick: () => void }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-gray-900 truncate">{item.name || item.symbol}</div>
-        <div className="text-xs text-gray-400">{item.symbol}</div>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-400">{item.symbol}</span>
+          {item.source === 'ai' && (
+            <span className="text-[9px] px-1 py-px rounded bg-violet-50 text-violet-500 font-semibold border border-violet-100 leading-tight">AI</span>
+          )}
+        </div>
       </div>
       <div className="text-right flex-shrink-0">
         <div className="text-sm font-semibold text-gray-900 tabular-nums">
-          {item.price != null ? fmt(item.price) : '--'}
+          {item.price != null ? fmt(item.price, item.symbol) : '--'}
         </div>
         <div className={`text-xs font-medium tabular-nums ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
           {fmtPct(item.changesPercentage || 0)}
@@ -786,7 +788,7 @@ function WatchlistTabView({ userId, watchlist, onWatchlistChange, onStockClick }
                   </div>
                   <div className="flex items-end justify-between">
                     <div className="text-lg font-bold text-gray-900 tabular-nums">
-                      {item.price != null ? fmt(item.price) : '--'}
+                      {item.price != null ? fmt(item.price, item.symbol) : '--'}
                     </div>
                     <MiniSparkline symbol={item.symbol} width={80} height={32} days={30} />
                   </div>
@@ -1015,9 +1017,9 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
                     <MiniSparkline symbol={p.symbol} width={80} height={28} days={30} />
                   </div>
                   <div className="text-right min-w-[90px]">
-                    <div className="text-sm font-semibold text-gray-900 tabular-nums">{fmt(p.price)}</div>
+                    <div className="text-sm font-semibold text-gray-900 tabular-nums">{fmt(p.price, p.symbol)}</div>
                     <div className={`text-xs font-medium tabular-nums ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
-                      {gl >= 0 ? '+' : ''}{fmt(gl)} ({fmtPct(glPct)})
+                      {gl >= 0 ? '+' : ''}{fmt(gl, p.symbol)} ({fmtPct(glPct)})
                     </div>
                   </div>
                 </button>

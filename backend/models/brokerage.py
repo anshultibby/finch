@@ -154,6 +154,7 @@ class UserWatchlist(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(String, nullable=False, index=True)
     symbol = Column(String(10), nullable=False)
+    source = Column(String(20), server_default="manual", nullable=False)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -168,11 +169,16 @@ class StockAnalysis(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(String, nullable=False, index=True)
     symbol = Column(String(10), nullable=False, index=True)
+    filename = Column(String(200), nullable=True)
     title = Column(String(200), nullable=True)
     content = Column(Text, nullable=False)
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', 'filename', name='uq_stock_analysis_user_symbol_filename'),
+    )
 
 
 class Visualization(Base):
@@ -188,6 +194,8 @@ class Visualization(Base):
     html_content = Column(Text, nullable=False)
     category = Column(String(100), nullable=True)
     tags = Column(JSONB, nullable=True, server_default="[]")
+    is_public = Column(Boolean, server_default="false", nullable=False)
+    share_token = Column(String(32), nullable=True, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

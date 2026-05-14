@@ -75,8 +75,24 @@ async def _get_sandbox(user_id: str):
     return await get_or_create_sandbox(user_id, envs={})
 
 
-_STOCK_ANALYSIS_MD_PATTERN = re.compile(r"^stocks/([A-Z0-9]+)/[^/]+\.md$", re.IGNORECASE)
+_STOCK_ANALYSIS_MD_PATTERN = re.compile(r"^stocks/([A-Z0-9.]+)/([^/]+\.md)$", re.IGNORECASE)
 _VISUALIZATION_HTML_PATTERN = re.compile(r"^visualizations/[^/]+\.html$", re.IGNORECASE)
+
+_INVALID_SYMBOLS = {
+    "PDUFA", "BIOTECH", "EARNINGS", "FDA", "NDA", "BLA", "SNDA",
+    "PHARMA", "INDEX", "MARKET", "SECTOR", "ETF", "MACRO", "MISC",
+    "WATCHLIST", "CALENDAR", "RESEARCH", "NOTES", "DRAFT", "TEMP",
+}
+
+def _is_valid_ticker(symbol: str) -> bool:
+    """Reject category names masquerading as tickers."""
+    if len(symbol) > 6:
+        return False
+    if symbol in _INVALID_SYMBOLS:
+        return False
+    if not re.match(r"^[A-Z]{1,5}(\.[A-Z]{1,2})?$", symbol):
+        return False
+    return True
 
 
 def _extract_title(content: str) -> str | None:
@@ -88,12 +104,24 @@ def _extract_title(content: str) -> str | None:
     return None
 
 
-async def _maybe_sync_stock_analysis(filename: str, content: str, context: AgentContext):
-    """If filename matches stocks/{SYMBOL}/*.md, insert a new note and auto-add to watchlist."""
+async def _maybe_sync_stock_analysis(
+    filename: str, content: str, context: AgentContext,
+    *, sync_to_analysis: bool = True,
+):
+    """If filename matches stocks/{SYMBOL}/*.md, upsert note to DB and add to watchlist."""
     m = _STOCK_ANALYSIS_MD_PATTERN.match(filename)
     if not m:
         return
     symbol = m.group(1).upper()
+    md_filename = m.group(2)
+
+    if not _is_valid_ticker(symbol):
+        logger.warning(f"Rejected invalid ticker '{symbol}' from filename '{filename}' — skipping sync")
+        return
+
+    if not sync_to_analysis:
+        return
+
     title = _extract_title(content)
     try:
         from core.database import get_db_session
@@ -102,21 +130,26 @@ async def _maybe_sync_stock_analysis(filename: str, content: str, context: Agent
         async with get_db_session() as db:
             await db.execute(
                 text(
-                    "INSERT INTO stock_analysis (id, user_id, symbol, title, content, chat_id, created_at, updated_at) "
-                    "VALUES (gen_random_uuid(), :user_id, :symbol, :title, :content, :chat_id, now(), now())"
+                    "INSERT INTO stock_analysis (id, user_id, symbol, filename, title, content, chat_id, created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :user_id, :symbol, :filename, :title, :content, :chat_id, now(), now()) "
+                    "ON CONFLICT ON CONSTRAINT uq_stock_analysis_user_symbol_filename DO UPDATE SET "
+                    "content = EXCLUDED.content, title = EXCLUDED.title, "
+                    "chat_id = COALESCE(EXCLUDED.chat_id, stock_analysis.chat_id), updated_at = now()"
                 ),
-                {"user_id": context.user_id, "symbol": symbol, "title": title, "content": content, "chat_id": chat_id},
+                {"user_id": context.user_id, "symbol": symbol, "filename": md_filename,
+                 "title": title, "content": content, "chat_id": chat_id},
             )
+
             await db.execute(
                 text(
-                    "INSERT INTO user_watchlist (id, user_id, symbol) "
-                    "VALUES (gen_random_uuid(), :user_id, :symbol) "
+                    "INSERT INTO user_watchlist (id, user_id, symbol, source) "
+                    "VALUES (gen_random_uuid(), :user_id, :symbol, 'ai') "
                     "ON CONFLICT (user_id, symbol) DO NOTHING"
                 ),
                 {"user_id": context.user_id, "symbol": symbol},
             )
             await db.commit()
-        logger.info(f"Auto-synced stock analysis + watchlist for {symbol} (user {context.user_id})")
+        logger.info(f"Auto-synced stock analysis + watchlist for {symbol}/{md_filename} (user {context.user_id})")
     except Exception as e:
         logger.warning(f"Stock analysis sync failed for {symbol} (non-fatal): {e}")
 
@@ -175,7 +208,9 @@ async def _read_sandbox_text(user_id: str, filename: str, context: AgentContext)
 async def write_chat_file_impl(
     context: AgentContext,
     filename: str,
-    content: str
+    content: str,
+    *,
+    sync_to_analysis: bool = True,
 ):
     """Write file to sandbox in the bot's chat_files directory."""
     try:
@@ -185,7 +220,7 @@ async def write_chat_file_impl(
         await entry.sbx.commands.run(f"mkdir -p {chat_dir}", timeout=5)
         await entry.sbx.files.write(_sandbox_path(filename, context), content)
 
-        await _maybe_sync_stock_analysis(filename, content, context)
+        await _maybe_sync_stock_analysis(filename, content, context, sync_to_analysis=sync_to_analysis)
         await _maybe_sync_visualization(filename, content, context)
 
         yield {

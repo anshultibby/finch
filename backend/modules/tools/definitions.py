@@ -77,9 +77,9 @@ def estimate_time(
     description=EXECUTE_CODE_DESC,
     category="code"
 )
-async def bash(*, cmd: str, context: AgentContext):
+async def bash(*, cmd: str, truncate: bool = True, context: AgentContext):
     """Run a bash command in the persistent sandbox."""
-    params = code_execution.BashParams(cmd=cmd)
+    params = code_execution.BashParams(cmd=cmd, truncate=truncate)
     async for item in code_execution.bash_impl(params, context):
         yield item
 
@@ -93,9 +93,9 @@ async def bash(*, cmd: str, context: AgentContext):
     description=WRITE_CHAT_FILE_DESC,
     category="files"
 )
-async def write_chat_file(*, context: AgentContext, filename: str, file_content: str):
+async def write_chat_file(*, context: AgentContext, filename: str, file_content: str, sync_to_analysis: bool = True):
     """Write file to chat directory with DB sync"""
-    async for item in file_management.write_chat_file_impl(context, filename, file_content):
+    async for item in file_management.write_chat_file_impl(context, filename, file_content, sync_to_analysis=sync_to_analysis):
         yield item
 
 
