@@ -21,8 +21,9 @@ class SnapTradeUser(Base):
     is_connected = Column(Boolean, default=False, nullable=False)
     brokerage_name = Column(String, nullable=True)
     plan = Column(String, nullable=False, default="free")  # free | pro | admin
-    credits = Column(Integer, nullable=False, default=5000)
+    credits = Column(Integer, nullable=False, default=1000)
     total_credits_used = Column(Integer, nullable=False, default=0)
+    last_credit_refresh = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -100,6 +101,31 @@ class UserSkill(Base):
 
     def __repr__(self):
         return f"<UserSkill(user_id='{self.user_id}', skill_name='{self.skill_name}', enabled={self.enabled})>"
+
+
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    code = Column(String, primary_key=True)
+    plan = Column(String, nullable=False, default="pro")
+    credits = Column(Integer, nullable=False, default=3000)
+    duration_days = Column(Integer, nullable=False, default=90)
+    max_uses = Column(Integer, nullable=True)
+    times_used = Column(Integer, nullable=False, default=0)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromoRedemption(Base):
+    __tablename__ = "promo_redemptions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    code = Column(String, nullable=False)
+    plan_granted = Column(String, nullable=False)
+    credits_granted = Column(Integer, nullable=False)
+    plan_expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class AlpacaWaitlist(Base):

@@ -178,32 +178,6 @@ plot_simulation(result, output_path='direct_index_comparison.png')
 
 Produces a three-line chart: ETF (blue) vs Direct Index no-TLH (gray dashed) vs Direct Index + TLH (green), with green shading between lines 2 and 3 showing TLH alpha. Harvest events are marked as triangles on line 3.
 
-Or build it manually:
-```python
-import pandas as pd
-import matplotlib.pyplot as plt
-
-df = pd.DataFrame({
-    'date': pd.to_datetime(result['dates']),
-    'QQQ Buy & Hold': result['etf_values'],
-    'Direct Index (no TLH)': result['direct_index_values'],
-    'Direct Index + TLH': result['tlh_values'],
-}).set_index('date')
-
-fig, ax = plt.subplots(figsize=(13, 6))
-ax.plot(df.index, df['QQQ Buy & Hold'], color='steelblue', linewidth=2, label='QQQ Buy & Hold')
-ax.plot(df.index, df['Direct Index (no TLH)'], color='gray', linestyle='--', linewidth=1.5, label='Direct Index (no TLH)')
-ax.plot(df.index, df['Direct Index + TLH'], color='green', linewidth=2.5,
-        label=f"Direct Index + TLH (+${result['total_tax_savings']:,.0f})")
-ax.fill_between(df.index, df['Direct Index (no TLH)'], df['Direct Index + TLH'],
-                alpha=0.2, color='green')
-ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
-ax.set_title(f"Direct Indexing {result.get('etf_symbol','QQQ')} with TLH\n"
-             f"${result['total_tax_savings']:,.0f} saved from {len(result['harvest_events'])} harvests")
-ax.legend(); plt.tight_layout()
-plt.savefig('direct_index_comparison.png', dpi=150, bbox_inches='tight')
-```
-
 ---
 
 ## 3. Historical ETF holdings — `get_etf_holdings`

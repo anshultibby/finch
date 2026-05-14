@@ -434,3 +434,83 @@ This is an automated email from Finch Credits System.
     except Exception as e:
         logger.error(f"Failed to process credit request: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class RedeemCodeRequest(BaseModel):
+    code: str
+
+
+@router.post("/redeem")
+async def redeem_promo_code(
+    request: RedeemCodeRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    from sqlalchemy import select, update as sql_update
+    from models.user import PromoCode, PromoRedemption
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    code_str = request.code.strip().upper()
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(PromoCode).where(PromoCode.code == code_str)
+        )
+        promo = result.scalar_one_or_none()
+
+        if not promo:
+            raise HTTPException(status_code=404, detail="Invalid code")
+
+        if promo.expires_at and datetime.now(timezone.utc) > promo.expires_at:
+            raise HTTPException(status_code=400, detail="This code has expired")
+
+        if promo.max_uses is not None and promo.times_used >= promo.max_uses:
+            raise HTTPException(status_code=400, detail="This code has been fully redeemed")
+
+        existing = await db.execute(
+            select(PromoRedemption).where(
+                PromoRedemption.user_id == authenticated_user_id,
+                PromoRedemption.code == code_str,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="You've already used this code")
+
+        now = datetime.now(timezone.utc)
+        plan_expires = now + timedelta(days=promo.duration_days)
+
+        await CreditsService.set_user_plan(db, authenticated_user_id, promo.plan)
+        await CreditsService.add_credits(
+            db,
+            authenticated_user_id,
+            promo.credits,
+            transaction_type="promo_code",
+            description=f"Promo code {code_str} ({promo.duration_days}d {promo.plan})",
+        )
+
+        await db.execute(
+            sql_update(PromoCode)
+            .where(PromoCode.code == code_str)
+            .values(times_used=PromoCode.times_used + 1)
+        )
+
+        redemption = PromoRedemption(
+            id=uuid.uuid4(),
+            user_id=authenticated_user_id,
+            code=code_str,
+            plan_granted=promo.plan,
+            credits_granted=promo.credits,
+            plan_expires_at=plan_expires,
+        )
+        db.add(redemption)
+        await db.commit()
+
+        logger.info(f"User {authenticated_user_id} redeemed promo {code_str}: {promo.credits} credits + {promo.plan} for {promo.duration_days}d")
+
+        return {
+            "success": True,
+            "plan": promo.plan,
+            "credits_added": promo.credits,
+            "expires_at": plan_expires.isoformat(),
+            "message": f"You're now on {promo.plan.title()} with {promo.credits:,} bonus credits!",
+        }

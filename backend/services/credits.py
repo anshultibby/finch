@@ -46,14 +46,31 @@ CREDITS_PER_DOLLAR = 100
 # Premium multiplier (20% markup over raw API cost)
 PREMIUM_MULTIPLIER = 1.2
 
-# Default credits granted to new users (500 = $5 — enough for ~500 turns)
-DEFAULT_NEW_USER_CREDITS = 500
+# Default credits granted to new users (1000 = $10)
+DEFAULT_NEW_USER_CREDITS = 1000
 
-# Daily spend caps per plan (1 credit = $0.01, so 100 = $1/day)
+# Daily refresh: credits accrued per day (computed on-the-fly, no cron needed)
+DAILY_REFRESH = {
+    "free":  100,
+    "pro":   100,
+    "max":   100,
+    "admin": 0,
+}
+
+# Max credits a plan can accumulate to via refresh (cap)
+MAX_CREDIT_CAP = {
+    "free":  1_000,
+    "pro":   1_000,
+    "max":   2_500,
+    "admin": None,
+}
+
+# Daily spend caps per plan (1 credit = $0.01)
 DAILY_CREDIT_CAPS = {
-    "free":  100,      # $1/day (100 credits)
-    "pro":  1_000,     # $10/day (1000 credits)
-    "admin": None,     # unlimited
+    "free":  100,
+    "pro":   200,
+    "max":  1_000,
+    "admin": None,
 }
 DAILY_CREDIT_CAP = DAILY_CREDIT_CAPS["free"]
 
@@ -90,8 +107,7 @@ def calculate_cost_usd(
     """
     pricing = _get_model_pricing(model)
     
-    # Calculate uncached input tokens
-    uncached_input = prompt_tokens - cache_read_tokens
+    uncached_input = max(0, prompt_tokens - cache_read_tokens)
     
     # Calculate costs (pricing is per million tokens)
     input_cost = (uncached_input / 1_000_000) * pricing["input"]
@@ -160,22 +176,76 @@ class CreditsService:
     """Service for managing user credits"""
     
     @staticmethod
-    async def get_user_credits(db: AsyncSession, user_id: str) -> Optional[int]:
+    async def _apply_refresh(db: AsyncSession, user: SnapTradeUser) -> int:
         """
-        Get the current credit balance for a user.
-        
-        Args:
-            db: Database session
-            user_id: User ID
-        
-        Returns:
-            Credit balance or None if user not found
+        Compute and persist accrued daily refresh credits on-the-fly.
+        Returns the updated balance.
         """
-        result = await db.execute(
-            select(SnapTradeUser.credits).where(SnapTradeUser.user_id == user_id)
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        last = user.last_credit_refresh
+        if last is None:
+            last = user.created_at
+
+        if last.tzinfo is None:
+            from datetime import timezone as tz
+            last = last.replace(tzinfo=tz.utc)
+
+        elapsed_days = (now - last).total_seconds() / 86400
+        if elapsed_days < 1:
+            return user.credits
+
+        full_days = int(elapsed_days)
+        plan = user.plan or "free"
+        daily = DAILY_REFRESH.get(plan, DAILY_REFRESH["free"])
+        cap = MAX_CREDIT_CAP.get(plan)
+
+        accrued = full_days * daily
+        if accrued <= 0:
+            return user.credits
+
+        new_balance = user.credits + accrued
+        if cap is not None:
+            new_balance = min(new_balance, cap)
+
+        if new_balance == user.credits:
+            return user.credits
+
+        actual_added = new_balance - user.credits
+        await db.execute(
+            update(SnapTradeUser)
+            .where(SnapTradeUser.user_id == user.user_id)
+            .values(
+                credits=new_balance,
+                last_credit_refresh=now,
+            )
         )
-        row = result.first()
-        return row[0] if row else None
+
+        transaction = CreditTransaction(
+            id=uuid.uuid4(),
+            user_id=user.user_id,
+            amount=actual_added,
+            balance_after=new_balance,
+            transaction_type="daily_refresh",
+            description=f"Daily refresh ({full_days}d × {daily} credits)",
+            transaction_metadata={"days": full_days, "daily_rate": daily, "plan": plan}
+        )
+        db.add(transaction)
+        await db.flush()
+
+        logger.info(f"Refreshed {actual_added} credits for user {user.user_id} ({full_days} days × {daily}/day)")
+        return new_balance
+
+    @staticmethod
+    async def get_user_credits(db: AsyncSession, user_id: str) -> Optional[int]:
+        result = await db.execute(
+            select(SnapTradeUser).where(SnapTradeUser.user_id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return None
+        return await CreditsService._apply_refresh(db, user)
     
     @staticmethod
     async def check_sufficient_credits(
@@ -229,46 +299,48 @@ class CreditsService:
         Returns:
             True if successful (deducted at least some credits), False if user not found
         """
-        # Get current balance
-        result = await db.execute(
-            select(SnapTradeUser).where(SnapTradeUser.user_id == user_id)
+        from sqlalchemy import case
+
+        # Atomic deduct: clamp to available balance to prevent negative credits
+        # and avoid race conditions from concurrent chat turns
+        actual_deduction_expr = case(
+            (SnapTradeUser.credits >= credits, credits),
+            else_=SnapTradeUser.credits,
         )
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            logger.warning(f"User {user_id} not found for credit deduction")
-            return False
-        
-        # If they can't afford the full amount, deduct what they have (down to 0)
-        # This prevents "free" responses when balance is low
-        actual_deduction = min(credits, user.credits)
-        
-        if user.credits < credits:
-            logger.warning(
-                f"Partial deduction for user {user_id}: "
-                f"needs {credits}, has {user.credits}, deducting {actual_deduction} (balance → 0)"
-            )
-        
-        # Deduct credits and update lifetime usage
-        new_balance = user.credits - actual_deduction
-        await db.execute(
+        result = await db.execute(
             update(SnapTradeUser)
             .where(SnapTradeUser.user_id == user_id)
             .values(
-                credits=new_balance,
-                total_credits_used=SnapTradeUser.total_credits_used + actual_deduction
+                credits=SnapTradeUser.credits - actual_deduction_expr,
+                total_credits_used=SnapTradeUser.total_credits_used + actual_deduction_expr,
+            )
+            .returning(
+                SnapTradeUser.credits,
+                actual_deduction_expr.label("deducted"),
             )
         )
-        
-        # Log transaction (record actual deduction, note if partial)
+        row = result.first()
+
+        if row is None:
+            logger.warning(f"User {user_id} not found for credit deduction")
+            return False
+
+        new_balance, actual_deduction = row[0], row[1]
+
+        if actual_deduction < credits:
+            logger.warning(
+                f"Partial deduction for user {user_id}: "
+                f"needs {credits}, has {actual_deduction + new_balance}, deducting {actual_deduction} (balance → {new_balance})"
+            )
+
         transaction_desc = description
         if actual_deduction < credits:
             transaction_desc = f"{description} (partial: {actual_deduction}/{credits} credits)"
-        
+
         transaction = CreditTransaction(
             id=uuid.uuid4(),
             user_id=user_id,
-            amount=-actual_deduction,  # Negative for deduction
+            amount=-actual_deduction,
             balance_after=new_balance,
             transaction_type=transaction_type,
             description=transaction_desc,
@@ -281,7 +353,7 @@ class CreditsService:
 
         logger.info(
             f"Deducted {actual_deduction} credits from user {user_id}: "
-            f"{user.credits} → {new_balance} ({description})"
+            f"{new_balance + actual_deduction} → {new_balance} ({description})"
         )
 
         return True
@@ -307,39 +379,34 @@ class CreditsService:
         Returns:
             True if successful, False if user not found
         """
-        # Get current balance
         result = await db.execute(
-            select(SnapTradeUser).where(SnapTradeUser.user_id == user_id)
-        )
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            logger.warning(f"User {user_id} not found for credit addition")
-            return False
-        
-        # Add credits
-        new_balance = user.credits + credits
-        await db.execute(
             update(SnapTradeUser)
             .where(SnapTradeUser.user_id == user_id)
-            .values(credits=new_balance)
+            .values(credits=SnapTradeUser.credits + credits)
+            .returning(SnapTradeUser.credits)
         )
-        
-        # Log transaction
+        row = result.first()
+
+        if row is None:
+            logger.warning(f"User {user_id} not found for credit addition")
+            return False
+
+        new_balance = row[0]
+
         transaction = CreditTransaction(
             id=uuid.uuid4(),
             user_id=user_id,
-            amount=credits,  # Positive for addition
+            amount=credits,
             balance_after=new_balance,
             transaction_type=transaction_type,
             description=description,
             transaction_metadata=None
         )
         db.add(transaction)
-        
+
         logger.info(
             f"Added {credits} credits to user {user_id}: "
-            f"{user.credits} → {new_balance} ({description})"
+            f"{new_balance - credits} → {new_balance} ({description})"
         )
         
         return True

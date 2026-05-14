@@ -23,6 +23,7 @@ from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
 import copy
 import json
 import asyncio
+import time
 import traceback as traceback_module
 from pathlib import Path
 from datetime import datetime
@@ -295,11 +296,44 @@ async def stream_llm_response(
     chunk_count = 0
     stream_usage_info = None
 
+    # Stream diagnostics — track state so timeout logs are actionable
+    stream_start_time = time.monotonic()
+    first_chunk_time: Optional[float] = None
+    last_chunk_time: Optional[float] = None
+    last_chunk_type = "none"
+    content_chars = 0
+    reasoning_chars = 0
+    tool_call_names: List[str] = []
+    tool_call_args_chars = 0
+    STALL_WARNING_INTERVALS = [30, 60, 90]
+
     # Track per-call index for cache diagnostics
     cache_diag_key = chat_id or "unknown"
     _call_counters.setdefault(cache_diag_key, 0)
     _call_counters[cache_diag_key] += 1
     call_idx = _call_counters[cache_diag_key]
+
+    def _stream_state_summary() -> str:
+        """Build a diagnostic summary of what the stream has produced so far."""
+        if tool_call_names:
+            state = f"mid-tool-call ({', '.join(tool_call_names)})"
+        elif content_chars > 0:
+            state = "mid-content"
+        elif reasoning_chars > 0:
+            state = "mid-reasoning"
+        else:
+            state = "no-output"
+
+        elapsed = time.monotonic() - stream_start_time
+        since_last = (time.monotonic() - last_chunk_time) if last_chunk_time else elapsed
+        avg_gap = (elapsed / chunk_count) if chunk_count > 0 else 0
+
+        lines = [
+            f"State: {state}, {content_chars} content chars, {reasoning_chars} reasoning chars, {tool_call_args_chars} tool_arg chars",
+            f"Last chunk: {last_chunk_type} ({since_last:.1f}s ago)",
+            f"Timeline: {chunk_count} chunks over {elapsed:.1f}s, avg_gap={avg_gap:.2f}s",
+        ]
+        return "\n      ".join(lines)
 
     logger.info(f"🔄 Starting LLM stream request (call #{call_idx}, ~{estimated_tokens:,} est. tokens, chunk timeout: {chunk_timeout}s)...")
     stream_response = await llm_handler.acompletion(**llm_kwargs)
@@ -309,26 +343,78 @@ async def stream_llm_response(
         chunk_iter = stream_response.__aiter__()
         while True:
             try:
-                chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=chunk_timeout)
+                # Use asyncio.wait with a warning task so we can log periodic
+                # "still waiting" messages without breaking the main timeout.
+                next_chunk_task = asyncio.ensure_future(chunk_iter.__anext__())
+                wait_start = time.monotonic()
+                warned_intervals = set()
+
+                while True:
+                    remaining = chunk_timeout - (time.monotonic() - wait_start)
+                    if remaining <= 0:
+                        next_chunk_task.cancel()
+                        try:
+                            await next_chunk_task
+                        except (asyncio.CancelledError, StopAsyncIteration):
+                            pass
+                        raise asyncio.TimeoutError()
+
+                    next_warning = None
+                    for interval in STALL_WARNING_INTERVALS:
+                        elapsed_waiting = time.monotonic() - wait_start
+                        if interval not in warned_intervals and elapsed_waiting < interval:
+                            next_warning = interval - elapsed_waiting
+                            break
+
+                    wait_timeout = min(remaining, next_warning) if next_warning else remaining
+
+                    done, _ = await asyncio.wait({next_chunk_task}, timeout=wait_timeout)
+                    if done:
+                        chunk = next_chunk_task.result()
+                        break
+
+                    elapsed_waiting = time.monotonic() - wait_start
+                    for interval in STALL_WARNING_INTERVALS:
+                        if interval not in warned_intervals and elapsed_waiting >= interval:
+                            warned_intervals.add(interval)
+                            logger.warning(
+                                f"⏳ Waiting for LLM chunk... {elapsed_waiting:.0f}s since last chunk "
+                                f"(call #{call_idx}, {_stream_state_summary()})"
+                            )
+
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
-                logger.error(f"⏰ LLM stream stalled - no chunk received in {chunk_timeout}s after {chunk_count} chunks (~{estimated_tokens:,} tokens)")
-                raise TimeoutError(f"LLM stream stalled after {chunk_count} chunks (no data for {chunk_timeout}s)")
+                logger.error(
+                    f"⏰ LLM stream stalled after {chunk_count} chunks ({chunk_timeout}s silence)\n"
+                    f"      Call #{call_idx}, ~{estimated_tokens:,} est. tokens\n"
+                    f"      {_stream_state_summary()}"
+                )
+                raise TimeoutError(
+                    f"LLM stream stalled after {chunk_count} chunks (no data for {chunk_timeout}s). "
+                    f"Last chunk type: {last_chunk_type}"
+                )
+
+            now = time.monotonic()
             chunk_count += 1
-            if chunk_count == 1:
+            last_chunk_time = now
+            if first_chunk_time is None:
+                first_chunk_time = now
                 logger.info("🔄 First chunk received from LLM stream")
 
             if hasattr(chunk, 'usage') and chunk.usage:
                 stream_usage_info = chunk.usage
 
             if not hasattr(chunk, 'choices') or not chunk.choices:
+                last_chunk_type = "usage_only" if (hasattr(chunk, 'usage') and chunk.usage) else "empty"
                 continue
 
             delta = chunk.choices[0].delta
 
             if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
                 reasoning_content += delta.reasoning_content
+                reasoning_chars += len(delta.reasoning_content)
+                last_chunk_type = "reasoning"
                 yield SSEEvent(
                     event="assistant_message_delta",
                     data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
@@ -339,6 +425,8 @@ async def stream_llm_response(
 
             if hasattr(delta, 'content') and delta.content:
                 content += delta.content
+                content_chars += len(delta.content)
+                last_chunk_type = "content"
                 yield SSEEvent(
                     event="assistant_message_delta",
                     data=AssistantMessageDeltaEvent(delta=delta.content).model_dump()
@@ -348,6 +436,7 @@ async def stream_llm_response(
                         yield event
 
             if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                last_chunk_type = "tool_call"
                 for tc in delta.tool_calls:
                     idx = tc.index
                     while len(tool_calls) <= idx:
@@ -361,6 +450,7 @@ async def stream_llm_response(
                     if hasattr(tc, 'function') and tc.function:
                         if tc.function.name:
                             if not tool_calls[idx]["function"]["name"]:
+                                tool_call_names.append(tc.function.name)
                                 yield SSEEvent(
                                     event="tool_call_detected",
                                     data=ToolCallDetectedEvent(
@@ -373,8 +463,14 @@ async def stream_llm_response(
 
                         if tc.function.arguments:
                             tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                            tool_call_args_chars += len(tc.function.arguments)
 
-        logger.info(f"🔄 LLM stream completed after {chunk_count} chunks (content: {len(content)} chars, tool_calls: {len(tool_calls)})")
+        elapsed = time.monotonic() - stream_start_time
+        logger.info(
+            f"🔄 LLM stream completed after {chunk_count} chunks in {elapsed:.1f}s "
+            f"(content: {content_chars} chars, reasoning: {reasoning_chars} chars, "
+            f"tool_calls: {len(tool_calls)} [{', '.join(tool_call_names) or 'none'}])"
+        )
 
     except Exception as e:
         logger.error(f"❌ Error during LLM streaming: {e}")

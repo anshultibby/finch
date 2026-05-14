@@ -89,9 +89,12 @@ class ChatService:
                     from schemas.sse import SSEEvent
                     logger.warning(f"User {user_id} hit daily credit cap")
                     await chat_async.set_chat_processing(db, chat_id, is_processing=False)
+                    from services.credits import DAILY_CREDIT_CAPS
+                    plan = await CreditsService.get_user_plan(db, user_id)
+                    cap = DAILY_CREDIT_CAPS.get(plan, DAILY_CREDIT_CAPS["free"])
                     yield SSEEvent(
                         event="error",
-                        data={"error": "Daily limit reached (100 credits / $1 per day). Resets at midnight UTC."}
+                        data={"error": f"Daily limit reached ({cap} credits / ${cap/100:.0f} per day). Resets at midnight UTC."}
                     ).to_sse_format()
                     yield SSEEvent(event="done", data={}).to_sse_format()
                     return

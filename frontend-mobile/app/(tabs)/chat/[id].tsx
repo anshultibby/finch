@@ -130,6 +130,14 @@ export default function ChatScreen() {
                 ) : error ? (
                   <View className="bg-red-50 rounded-xl p-3 mb-3">
                     <Text className="text-[13px] font-body text-red-600">{error}</Text>
+                    {(error.toLowerCase().includes('credit') || error.toLowerCase().includes('daily limit')) && (
+                      <TouchableOpacity
+                        onPress={() => router.push('/(tabs)/settings')}
+                        className="mt-2 bg-blue-600 rounded-lg py-2 px-4 self-start"
+                      >
+                        <Text className="text-white text-[13px] font-body-semibold">Add Credits</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ) : null
               }

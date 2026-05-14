@@ -705,6 +705,20 @@ export const creditsApi = {
     const response = await api.get('/credits/pricing');
     return response.data;
   },
+
+  redeemCode: async (code: string): Promise<{ success: boolean; plan: string; credits_added: number; message: string }> => {
+    const response = await api.post('/credits/redeem', { code });
+    return response.data;
+  },
+
+  createCheckout: async (userId: string): Promise<{ url: string; session_id: string }> => {
+    const response = await api.post<{ url: string; session_id: string }>('/credits/checkout', {
+      user_id: userId,
+      success_url: `${window.location.origin}?upgraded=true`,
+      cancel_url: window.location.href,
+    });
+    return response.data;
+  },
 };
 
 export interface SkillFile {

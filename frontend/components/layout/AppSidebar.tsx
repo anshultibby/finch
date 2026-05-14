@@ -1,8 +1,9 @@
 'use client';
 
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback } from 'react';
-import { chatApi } from '@/lib/api';
+import { chatApi, creditsApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
+import CreditsModal from '../CreditsModal';
 import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
 
@@ -111,6 +112,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
+  const [credits, setCredits] = useState<number | null>(null);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
   const navItems: NavItem[] = [
     { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon /> },
     { id: 'visualizations', label: 'Visualizations', view: { type: 'visualizations' }, icon: <ChartsIcon /> },
@@ -120,6 +123,11 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
     { id: 'chat', label: 'Chat', view: { type: 'chat' }, icon: <ChatIcon />, mobileNav: true },
   ];
+
+  useEffect(() => {
+    if (!userId) return;
+    creditsApi.getBalance(userId).then(b => setCredits(b.credits)).catch(() => {});
+  }, [userId]);
 
   const loadChats = useCallback(async () => {
     if (!userId) return;
@@ -170,14 +178,29 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           {expanded ? (
             <>
               <FinchLogo size={22} />
-              <button onClick={() => setExpanded(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors"
-                title="Collapse">
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
-                  <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-1.5">
+                {credits !== null && (
+                  <button
+                    onClick={() => setShowCreditsModal(true)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-full border border-gray-200 hover:bg-gray-100 transition-colors"
+                    title="Credits"
+                  >
+                    <svg className="w-3.5 h-3.5 text-amber-500" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M6 0L7.2 4.8 12 6 7.2 7.2 6 12 4.8 7.2 0 6 4.8 4.8z" />
+                      <path d="M12 9l.7 2.3L15 12l-2.3.7L12 15l-.7-2.3L9 12l2.3-.7z" />
+                    </svg>
+                    <span className="text-xs font-medium text-gray-700">{credits.toLocaleString()}</span>
+                  </button>
+                )}
+                <button onClick={() => setExpanded(false)}
+                  className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors"
+                  title="Collapse">
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
+                    <path strokeLinecap="round" strokeWidth={1.8} d="M9 3v18" />
+                  </svg>
+                </button>
+              </div>
             </>
           ) : (
             <button onClick={() => setExpanded(true)} className="relative w-[22px] h-[22px] group/logo">
@@ -284,6 +307,14 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           <ProfileDropdown collapsed={!expanded} />
         </div>
       </div>
+
+      <CreditsModal
+        isOpen={showCreditsModal}
+        onClose={() => {
+          setShowCreditsModal(false);
+          if (userId) creditsApi.getBalance(userId).then(b => setCredits(b.credits)).catch(() => {});
+        }}
+      />
 
       {/* Mobile bottom nav */}
       <div className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 safe-area-bottom">

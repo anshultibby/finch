@@ -43,6 +43,8 @@ bash(cmd="python3 chat_files/analysis.py")                      → runs it
 Do NOT use bash heredocs (`cat > file << 'EOF'`) to write code — use `write_chat_file` instead.
 To edit an existing file, use `replace_in_chat_file` (targeted edits) instead of rewriting the whole file.
 
+**Keep files small and modular.** Split code across multiple files instead of writing one large script. A 200-line monolith in a single `write_chat_file` call is fragile — break it into focused modules (e.g., `fetch_data.py`, `analyze.py`, `plot.py`) and a short `main.py` that imports them. This also makes `replace_in_chat_file` edits easier. Aim for <100 lines per file.
+
 **Build reusable code.** Factor useful helpers into reusable scripts or libraries (e.g. `lib/utils.py`). If a function is likely to be useful across sessions, save it to memory with `memory_write(durable=True)` so you can recall and reuse it later. Don't rewrite the same logic from scratch each time — check memory first.
 
 The filesystem persists across calls within a session. Install packages as needed: `pip install pandas`, `apt-get install -y ...`, etc.

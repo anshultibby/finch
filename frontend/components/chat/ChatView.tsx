@@ -8,6 +8,7 @@ import NewChatWelcome from './NewChatWelcome';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
 import AgentPeekPanel from './AgentPeekPanel';
+import CreditsModal from '../CreditsModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChatMode } from '@/contexts/ChatModeContext';
 import { useNavigation } from '@/contexts/NavigationContext';
@@ -126,6 +127,7 @@ export default function ChatView({
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
 
 
   // Sub-agent peek panel
@@ -855,9 +857,22 @@ export default function ChatView({
 
         {error && (
           <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
-            <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
+            {error.toLowerCase().includes('credit') || error.toLowerCase().includes('daily limit') ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
+                <button
+                  onClick={() => setShowCreditsModal(true)}
+                  className="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                >
+                  Add Credits
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
+            )}
           </div>
         )}
+        <CreditsModal isOpen={showCreditsModal} onClose={() => setShowCreditsModal(false)} />
 
         {messages.length > 0 && (
           <div className="absolute bottom-3 left-0 right-0 z-10">

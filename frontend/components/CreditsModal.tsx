@@ -9,356 +9,250 @@ interface CreditsModalProps {
   onClose: () => void;
 }
 
+const MAX_CREDIT_OPTIONS = [
+  { label: '2,500 credits / month', value: '2500', price: 50, daily: 100 },
+  { label: '4,000 credits / month', value: '4000', price: 80, daily: 100 },
+  { label: '6,000 credits / month', value: '6000', price: 120, daily: 100 },
+  { label: '8,500 credits / month', value: '8500', price: 170, daily: 100 },
+];
+
 export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'balance' | 'history' | 'request'>('balance');
+  const [tab, setTab] = useState<'plans' | 'history'>('plans');
   const [balance, setBalance] = useState<CreditBalance | null>(null);
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [maxCredits, setMaxCredits] = useState('2500');
+  const [promoCode, setPromoCode] = useState('');
+  const [promoStatus, setPromoStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [redeeming, setRedeeming] = useState(false);
 
-  // Request form state
-  const [requestAmount, setRequestAmount] = useState('1000');
-  const [requestReason, setRequestReason] = useState('');
-  const [requestSuccess, setRequestSuccess] = useState(false);
-  const [requestLoading, setRequestLoading] = useState(false);
-
-  // Load balance and history when modal opens
   useEffect(() => {
-    if (isOpen && user) {
-      loadBalance();
-      if (activeTab === 'history') {
-        loadHistory();
-      }
-    }
-  }, [isOpen, user, activeTab]);
-
-  const loadBalance = async () => {
-    if (!user) return;
-    
+    if (!isOpen || !user) return;
     setLoading(true);
-    setError(null);
-    try {
-      const data = await creditsApi.getBalance(user.id);
-      setBalance(data);
-    } catch (err) {
-      setError('Failed to load balance');
-      console.error('Error loading balance:', err);
-    } finally {
-      setLoading(false);
+    if (tab === 'history') {
+      creditsApi.getHistory(user.id, 50).then(d => setTransactions(d.transactions)).catch(() => {}).finally(() => setLoading(false));
+    } else {
+      creditsApi.getBalance(user.id).then(setBalance).catch(() => {}).finally(() => setLoading(false));
     }
-  };
+  }, [isOpen, user, tab]);
 
-  const loadHistory = async () => {
+  const handleUpgrade = async () => {
     if (!user) return;
-    
-    setLoading(true);
-    setError(null);
+    setUpgrading(true);
     try {
-      const data = await creditsApi.getHistory(user.id, 50);
-      setTransactions(data.transactions);
-    } catch (err) {
-      setError('Failed to load transaction history');
-      console.error('Error loading history:', err);
-    } finally {
-      setLoading(false);
+      const { url } = await creditsApi.createCheckout(user.id);
+      window.location.href = url;
+    } catch {
+      setUpgrading(false);
     }
-  };
-
-  const handleRequestSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !balance) return;
-
-    setRequestLoading(true);
-    setError(null);
-    
-    try {
-      const response = await creditsApi.requestCredits({
-        user_id: user.id,
-        user_email: user.email || '',
-        requested_credits: parseInt(requestAmount),
-        reason: requestReason,
-        current_balance: balance.credits,
-        total_used: balance.total_credits_used,
-      });
-
-      if (response.success) {
-        setRequestSuccess(true);
-        setRequestReason('');
-        setRequestAmount('1000');
-      } else {
-        setError(response.message || 'Failed to submit request');
-      }
-    } catch (err) {
-      setError('Failed to submit request. Please try again.');
-      console.error('Error submitting request:', err);
-    } finally {
-      setRequestLoading(false);
-    }
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const formatAmount = (amount: number) => {
-    return amount > 0 ? `+${amount}` : amount.toString();
   };
 
   if (!isOpen) return null;
 
+  const selectedMax = MAX_CREDIT_OPTIONS.find(o => o.value === maxCredits)!;
+
+  const handleRedeem = async () => {
+    if (!promoCode.trim()) return;
+    setRedeeming(true);
+    setPromoStatus(null);
+    try {
+      const res = await creditsApi.redeemCode(promoCode.trim());
+      setPromoStatus({ type: 'success', msg: res.message });
+      setPromoCode('');
+      if (user) creditsApi.getBalance(user.id).then(setBalance).catch(() => {});
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'Invalid code';
+      setPromoStatus({ type: 'error', msg });
+    } finally {
+      setRedeeming(false);
+    }
+  };
+
+  const F = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
+    <li className="flex items-center gap-2 text-[12.5px] text-gray-600 leading-tight">
+      <span className="text-gray-400 shrink-0">{icon}</span>
+      {text}
+    </li>
+  );
+
+  const Clock = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+  const Sparkles = () => <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M6 0L7.2 4.8 12 6 7.2 7.2 6 12 4.8 7.2 0 6 4.8 4.8z" /><path d="M12 9l.7 2.3L15 12l-2.3.7L12 15l-.7-2.3L9 12l2.3-.7z" /></svg>;
+  const Doc = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9zm3.75 11.625a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>;
+  const Bar = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>;
+  const Flask = () => (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v0a6 6 0 01-5.84-7.38l1.26-4.96A2 2 0 017.11 8h9.78a2 2 0 011.94 1.41l1.26 4.96z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 3v4m8-4v4m-8 0h8" />
+    </svg>
+  );
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">Credits</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="px-6 pt-5 flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Upgrade to Finch Pro</h2>
+            {balance && (
+              <p className="text-sm text-gray-500 mt-0.5">
+                <span className="font-medium text-gray-700">{balance.credits.toLocaleString()}</span> credits remaining
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 -mr-1">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="px-6 py-3 border-b border-gray-200 flex gap-4">
-          <button
-            onClick={() => setActiveTab('balance')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'balance'
-                ? 'bg-blue-50 text-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Balance
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'history'
-                ? 'bg-blue-50 text-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            History
-          </button>
-          <button
-            onClick={() => setActiveTab('request')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'request'
-                ? 'bg-blue-50 text-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Request Credits
-          </button>
+        <div className="px-6 flex gap-1 mt-2 mb-3">
+          {(['plans', 'history'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                tab === t ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t === 'plans' ? 'Plans' : 'Usage History'}
+            </button>
+          ))}
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {error}
-            </div>
-          )}
+        <div className="px-6 pb-5">
+          {tab === 'plans' ? (
+            <>
+            <div className="grid grid-cols-3 gap-3">
+              {/* ── Free ── */}
+              <div className="rounded-xl border border-gray-200 p-4 flex flex-col">
+                <div className="flex items-baseline gap-1 mb-0.5">
+                  <span className="text-2xl font-bold text-gray-900">$0</span>
+                  <span className="text-xs text-gray-400">/ month</span>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">Get started for free</p>
+                <button disabled className="w-full py-2 rounded-full text-xs font-medium bg-gray-100 text-gray-400 cursor-default mb-3">
+                  Current Plan
+                </button>
+                <ul className="space-y-2.5">
+                  <F icon={<Sparkles />} text="1,000 credits on signup" />
+                  <F icon={<Clock />} text="100 credits daily refresh" />
+                  <F icon={<Doc />} text="AI stock analysis" />
+                  <F icon={<Bar />} text="Portfolio tracking" />
+                </ul>
+              </div>
 
-          {/* Balance Tab */}
-          {activeTab === 'balance' && (
-            <div>
-              {loading ? (
-                <div className="text-center py-8 text-gray-500">Loading...</div>
-              ) : balance ? (
-                <div className="space-y-6">
-                  {/* Current Balance Card */}
-                  <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl p-6 text-white">
-                    <p className="text-sm opacity-90 mb-2">Current Balance</p>
-                    <p className="text-4xl font-bold">{balance.credits.toLocaleString()}</p>
-                    <p className="text-sm opacity-75 mt-4">
-                      ≈ ${(balance.credits / 1000 / 1.2).toFixed(2)} USD worth of API usage
+              {/* ── Pro ── */}
+              <div className="rounded-xl border-2 border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.2)] p-4 flex flex-col">
+                <div className="flex items-baseline gap-1 mb-0.5">
+                  <span className="text-2xl font-bold text-gray-900">$20</span>
+                  <span className="text-xs text-gray-400">/ month</span>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">For active investors</p>
+                <button
+                  onClick={handleUpgrade}
+                  disabled={upgrading}
+                  className="w-full py-2 rounded-full text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors mb-3"
+                >
+                  {upgrading ? 'Redirecting...' : 'Upgrade'}
+                </button>
+                <ul className="space-y-2.5">
+                  <F icon={<Sparkles />} text="1,000 credits / month" />
+                  <F icon={<Clock />} text="100 credits daily refresh" />
+                  <F icon={<Doc />} text="In-depth research" />
+                  <F icon={<Bar />} text="Advanced analysis tools" />
+                  <F icon={<Flask />} text="Early access to features" />
+                </ul>
+              </div>
+
+              {/* ── Max ── */}
+              <div className="rounded-xl border border-gray-200 p-4 flex flex-col">
+                <div className="flex items-baseline gap-1 mb-0.5">
+                  <span className="text-2xl font-bold text-gray-900">${selectedMax.price}</span>
+                  <span className="text-xs text-gray-400">/ month</span>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">Customizable usage</p>
+                <button
+                  onClick={handleUpgrade}
+                  disabled={upgrading}
+                  className="w-full py-2 rounded-full text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors mb-2"
+                >
+                  {upgrading ? 'Redirecting...' : 'Upgrade'}
+                </button>
+                <div className="relative mb-3">
+                  <select
+                    value={maxCredits}
+                    onChange={e => setMaxCredits(e.target.value)}
+                    className="w-full appearance-none text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300 cursor-pointer pr-7"
+                  >
+                    {MAX_CREDIT_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <svg className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                <ul className="space-y-2.5">
+                  <F icon={<Sparkles />} text={`${parseInt(maxCredits).toLocaleString()} credits on activation`} />
+                  <F icon={<Clock />} text={`${selectedMax.daily} credits daily refresh`} />
+                  <F icon={<Doc />} text="Extended research & analysis" />
+                  <F icon={<Bar />} text="Batch analysis tools" />
+                  <F icon={<Flask />} text="Early access to features" />
+                </ul>
+              </div>
+            </div>
+
+            {/* Promo code */}
+            <div className="mt-4 flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={e => { setPromoCode(e.target.value.toUpperCase()); setPromoStatus(null); }}
+                  placeholder="Have a code?"
+                  className="w-full text-sm border border-gray-200 rounded-full px-4 py-2 focus:outline-none focus:ring-1 focus:ring-blue-300 placeholder:text-gray-400"
+                  onKeyDown={e => e.key === 'Enter' && handleRedeem()}
+                />
+              </div>
+              <button
+                onClick={handleRedeem}
+                disabled={redeeming || !promoCode.trim()}
+                className="px-4 py-2 text-sm font-medium rounded-full bg-gray-900 text-white hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 transition-colors"
+              >
+                {redeeming ? 'Applying...' : 'Apply'}
+              </button>
+            </div>
+            {promoStatus && (
+              <p className={`mt-2 text-xs ${promoStatus.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>
+                {promoStatus.msg}
+              </p>
+            )}
+            </>
+          ) : loading ? (
+            <p className="text-center py-8 text-sm text-gray-400">Loading...</p>
+          ) : transactions.length > 0 ? (
+            <div className="max-h-[50vh] overflow-y-auto space-y-1">
+              {transactions.map(tx => (
+                <div key={tx.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-gray-900 truncate">{tx.description}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {tx.created_at ? new Date(tx.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
                     </p>
                   </div>
-
-                  {/* Usage Stats */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-600 mb-1">Total Used</p>
-                      <p className="text-2xl font-semibold text-gray-900">
-                        {balance.total_credits_used.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-600 mb-1">Remaining</p>
-                      <p className="text-2xl font-semibold text-gray-900">
-                        {balance.credits.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Info Box */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <h3 className="font-semibold text-blue-900 mb-2">How Credits Work</h3>
-                    <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• 1,000 credits ≈ $1 USD of API costs (with 20% premium)</li>
-                      <li>• Credits are deducted based on actual token usage</li>
-                      <li>• Typical chat message costs 5-50 credits</li>
-                      <li>• Complex code generation costs 50-200 credits</li>
-                    </ul>
-                  </div>
-
-                  {/* Low Balance Warning */}
-                  {balance.credits < 100 && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <svg className="w-5 h-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <div>
-                          <p className="font-semibold text-amber-900">Low Balance</p>
-                          <p className="text-sm text-amber-800 mt-1">
-                            You're running low on credits. Request more credits to continue using the app.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <span className={`text-sm font-medium tabular-nums ml-3 ${tx.amount > 0 ? 'text-green-600' : 'text-gray-700'}`}>
+                    {tx.amount > 0 ? '+' : ''}{tx.amount}
+                  </span>
                 </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">No balance data available</div>
-              )}
+              ))}
             </div>
-          )}
-
-          {/* History Tab */}
-          {activeTab === 'history' && (
-            <div>
-              {loading ? (
-                <div className="text-center py-8 text-gray-500">Loading...</div>
-              ) : transactions.length > 0 ? (
-                <div className="space-y-3">
-                  {transactions.map((tx) => (
-                    <div
-                      key={tx.id}
-                      className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">{tx.description}</p>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-xs text-gray-500">{formatDate(tx.created_at)}</span>
-                          <span className="text-xs text-gray-400">•</span>
-                          <span className="text-xs text-gray-500 capitalize">{tx.transaction_type.replace('_', ' ')}</span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`text-sm font-semibold ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                          {formatAmount(tx.amount)}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Balance: {tx.balance_after.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">No transactions yet</div>
-              )}
-            </div>
-          )}
-
-          {/* Request Tab */}
-          {activeTab === 'request' && (
-            <div>
-              {requestSuccess ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Request Submitted!</h3>
-                  <p className="text-gray-600 mb-6">
-                    We've received your request and will review it shortly. You'll receive an email once approved.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setRequestSuccess(false);
-                      setActiveTab('balance');
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Back to Balance
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleRequestSubmit} className="space-y-6">
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm text-blue-800">
-                      Need more credits? Fill out this form and we'll review your request. You'll receive an email once approved.
-                    </p>
-                  </div>
-
-                  {/* Current Balance Display */}
-                  {balance && (
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-600 mb-2">Your Current Balance</p>
-                      <p className="text-2xl font-semibold text-gray-900">{balance.credits.toLocaleString()} credits</p>
-                    </div>
-                  )}
-
-                  {/* Amount Request */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      How many credits do you need?
-                    </label>
-                    <select
-                      value={requestAmount}
-                      onChange={(e) => setRequestAmount(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    >
-                      <option value="1000">1,000 credits (~$1 worth)</option>
-                      <option value="5000">5,000 credits (~$5 worth)</option>
-                      <option value="10000">10,000 credits (~$10 worth)</option>
-                      <option value="50000">50,000 credits (~$50 worth)</option>
-                      <option value="100000">100,000 credits (~$100 worth)</option>
-                    </select>
-                  </div>
-
-                  {/* Reason */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Why do you need more credits?
-                    </label>
-                    <textarea
-                      value={requestReason}
-                      onChange={(e) => setRequestReason(e.target.value)}
-                      rows={4}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Tell us about your use case, what you're building, or why you need more credits..."
-                      required
-                    />
-                  </div>
-
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={requestLoading}
-                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-                  >
-                    {requestLoading ? 'Submitting...' : 'Submit Request'}
-                  </button>
-                </form>
-              )}
-            </div>
+          ) : (
+            <p className="text-center py-8 text-sm text-gray-400">No transactions yet</p>
           )}
         </div>
       </div>
