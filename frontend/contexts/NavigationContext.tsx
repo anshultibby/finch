@@ -9,24 +9,30 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 export type View =
   | { type: 'home' }
   | { type: 'stock'; symbol: string; tab?: string }
-  | { type: 'watchlist' }
   | { type: 'portfolio' }
   | { type: 'orders' }
-  | { type: 'connections' }
   | { type: 'swaps' }
   | { type: 'chat' }
-  | { type: 'search'; query?: string }
   | { type: 'visualizations'; vizId?: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type Market = 'us' | 'india';
+export type HomeTab = 'markets' | 'earnings' | 'watchlist' | 'portfolio';
+
 interface NavigationContextType {
   currentView: View;
   navigateTo: (view: View) => void;
   goBack: () => void;
   canGoBack: boolean;
+
+  // Home page state (persisted across view changes)
+  market: Market;
+  setMarket: (m: Market) => void;
+  homeTab: HomeTab;
+  setHomeTab: (t: HomeTab) => void;
 
   // Chat drawer (for contextual chats anchored to a stock page)
   chatDrawerOpen: boolean;
@@ -49,6 +55,8 @@ const NavigationContext = createContext<NavigationContextType | undefined>(undef
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<View[]>([{ type: 'home' }]);
+  const [market, setMarket] = useState<Market>('us');
+  const [homeTab, setHomeTab] = useState<HomeTab>('markets');
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [chatContext, setChatContext] = useState<{ symbol?: string; prefill?: string; prefillLabel?: string; pageContext?: Record<string, any> }>();
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -58,7 +66,6 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const navigateTo = useCallback((view: View) => {
     setHistory(prev => {
       const next = [...prev, view];
-      // Cap history to prevent unbounded growth in long sessions
       return next.length > 50 ? next.slice(-50) : next;
     });
   }, []);
@@ -100,6 +107,10 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       navigateTo,
       goBack,
       canGoBack: history.length > 1,
+      market,
+      setMarket,
+      homeTab,
+      setHomeTab,
       chatDrawerOpen,
       setChatDrawerOpen,
       chatContext,

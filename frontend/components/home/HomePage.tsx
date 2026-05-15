@@ -13,8 +13,7 @@ import { formatCurrency as fmt } from '@/lib/currency';
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; }
 function num(v: string | null | undefined): number { return parseFloat(v || '0') || 0; }
 
-type Market = 'us' | 'india';
-type HomeTab = 'markets' | 'earnings' | 'watchlist' | 'portfolio';
+import type { Market, HomeTab } from '@/contexts/NavigationContext';
 
 const MARKET_OPTIONS: { key: Market; label: string; flag: string }[] = [
   { key: 'us', label: 'US Markets', flag: '\u{1F1FA}\u{1F1F8}' },
@@ -667,15 +666,39 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
 
 // ── Watchlist Tab View ───────────────────────────────────────────────────────
 
-function WatchlistTabView({ userId, watchlist, onWatchlistChange, onStockClick }: {
-  userId: string; watchlist: any[]; onWatchlistChange: (wl: any[]) => void; onStockClick: (s: string) => void;
+function WatchlistTabView({ userId, onStockClick }: {
+  userId: string; onStockClick: (s: string) => void;
 }) {
+  const [lists, setLists] = useState<{ id: string; name: string; list_type: string; item_count: number }[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [watchlist, setWatchlist] = useState<any[]>([]);
   const [addSymbol, setAddSymbol] = useState('');
   const [adding, setAdding] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showSearch, setShowSearch] = useState(false);
+  const [showListDropdown, setShowListDropdown] = useState(false);
+  const [showNewList, setShowNewList] = useState(false);
+  const [newListName, setNewListName] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchRef = useRef<HTMLDivElement>(null);
+  const listDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    watchlistApi.getLists(userId).then(data => {
+      const fetched = data.lists || [];
+      setLists(fetched);
+      if (fetched.length > 0) setSelectedListId(fetched[0].id);
+    }).catch(() => {});
+  }, [userId]);
+
+  useEffect(() => {
+    if (!selectedListId) return;
+    watchlistApi.getWatchlist(userId, selectedListId).then(data => {
+      setWatchlist(data.symbols || []);
+    }).catch(() => setWatchlist([]));
+  }, [userId, selectedListId]);
+
+  const refreshLists = () => watchlistApi.getLists(userId).then(data => setLists(data.lists || [])).catch(() => {});
 
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setSearchResults([]); setShowSearch(false); return; }
@@ -693,38 +716,145 @@ function WatchlistTabView({ userId, watchlist, onWatchlistChange, onStockClick }
   };
 
   const handleAdd = async (symbol: string) => {
+    if (!selectedListId) return;
     setAdding(true);
     try {
-      await watchlistApi.addSymbol(userId, symbol.toUpperCase());
-      const data = await watchlistApi.getWatchlist(userId);
-      onWatchlistChange(data.symbols || []);
+      await watchlistApi.addSymbol(userId, symbol.toUpperCase(), selectedListId);
+      const data = await watchlistApi.getWatchlist(userId, selectedListId);
+      setWatchlist(data.symbols || []);
       setAddSymbol('');
       setShowSearch(false);
+      refreshLists();
     } catch { /* ignore */ }
     finally { setAdding(false); }
   };
 
   const handleRemove = async (symbol: string) => {
-    onWatchlistChange(watchlist.filter(w => w.symbol !== symbol));
-    try { await watchlistApi.removeSymbol(userId, symbol); }
-    catch {
-      const data = await watchlistApi.getWatchlist(userId);
-      onWatchlistChange(data.symbols || []);
+    setWatchlist(prev => prev.filter(w => w.symbol !== symbol));
+    try {
+      await watchlistApi.removeSymbol(userId, symbol, selectedListId || undefined);
+      refreshLists();
+    } catch {
+      if (selectedListId) {
+        const data = await watchlistApi.getWatchlist(userId, selectedListId);
+        setWatchlist(data.symbols || []);
+      }
     }
+  };
+
+  const handleCreateList = async () => {
+    if (!newListName.trim()) return;
+    try {
+      const data = await watchlistApi.createList(userId, newListName.trim());
+      if (data.list) {
+        setLists(prev => [...prev, data.list]);
+        setSelectedListId(data.list.id);
+      }
+      setNewListName('');
+      setShowNewList(false);
+      setShowListDropdown(false);
+    } catch {}
+  };
+
+  const handleDeleteList = async (listId: string) => {
+    try {
+      await watchlistApi.deleteList(userId, listId);
+      setLists(prev => prev.filter(l => l.id !== listId));
+      if (selectedListId === listId) {
+        const remaining = lists.filter(l => l.id !== listId);
+        setSelectedListId(remaining[0]?.id || null);
+      }
+    } catch {}
   };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowSearch(false);
+      if (listDropdownRef.current && !listDropdownRef.current.contains(e.target as Node)) setShowListDropdown(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const selectedList = lists.find(l => l.id === selectedListId);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Watchlist</h2>
+      </div>
+
+      {/* List selector */}
+      <div ref={listDropdownRef} className="relative mb-4">
+        <button
+          onClick={() => setShowListDropdown(!showListDropdown)}
+          className="w-full flex items-center justify-between px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {selectedList?.list_type === 'ai_picks' && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-500 font-semibold border border-violet-100">AI</span>
+            )}
+            <span className="font-medium text-gray-900">{selectedList?.name || 'Select list'}</span>
+            <span className="text-xs text-gray-400">({watchlist.length})</span>
+          </div>
+          <svg className={`w-4 h-4 text-gray-400 transition-transform ${showListDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {showListDropdown && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-30">
+            {lists.map(list => (
+              <div key={list.id} className="flex items-center">
+                <button
+                  onClick={() => { setSelectedListId(list.id); setShowListDropdown(false); }}
+                  className={`flex-1 flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${list.id === selectedListId ? 'bg-gray-50' : ''}`}
+                >
+                  {list.list_type === 'ai_picks' && (
+                    <span className="text-[9px] px-1 py-px rounded bg-violet-50 text-violet-500 font-semibold border border-violet-100">AI</span>
+                  )}
+                  <span className="font-medium text-gray-900">{list.name}</span>
+                  <span className="text-xs text-gray-400">({list.item_count})</span>
+                </button>
+                {list.list_type === 'custom' && (
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteList(list.id); }}
+                    className="px-3 py-2.5 text-gray-300 hover:text-red-400 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ))}
+            <div className="border-t border-gray-100">
+              {showNewList ? (
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <input value={newListName} onChange={e => setNewListName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleCreateList()}
+                    placeholder="List name..." autoFocus
+                    className="flex-1 px-2 py-1.5 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-300" />
+                  <button onClick={handleCreateList} disabled={!newListName.trim()}
+                    className="px-3 py-1.5 text-xs font-semibold text-white rounded-lg disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>Add</button>
+                  <button onClick={() => { setShowNewList(false); setNewListName(''); }}
+                    className="text-gray-400 hover:text-gray-600">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setShowNewList(true)}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  New list
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add stock search */}
@@ -794,7 +924,6 @@ function WatchlistTabView({ userId, watchlist, onWatchlistChange, onStockClick }
                     <MiniSparkline symbol={item.symbol} width={80} height={32} days={30} />
                   </div>
                 </button>
-                {/* Remove button */}
                 <button onClick={() => handleRemove(item.symbol)}
                   className="absolute top-2 right-2 p-1 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -807,7 +936,7 @@ function WatchlistTabView({ userId, watchlist, onWatchlistChange, onStockClick }
         </div>
       ) : (
         <div className="rounded-xl border border-gray-100 bg-gray-50 flex flex-col items-center justify-center h-[200px] text-sm text-gray-400">
-          <div className="mb-1">No stocks in your watchlist</div>
+          <div className="mb-1">No stocks in this list</div>
           <div className="text-xs">Search above to add stocks</div>
         </div>
       )}
@@ -1165,10 +1294,7 @@ function HomeConnectModal({ brokerages, connecting, selectedBroker, onConnect, o
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { openStock, openChatWithPrompt, startNewChat, navigateTo } = useNavigation();
-
-  const [market, setMarket] = useState<Market>('us');
-  const [activeTab, setActiveTab] = useState<HomeTab>('markets');
+  const { openStock, openChatWithPrompt, startNewChat, market, setMarket, homeTab: activeTab, setHomeTab: setActiveTab } = useNavigation();
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [indexQuotes, setIndexQuotes] = useState<Record<string, any>>({});
   const [movers, setMovers] = useState<{ gainers: any[]; losers: any[] }>({ gainers: [], losers: [] });
@@ -1373,8 +1499,6 @@ export default function HomePage() {
             {activeTab === 'watchlist' && (
               <WatchlistTabView
                 userId={user!.id}
-                watchlist={watchlist}
-                onWatchlistChange={setWatchlist}
                 onStockClick={openStock}
               />
             )}
@@ -1418,11 +1542,12 @@ export default function HomePage() {
               selectedAccountId={selectedAccountId}
             />
 
-            {/* Watchlist */}
+            {/* Watchlist — hide when watchlist tab is active to avoid duplication */}
+            {activeTab !== 'watchlist' && (
             <div className="p-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-sm font-semibold text-gray-900">Watchlist</h2>
-                <button onClick={() => navigateTo({ type: 'watchlist' })}
+                <button onClick={() => setActiveTab('watchlist')}
                   className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
@@ -1436,7 +1561,7 @@ export default function HomePage() {
                     <WatchlistItem key={item.symbol || i} item={item} onClick={() => openStock(item.symbol)} />
                   ))}
                   {watchlist.length > 8 && (
-                    <button onClick={() => navigateTo({ type: 'watchlist' })}
+                    <button onClick={() => setActiveTab('watchlist')}
                       className="w-full py-2 text-xs text-gray-400 hover:text-gray-600 text-center transition-colors">
                       View all ({watchlist.length})
                     </button>
@@ -1445,13 +1570,14 @@ export default function HomePage() {
               ) : (
                 <div className="text-center py-6">
                   <div className="text-xs text-gray-400 mb-2">No stocks in watchlist</div>
-                  <button onClick={() => navigateTo({ type: 'watchlist' })}
+                  <button onClick={() => setActiveTab('watchlist')}
                     className="text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors">
                     Add stocks
                   </button>
                 </div>
               )}
             </div>
+            )}
 
             {/* Quick Actions */}
             <div className="p-4">

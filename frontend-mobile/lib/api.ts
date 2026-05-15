@@ -383,16 +383,34 @@ export const apiKeysApi = {
 };
 
 export const watchlistApi = {
-  getWatchlist: async (userId: string) => {
-    const response = await api.get(`/watchlist/${userId}`);
+  getLists: async (userId: string) => {
+    const response = await api.get(`/watchlist/${userId}/lists`);
     return response.data;
   },
-  addSymbol: async (userId: string, symbol: string) => {
-    const response = await api.post(`/watchlist/${userId}`, { symbol });
+  createList: async (userId: string, name: string) => {
+    const response = await api.post(`/watchlist/${userId}/lists`, { name });
     return response.data;
   },
-  removeSymbol: async (userId: string, symbol: string) => {
-    const response = await api.delete(`/watchlist/${userId}/${symbol}`);
+  renameList: async (userId: string, listId: string, name: string) => {
+    const response = await api.patch(`/watchlist/${userId}/lists/${listId}`, { name });
+    return response.data;
+  },
+  deleteList: async (userId: string, listId: string) => {
+    const response = await api.delete(`/watchlist/${userId}/lists/${listId}`);
+    return response.data;
+  },
+  getWatchlist: async (userId: string, listId?: string) => {
+    const params = listId ? `?list_id=${listId}` : '';
+    const response = await api.get(`/watchlist/${userId}${params}`);
+    return response.data;
+  },
+  addSymbol: async (userId: string, symbol: string, listId?: string) => {
+    const response = await api.post(`/watchlist/${userId}`, { symbol, list_id: listId });
+    return response.data;
+  },
+  removeSymbol: async (userId: string, symbol: string, listId?: string) => {
+    const params = listId ? `?list_id=${listId}` : '';
+    const response = await api.delete(`/watchlist/${userId}/${symbol}${params}`);
     return response.data;
   },
 };

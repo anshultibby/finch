@@ -147,6 +147,22 @@ class AlpacaBrokerAccount(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class WatchlistList(Base):
+    """Named watchlist lists (e.g. 'AI Picks', 'My Watchlist', custom)"""
+    __tablename__ = "watchlist_list"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    list_type = Column(String(20), server_default="custom", nullable=False)
+    position = Column(Integer, server_default="0", nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uq_watchlist_list_user_name'),
+    )
+
+
 class UserWatchlist(Base):
     """User's stock watchlist entries"""
     __tablename__ = "user_watchlist"
@@ -155,10 +171,11 @@ class UserWatchlist(Base):
     user_id = Column(String, nullable=False, index=True)
     symbol = Column(String(10), nullable=False)
     source = Column(String(20), server_default="manual", nullable=False)
+    list_id = Column(UUID(as_uuid=True), ForeignKey("watchlist_list.id", ondelete="CASCADE"), nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint('user_id', 'symbol', name='uq_watchlist_user_symbol'),
+        UniqueConstraint('user_id', 'symbol', 'list_id', name='uq_watchlist_user_symbol_list'),
     )
 
 

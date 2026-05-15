@@ -140,13 +140,37 @@ async def _maybe_sync_stock_analysis(
                  "title": title, "content": content, "chat_id": chat_id},
             )
 
+            ai_list = await db.execute(
+                text(
+                    "SELECT id FROM watchlist_list "
+                    "WHERE user_id = :user_id AND list_type = 'ai_picks' LIMIT 1"
+                ),
+                {"user_id": context.user_id},
+            )
+            ai_list_row = ai_list.fetchone()
+            if not ai_list_row:
+                await db.execute(
+                    text(
+                        "INSERT INTO watchlist_list (id, user_id, name, list_type, position) "
+                        "VALUES (gen_random_uuid(), :user_id, 'AI Picks', 'ai_picks', 0) "
+                        "ON CONFLICT (user_id, name) DO NOTHING"
+                    ),
+                    {"user_id": context.user_id},
+                )
+                ai_list = await db.execute(
+                    text("SELECT id FROM watchlist_list WHERE user_id = :user_id AND list_type = 'ai_picks' LIMIT 1"),
+                    {"user_id": context.user_id},
+                )
+                ai_list_row = ai_list.fetchone()
+
+            ai_list_id = str(ai_list_row[0]) if ai_list_row else None
             await db.execute(
                 text(
-                    "INSERT INTO user_watchlist (id, user_id, symbol, source) "
-                    "VALUES (gen_random_uuid(), :user_id, :symbol, 'ai') "
-                    "ON CONFLICT (user_id, symbol) DO NOTHING"
+                    "INSERT INTO user_watchlist (id, user_id, symbol, source, list_id) "
+                    "VALUES (gen_random_uuid(), :user_id, :symbol, 'ai', :list_id) "
+                    "ON CONFLICT (user_id, symbol, list_id) DO NOTHING"
                 ),
-                {"user_id": context.user_id, "symbol": symbol},
+                {"user_id": context.user_id, "symbol": symbol, "list_id": ai_list_id},
             )
             await db.commit()
         logger.info(f"Auto-synced stock analysis + watchlist for {symbol}/{md_filename} (user {context.user_id})")

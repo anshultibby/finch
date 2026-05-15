@@ -8,8 +8,6 @@ import AppSidebar, { type AppSidebarRef } from './AppSidebar';
 import ChatDrawer from '@/components/chat/ChatDrawer';
 import { ChatModeProvider } from '@/contexts/ChatModeContext';
 import StockPage from '@/components/stock/StockPage';
-import SearchPage from '@/components/search/SearchPage';
-import WatchlistPage from '@/components/watchlist/WatchlistPage';
 import OrdersPage from '@/components/orders/OrdersPage';
 import PortfolioPanel from '@/components/PortfolioPanel';
 import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
@@ -26,14 +24,11 @@ import type { SwapData } from '@/lib/types';
 function viewLabel(view: View): string {
   switch (view.type) {
     case 'home': return 'Home';
-    case 'stock': return view.symbol; // breadcrumbs handle multi-segment stock views separately
-    case 'watchlist': return 'Watchlist';
+    case 'stock': return view.symbol;
     case 'portfolio': return 'Portfolio';
     case 'orders': return 'Orders';
-    case 'connections': return 'Home';
     case 'swaps': return 'Swaps';
     case 'chat': return 'Chat';
-    case 'search': return 'Search';
     case 'visualizations': return 'Visualizations';
     default: return '';
   }
@@ -313,16 +308,10 @@ function AppLayoutInner() {
         return <HomePage />;
       case 'stock':
         return <StockPage symbol={currentView.symbol} initialTab={currentView.tab} />;
-      case 'search':
-        return <SearchPage />;
       case 'portfolio':
         return <PortfolioPanel />;
       case 'orders':
         return <OrdersPage />;
-      case 'watchlist':
-        return <WatchlistPage />;
-      case 'connections':
-        return <HomePage />;
       case 'swaps':
         return (
           <SwapsPanel
