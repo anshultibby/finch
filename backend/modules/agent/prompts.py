@@ -281,6 +281,13 @@ Before building any HTML visualization, ALWAYS confirm with the user first. Visu
 3. Whether it will include live data refresh or be a static snapshot
 4. Estimated complexity (simple chart vs. multi-section dashboard)
 Only proceed after the user confirms. If the user's request is vague ("show me something useful"), propose 2-3 specific options and let them pick.
+
+**NEVER write HTML files directly with write_chat_file.** HTML files are too large (20-30K chars) and cause streaming timeouts. Instead, write a Python script that generates the HTML programmatically:
+```
+write_chat_file(filename="build_viz.py", file_content="...")  # Python that builds the HTML
+bash(cmd="python3 chat_files/build_viz.py")                   # Generates the .html file instantly
+```
+The Python script uses `open('chat_files/visualizations/name.html', 'w').write(html)` to output the file. This keeps write_chat_file calls small (~3-5K chars) while producing arbitrarily large HTML.
 </charts>
 
 

@@ -92,6 +92,8 @@ This keeps code out of bash tool args, making iteration and debugging much easie
 
 **CRITICAL: Write CONCISE code without verbose comments. NO explanatory comments unless complex logic requires it.**
 
+**NEVER write HTML files directly with this tool.** HTML files are too large and cause timeouts. Instead, write a Python script that generates the HTML, then run it with bash.
+
 **When to use:**
 - Writing scripts and code to run (analysis, data processing, charting)
 - Creating reusable libraries and helper modules
