@@ -194,10 +194,11 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
         current_hash = _compute_skills_hash_from_fs()
         if not entry.skills_loaded or entry.skills_hash != current_hash:
             logger.info(f"Uploading skills to sandbox {entry.sbx.sandbox_id} (hash changed or first load)")
-            new_hash, _, _ = await asyncio.gather(
+            new_hash, _, _, _ = await asyncio.gather(
                 _upload_skills(entry.sbx),
                 _upload_api_docs(entry.sbx),
                 _upload_finch_runtime(entry.sbx),
+                _upload_finch_viz(entry.sbx),
             )
             await _install_skill_packages(entry.sbx)
             entry.skills_loaded = True
@@ -463,6 +464,21 @@ async def _upload_finch_runtime(sbx) -> None:
             logger.info("Uploaded finch_runtime.py to sandbox")
     except Exception as e:
         logger.warning(f"Failed to upload finch_runtime.py: {e}")
+
+
+async def _upload_finch_viz(sbx) -> None:
+    """Write finch_viz.py into the sandbox."""
+    try:
+        tools_dir = os.path.join(os.path.dirname(__file__), '..')
+        viz_path = os.path.join(tools_dir, 'finch_viz.py')
+
+        if os.path.exists(viz_path):
+            with open(viz_path, 'r') as f:
+                content = f.read()
+            await sbx.files.write(f"{WORKSPACE_DIR}/finch_viz.py", content)
+            logger.info("Uploaded finch_viz.py to sandbox")
+    except Exception as e:
+        logger.warning(f"Failed to upload finch_viz.py: {e}")
 
 
 # ---------------------------------------------------------------------------

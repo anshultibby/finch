@@ -282,12 +282,21 @@ Before building any HTML visualization, ALWAYS confirm with the user first. Visu
 4. Estimated complexity (simple chart vs. multi-section dashboard)
 Only proceed after the user confirms. If the user's request is vague ("show me something useful"), propose 2-3 specific options and let them pick.
 
-**NEVER write HTML files directly with write_chat_file.** HTML files are too large (20-30K chars) and cause streaming timeouts. Instead, write a Python script that generates the HTML programmatically:
+**Use `finch_viz.Dashboard` for all visualizations.** Never write raw HTML. Write a Python script that builds Plotly figures and arranges them in a dashboard grid:
+```python
+from finch_viz import Dashboard
+import plotly.graph_objects as go
+
+fig1 = go.Figure(go.Bar(x=tickers, y=returns))
+fig2 = go.Figure(go.Scatter(x=dates, y=prices, mode='lines'))
+
+dash = Dashboard("Portfolio Overview", subtitle="May 2026")
+dash.kpi([("Total Return", "+12.3%", "green"), ("Sharpe", "1.8", "blue")])
+dash.plot([fig1, fig2])  # side by side
+dash.table(["Ticker", "Weight", "Return"], rows)
+dash.save("chat_files/visualizations/portfolio.html")
 ```
-write_chat_file(filename="build_viz.py", file_content="...")  # Python that builds the HTML
-bash(cmd="python3 chat_files/build_viz.py")                   # Generates the .html file instantly
-```
-The Python script uses `open('chat_files/visualizations/name.html', 'w').write(html)` to output the file. This keeps write_chat_file calls small (~3-5K chars) while producing arbitrarily large HTML.
+The dashboard handles dark theme, responsive grid, and Plotly embedding automatically. Use `dash.plot(fig)` for full-width, `dash.plot([f1, f2])` for side-by-side, `dash.plot([f1, f2], widths=[2,1])` for custom ratios. Use `dash.html(raw)` only if you need something the built-in components don't cover.
 </charts>
 
 
