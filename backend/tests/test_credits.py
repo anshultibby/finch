@@ -17,7 +17,6 @@ from services.credits import (
     CREDITS_PER_DOLLAR,
     PREMIUM_MULTIPLIER,
     MODEL_PRICING,
-    DAILY_CREDIT_CAPS,
     DEFAULT_NEW_USER_CREDITS,
 )
 
@@ -146,14 +145,6 @@ class TestConstants:
     def test_premium_multiplier(self):
         assert PREMIUM_MULTIPLIER == 1.2
 
-    def test_daily_caps_exist_for_all_plans(self):
-        assert "free" in DAILY_CREDIT_CAPS
-        assert "pro" in DAILY_CREDIT_CAPS
-        assert "admin" in DAILY_CREDIT_CAPS
-        assert DAILY_CREDIT_CAPS["admin"] is None
-
-    def test_free_cap_less_than_pro(self):
-        assert DAILY_CREDIT_CAPS["free"] < DAILY_CREDIT_CAPS["pro"]
 
 
 # ---------------------------------------------------------------------------
@@ -260,35 +251,3 @@ class TestCreditsServiceAdd:
         assert success is False
 
 
-class TestCreditsServiceDailyCap:
-    @pytest.mark.asyncio
-    async def test_admin_always_allowed(self):
-        from services.credits import CreditsService
-
-        with patch.object(CreditsService, "get_user_plan", return_value="admin"):
-            with patch.object(CreditsService, "get_daily_spend", return_value=999999):
-                allowed, remaining = await CreditsService.check_daily_cap(AsyncMock(), "u")
-                assert allowed is True
-                assert remaining == -1
-
-    @pytest.mark.asyncio
-    async def test_free_user_blocked_at_cap(self):
-        from services.credits import CreditsService
-
-        with patch.object(CreditsService, "get_user_plan", return_value="free"):
-            with patch.object(CreditsService, "get_daily_spend", return_value=100):
-                allowed, remaining = await CreditsService.check_daily_cap(AsyncMock(), "u")
-                assert allowed is False
-                assert remaining == 0
-
-    @pytest.mark.asyncio
-    async def test_pro_user_within_cap(self):
-        from services.credits import CreditsService, DAILY_CREDIT_CAPS
-
-        pro_cap = DAILY_CREDIT_CAPS["pro"]
-        spent = pro_cap // 2
-        with patch.object(CreditsService, "get_user_plan", return_value="pro"):
-            with patch.object(CreditsService, "get_daily_spend", return_value=spent):
-                allowed, remaining = await CreditsService.check_daily_cap(AsyncMock(), "u")
-                assert allowed is True
-                assert remaining == pro_cap - spent

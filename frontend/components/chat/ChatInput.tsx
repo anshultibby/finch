@@ -3,7 +3,8 @@ import type { ImageAttachment, FileAttachment } from '@/lib/types';
 import { chatFilesApi } from '@/lib/api';
 
 interface ChatInputProps {
-  onSendMessage: (message: string, images?: ImageAttachment[], skills?: string[], files?: FileAttachment[]) => void;
+  onSendMessage?: (message: string, images?: ImageAttachment[], skills?: string[], files?: FileAttachment[]) => void;
+  onSimpleSend?: (message: string) => void;
   onStop?: () => void;
   disabled?: boolean;
   isStreaming?: boolean;
@@ -14,6 +15,7 @@ interface ChatInputProps {
 
 export default function ChatInput({
   onSendMessage,
+  onSimpleSend,
   onStop,
   disabled = false,
   isStreaming = false,
@@ -21,6 +23,7 @@ export default function ChatInput({
   prefillMessage,
   chatId,
 }: ChatInputProps) {
+  const simple = !!onSimpleSend;
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [files, setFiles] = useState<FileAttachment[]>([]);
@@ -37,14 +40,21 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {
+    if (simple) {
+      if (message.trim()) {
+        onSimpleSend!(message.trim());
+        setMessage('');
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      }
+      return;
+    }
     if ((message.trim() || images.length > 0 || files.length > 0) && !disabled && !uploading) {
-      // If files are attached, prepend their sandbox paths so the agent knows about them
       let fullMessage = message;
       if (files.length > 0) {
         const fileList = files.map(f => f.path).join('\n');
         fullMessage = `[Uploaded files]\n${fileList}\n\n${message}`;
       }
-      onSendMessage(
+      onSendMessage!(
         fullMessage,
         images.length > 0 ? images : undefined,
         undefined,
@@ -111,7 +121,9 @@ export default function ChatInput({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const canSend = (message.trim() || images.length > 0 || files.length > 0) && !disabled && !uploading;
+  const canSend = simple
+    ? !!message.trim()
+    : (message.trim() || images.length > 0 || files.length > 0) && !disabled && !uploading;
 
   return (
     <div
@@ -120,105 +132,109 @@ export default function ChatInput({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*,.pdf,.csv,.xlsx,.xls"
-        multiple
-        onChange={handleFileSelect}
-        className="hidden"
-      />
+      {!simple && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.pdf,.csv,.xlsx,.xls"
+            multiple
+            onChange={handleFileSelect}
+            className="hidden"
+          />
 
-      {/* Image previews */}
-      {images.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-2">
-          {images.map((img, idx) => (
-            <div key={idx} className="relative group">
-              <img
-                src={`data:${img.media_type};base64,${img.data}`}
-                alt={`Attachment ${idx + 1}`}
-                className="h-14 w-14 object-cover rounded-lg border border-gray-200"
-              />
-              <button
-                onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
-                className="absolute -top-1.5 -right-1.5 bg-gray-800 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs leading-none hover:bg-gray-900 transition-colors"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* File attachment chips */}
-      {(files.length > 0 || uploading) && (
-        <div className="flex flex-wrap gap-2 mb-2">
-          {files.map((f, idx) => (
-            <div key={idx} className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1.5 text-sm text-gray-700">
-              <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-              </svg>
-              <span className="truncate max-w-[150px]">{f.name}</span>
-              <button
-                onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
-                className="text-gray-400 hover:text-gray-600 ml-0.5"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))}
-          {uploading && (
-            <div className="flex items-center gap-1.5 bg-gray-50 rounded-lg px-2.5 py-1.5 text-sm text-gray-400">
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Uploading...
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative group">
+                  <img
+                    src={`data:${img.media_type};base64,${img.data}`}
+                    alt={`Attachment ${idx + 1}`}
+                    className="h-14 w-14 object-cover rounded-lg border border-gray-200"
+                  />
+                  <button
+                    onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                    className="absolute -top-1.5 -right-1.5 bg-gray-800 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs leading-none hover:bg-gray-900 transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           )}
-        </div>
+
+          {(files.length > 0 || uploading) && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {files.map((f, idx) => (
+                <div key={idx} className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-2.5 py-1.5 text-sm text-gray-700">
+                  <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="truncate max-w-[150px]">{f.name}</span>
+                  <button
+                    onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
+                    className="text-gray-400 hover:text-gray-600 ml-0.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              {uploading && (
+                <div className="flex items-center gap-1.5 bg-gray-50 rounded-lg px-2.5 py-1.5 text-sm text-gray-400">
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Uploading...
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
-      {/* Input container — single row like ChatGPT */}
-      <div className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 transition-all duration-200 ${
+      {/* Input container */}
+      <div className={`flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 shadow-sm transition-all duration-200 ${
         isDragging
           ? 'border-gray-400 bg-gray-50'
-          : 'border-gray-200 bg-white focus-within:border-gray-300'
+          : 'border-gray-200 focus-within:border-gray-300 focus-within:shadow-md'
       }`}>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          title="Attach file"
-          className="flex items-center justify-center w-6 h-6 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-all flex-shrink-0 "
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
+        {!simple && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            title="Attach file"
+            className="flex items-center justify-center w-6 h-6 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-all flex-shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
         <textarea
           ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
+          onPaste={simple ? undefined : handlePaste}
           placeholder={isDragging ? 'Drop file here...' : placeholder}
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none disabled:cursor-not-allowed text-sm leading-[1.4]"
-          style={{ maxHeight: '200px' }}
+          className="flex-1 resize-none bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none disabled:cursor-not-allowed text-sm leading-[1.4] px-1 py-1"
+          style={{ minHeight: '36px', maxHeight: simple ? '120px' : '200px' }}
           onInput={(e) => {
             const t = e.target as HTMLTextAreaElement;
             t.style.height = 'auto';
-            t.style.height = Math.min(t.scrollHeight, 200) + 'px';
+            t.style.height = Math.min(t.scrollHeight, simple ? 120 : 200) + 'px';
           }}
         />
-        {isStreaming ? (
+        {isStreaming && !simple ? (
           <button
             onClick={onStop}
             title="Stop generating"
-            className="flex items-center justify-center w-6 h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-all flex-shrink-0 "
+            className="flex items-center justify-center w-6 h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-all flex-shrink-0"
           >
             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
               <rect x="3" y="3" width="10" height="10" rx="1.5" />
@@ -229,10 +245,10 @@ export default function ChatInput({
             onClick={handleSubmit}
             disabled={!canSend}
             title="Send message"
-            className="flex items-center justify-center w-6 h-6 bg-primary-600 text-white rounded-full hover:bg-primary-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex-shrink-0 "
+            className="p-2 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-full transition-colors shrink-0"
           >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
             </svg>
           </button>
         )}

@@ -65,14 +65,6 @@ MAX_CREDIT_CAP = {
     "admin": None,
 }
 
-# Daily spend caps per plan (1 credit = $0.01)
-DAILY_CREDIT_CAPS = {
-    "free":  100,
-    "pro":   200,
-    "max":  1_000,
-    "admin": None,
-}
-DAILY_CREDIT_CAP = DAILY_CREDIT_CAPS["free"]
 
 
 def _get_model_pricing(model: str) -> Dict[str, float]:
@@ -412,22 +404,21 @@ class CreditsService:
         return True
     
     @staticmethod
-    async def get_daily_spend(db: AsyncSession, user_id: str) -> int:
-        """
-        Sum of credits deducted today (UTC).  Returns 0 if no transactions today.
-        """
-        from sqlalchemy import func
-        from datetime import datetime, timezone
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    async def get_stripe_customer_id(db: AsyncSession, user_id: str) -> Optional[str]:
         result = await db.execute(
-            select(func.coalesce(func.sum(-CreditTransaction.amount), 0))
-            .where(
-                CreditTransaction.user_id == user_id,
-                CreditTransaction.amount < 0,          # deductions only
-                CreditTransaction.created_at >= today_start,
-            )
+            select(SnapTradeUser.stripe_customer_id).where(SnapTradeUser.user_id == user_id)
         )
-        return int(result.scalar() or 0)
+        row = result.first()
+        return row[0] if row else None
+
+    @staticmethod
+    async def set_stripe_customer_id(db: AsyncSession, user_id: str, customer_id: str) -> bool:
+        result = await db.execute(
+            update(SnapTradeUser)
+            .where(SnapTradeUser.user_id == user_id)
+            .values(stripe_customer_id=customer_id)
+        )
+        return result.rowcount > 0
 
     @staticmethod
     async def get_user_plan(db: AsyncSession, user_id: str) -> str:
@@ -448,21 +439,6 @@ class CreditsService:
             .values(plan=plan)
         )
         return result.rowcount > 0
-
-    @staticmethod
-    async def check_daily_cap(db: AsyncSession, user_id: str) -> tuple[bool, int]:
-        """
-        Returns (allowed, credits_remaining_today).
-        allowed=False when today's spend already hit the plan's daily cap.
-        Admin plan is always allowed with -1 as remaining (unlimited).
-        """
-        plan = await CreditsService.get_user_plan(db, user_id)
-        cap = DAILY_CREDIT_CAPS.get(plan, DAILY_CREDIT_CAPS["free"])
-        if cap is None:
-            return True, -1  # admin — unlimited
-        spent_today = await CreditsService.get_daily_spend(db, user_id)
-        remaining = max(0, cap - spent_today)
-        return remaining > 0, remaining
 
     @staticmethod
     async def get_transaction_history(

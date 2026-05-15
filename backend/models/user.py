@@ -21,6 +21,7 @@ class SnapTradeUser(Base):
     is_connected = Column(Boolean, default=False, nullable=False)
     brokerage_name = Column(String, nullable=True)
     plan = Column(String, nullable=False, default="free")  # free | pro | admin
+    stripe_customer_id = Column(String, nullable=True)
     credits = Column(Integer, nullable=False, default=1000)
     total_credits_used = Column(Integer, nullable=False, default=0)
     last_credit_refresh = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

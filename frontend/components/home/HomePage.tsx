@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState, useRef, useCallback, KeyboardEvent } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { alpacaBrokerApi, marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
+import ChatInput from '@/components/chat/ChatInput';
 import { SnapTradeReact } from 'snaptrade-react';
 import type { AlpacaPortfolioResponse, Brokerage, PortfolioResponse } from '@/lib/types';
 import { formatCurrency as fmt } from '@/lib/currency';
@@ -1032,56 +1033,6 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
   );
 }
 
-// ── Bottom Chat Bar ──────────────────────────────────────────────────────────
-
-function BottomChatBar({ onSend }: { onSend: (msg: string) => void }) {
-  const [message, setMessage] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleSubmit = () => {
-    if (!message.trim()) return;
-    onSend(message);
-    setMessage('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  return (
-    <div className="shrink-0 border-t border-gray-100 bg-white px-4 py-3">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2 focus-within:border-gray-300 focus-within:bg-white focus-within:shadow-sm transition-all">
-          <textarea
-            ref={textareaRef}
-            value={message}
-            onChange={e => {
-              setMessage(e.target.value);
-              const t = e.target;
-              t.style.height = 'auto';
-              t.style.height = Math.min(t.scrollHeight, 120) + 'px';
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about stocks, portfolio, markets..."
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none py-1.5 leading-relaxed"
-            style={{ minHeight: '28px', maxHeight: '120px' }}
-          />
-          <button onClick={handleSubmit} disabled={!message.trim()}
-            className="flex-shrink-0 p-2 rounded-xl bg-gray-900 text-white hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Market Summary (news) ────────────────────────────────────────────────────
 
@@ -1368,10 +1319,9 @@ export default function HomePage() {
       {/* ── Top Nav Bar ─────────────────────────────────────────────── */}
       <TopNavBar market={market} onMarketChange={setMarket} activeTab={activeTab} onTabChange={handleTabChange} />
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex gap-0 h-full">
+      <div className="flex flex-1 min-h-0">
           {/* ── Left: Main Content ─────────────────────────────────────── */}
-          <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto">
+          <div className="flex-1 min-w-0 px-5 pt-4 overflow-y-auto flex flex-col">
             {activeTab === 'markets' && (
               <>
                 {/* Top Assets — 2x2 grid */}
@@ -1440,6 +1390,16 @@ export default function HomePage() {
                 onSelectAccount={setSelectedAccountId}
               />
             )}
+
+            <div className="flex-grow" />
+
+            {/* ── Bottom Chat Bar ──────────────────────────────────────── */}
+            <div className="sticky bottom-0 px-3 sm:px-4 pb-1">
+              <ChatInput
+                onSimpleSend={handleChatSend}
+                placeholder="Ask about stocks, portfolio, markets..."
+              />
+            </div>
           </div>
 
           {/* ── Right: Sidebar ──────────────────────────────────────────── */}
@@ -1523,11 +1483,7 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        </div>
       </div>
-
-      {/* ── Bottom Chat Bar ──────────────────────────────────────────── */}
-      <BottomChatBar onSend={handleChatSend} />
 
       {showConnectModal && <HomeConnectModal
         brokerages={brokerages}

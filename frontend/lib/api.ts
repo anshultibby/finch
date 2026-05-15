@@ -649,6 +649,7 @@ export interface CreditBalance {
   user_id: string;
   credits: number;
   total_credits_used: number;
+  plan: string;
 }
 
 export interface CreditTransaction {
@@ -708,6 +709,19 @@ export const creditsApi = {
 
   redeemCode: async (code: string): Promise<{ success: boolean; plan: string; credits_added: number; message: string }> => {
     const response = await api.post('/credits/redeem', { code });
+    return response.data;
+  },
+
+  requestCode: async (email: string, message: string): Promise<{ ok: boolean }> => {
+    const response = await api.post('/credits/request-code', { email, message });
+    return response.data;
+  },
+
+  createPortalSession: async (userId: string): Promise<{ url: string }> => {
+    const response = await api.post<{ url: string }>('/credits/portal', {
+      user_id: userId,
+      return_url: window.location.href,
+    });
     return response.data;
   },
 

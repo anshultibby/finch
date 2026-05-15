@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import logging
 import mimetypes
-from auth.dependencies import get_current_user_id
+from auth.dependencies import get_current_user_id, verify_user_access
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,7 @@ async def get_chat_files(
 ):
     """List all files in the bot's root directory on the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
+    await verify_user_access(user_id, authenticated_user_id)
 
     try:
         from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
@@ -136,6 +137,7 @@ async def download_chat_file(
 ):
     """Download a file from the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
+    await verify_user_access(user_id, authenticated_user_id)
 
     try:
         from modules.tools.implementations.code_execution import read_sandbox_file
@@ -166,6 +168,7 @@ async def get_sandbox_file(
     Used when the agent references a file by its VM path (e.g. /home/user/subdir/chart.png).
     """
     user_id, _ = await _get_chat_info(chat_id, db)
+    await verify_user_access(user_id, authenticated_user_id)
 
     try:
         from modules.tools.implementations.code_execution import read_sandbox_file
@@ -206,6 +209,7 @@ async def delete_chat_file(
 ):
     """Delete a file from the sandbox."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
+    await verify_user_access(user_id, authenticated_user_id)
 
     try:
         from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
@@ -237,6 +241,7 @@ async def upload_file_to_sandbox(
     Returns the sandbox path so the frontend can reference it in the chat message.
     """
     user_id, _ = await _get_chat_info(chat_id, db)
+    await verify_user_access(user_id, authenticated_user_id)
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 

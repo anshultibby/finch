@@ -9,13 +9,6 @@ interface CreditsModalProps {
   onClose: () => void;
 }
 
-const MAX_CREDIT_OPTIONS = [
-  { label: '2,500 credits / month', value: '2500', price: 50, daily: 100 },
-  { label: '4,000 credits / month', value: '4000', price: 80, daily: 100 },
-  { label: '6,000 credits / month', value: '6000', price: 120, daily: 100 },
-  { label: '8,500 credits / month', value: '8500', price: 170, daily: 100 },
-];
-
 export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
   const { user } = useAuth();
   const [tab, setTab] = useState<'plans' | 'history'>('plans');
@@ -23,10 +16,13 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
-  const [maxCredits, setMaxCredits] = useState('2500');
   const [promoCode, setPromoCode] = useState('');
   const [promoStatus, setPromoStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [redeeming, setRedeeming] = useState(false);
+  const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [managingSubscription, setManagingSubscription] = useState(false);
+
+  const isPro = balance?.plan === 'pro' || balance?.plan === 'admin';
 
   useEffect(() => {
     if (!isOpen || !user) return;
@@ -49,9 +45,18 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
     }
   };
 
-  if (!isOpen) return null;
+  const handleManageSubscription = async () => {
+    if (!user) return;
+    setManagingSubscription(true);
+    try {
+      const { url } = await creditsApi.createPortalSession(user.id);
+      window.location.href = url;
+    } catch {
+      setManagingSubscription(false);
+    }
+  };
 
-  const selectedMax = MAX_CREDIT_OPTIONS.find(o => o.value === maxCredits)!;
+  if (!isOpen) return null;
 
   const handleRedeem = async () => {
     if (!promoCode.trim()) return;
@@ -94,7 +99,7 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
         {/* Header */}
         <div className="px-6 pt-5 flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Upgrade to Finch Pro</h2>
+            <h2 className="text-lg font-semibold text-gray-900">{isPro ? 'Finch Pro' : 'Upgrade to Finch Pro'}</h2>
             {balance && (
               <p className="text-sm text-gray-500 mt-0.5">
                 <span className="font-medium text-gray-700">{balance.credits.toLocaleString()}</span> credits remaining
@@ -127,7 +132,7 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
         <div className="px-6 pb-5">
           {tab === 'plans' ? (
             <>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {/* ── Free ── */}
               <div className="rounded-xl border border-gray-200 p-4 flex flex-col">
                 <div className="flex items-baseline gap-1 mb-0.5">
@@ -135,9 +140,19 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
                   <span className="text-xs text-gray-400">/ month</span>
                 </div>
                 <p className="text-xs text-gray-500 mb-3">Get started for free</p>
-                <button disabled className="w-full py-2 rounded-full text-xs font-medium bg-gray-100 text-gray-400 cursor-default mb-3">
-                  Current Plan
-                </button>
+                {isPro ? (
+                  <button
+                    onClick={handleManageSubscription}
+                    disabled={managingSubscription}
+                    className="w-full py-2 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors mb-3"
+                  >
+                    {managingSubscription ? 'Redirecting...' : 'Switch to Free'}
+                  </button>
+                ) : (
+                  <button disabled className="w-full py-2 rounded-full text-xs font-medium bg-gray-100 text-gray-400 cursor-default mb-3">
+                    Current Plan
+                  </button>
+                )}
                 <ul className="space-y-2.5">
                   <F icon={<Sparkles />} text="1,000 credits on signup" />
                   <F icon={<Clock />} text="100 credits daily refresh" />
@@ -153,13 +168,23 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
                   <span className="text-xs text-gray-400">/ month</span>
                 </div>
                 <p className="text-xs text-gray-500 mb-3">For active investors</p>
-                <button
-                  onClick={handleUpgrade}
-                  disabled={upgrading}
-                  className="w-full py-2 rounded-full text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors mb-3"
-                >
-                  {upgrading ? 'Redirecting...' : 'Upgrade'}
-                </button>
+                {isPro ? (
+                  <button
+                    onClick={handleManageSubscription}
+                    disabled={managingSubscription}
+                    className="w-full py-2 rounded-full text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors mb-3"
+                  >
+                    {managingSubscription ? 'Redirecting...' : 'Manage Subscription'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleUpgrade}
+                    disabled={upgrading}
+                    className="w-full py-2 rounded-full text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors mb-3"
+                  >
+                    {upgrading ? 'Redirecting...' : 'Upgrade'}
+                  </button>
+                )}
                 <ul className="space-y-2.5">
                   <F icon={<Sparkles />} text="1,000 credits / month" />
                   <F icon={<Clock />} text="100 credits daily refresh" />
@@ -169,43 +194,23 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
                 </ul>
               </div>
 
-              {/* ── Max ── */}
-              <div className="rounded-xl border border-gray-200 p-4 flex flex-col">
-                <div className="flex items-baseline gap-1 mb-0.5">
-                  <span className="text-2xl font-bold text-gray-900">${selectedMax.price}</span>
-                  <span className="text-xs text-gray-400">/ month</span>
-                </div>
-                <p className="text-xs text-gray-500 mb-3">Customizable usage</p>
-                <button
-                  onClick={handleUpgrade}
-                  disabled={upgrading}
-                  className="w-full py-2 rounded-full text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors mb-2"
-                >
-                  {upgrading ? 'Redirecting...' : 'Upgrade'}
-                </button>
-                <div className="relative mb-3">
-                  <select
-                    value={maxCredits}
-                    onChange={e => setMaxCredits(e.target.value)}
-                    className="w-full appearance-none text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-700 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300 cursor-pointer pr-7"
-                  >
-                    {MAX_CREDIT_OPTIONS.map(o => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <svg className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-                <ul className="space-y-2.5">
-                  <F icon={<Sparkles />} text={`${parseInt(maxCredits).toLocaleString()} credits on activation`} />
-                  <F icon={<Clock />} text={`${selectedMax.daily} credits daily refresh`} />
-                  <F icon={<Doc />} text="Extended research & analysis" />
-                  <F icon={<Bar />} text="Batch analysis tools" />
-                  <F icon={<Flask />} text="Early access to features" />
-                </ul>
-              </div>
             </div>
+
+            {isPro && (
+              <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Cancel subscription</p>
+                  <p className="text-xs text-gray-500 mt-0.5">You can cancel anytime. You&apos;ll keep Pro until the end of your billing period.</p>
+                </div>
+                <button
+                  onClick={handleManageSubscription}
+                  disabled={managingSubscription}
+                  className="shrink-0 ml-4 px-4 py-2 text-xs font-medium rounded-full border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  {managingSubscription ? 'Redirecting...' : 'Cancel'}
+                </button>
+              </div>
+            )}
 
             {/* Promo code */}
             <div className="mt-4 flex items-center gap-2">
@@ -232,6 +237,26 @@ export default function CreditsModal({ isOpen, onClose }: CreditsModalProps) {
                 {promoStatus.msg}
               </p>
             )}
+            <p className="mt-3 text-xs text-gray-400 text-center">
+              {requestStatus === 'sent' ? (
+                <span className="text-green-600">Request sent! We&apos;ll email you a code shortly.</span>
+              ) : (
+                <>No code?{' '}
+                <button
+                  onClick={async () => {
+                    setRequestStatus('sending');
+                    try {
+                      await creditsApi.requestCode(user?.email ?? '', '');
+                      setRequestStatus('sent');
+                    } catch { setRequestStatus('idle'); }
+                  }}
+                  disabled={requestStatus === 'sending'}
+                  className="text-blue-500 hover:text-blue-600 underline disabled:text-gray-400"
+                >
+                  {requestStatus === 'sending' ? 'Sending...' : 'Request one'}
+                </button></>
+              )}
+            </p>
             </>
           ) : loading ? (
             <p className="text-center py-8 text-sm text-gray-400">Loading...</p>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef, KeyboardEvent } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { marketApi, alpacaBrokerApi, watchlistApi, analysisApi } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
 import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
+import ChatInput from '@/components/chat/ChatInput';
 import type { AlpacaBrokerPosition } from '@/lib/types';
 import { formatCurrency as fmt, formatCurrencyCompact as fmtB } from '@/lib/currency';
 
@@ -161,61 +162,6 @@ function NewsCard({ item }: { item: any }) {
         </div>
       )}
     </a>
-  );
-}
-
-// ─── Stock Chat Bar ─────────────────────────────────────────────────────────
-
-function StockChatBar({ symbol, openChatAbout, pageContext }: {
-  symbol: string;
-  openChatAbout: (symbol: string, prefill?: string, pageContext?: Record<string, any>) => void;
-  pageContext?: Record<string, any>;
-}) {
-  const [message, setMessage] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleSend = () => {
-    if (!message.trim()) return;
-    openChatAbout(symbol, message.trim(), pageContext);
-    setMessage('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  return (
-    <div className="sticky bottom-3 mb-3 max-w-3xl px-3 sm:px-4">
-      <div className="flex items-end gap-2 backdrop-blur-xl bg-white/70 border border-gray-200/60 rounded-2xl px-3 py-2 shadow-lg">
-        <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={e => {
-            setMessage(e.target.value);
-            const t = e.target;
-            t.style.height = 'auto';
-            t.style.height = Math.min(t.scrollHeight, 120) + 'px';
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={`Ask about ${symbol}...`}
-          rows={1}
-          className="flex-1 resize-none bg-transparent border-0 px-1 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
-          style={{ minHeight: '36px', maxHeight: '120px' }}
-        />
-        <button onClick={handleSend} disabled={!message.trim()}
-          className="shrink-0 p-2.5 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 text-white disabled:text-gray-400 rounded-xl transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -1373,19 +1319,24 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
         <div className="h-4" />
 
         {/* Sticky chat bar */}
-        <StockChatBar symbol={symbol} openChatAbout={openChatAbout} pageContext={{
-          page: 'stock',
-          symbol,
-          name,
-          tab: activeTab,
-          price,
-          change,
-          changePct,
-          ...(profile && { sector: profile.sector, industry: profile.industry, marketCap: profile.mktCap }),
-          ...(analyst?.grades && { analystConsensus: analyst.grades.consensus, analystCount: analyst.grades.total }),
-          ...(analyst?.consensus && { priceTarget: analyst.consensus.targetConsensus }),
-          ...(position && { userPosition: { shares: parseFloat(position.qty || '0'), avgCost: parseFloat(position.avg_entry_price || '0'), unrealizedPL: parseFloat(position.unrealized_pl || '0') } }),
-        }} />
+        <div className="sticky bottom-1 mb-1 max-w-3xl px-3 sm:px-4">
+          <ChatInput
+            onSimpleSend={(msg) => openChatAbout(symbol, msg, {
+              page: 'stock',
+              symbol,
+              name,
+              tab: activeTab,
+              price,
+              change,
+              changePct,
+              ...(profile && { sector: profile.sector, industry: profile.industry, marketCap: profile.mktCap }),
+              ...(analyst?.grades && { analystConsensus: analyst.grades.consensus, analystCount: analyst.grades.total }),
+              ...(analyst?.consensus && { priceTarget: analyst.consensus.targetConsensus }),
+              ...(position && { userPosition: { shares: parseFloat(position.qty || '0'), avgCost: parseFloat(position.avg_entry_price || '0'), unrealizedPL: parseFloat(position.unrealized_pl || '0') } }),
+            })}
+            placeholder={`Ask about ${symbol}...`}
+          />
+        </div>
       </div>
 
       {/* Desktop right sidebar — company info, analyst, earnings */}

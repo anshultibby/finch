@@ -23,6 +23,7 @@ class CreditBalanceResponse(BaseModel):
     user_id: str
     credits: int
     total_credits_used: int
+    plan: str = "free"
 
 
 class AddCreditsRequest(BaseModel):
@@ -76,18 +77,19 @@ async def get_credit_balance(
             from models.user import SnapTradeUser
             
             result = await db.execute(
-                select(SnapTradeUser.credits, SnapTradeUser.total_credits_used)
+                select(SnapTradeUser.credits, SnapTradeUser.total_credits_used, SnapTradeUser.plan)
                 .where(SnapTradeUser.user_id == user_id)
             )
             row = result.first()
-            
+
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
-            
+
             return CreditBalanceResponse(
                 user_id=user_id,
                 credits=row[0],
-                total_credits_used=row[1]
+                total_credits_used=row[1],
+                plan=row[2] or "free",
             )
     
     except HTTPException:
@@ -231,6 +233,27 @@ class SetPlanRequest(BaseModel):
     plan: str  # free | pro | admin
 
 
+class PromoRequestBody(BaseModel):
+    email: str
+    message: str = ""
+
+
+@router.post("/request-code")
+async def request_promo_code(body: PromoRequestBody):
+    """User requests a promo code — sends an email to the admin."""
+    from services.notifications import _send_resend_email
+    admin_email = "anshul@finchapp.ai"
+    html = f"""
+    <h3>Promo Code Request</h3>
+    <p><b>Email:</b> {body.email}</p>
+    <p><b>Message:</b> {body.message or '(none)'}</p>
+    """
+    sent = await _send_resend_email(admin_email, f"Finch Pro code request from {body.email}", html)
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send request")
+    return {"ok": True}
+
+
 @router.post("/checkout")
 async def create_checkout_session(
     request: CheckoutRequest,
@@ -266,6 +289,45 @@ async def create_checkout_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class PortalRequest(BaseModel):
+    user_id: str
+    return_url: str
+
+
+@router.post("/portal")
+async def create_portal_session(
+    request: PortalRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Create a Stripe Billing Portal session so users can cancel/manage their subscription."""
+    await verify_user_access(request.user_id, authenticated_user_id)
+    try:
+        import stripe
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Stripe not installed")
+
+    if not Config.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    stripe.api_key = Config.STRIPE_SECRET_KEY
+
+    async with get_db_session() as db:
+        customer_id = await CreditsService.get_stripe_customer_id(db, request.user_id)
+
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="No active subscription found")
+
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=request.return_url,
+        )
+        return {"url": session.url}
+    except Exception as e:
+        logger.error(f"Stripe portal error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
     """
@@ -293,9 +355,11 @@ async def stripe_webhook(request: Request):
         if event["type"] == "checkout.session.completed":
             session = event["data"]["object"]
             user_id = session.get("metadata", {}).get("user_id")
+            customer_id = session.get("customer")
             if user_id:
                 await CreditsService.set_user_plan(db, user_id, "pro")
-                # Give pro users a credit bonus on first subscription
+                if customer_id:
+                    await CreditsService.set_stripe_customer_id(db, user_id, customer_id)
                 await CreditsService.add_credits(
                     db, user_id, 1_000,
                     transaction_type="subscription",
