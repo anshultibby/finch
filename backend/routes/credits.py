@@ -12,6 +12,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from core.config import Config
 from auth.dependencies import get_current_user_id, verify_user_access
+from core.rate_limit import limiter
 
 logger = get_logger(__name__)
 
@@ -239,7 +240,8 @@ class PromoRequestBody(BaseModel):
 
 
 @router.post("/request-code")
-async def request_promo_code(body: PromoRequestBody):
+@limiter.limit("3/minute")
+async def request_promo_code(request: Request, body: PromoRequestBody):
     """User requests a promo code — sends an email to the admin."""
     from services.notifications import _send_resend_email
     admin_email = "anshul@finchapp.ai"
@@ -505,8 +507,10 @@ class RedeemCodeRequest(BaseModel):
 
 
 @router.post("/redeem")
+@limiter.limit("5/minute")
 async def redeem_promo_code(
-    request: RedeemCodeRequest,
+    request: Request,
+    body: RedeemCodeRequest,
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     from sqlalchemy import select, update as sql_update
@@ -514,7 +518,7 @@ async def redeem_promo_code(
     from datetime import datetime, timezone, timedelta
     import uuid
 
-    code_str = request.code.strip().upper()
+    code_str = body.code.strip().upper()
 
     async with get_db_session() as db:
         result = await db.execute(

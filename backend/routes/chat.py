@@ -16,6 +16,7 @@ from core.database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
 from auth.dependencies import get_current_user_id, verify_user_access
+from core.rate_limit import limiter
 
 logger = get_logger(__name__)
 
@@ -38,6 +39,7 @@ chat_service = ChatService()
 
 
 @router.post("/stream")
+@limiter.limit("20/minute")
 async def send_chat_message_stream(
     request: Request,
     chat_message: ChatMessage,
@@ -299,9 +301,18 @@ async def generate_title(
     Uses LLM to create a descriptive title and matching emoji.
     """
     try:
+        # Verify ownership if chat already exists
+        async with get_db_session() as db:
+            from sqlalchemy import select as sa_select
+            from models.chat_models import Chat
+            existing = await db.execute(sa_select(Chat).where(Chat.chat_id == request.chat_id))
+            chat = existing.scalar_one_or_none()
+            if chat:
+                await verify_user_access(chat.user_id, authenticated_user_id)
+
         # Generate title and icon using LLM
         title, icon = await generate_chat_title(request.first_message)
-        
+
         # Update the chat in database (chat may not exist yet if stream hasn't created it)
         async with get_db_session() as db:
             updated = await chat_async.update_chat_title(db, request.chat_id, title, icon)

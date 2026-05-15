@@ -1,8 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import time
 
+from slowapi.errors import RateLimitExceeded
+
 from core.config import Config
+from core.rate_limit import limiter
 from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router, reminders_router, alpaca_router, market_router, alpaca_broker_router, execute_router, watchlist_router, push_router, analysis_router, visualizations_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
@@ -21,6 +25,12 @@ app = FastAPI(
     description="AI-powered tax loss harvesting",
     version="4.0.0"
 )
+
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please try again later."})
 
 # Setup OpenTelemetry tracing (auto-instruments FastAPI, DB, HTTP)
 setup_tracing(app)
