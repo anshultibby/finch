@@ -201,10 +201,6 @@ class BaseAgent:
                     # needs_compaction signals the caller to trigger early compaction.
                     messages_for_llm, needs_compaction = prune_messages(messages)
 
-                    # NOTE: File manifest injection was removed here because it
-                    # poisoned the cache — the transient manifest shifted positions
-                    # between calls, preventing prefix reuse after call 2.
-
                     if needs_compaction:
                         self._needs_early_compaction = True
 
@@ -293,8 +289,10 @@ class BaseAgent:
                             tool_messages = event.data.get("tool_messages", [])
                         yield event
                     
-                    # Track files written to sandbox
+                    # Track files written to sandbox and inject manifest into tool results
                     self._file_tracker.next_turn()
+                    files_changed = False
+                    file_tool_ids = set()
                     for tc in tool_calls:
                         fn_name = tc.get("function", {}).get("name")
                         try:
@@ -302,13 +300,29 @@ class BaseAgent:
                         except (json.JSONDecodeError, TypeError):
                             continue
                         if fn_name == "bash":
+                            prev_count = self._file_tracker.file_count
                             self._file_tracker.process_bash_command(args.get("cmd", ""))
+                            if self._file_tracker.file_count != prev_count:
+                                files_changed = True
+                                file_tool_ids.add(tc["id"])
                         elif fn_name == "write_chat_file":
                             filename = args.get("filename", "")
                             content = args.get("file_content", "")
                             if filename:
                                 line_count = content.count("\n") + 1 if content else 0
                                 self._file_tracker.track_file(filename, line_count, "write_chat_file")
+                                files_changed = True
+                                file_tool_ids.add(tc["id"])
+
+                    # Append manifest diff to the last file-writing tool result
+                    if files_changed and tool_messages:
+                        manifest = self._file_tracker.get_manifest()
+                        if manifest:
+                            for msg in reversed(tool_messages):
+                                if msg.get("tool_call_id") in file_tool_ids:
+                                    content = msg.get("content", "")
+                                    msg["content"] = f"{content}\n\n{manifest}"
+                                    break
 
                     # Log tool results to ChatLogger for complete conversation history
                     if self._chat_logger and tool_messages:
