@@ -201,6 +201,16 @@ class BaseAgent:
                     # needs_compaction signals the caller to trigger early compaction.
                     messages_for_llm, needs_compaction = prune_messages(messages)
 
+                    # Inject file manifest as a trailing user message so the model
+                    # knows what files exist on disk. Placed at the end (after tool
+                    # results) to avoid breaking the cached system prompt prefix.
+                    manifest = self._file_tracker.get_manifest()
+                    if manifest:
+                        messages_for_llm.append({
+                            "role": "user",
+                            "content": f"[System context — files currently on disk]\n{manifest}"
+                        })
+
                     if needs_compaction:
                         self._needs_early_compaction = True
 

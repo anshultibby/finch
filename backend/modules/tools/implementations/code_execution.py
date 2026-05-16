@@ -194,11 +194,9 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
         current_hash = _compute_skills_hash_from_fs()
         if not entry.skills_loaded or entry.skills_hash != current_hash:
             logger.info(f"Uploading skills to sandbox {entry.sbx.sandbox_id} (hash changed or first load)")
-            new_hash, _, _, _ = await asyncio.gather(
+            new_hash, _ = await asyncio.gather(
                 _upload_skills(entry.sbx),
                 _upload_api_docs(entry.sbx),
-                _upload_finch_runtime(entry.sbx),
-                _upload_finch_viz(entry.sbx),
             )
             await _install_skill_packages(entry.sbx)
             entry.skills_loaded = True
@@ -451,34 +449,7 @@ async def _upload_api_docs(sbx) -> None:
         logger.warning(f"Failed to upload API docs: {e}")
 
 
-async def _upload_finch_runtime(sbx) -> None:
-    """Write finch_runtime.py into the sandbox."""
-    try:
-        tools_dir = os.path.join(os.path.dirname(__file__), '..')
-        finch_runtime_path = os.path.join(tools_dir, 'finch_runtime.py')
 
-        if os.path.exists(finch_runtime_path):
-            with open(finch_runtime_path, 'r') as f:
-                content = f.read()
-            await sbx.files.write(f"{WORKSPACE_DIR}/finch_runtime.py", content)
-            logger.info("Uploaded finch_runtime.py to sandbox")
-    except Exception as e:
-        logger.warning(f"Failed to upload finch_runtime.py: {e}")
-
-
-async def _upload_finch_viz(sbx) -> None:
-    """Write finch_viz.py into the sandbox."""
-    try:
-        tools_dir = os.path.join(os.path.dirname(__file__), '..')
-        viz_path = os.path.join(tools_dir, 'finch_viz.py')
-
-        if os.path.exists(viz_path):
-            with open(viz_path, 'r') as f:
-                content = f.read()
-            await sbx.files.write(f"{WORKSPACE_DIR}/finch_viz.py", content)
-            logger.info("Uploaded finch_viz.py to sandbox")
-    except Exception as e:
-        logger.warning(f"Failed to upload finch_viz.py: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -660,8 +631,8 @@ async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
             lines = stdout.split("\n")
             head = "\n".join(lines[:15])
             tail = "\n".join(lines[-10:])
-            stdout_out = f"{head}\n\n... [{line_count} total lines — full output at {spill_path}] ...\n\n{tail}"
-            spill_notes.append(f"Full stdout ({line_count} lines) saved to {spill_path}")
+            stdout_out = f"{head}\n\n... [{line_count} total lines — truncated. To see full output use: bash(cmd='cat {spill_path}', truncate=false)] ...\n\n{tail}"
+            spill_notes.append(f"Full stdout ({line_count} lines) saved to {spill_path}. Use truncate=false to read it.")
             await _cleanup_old_spill_files(sbx, "_output")
         except Exception as e:
             logger.warning(f"Failed to spill stdout to file: {e}")
@@ -674,8 +645,8 @@ async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
             line_count = stderr.count("\n") + 1
             lines = stderr.split("\n")
             tail = "\n".join(lines[-20:])
-            stderr_out = f"... [{line_count} total lines — full output at {spill_path}] ...\n\n{tail}"
-            spill_notes.append(f"Full stderr ({line_count} lines) saved to {spill_path}")
+            stderr_out = f"... [{line_count} total lines — truncated. To see full output use: bash(cmd='cat {spill_path}', truncate=false)] ...\n\n{tail}"
+            spill_notes.append(f"Full stderr ({line_count} lines) saved to {spill_path}. Use truncate=false to read it.")
             await _cleanup_old_spill_files(sbx, "_stderr")
         except Exception as e:
             logger.warning(f"Failed to spill stderr to file: {e}")
@@ -809,6 +780,12 @@ async def bash_impl(
             "status": "complete",
             "message": "Done"
         })
+
+        try:
+            from modules.tools.implementations.file_management import process_sync_manifest
+            await process_sync_manifest(context)
+        except Exception as e:
+            logger.debug(f"Sync manifest processing skipped: {e}")
 
         message = f"[{severity}] Done"
         if spill_note:

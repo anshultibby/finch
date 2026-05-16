@@ -77,6 +77,7 @@ async def _get_sandbox(user_id: str):
 
 _STOCK_ANALYSIS_MD_PATTERN = re.compile(r"^stocks/([A-Z0-9.]+)/([^/]+\.md)$", re.IGNORECASE)
 _VISUALIZATION_HTML_PATTERN = re.compile(r"^visualizations/[^/]+\.html$", re.IGNORECASE)
+_VISUALIZATION_JS_PATTERN = re.compile(r"^visualizations/[^/]+\.js$", re.IGNORECASE)
 
 _INVALID_SYMBOLS = {
     "PDUFA", "BIOTECH", "EARNINGS", "FDA", "NDA", "BLA", "SNDA",
@@ -183,11 +184,146 @@ def _extract_html_title(content: str) -> str | None:
     return m.group(1).strip()[:200] if m else None
 
 
+_CDN_LIBS = {
+    "d3":       "https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js",
+    "chartjs":  "https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js",
+    "plotly":   "https://cdn.plot.ly/plotly-2.35.2.min.js",
+    "three":    "https://cdn.jsdelivr.net/npm/three@0.170/build/three.module.min.js",
+    "anime":    "https://cdn.jsdelivr.net/npm/animejs@3/lib/anime.min.js",
+    "gsap":     "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js",
+    "leaflet":  "https://cdn.jsdelivr.net/npm/leaflet@1/dist/leaflet.min.js",
+    "maplibre": "https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.min.js",
+    "mermaid":  "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js",
+    "katex":    "https://cdn.jsdelivr.net/npm/katex@0/dist/katex.min.js",
+    "marked":   "https://cdn.jsdelivr.net/npm/marked@15/marked.min.js",
+    "tone":     "https://cdn.jsdelivr.net/npm/tone@15/build/Tone.min.js",
+}
+_CDN_CSS = {
+    "leaflet":  "https://cdn.jsdelivr.net/npm/leaflet@1/dist/leaflet.min.css",
+    "katex":    "https://cdn.jsdelivr.net/npm/katex@0/dist/katex.min.css",
+    "maplibre": "https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.min.css",
+}
+
+_LIB_DIRECTIVE_RE = re.compile(r"^//\s*@lib\s+(.+)$", re.MULTILINE)
+
+
+def _wrap_js_in_html(js_code: str, title: str) -> str:
+    """Wrap a JS file in a self-contained HTML shell with CDN libs and Finch theming."""
+    libs = []
+    for m in _LIB_DIRECTIVE_RE.finditer(js_code):
+        libs.append(m.group(1).strip())
+
+    script_urls = []
+    css_urls = []
+    use_module = False
+    for lib in libs:
+        if lib.startswith("http"):
+            script_urls.append(lib)
+        else:
+            key = lib.lower()
+            if key in _CDN_LIBS:
+                script_urls.append(_CDN_LIBS[key])
+                if key in _CDN_CSS:
+                    css_urls.append(_CDN_CSS[key])
+                if key == "three":
+                    use_module = True
+
+    css_tags = "\n".join(f'<link rel="stylesheet" href="{u}">' for u in css_urls)
+    script_tags = "\n".join(
+        f'<script src="{u}"></script>'
+        for u in script_urls if "three" not in u
+    )
+    three_import = ""
+    if use_module:
+        three_url = _CDN_LIBS["three"]
+        three_import = f'<script type="importmap">{{"imports":{{"three":"{three_url}"}}}}</script>'
+
+    script_type = ' type="module"' if use_module else ""
+
+    from html import escape
+    title_esc = escape(title)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title_esc}</title>
+{css_tags}
+{script_tags}
+{three_import}
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+:root{{
+  --bg:#fafaf9;--surface:#ffffff;--surface-raised:#f5f5f4;
+  --border:rgba(0,0,0,0.06);--border-md:rgba(0,0,0,0.1);
+  --text:#0f172a;--text-2:#64748b;--text-3:#94a3b8;
+  --accent:#10b981;
+  --pos:#16a34a;--neg:#dc2626;
+  --blue:#3b82f6;--purple:#a855f7;--amber:#f59e0b;--teal:#14b8a6;--pink:#ec4899;--indigo:#6366f1;
+  --radius:8px;--radius-lg:12px;
+}}
+body{{
+  font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',system-ui,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.5;
+}}
+#root{{width:100%;min-height:100vh;padding:24px}}
+::-webkit-scrollbar{{width:6px}}::-webkit-scrollbar-thumb{{background:#ccc;border-radius:3px}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px}}
+.card-sm{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px}}
+.grid{{display:grid;gap:16px}}.grid-2{{grid-template-columns:repeat(2,1fr)}}.grid-3{{grid-template-columns:repeat(3,1fr)}}.grid-4{{grid-template-columns:repeat(4,1fr)}}
+.flex{{display:flex}}.flex-col{{flex-direction:column}}.gap-sm{{gap:8px}}.gap-md{{gap:16px}}.gap-lg{{gap:24px}}.items-center{{align-items:center}}.justify-between{{justify-content:space-between}}
+.kpi{{font-size:28px;font-weight:700;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}}.kpi-sm{{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}}
+.label{{font-size:11px;font-weight:500;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em}}
+.title{{font-size:16px;font-weight:600;color:var(--text)}}.subtitle{{font-size:13px;color:var(--text-2)}}
+.positive{{color:var(--pos)}}.negative{{color:var(--neg)}}
+.tabular{{font-variant-numeric:tabular-nums}}
+.mono{{font-family:'SF Mono',Menlo,monospace;font-size:12px}}
+.badge{{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500}}
+.badge-pos{{background:#dcfce7;color:var(--pos)}}.badge-neg{{background:#fef2f2;color:var(--neg)}}.badge-accent{{background:#d1fae5;color:#065f46}}
+.tooltip{{position:absolute;background:var(--text);color:#fff;padding:4px 8px;border-radius:4px;font-size:11px;pointer-events:none;white-space:nowrap;z-index:100}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+window.finch={{_cb:{{}},fetch(url,body){{return new Promise((resolve,reject)=>{{const id=Math.random().toString(36).slice(2);this._cb[id]={{resolve,reject}};parent.postMessage({{type:'finch-fetch',url,body,id}},'*');setTimeout(()=>{{if(this._cb[id]){{delete this._cb[id];reject(new Error('timeout'))}}}},30000)}})}}}}; addEventListener('message',e=>{{if(e.data?.type==='finch-response'&&finch._cb[e.data.id]){{const h=finch._cb[e.data.id];delete finch._cb[e.data.id];e.data.error?h.reject(new Error(e.data.error)):h.resolve(e.data.data)}}}});
+</script>
+<script{script_type}>
+(function(){{
+  function _run(){{
+{js_code}
+  }}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_run);
+  else _run();
+}})();
+</script>
+</body>
+</html>"""
+
+
 async def _maybe_sync_visualization(filename: str, content: str, context: AgentContext):
-    """If filename matches visualizations/*.html, upsert into visualizations table."""
-    if not _VISUALIZATION_HTML_PATTERN.match(filename):
+    """If filename matches visualizations/*.html or *.js, upsert into visualizations table.
+
+    For .js files: auto-wrap in HTML shell, derive title from filename, store with .html extension.
+    For .html files: extract title from <title> tag, store as-is.
+    """
+    is_html = _VISUALIZATION_HTML_PATTERN.match(filename)
+    is_js = _VISUALIZATION_JS_PATTERN.match(filename)
+    if not is_html and not is_js:
         return
-    title = _extract_html_title(content)
+
+    if is_js:
+        basename = re.sub(r"\.js$", "", filename.rsplit("/", 1)[-1], flags=re.IGNORECASE)
+        title = basename.replace("_", " ").replace("-", " ").title()
+        html_content = _wrap_js_in_html(content, title)
+        db_filename = re.sub(r"\.js$", ".html", filename, flags=re.IGNORECASE)
+    else:
+        title = _extract_html_title(content)
+        html_content = content
+        db_filename = filename
+
     try:
         from core.database import get_db_session
         from sqlalchemy import text
@@ -199,18 +335,22 @@ async def _maybe_sync_visualization(filename: str, content: str, context: AgentC
                     "VALUES (gen_random_uuid(), :user_id, :chat_id, :title, :filename, :html_content, now(), now()) "
                     "ON CONFLICT ON CONSTRAINT uq_viz_user_filename DO UPDATE SET "
                     "html_content = EXCLUDED.html_content, title = EXCLUDED.title, "
-                    "chat_id = COALESCE(EXCLUDED.chat_id, visualizations.chat_id), updated_at = now()"
+                    "chat_id = COALESCE(EXCLUDED.chat_id, visualizations.chat_id), updated_at = now() "
+                    "WHERE visualizations.html_content IS DISTINCT FROM EXCLUDED.html_content "
+                    "OR visualizations.title IS DISTINCT FROM EXCLUDED.title"
                 ),
-                {"user_id": context.user_id, "chat_id": chat_id, "title": title, "filename": filename, "html_content": content},
+                {"user_id": context.user_id, "chat_id": chat_id, "title": title, "filename": db_filename, "html_content": html_content},
             )
             await db.commit()
-        logger.info(f"Auto-synced visualization '{filename}' for user {context.user_id}")
+        logger.info(f"Auto-synced visualization '{filename}' → '{db_filename}' for user {context.user_id}")
     except Exception as e:
         logger.warning(f"Visualization sync failed for {filename} (non-fatal): {e}")
 
 
 def _sandbox_path(filename: str, context: AgentContext) -> str:
-    """Build full sandbox path for a chat file."""
+    """Build full sandbox path. Absolute paths are used as-is; relative paths are under the files dir."""
+    if filename.startswith("/"):
+        return filename
     return f"{_files_dir(context)}/{filename}"
 
 
@@ -223,6 +363,60 @@ async def _read_sandbox_text(user_id: str, filename: str, context: AgentContext)
     return data.decode("utf-8", errors="replace")
 
 
+SYNC_MANIFEST_PATH = f"{FALLBACK_FILES_DIR}/.sync_pending"
+
+
+async def process_sync_manifest(context: AgentContext):
+    """Scan visualizations/ for .js/.html files and sync to DB. Also processes .sync_pending manifest."""
+    from modules.tools.implementations.code_execution import read_sandbox_file, get_or_create_sandbox
+
+    synced = 0
+
+    # Scan visualizations/ directory for any .js or .html files
+    try:
+        entry = await get_or_create_sandbox(context.user_id, envs={})
+        viz_dir = f"{_files_dir(context)}/visualizations"
+        try:
+            entries = await entry.sbx.files.list(viz_dir, depth=1)
+        except Exception:
+            entries = []
+
+        for e in entries:
+            if e.type == "dir":
+                continue
+            name_lower = e.name.lower()
+            if not (name_lower.endswith(".js") or name_lower.endswith(".html")):
+                continue
+            filename = f"visualizations/{e.name}"
+            content = await _read_sandbox_text(context.user_id, filename, context)
+            if content:
+                await _maybe_sync_visualization(filename, content, context)
+                synced += 1
+    except Exception as e:
+        logger.debug(f"Viz directory scan skipped: {e}")
+
+    # Also process legacy .sync_pending manifest
+    data = await read_sandbox_file(context.user_id, SYNC_MANIFEST_PATH)
+    if data:
+        filenames = [
+            line.strip() for line in data.decode("utf-8", errors="replace").splitlines()
+            if line.strip()
+        ]
+        for filename in filenames:
+            content = await _read_sandbox_text(context.user_id, filename, context)
+            if content is None:
+                continue
+            await _maybe_sync_visualization(filename, content, context)
+            await _maybe_sync_stock_analysis(filename, content, context)
+            synced += 1
+
+        try:
+            await entry.sbx.files.write(SYNC_MANIFEST_PATH, "")
+        except Exception:
+            pass
+
+    if synced:
+        logger.info(f"Synced {synced} visualization(s) for user {context.user_id}")
 
 
 # ============================================================================
@@ -236,22 +430,32 @@ async def write_chat_file_impl(
     *,
     sync_to_analysis: bool = True,
 ):
-    """Write file to sandbox in the bot's chat_files directory."""
+    """Write file to sandbox. Absolute paths write directly; relative paths go to the chat files dir."""
     try:
         entry = await _get_sandbox(context.user_id)
-        # Ensure the chat_files directory exists
-        chat_dir = _files_dir(context)
-        await entry.sbx.commands.run(f"mkdir -p {chat_dir}", timeout=5)
-        await entry.sbx.files.write(_sandbox_path(filename, context), content)
+        full_path = _sandbox_path(filename, context)
 
-        await _maybe_sync_stock_analysis(filename, content, context, sync_to_analysis=sync_to_analysis)
-        await _maybe_sync_visualization(filename, content, context)
+        if filename.startswith("/"):
+            # Absolute path — ensure parent dir exists
+            parent = "/".join(full_path.rsplit("/", 1)[:-1])
+            await entry.sbx.commands.run(f"mkdir -p {parent}", timeout=5)
+        else:
+            # Relative path — ensure the chat_files directory exists
+            chat_dir = _files_dir(context)
+            await entry.sbx.commands.run(f"mkdir -p {chat_dir}", timeout=5)
+
+        await entry.sbx.files.write(full_path, content)
+
+        # Only sync analysis/viz for relative paths (chat workspace files)
+        if not filename.startswith("/"):
+            await _maybe_sync_stock_analysis(filename, content, context, sync_to_analysis=sync_to_analysis)
+            await _maybe_sync_visualization(filename, content, context)
 
         yield {
             "success": True,
             "filename": filename,
-            "sandbox_path": _sandbox_path(filename, context),
-            "message": f"Wrote {filename} (available at {_sandbox_path(filename, context)})"
+            "sandbox_path": full_path,
+            "message": f"Wrote {filename} (available at {full_path})"
         }
     except Exception as e:
         logger.error(f"Error writing chat file: {str(e)}", exc_info=True)

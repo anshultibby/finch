@@ -65,7 +65,7 @@ Do NOT use bash heredocs (`cat > file << 'EOF'`) — use `write_chat_file` inste
 ```
 python3 -c "from skills.polygon_io.scripts.market.quote import get_last_trade; print(get_last_trade('AAPL'))"
 ```
-Read skill docs with: `cat /home/user/skills/<name>/SKILL.md`
+Read skill docs with: `read_chat_file(filename="/home/user/skills/<name>/SKILL.md")` (never truncates)
 """
 
 _EXECUTE_CODE_GUIDELINES = """
@@ -92,6 +92,10 @@ This keeps code out of bash tool args, making iteration and debugging much easie
 
 **CRITICAL: Write CONCISE code without verbose comments. NO explanatory comments unless complex logic requires it.**
 
+**Paths:** Relative filenames go to the chat workspace. Absolute paths (starting with `/`) write anywhere in the sandbox.
+- `write_chat_file(filename="analysis.py", ...)` → `/home/user/chat_files/analysis.py`
+- `write_chat_file(filename="/home/user/skills/my_skill/data.json", ...)` → writes to that exact path
+
 **When to use:**
 - Writing scripts and code to run (analysis, data processing, charting)
 - Creating reusable libraries and helper modules
@@ -101,7 +105,11 @@ This keeps code out of bash tool args, making iteration and debugging much easie
 - `sync_to_analysis` (bool, default true): set to false to skip syncing to the Analysis tab and watchlist (e.g., for draft files or non-stock-specific content).
 """
 
-READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supports partial reads and images!**
+READ_CHAT_FILE_DESC = """Read a file from the sandbox. **Never truncates. Supports partial reads and images!**
+
+**Paths:** Relative filenames read from the chat workspace. Absolute paths (starting with `/`) read from anywhere.
+- `read_chat_file(filename="analysis.py")` → reads from chat workspace
+- `read_chat_file(filename="/home/user/skills/fmp/SKILL.md")` → reads skill docs directly (preferred over bash cat)
 
 **CRITICAL - NEVER READ ENTIRE LARGE FILES UNLESS NECESSARY:**
 - `peek=True` reads first ~100 lines (like Cursor's default preview)
@@ -109,6 +117,7 @@ READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supp
 - Reading thousands of lines wastes tokens and slows you down
 
 **When to use:**
+- Reading skill documentation (absolute path, never truncates unlike bash)
 - Reading text files (code, data, configs) created during this chat session
 - **VIEWING IMAGES** - Use this to see charts/visualizations you've created
 - **Peeking at large files** - Use peek=True to read first ~100 lines
@@ -129,8 +138,6 @@ READ_CHAT_FILE_DESC = """Read a file from the persistent chat filesystem. **Supp
 - navigation: Hints about remaining content
 
 **For images:** Returns the image data so you can visually inspect it.
-
-**For skill documentation:** Use bash instead: `bash('cat /home/user/skills/<name>/SKILL.md')`
 """
 
 REPLACE_IN_CHAT_FILE_DESC = """Replace text in a file (targeted editing). Supports multiple edits in one call.
