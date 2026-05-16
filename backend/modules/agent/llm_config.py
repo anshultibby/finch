@@ -51,20 +51,20 @@ class LLMConfig(BaseModel):
     def to_litellm_kwargs(self) -> Dict[str, Any]:
         """
         Convert to LiteLLM kwargs dictionary
-        
+
         Returns:
             Dict with only non-None values for passing to acompletion()
         """
         kwargs = {}
-        
+
         # Always include model
         kwargs["model"] = self.model
-        
-        # Add all non-None values
-        for field_name, value in self.dict(exclude={"model"}).items():
+
+        # Add all non-None values (exclude internal flags not passed to litellm)
+        for field_name, value in self.dict(exclude={"model", "caching"}).items():
             if value is not None:
                 kwargs[field_name] = value
-        
+
         return kwargs
     
     @staticmethod

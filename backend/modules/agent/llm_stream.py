@@ -20,7 +20,6 @@ This ordering is critical to prevent message reordering bugs where file content
 interleaves with assistant messages during multi-turn conversations.
 """
 from typing import List, Dict, Any, Optional, AsyncGenerator, Callable
-import copy
 import json
 import asyncio
 import time
@@ -46,47 +45,6 @@ def _is_claude_model(model: str) -> bool:
     return m.startswith("claude") or m.startswith("anthropic/")
 
 
-def _add_cache_control_to_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Add cache_control to the last tool definition to mark end of static content."""
-    if not tools:
-        return tools
-    tools_copy = [tool.copy() for tool in tools]
-    tools_copy[-1]["cache_control"] = {"type": "ephemeral"}
-    return tools_copy
-
-
-def _mark_message_cached(msg: Dict[str, Any]) -> None:
-    """Add cache_control breakpoint to a message (mutates in place)."""
-    content = msg.get("content")
-    if isinstance(content, str):
-        msg["content"] = [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ]
-    elif isinstance(content, list) and content and isinstance(content[-1], dict):
-        content[-1]["cache_control"] = {"type": "ephemeral"}
-
-
-def _add_cache_control_to_messages(
-    messages: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
-    """
-    Add cache control breakpoints to conversation history.
-
-    Returns a deep copy to avoid mutating originals (which get saved to DB).
-    Places a breakpoint at the last message (always) and the first message
-    (for conversations longer than 20 messages).
-    """
-    if not messages:
-        return []
-
-    messages_copy = copy.deepcopy(messages)
-
-    _mark_message_cached(messages_copy[-1])
-
-    if len(messages_copy) > 20:
-        _mark_message_cached(messages_copy[0])
-
-    return messages_copy
 
 
 # Track call index per chat for cache diagnostics
@@ -155,6 +113,7 @@ def _log_cache_diagnostics(
         entry = {
             "ts": datetime.utcnow().isoformat(),
             "call_idx": call_idx,
+            "cache_mode": "automatic",
             "msg_count": len(messages),
             "tool_count": len(tools or []),
             "breakpoints": breakpoint_positions,
@@ -249,24 +208,19 @@ async def stream_llm_response(
     
     # Apply prompt caching for Claude models
     is_claude = _is_claude_model(llm_kwargs["model"])
-    
+
     if is_claude and llm_config.caching:
-        # litellm expects system messages inside the messages array (role="system")
-        # — it extracts them and forwards cache_control to the Anthropic API.
-        cached_messages: List[Dict[str, Any]] = []
-        if system_message:
-            cached_messages.append({
-                "role": "system",
-                "content": [{"type": "text", "text": system_message["content"], "cache_control": {"type": "ephemeral"}}],
-            })
-        cached_messages.extend(_add_cache_control_to_messages(conversation_messages))
-        llm_kwargs["messages"] = cached_messages
+        # Use automatic caching: top-level cache_control tells the API to
+        # auto-place breakpoints on the last cacheable block and move them
+        # forward as the conversation grows. No manual breakpoint management needed.
+        llm_kwargs["cache_control"] = {"type": "ephemeral"}
+        llm_kwargs["messages"] = messages
 
         if tools:
-            llm_kwargs["tools"] = _add_cache_control_to_tools(tools)
+            llm_kwargs["tools"] = tools
             llm_kwargs["tool_choice"] = "auto"
 
-        logger.debug(f"  📝 Prompt caching with {len(conversation_messages)} messages, cache breakpoints applied")
+        logger.debug(f"  📝 Automatic prompt caching with {len(conversation_messages)} messages")
     else:
         llm_kwargs["messages"] = messages
         if tools:
