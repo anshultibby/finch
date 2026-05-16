@@ -146,31 +146,29 @@ class UsageTracker(BaseModel):
         """Log a summary of the session's token usage and costs."""
         if self.llm_call_count == 0:
             return
-        
+
         costs = self.calculate_cost()
-        
+        cache_hit_pct = (self.total_cache_read_tokens / self.total_prompt_tokens * 100) if self.total_prompt_tokens else 0
+
+        # Theoretical max: everything except genuinely new content should be cached.
+        # cacheable = total_input - new_content; efficiency = cache_read / cacheable
+        cacheable_tokens = self.total_prompt_tokens - self.total_cache_creation_tokens
+        cache_efficiency = (self.total_cache_read_tokens / cacheable_tokens * 100) if cacheable_tokens > 0 else 100
+        theoretical_max_pct = (cacheable_tokens / self.total_prompt_tokens * 100) if self.total_prompt_tokens else 0
+
+        pricing = _get_model_pricing(self.model)
+        cost_without_cache = (self.total_prompt_tokens / 1_000_000) * pricing["input"] + costs['output_cost']
+
         logger.info("=" * 60)
-        logger.info("📊 SESSION USAGE SUMMARY")
+        logger.info(f"📊 {self.model} | {self.llm_call_count} calls | ${costs['total_cost']:.3f}")
         logger.info("=" * 60)
-        logger.info(f"  Model: {self.model}")
-        logger.info(f"  LLM Calls: {self.llm_call_count}")
+        logger.info(f"  Cache hit:    {cache_hit_pct:.0f}% of input ({self.total_cache_read_tokens:,} / {self.total_prompt_tokens:,})")
+        logger.info(f"  Theoretical:  {theoretical_max_pct:.0f}% (limited by {self.total_cache_creation_tokens:,} tokens of new content per turn)")
+        logger.info(f"  Efficiency:   {cache_efficiency:.0f}% of cacheable content was served from cache")
+        logger.info(f"  Output:       {self.total_completion_tokens:,} tokens")
         logger.info("-" * 40)
-        logger.info("  TOKEN BREAKDOWN:")
-        logger.info(f"    📥 Total Input: {self.total_prompt_tokens:,} tokens")
-        logger.info(f"       ├─ Uncached: {self.uncached_input_tokens:,}")
-        logger.info(f"       └─ From Cache: {self.total_cache_read_tokens:,}")
-        logger.info(f"    📤 Output: {self.total_completion_tokens:,} tokens")
-        logger.info(f"    ✏️  Cache Written: {self.total_cache_creation_tokens:,} tokens")
-        logger.info("-" * 40)
-        logger.info("  COST BREAKDOWN:")
-        logger.info(f"    Input (uncached): ${costs['input_cost']:.4f}")
-        logger.info(f"    Cache reads:      ${costs['cache_read_cost']:.4f}")
-        logger.info(f"    Cache writes:     ${costs['cache_write_cost']:.4f}")
-        logger.info(f"    Output:           ${costs['output_cost']:.4f}")
-        logger.info("-" * 40)
-        logger.info(f"  💰 TOTAL COST: ${costs['total_cost']:.4f}")
-        if costs['savings'] > 0:
-            logger.info(f"  💚 CACHE SAVINGS: ${costs['savings']:.4f}")
+        logger.info(f"  ${costs['input_cost']:.3f} input + ${costs['cache_read_cost']:.3f} reads + ${costs['cache_write_cost']:.3f} writes + ${costs['output_cost']:.3f} output = ${costs['total_cost']:.3f}")
+        logger.info(f"  💚 Saved ${costs['savings']:.3f} vs no caching (would be ${cost_without_cache:.3f})")
         logger.info("=" * 60)
 
 
