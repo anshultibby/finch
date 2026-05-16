@@ -42,20 +42,23 @@ class BaseAgent:
         tool_names: Optional[List[str]] = None,
         enable_tool_streaming: bool = False,
         chat_logger = None,
+        system_prompt_dynamic: Optional[str] = None,
     ):
         """
         Initialize the agent with configuration.
 
         Args:
             context: AgentContext with user_id, chat_id, resource_manager
-            system_prompt: System prompt for this agent
+            system_prompt: System prompt for this agent (static, cacheable)
             model: Model name (e.g., "gpt-4", "gpt-4o-mini")
             tool_names: List of tool names (None = all tools, [] = no tools)
             enable_tool_streaming: Whether tools emit real-time events
             chat_logger: Optional ChatLogger for separate conversation tracking (used by executors)
+            system_prompt_dynamic: Per-session context (page, files) — sent as separate block after cached prefix
         """
         self.context = context
         self.system_prompt = system_prompt
+        self.system_prompt_dynamic = system_prompt_dynamic
         self.model = model
         self.tool_names = tool_names
         self.enable_tool_streaming = enable_tool_streaming
@@ -443,7 +446,18 @@ class BaseAgent:
         Returns:
             List of messages in OpenAI format
         """
-        system_message = {"role": "system", "content": self.system_prompt}
+        if self.system_prompt_dynamic:
+            # Two content blocks: static prefix (cacheable) + dynamic suffix.
+            # The cache hits on the static block even when the dynamic part changes.
+            system_message = {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": self.system_prompt},
+                    {"type": "text", "text": self.system_prompt_dynamic},
+                ]
+            }
+        else:
+            system_message = {"role": "system", "content": self.system_prompt}
         messages = [system_message]
         messages.extend(chat_history.to_openai_format(limit=history_limit))
         
