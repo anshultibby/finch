@@ -12,16 +12,13 @@
 # Web scraping
 alembic>=1.13.3
 asyncpg==0.31.0  # Async PostgreSQL driver
-beautifulsoup4==4.12.3
 pyyaml==6.0.2  # YAML parsing for skills
 croniter==2.0.1
 cryptography==43.0.3
 fastapi>=0.116.2
 greenlet==3.3.2  # Required for SQLAlchemy async
 httpx==0.28.1
-kalshi_python_async==3.7.0
 litellm==1.80.9
-py-clob-client==0.34.6  # Official Polymarket CLOB client
 matplotlib==3.10.0
 numpy==2.4.2
 opentelemetry-api==1.21.0
@@ -50,8 +47,8 @@ stripe==15.0.1
 alpaca-py==0.43.2
 sqlalchemy==2.0.49
 supabase==2.16.0
-tradingview-ta==3.3.0
 uvicorn==0.34.0
 python-multipart==0.0.22
 e2b-code-interpreter==2.4.1
 resend==2.29.0
+markdown==3.8

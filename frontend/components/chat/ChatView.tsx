@@ -683,30 +683,40 @@ export default function ChatView({
       >
         <ChatModeBanner />
 
-        {/* Email notification banner — appears at top during long streams */}
+        {/* Email notification banner — appears during long streams */}
         {isLoading && streamStartTime && !emailRequested && currentChatId && (Date.now() - streamStartTime) > 15000 && (
-          <div className="flex items-center justify-center gap-2 py-2 px-4 bg-gray-50 border-b border-gray-200 animate-in fade-in duration-300">
-            <span className="text-xs text-gray-500">This is taking a while.</span>
-            <button
-              onClick={() => {
-                setEmailRequested(true);
-                chatApi.requestEmailNotification(currentChatId).catch(() => {});
-              }}
-              className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Email me when done
-            </button>
+          <div className="mx-4 mt-3 mb-1 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 px-4 py-3 shadow-sm">
+              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <p className="flex-1 text-sm text-gray-600">
+                This analysis is still running. Want a heads up when it's done?
+              </p>
+              <button
+                onClick={() => {
+                  setEmailRequested(true);
+                  chatApi.requestEmailNotification(currentChatId).catch(() => {});
+                }}
+                className="flex-shrink-0 text-sm font-medium text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg px-3.5 py-1.5 transition-colors shadow-sm"
+              >
+                Notify me
+              </button>
+            </div>
           </div>
         )}
         {isLoading && emailRequested && (
-          <div className="flex items-center justify-center gap-1.5 py-2 px-4 bg-green-50 border-b border-green-200 animate-in fade-in duration-300">
-            <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-            <span className="text-xs text-green-700">We'll email you when this is done</span>
+          <div className="mx-4 mt-3 mb-1 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200/60 px-4 py-3">
+              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-sm text-emerald-700">We'll email you when your analysis is ready.</p>
+            </div>
           </div>
         )}
 

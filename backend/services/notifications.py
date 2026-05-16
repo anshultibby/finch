@@ -161,6 +161,39 @@ async def send_trade_confirmation_email(
     return await _send_resend_email(to_email, subject, html)
 
 
+def _markdown_to_email_html(text: str) -> str:
+    """Convert markdown text to inline-styled HTML suitable for email clients."""
+    import markdown as md
+
+    rendered = md.markdown(text, extensions=["tables", "fenced_code", "nl2br"])
+
+    # Inline styles for email compatibility (email clients strip <style> blocks)
+    style_map = {
+        "<h1": '<h1 style="color:#0f172a;font-size:20px;font-weight:700;margin:16px 0 8px;line-height:1.3;"',
+        "<h2": '<h2 style="color:#0f172a;font-size:18px;font-weight:700;margin:16px 0 8px;line-height:1.3;"',
+        "<h3": '<h3 style="color:#0f172a;font-size:16px;font-weight:600;margin:12px 0 6px;line-height:1.3;"',
+        "<h4": '<h4 style="color:#1e293b;font-size:15px;font-weight:600;margin:10px 0 4px;line-height:1.3;"',
+        "<p>": '<p style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 12px;">',
+        "<ul>": '<ul style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 12px;padding-left:24px;">',
+        "<ol>": '<ol style="color:#1e293b;font-size:15px;line-height:1.7;margin:0 0 12px;padding-left:24px;">',
+        "<li>": '<li style="margin:0 0 4px;">',
+        "<strong>": '<strong style="font-weight:600;color:#0f172a;">',
+        "<em>": '<em style="color:#334155;">',
+        "<code>": '<code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px;font-family:ui-monospace,monospace;color:#475569;">',
+        "<pre>": '<pre style="background:#f1f5f9;border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 12px;">',
+        "<table>": '<table style="border-collapse:collapse;width:100%;margin:0 0 12px;font-size:14px;">',
+        "<th": '<th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e2e8f0;font-weight:600;color:#0f172a;"',
+        "<td": '<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#1e293b;"',
+        "<blockquote>": '<blockquote style="border-left:3px solid #4ABA8E;margin:0 0 12px;padding:8px 16px;color:#475569;background:#f4faf7;border-radius:0 8px 8px 0;">',
+        "<hr": '<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;"',
+        "<a ": '<a style="color:#4ABA8E;text-decoration:underline;" ',
+    }
+    for tag, styled in style_map.items():
+        rendered = rendered.replace(tag, styled)
+
+    return rendered
+
+
 async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str, preview: str = None) -> bool:
     """Send email notifying user their chat analysis is ready."""
     import html as html_mod
@@ -170,14 +203,13 @@ async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str
 
     preview_section = ""
     if preview:
-        safe = html_mod.escape(preview)
+        preview_html = _markdown_to_email_html(preview)
         preview_section = f"""
-        <div style="background: #f4faf7; border-radius: 12px; padding: 20px 24px; margin: 0 0 28px 0;">
-          <p style="color: #1e293b; font-size: 15px; line-height: 1.7; margin: 0; white-space: pre-wrap;">{safe}</p>
+        <div style="background: #f8fafc; border-radius: 12px; padding: 20px 24px; margin: 0 0 28px 0; border: 1px solid #e2e8f0;">
+          {preview_html}
         </div>
         """
 
-    # Logo: inline SVG of the Finch bar chart mark
     logo_svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" '
         'width="40" height="40" style="vertical-align: middle;">'
