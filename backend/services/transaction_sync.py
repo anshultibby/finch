@@ -192,17 +192,21 @@ class TransactionSyncService:
             total_fetched = 0
             total_inserted = 0
             total_updated = 0
-            
-            # Sync each account
-            for account in accounts:
-                logger.info(f"Syncing account {account.get('id')} for user {user_id}")
-                result = await self._sync_account_transactions(
-                    user_id=snaptrade_user.snaptrade_user_id,
+
+            # Sync all accounts in parallel
+            logger.info(f"Syncing {len(accounts)} accounts for user {user_id}")
+            results = await asyncio.gather(*(
+                self._sync_account_transactions(
+                    db_user_id=user_id,
+                    snaptrade_user_id=snaptrade_user.snaptrade_user_id,
                     user_secret=snaptrade_user.snaptrade_user_secret,
                     account_id=account.get("id"),
                     start_date=start_date,
                     end_date=end_date
                 )
+                for account in accounts
+            ))
+            for result in results:
                 total_fetched += result["fetched"]
                 total_inserted += result["inserted"]
                 total_updated += result["updated"]
@@ -306,21 +310,27 @@ class TransactionSyncService:
     
     async def _sync_account_transactions(
         self,
-        user_id: str,
+        db_user_id: str,
+        snaptrade_user_id: str,
         user_secret: str,
         account_id: str,
         start_date: datetime,
         end_date: datetime
     ) -> Dict[str, int]:
-        """Sync transactions for a specific account"""
-        
+        """Sync transactions for a specific account.
+
+        Args:
+            db_user_id: Supabase UUID — stored in transactions.user_id
+            snaptrade_user_id: SnapTrade user ID — used for SnapTrade API calls
+        """
+
         try:
             # Call SnapTrade activities API (NEW API)
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
                 lambda: snaptrade_tools.client.account_information.get_account_activities(
-                    user_id=user_id,
+                    user_id=snaptrade_user_id,
                     user_secret=user_secret,
                     account_id=account_id,
                     start_date=start_date.date(),  # Pass date object, not string
@@ -342,30 +352,28 @@ class TransactionSyncService:
             db = SessionLocal()
             try:
                 for activity in activities:
-                    # Parse activity into transaction data
                     tx_data = self._parse_snaptrade_activity(activity)
-                    
-                    # Skip if not a stock transaction (MVP limitation)
                     if tx_data is None:
                         continue
-                    
-                    # Upsert transaction
+
                     _, is_new = tx_crud.upsert_transaction(
                         db,
-                        user_id=user_id,
+                        user_id=db_user_id,
                         account_id=account_id,
                         symbol=tx_data["symbol"],
                         transaction_type=tx_data["transaction_type"],
                         transaction_date=tx_data["transaction_date"],
                         data=tx_data["data"],
-                        external_id=tx_data.get("external_id")
+                        external_id=tx_data.get("external_id"),
+                        auto_commit=False,
                     )
-                    
+
                     if is_new:
                         inserted += 1
                     else:
                         updated += 1
-                
+
+                db.commit()
             finally:
                 db.close()
             

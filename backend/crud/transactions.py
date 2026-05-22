@@ -85,33 +85,43 @@ def upsert_transaction(
     transaction_type: str,
     transaction_date: datetime,
     data: Dict[str, Any],
-    external_id: Optional[str] = None
+    external_id: Optional[str] = None,
+    auto_commit: bool = True,
 ) -> tuple[Transaction, bool]:
     """
-    Create or update transaction
-    Returns (transaction, is_new)
+    Create or update transaction.
+    Returns (transaction, is_new).
+    Set auto_commit=False for batch operations (caller must commit).
     """
     existing = None
     if external_id:
         existing = get_transaction_by_external_id(db, user_id, external_id)
-    
+
     if existing:
-        # Update existing
         existing.symbol = symbol.upper()
         existing.transaction_type = transaction_type.upper()
         existing.transaction_date = transaction_date
         existing.account_id = account_id
         existing.data = data
-        db.commit()
-        db.refresh(existing)
+        if auto_commit:
+            db.commit()
+            db.refresh(existing)
         return existing, False
     else:
-        # Create new
-        tx = create_transaction(
-            db, user_id, account_id, symbol, transaction_type,
-            transaction_date, data, external_id
+        transaction = Transaction(
+            user_id=user_id,
+            account_id=account_id,
+            symbol=symbol.upper(),
+            transaction_type=transaction_type.upper(),
+            transaction_date=transaction_date,
+            external_id=external_id,
+            data=data
         )
-        return tx, True
+        db.add(transaction)
+        if auto_commit:
+            db.commit()
+            db.refresh(transaction)
+        return transaction, True
 
 
 def create_portfolio_snapshot(

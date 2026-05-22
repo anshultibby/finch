@@ -115,7 +115,7 @@ def sync_transactions(
         params["end_date"] = end_date
     if force_resync:
         params["force_resync"] = "true"
-    return _request("POST", "/api/analytics/transactions/sync", params=params)
+    return _request("POST", "/api/analytics/transactions/sync", params=params, timeout=120)
 
 
 def get_transactions(
