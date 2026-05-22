@@ -177,3 +177,5 @@ class TradeLog(Base):
 
     def __repr__(self):
         return f"<TradeLog(id='{self.id}', bot='{self.bot_id}', action='{self.action}', market='{self.market}', status='{self.status}')>"
+
+

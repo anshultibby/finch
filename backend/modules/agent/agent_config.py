@@ -10,14 +10,14 @@ logger = get_logger(__name__)
 
 
 async def _get_sandbox_file_listing(user_id: str) -> str:
-    """Get a quick listing of files in the user's sandbox chat_files dir."""
+    """List the user's memory store files (store/) so the agent knows what's available."""
     try:
         from modules.tools.implementations.code_execution import get_or_create_sandbox
         entry = await get_or_create_sandbox(user_id, envs={})
-        entries = await entry.sbx.files.list("/home/user", depth=2)
+        entries = await entry.sbx.files.list("/home/user/store", depth=2)
         if not entries:
             return ""
-        lines = []
+        lines = ["store/"]
         for e in entries:
             name = e.name if hasattr(e, "name") else str(e)
             if hasattr(e, "type") and e.type == "dir":

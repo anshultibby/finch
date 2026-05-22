@@ -505,39 +505,8 @@ export default function ChatView({
     }
   };
 
-  const handleEditMessage = async (messageIndex: number, newContent: string) => {
+  const handleEditMessage = async (_messageIndex: number, newContent: string) => {
     if (!currentChatId || !userId) return;
-
-    // Count which user turn this is (0-indexed)
-    let userTurnIndex = 0;
-    for (let j = 0; j < messageIndex; j++) {
-      if (messages[j].role === 'user') userTurnIndex++;
-    }
-
-    // Stop any active stream
-    if (isLoading) {
-      stopStream(currentChatId, false, syncDisplay);
-    }
-
-    // Truncate local messages to before the edited message
-    const truncated = messages.slice(0, messageIndex);
-    updateChatState(currentChatId, {
-      messages: truncated,
-      streamingText: '',
-      streamingTools: [],
-      toolQueue: [],
-      isLoading: false,
-      error: null,
-    }, syncDisplay);
-
-    // Tell backend to delete from that user turn onwards
-    try {
-      await chatApi.truncateChat(currentChatId, userTurnIndex);
-    } catch {
-      // Best effort — the re-send will still work since backend rebuilds from DB
-    }
-
-    // Send the edited message through the normal flow
     await handleSendMessage(newContent);
   };
 
@@ -824,16 +793,6 @@ export default function ChatView({
                       label: 'Copy',
                       onClick: () => navigator.clipboard.writeText(groupContent),
                     },
-                    {
-                      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>,
-                      label: 'Good response',
-                      onClick: () => {},
-                    },
-                    {
-                      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v2a3.5 3.5 0 003.5 3.5h.174a.535.535 0 00.524-.448l.497-2.986A1.5 1.5 0 0116.18 14.5H18a2.5 2.5 0 002.5-2.5v0a2.5 2.5 0 00-.69-1.726l-3.549-3.643A2 2 0 0014.846 6H10m0 8H7.5" /></svg>,
-                      label: 'Bad response',
-                      onClick: () => {},
-                    },
                   ] : undefined;
 
                   return (
@@ -851,6 +810,9 @@ export default function ChatView({
                       onSendMessage={(text) => handleSendMessage(text)}
                       onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                       onEditMessage={msg.role === 'user' && !isLoading && currentChatId ? (newContent) => handleEditMessage(i, newContent) : undefined}
+                      onFeedback={showActions && currentChatId ? (type, comment) => {
+                        chatApi.submitFeedback(currentChatId, i, type, comment, groupContent).catch(() => {});
+                      } : undefined}
                       actions={messageActions}
                       isLastAssistantMessage={showActions && isLast}
                     />

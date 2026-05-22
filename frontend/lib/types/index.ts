@@ -698,6 +698,31 @@ export interface AlpacaPortfolioResponse {
   position_count: number;
 }
 
+// ---------------------------------------------------------------------------
+// Memory Store & Dreams
+// ---------------------------------------------------------------------------
+
+export interface StoreFile {
+  filename: string;
+  file_type: string;
+  content?: string;
+  updated_at: string | null;
+}
+
+export interface Dream {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  trigger: string;
+  summary?: string;
+  self_score?: number | null;
+  output_diff?: { path: string; action: string; summary?: string; lines_added?: number; lines_removed?: number | null; is_new?: boolean }[];
+  follow_ups?: string[];
+  chat_ids?: string[];
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+}
+
 export interface AlpacaOrder {
   id: string;
   symbol: string;

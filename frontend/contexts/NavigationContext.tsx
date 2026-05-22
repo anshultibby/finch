@@ -13,7 +13,8 @@ export type View =
   | { type: 'orders' }
   | { type: 'swaps' }
   | { type: 'chat' }
-  | { type: 'visualizations'; vizId?: string };
+  | { type: 'visualizations'; vizId?: string }
+  | { type: 'memory-store' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context

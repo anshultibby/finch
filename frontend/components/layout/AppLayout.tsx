@@ -14,6 +14,7 @@ import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
 import VisualizationsPanel from '@/components/VisualizationsPanel';
+import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
 import { marketApi } from '@/lib/api';
 import type { SwapData } from '@/lib/types';
 
@@ -23,13 +24,14 @@ import type { SwapData } from '@/lib/types';
 
 function viewLabel(view: View): string {
   switch (view.type) {
-    case 'home': return 'Home';
+    case 'home': return 'Dashboard';
     case 'stock': return view.symbol;
     case 'portfolio': return 'Portfolio';
     case 'orders': return 'Orders';
     case 'swaps': return 'Swaps';
     case 'chat': return 'Chat';
     case 'visualizations': return 'Visualizations';
+    case 'memory-store': return 'Memory Store';
     default: return '';
   }
 }
@@ -326,6 +328,8 @@ function AppLayoutInner() {
         );
       case 'visualizations':
         return <VisualizationsPanel vizId={currentView.vizId} />;
+      case 'memory-store':
+        return <MemoryStorePanel />;
       case 'chat':
         return null;
       default:

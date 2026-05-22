@@ -89,6 +89,12 @@ const LinkedAccountsIcon = () => (
   </svg>
 );
 
+const MemoryStoreIcon = () => (
+  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125v-3.75m16.5 3.75v3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125v-3.75" />
+  </svg>
+);
+
 function viewMatch(a: View, b: View): boolean {
   return a.type === b.type;
 }
@@ -115,12 +121,13 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [credits, setCredits] = useState<number | null>(null);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const navItems: NavItem[] = [
-    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon /> },
+    { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon /> },
     { id: 'visualizations', label: 'Visualizations', view: { type: 'visualizations' }, icon: <ChartsIcon /> },
+    { id: 'memory-store', label: 'Memory Store', view: { type: 'memory-store' }, icon: <MemoryStoreIcon /> },
   ];
 
   const mobileNavItems: NavItem[] = [
-    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
+    { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
     { id: 'chat', label: 'Chat', view: { type: 'chat' }, icon: <ChatIcon />, mobileNav: true },
   ];
 
@@ -220,23 +227,6 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
         {/* Main nav */}
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="px-2 space-y-0.5">
-            {navItems.map(item => {
-              const active = viewMatch(currentView, item.view);
-              return (
-                <button key={item.id} onClick={() => onNavigate(item.view)}
-                  className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
-                    active ? 'bg-white shadow-sm border border-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  } ${expanded ? '' : 'justify-center'}`}
-                  title={!expanded ? item.label : undefined}>
-                  {item.icon}
-                  {expanded && <span className="font-medium">{item.label}</span>}
-                  {expanded && item.id === 'portfolio' && (
-                    <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">BETA</span>
-                  )}
-                </button>
-              );
-            })}
-
             {/* New Chat */}
             <button
               onClick={onNewChat}
@@ -251,6 +241,20 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
               </svg>
               {expanded && <span className="font-medium">New chat</span>}
             </button>
+
+            {navItems.map(item => {
+              const active = viewMatch(currentView, item.view);
+              return (
+                <button key={item.id} onClick={() => onNavigate(item.view)}
+                  className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors ${
+                    active ? 'bg-white shadow-sm border border-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  } ${expanded ? '' : 'justify-center'}`}
+                  title={!expanded ? item.label : undefined}>
+                  {item.icon}
+                  {expanded && <span className="font-medium">{item.label}</span>}
+                </button>
+              );
+            })}
           </div>
 
           {/* Divider */}

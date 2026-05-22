@@ -203,7 +203,32 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
             entry.skills_hash = new_hash
             await _upsert_user_sandbox(user_id, entry.sbx.sandbox_id, skills_loaded=True, skills_hash=new_hash)
 
+        # --- 5. Ensure store directory layout exists ---
+        await _ensure_store_layout(entry.sbx)
+
         return entry
+
+
+async def _ensure_store_layout(sbx) -> None:
+    """Create the store/workspace/context directory structure if it doesn't exist."""
+    try:
+        result = await sbx.commands.run(
+            "test -f /home/user/.store_layout && echo yes || echo no",
+            timeout=5,
+        )
+        if "yes" in (result.stdout or ""):
+            return
+
+        await sbx.commands.run(
+            "mkdir -p /home/user/store/journal /home/user/store/modules "
+            "/home/user/workspace/data /home/user/workspace/scripts /home/user/workspace/backtests "
+            "/home/user/context/chats /home/user/context/skills "
+            "&& touch /home/user/.store_layout",
+            timeout=10,
+        )
+        logger.info("Created store directory layout")
+    except Exception as e:
+        logger.debug(f"Store layout setup failed (non-fatal): {e}")
 
 
 async def _get_or_reconnect_sandbox(user_id: str):

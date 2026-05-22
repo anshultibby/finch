@@ -1,19 +1,15 @@
 """
-Memory Tools Implementation
+Memory Tools Implementation (mostly dead code — agent uses bash directly)
 
-Provides agent-facing tools for reading and searching persistent memory files
-stored in the user's E2B sandbox at:
-  /home/user/MEMORY.md            - durable operational memory (learned behaviors, decisions, preferences)
-  /home/user/memory/YYYY-MM-DD.md - daily append-only logs
+Store layout in the user's E2B sandbox:
 
-memory_get  — targeted read of a specific memory file (or line range)
-memory_write — append a note to memory (durable or daily)
-memory_search — BM25 keyword search + semantic fallback over all memory files
+  /home/user/store/              — persistent memory wiki (user-visible)
+    preferences.md, strategy.md, learnings.md
+    journal/YYYY-MM-DD.md        — daily journal entries
+    modules/*.py                 — reusable code
 
-Search runs entirely inside the sandbox: we upload a small Python search
-script, run it, and stream back ranked snippets. No external embedding API
-is required; pure BM25 via a minimal rank-BM25 implementation that the
-script installs on first use.
+  /home/user/workspace/          — ephemeral working memory
+  /home/user/context/            — system-provided reference (chats, skills)
 """
 from __future__ import annotations
 
@@ -27,9 +23,15 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 WORKSPACE_DIR = "/home/user"
-MEMORY_FILE = f"{WORKSPACE_DIR}/MEMORY.md"
-STRATEGY_FILE = f"{WORKSPACE_DIR}/STRATEGY.md"
-MEMORY_DIR = f"{WORKSPACE_DIR}/memory"
+STORE_DIR = f"{WORKSPACE_DIR}/store"
+STORE_STRATEGY = f"{STORE_DIR}/strategy.md"
+STORE_PREFERENCES = f"{STORE_DIR}/preferences.md"
+STORE_LEARNINGS = f"{STORE_DIR}/learnings.md"
+STORE_MODULES = f"{STORE_DIR}/modules"
+STORE_JOURNAL = f"{STORE_DIR}/journal"
+WORKING_DIR = f"{WORKSPACE_DIR}/workspace"
+CONTEXT_DIR = f"{WORKSPACE_DIR}/context"
+CHATS_DIR = f"{CONTEXT_DIR}/chats"
 
 # ---------------------------------------------------------------------------
 # Pydantic parameter models
@@ -38,11 +40,11 @@ MEMORY_DIR = f"{WORKSPACE_DIR}/memory"
 class MemoryGetParams(BaseModel):
     path: str = Field(
         description=(
-            "Memory file to read. Either 'MEMORY.md' for durable operational memory "
-            "or 'memory/YYYY-MM-DD.md' for a daily log. "
-            "Defaults to 'MEMORY.md'."
+            "File to read from the store. Examples: "
+            "'store/strategy.md', 'store/learnings.md', 'store/journal/2026-05-21.md', "
+            "'store/modules/screener.py'. Defaults to 'store/learnings.md'."
         ),
-        default="MEMORY.md",
+        default="store/learnings.md",
     )
     start_line: Optional[int] = Field(
         None,
@@ -57,8 +59,8 @@ class MemoryGetParams(BaseModel):
 class MemorySearchParams(BaseModel):
     query: str = Field(
         description=(
-            "Natural language query to search for in memory files. "
-            "Returns the most relevant snippets across MEMORY.md and all daily logs."
+            "Natural language query to search across all store files "
+            "(identity, strategy, preferences, learnings, journal entries, modules)."
         )
     )
     max_results: int = Field(
@@ -69,14 +71,18 @@ class MemorySearchParams(BaseModel):
 
 class MemoryWriteParams(BaseModel):
     content: str = Field(
-        description="The note or fact to write to memory."
+        description="The content to write."
     )
-    durable: bool = Field(
-        default=False,
+    target: str = Field(
+        default="journal",
         description=(
-            "If True, write to MEMORY.md (durable operational memory — learned behaviors, decisions, preferences). "
-            "If False (default), write to today's daily log memory/YYYY-MM-DD.md."
+            "Where to write. One of: 'identity', 'strategy', 'preferences', "
+            "'learnings', 'journal', or a modules/ path like 'modules/screener.py'."
         ),
+    )
+    mode: str = Field(
+        default="append",
+        description="'append' (default, for learnings/journal) or 'replace' (for identity/strategy/preferences/modules).",
     )
 
 
@@ -90,6 +96,34 @@ def _resolve_memory_path(path: str) -> str:
     if path.startswith("/"):
         return path
     return f"{WORKSPACE_DIR}/{path}"
+
+
+def _resolve_write_target(target: str) -> str:
+    """Resolve a write target name to an absolute sandbox path.
+
+    Well-known shortcuts: identity, strategy, preferences, learnings, journal.
+    Anything else is treated as a relative path under store/.
+    The agent can create any file structure it wants.
+    """
+    target = target.strip()
+    shortcuts = {
+        "strategy": STORE_STRATEGY,
+        "preferences": STORE_PREFERENCES,
+        "learnings": STORE_LEARNINGS,
+    }
+    if target in shortcuts:
+        return shortcuts[target]
+    if target == "journal":
+        return None  # resolved dynamically with today's date
+    # Anything else is a relative path under store/
+    return f"{STORE_DIR}/{target}"
+
+
+def _target_to_store_filename(target: str, abs_path: str) -> str:
+    """Convert an absolute sandbox path to a store-relative filename for the DB."""
+    if abs_path.startswith(f"{WORKSPACE_DIR}/"):
+        return abs_path[len(f"{WORKSPACE_DIR}/"):]
+    return abs_path
 
 
 # ---------------------------------------------------------------------------
@@ -176,9 +210,9 @@ from pathlib import Path
 from collections import defaultdict
 
 WORKSPACE = "/home/user"
-MEMORY_FILE = f"{WORKSPACE}/MEMORY.md"
-STRATEGY_FILE = f"{WORKSPACE}/STRATEGY.md"
-MEMORY_DIR  = f"{WORKSPACE}/memory"
+STORE_DIR = f"{WORKSPACE}/store"
+JOURNAL_DIR = f"{STORE_DIR}/journal"
+MODULES_DIR = f"{STORE_DIR}/modules"
 CHUNK_TOKENS = 400
 OVERLAP      = 80
 
@@ -197,14 +231,19 @@ def chunk_text(text, source):
 
 def collect_chunks():
     chunks = []
-    if os.path.exists(STRATEGY_FILE):
-        chunks += chunk_text(Path(STRATEGY_FILE).read_text(errors="replace"), "STRATEGY.md")
-    if os.path.exists(MEMORY_FILE):
-        chunks += chunk_text(Path(MEMORY_FILE).read_text(errors="replace"), "MEMORY.md")
-    if os.path.exists(MEMORY_DIR):
-        for p in sorted(Path(MEMORY_DIR).glob("*.md")):
-            rel = f"memory/{p.name}"
-            chunks += chunk_text(p.read_text(errors="replace"), rel)
+    if not os.path.exists(STORE_DIR):
+        return chunks
+    # Walk entire store/ tree — agent can create any files it wants
+    for root, dirs, files in os.walk(STORE_DIR):
+        for fname in sorted(files):
+            if not (fname.endswith(".md") or fname.endswith(".py") or fname.endswith(".txt")):
+                continue
+            p = Path(root) / fname
+            rel = str(p).replace(WORKSPACE + "/", "")
+            try:
+                chunks += chunk_text(p.read_text(errors="replace"), rel)
+            except Exception:
+                pass
     return chunks
 
 def bm25_score(query_tokens, chunk_tokens, idf, avgdl, k1=1.5, b=0.75):
@@ -323,7 +362,7 @@ async def memory_write_impl(
     params: MemoryWriteParams,
     context: AgentContext,
 ) -> Dict[str, Any]:
-    """Append a note to durable memory (MEMORY.md) or today's daily log."""
+    """Write to a store target (journal, learnings, strategy, identity, preferences, or modules/)."""
     from modules.tools.implementations.code_execution import (
         get_or_create_sandbox,
         _build_sandbox_env,
@@ -334,29 +373,43 @@ async def memory_write_impl(
         entry = await get_or_create_sandbox(context.user_id, envs)
         sbx = entry.sbx
 
-        # Use a Python writer script to safely handle arbitrary content
-        # (avoids shell quoting issues)
+        target = params.target.strip()
+        mode = params.mode.strip()
+        abs_path = _resolve_write_target(target)
+
         writer_script = f"""import os
 from datetime import datetime
 
 content = {params.content!r}
-durable = {params.durable!r}
-memory_file = {MEMORY_FILE!r}
-memory_dir = {MEMORY_DIR!r}
+target_name = {target!r}
+mode = {mode!r}
+store_dir = {STORE_DIR!r}
+journal_dir = {STORE_JOURNAL!r}
 
-if durable:
-    target = memory_file
-    note = "\\n" + content + "\\n"
-else:
+# Ensure store directories exist
+os.makedirs(store_dir, exist_ok=True)
+os.makedirs(journal_dir, exist_ok=True)
+os.makedirs(f"{{store_dir}}/modules", exist_ok=True)
+
+if target_name == "journal":
     today = datetime.now().strftime("%Y-%m-%d")
-    os.makedirs(memory_dir, exist_ok=True)
-    target = f"{{memory_dir}}/{{today}}.md"
-    note = "\\n- " + content + "\\n"
+    target_path = f"{{journal_dir}}/{{today}}.md"
+    mode = "append"
+elif {abs_path!r}:
+    target_path = {abs_path!r}
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+else:
+    target_path = f"{{store_dir}}/{{target_name}}"
 
-with open(target, "a") as f:
-    f.write(note)
+if mode == "replace":
+    with open(target_path, "w") as f:
+        f.write(content)
+else:
+    note = "\\n- " + content + "\\n" if target_name in ("learnings", "journal") else "\\n" + content + "\\n"
+    with open(target_path, "a") as f:
+        f.write(note)
 
-print(target)
+print(target_path)
 """
         writer_path = f"{WORKSPACE_DIR}/.finch_memory_write.py"
         await sbx.files.write(writer_path, writer_script)
@@ -371,43 +424,27 @@ print(target)
         if result.exit_code != 0:
             return {"success": False, "error": (result.stderr or "")[:300]}
 
-        target = (result.stdout or "").strip()
+        written_path = (result.stdout or "").strip()
 
-        # Sync memory to bot_files DB so it appears in system prompt & frontend
-        bot_id = (context.data or {}).get("bot_id")
-        if bot_id:
+        # Sync to store_files DB
+        if written_path:
             try:
                 from core.database import get_db_session
-                from crud.bots import upsert_bot_file
+                from crud.store import upsert_store_file
 
-                if params.durable:
-                    # Sync MEMORY.md (durable operational memory)
-                    full_content = await sbx.files.read(MEMORY_FILE, format="text")
-                    if full_content:
-                        async with get_db_session() as db:
-                            await upsert_bot_file(
-                                db, bot_id, "MEMORY.md",
-                                content=full_content, file_type="memory",
-                            )
-                        logger.debug(f"Synced MEMORY.md to bot_files for bot {bot_id}")
-                else:
-                    # Sync daily log to bot_files (file_type="log")
-                    from datetime import datetime
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    log_filename = f"{today}.md"
-                    log_path = f"{MEMORY_DIR}/{log_filename}"
-                    full_content = await sbx.files.read(log_path, format="text")
-                    if full_content:
-                        async with get_db_session() as db:
-                            await upsert_bot_file(
-                                db, bot_id, log_filename,
-                                content=full_content, file_type="log",
-                            )
-                        logger.debug(f"Synced {log_filename} to bot_files for bot {bot_id}")
+                full_content = await sbx.files.read(written_path, format="text")
+                if full_content:
+                    store_filename = _target_to_store_filename(target, written_path)
+                    async with get_db_session() as db:
+                        await upsert_store_file(
+                            db, context.user_id, store_filename,
+                            content=full_content, file_type="store",
+                        )
+                    logger.debug(f"Synced {store_filename} to store_files for user {context.user_id}")
             except Exception as e:
-                logger.debug(f"Memory sync to bot_files failed (non-fatal): {e}")
+                logger.debug(f"Memory sync to store_files failed (non-fatal): {e}")
 
-        return {"success": True, "target": target or ("MEMORY.md" if params.durable else "memory/<today>.md")}
+        return {"success": True, "target": written_path or target}
 
     except Exception as exc:
         logger.warning(f"memory_write failed for user {context.user_id}: {exc}")
@@ -415,54 +452,21 @@ print(target)
 
 
 # ---------------------------------------------------------------------------
-# Pydantic params for strategy_write
+# strategy_write — thin wrapper for backward compat
 # ---------------------------------------------------------------------------
 
 class StrategyWriteParams(BaseModel):
     content: str = Field(
-        description="The full STRATEGY.md content to write. This REPLACES the entire file — always pass the complete strategy."
+        description="The full strategy content to write. REPLACES the entire file."
     )
 
-
-# ---------------------------------------------------------------------------
-# strategy_write implementation
-# ---------------------------------------------------------------------------
 
 async def strategy_write_impl(
     params: StrategyWriteParams,
     context: AgentContext,
 ) -> Dict[str, Any]:
-    """Write the full STRATEGY.md to the sandbox and sync to bot_files."""
-    from modules.tools.implementations.code_execution import (
-        get_or_create_sandbox,
-        _build_sandbox_env,
+    """Write strategy.md — delegates to memory_write with target=strategy, mode=replace."""
+    return await memory_write_impl(
+        MemoryWriteParams(content=params.content, target="strategy", mode="replace"),
+        context,
     )
-
-    try:
-        envs = await _build_sandbox_env(context)
-        entry = await get_or_create_sandbox(context.user_id, envs)
-        sbx = entry.sbx
-
-        # Write the full file (replace, not append)
-        await sbx.files.write(STRATEGY_FILE, params.content)
-
-        # Sync to bot_files DB
-        bot_id = (context.data or {}).get("bot_id")
-        if bot_id:
-            try:
-                from core.database import get_db_session
-                from crud.bots import upsert_bot_file
-                async with get_db_session() as db:
-                    await upsert_bot_file(
-                        db, bot_id, "STRATEGY.md",
-                        content=params.content, file_type="strategy",
-                    )
-                logger.debug(f"Synced STRATEGY.md to bot_files for bot {bot_id}")
-            except Exception as e:
-                logger.debug(f"STRATEGY.md sync to bot_files failed (non-fatal): {e}")
-
-        return {"success": True, "target": "STRATEGY.md", "length": len(params.content)}
-
-    except Exception as exc:
-        logger.warning(f"strategy_write failed for user {context.user_id}: {exc}")
-        return {"success": False, "error": str(exc)}

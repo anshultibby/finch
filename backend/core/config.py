@@ -250,6 +250,26 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # Dreaming (post-chat reflection)
+    # =========================================================================
+    DREAMING_ENABLED: bool = Field(
+        default=True,
+        description="Enable post-chat dreaming (background reflection)"
+    )
+    DREAMING_COOLDOWN_MINUTES: int = Field(
+        default=30,
+        description="Minimum minutes between dreams for the same bot"
+    )
+    DREAMING_MODEL: str = Field(
+        default=Models.CLAUDE_SONNET_4_6,
+        description="Model used for dreaming reflection"
+    )
+    DREAMING_MAX_CHAT_HISTORY: int = Field(
+        default=5,
+        description="Max recent chats to include in dream context"
+    )
+
+    # =========================================================================
     # Observability (LangFuse)
     # =========================================================================
     LANGFUSE_PUBLIC_KEY: Optional[str] = Field(

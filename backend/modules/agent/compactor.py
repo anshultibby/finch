@@ -29,8 +29,8 @@ _MEMORY_FLUSH_SYSTEM = (
 )
 _MEMORY_FLUSH_PROMPT = (
     "Before this session is compacted, save any lasting notes using bash:\n"
-    "- Brief operational rules → append to MEMORY.md: echo \"- rule\" >> /home/user/MEMORY.md\n"
-    "- Today's analysis notes → echo \"- note\" >> /home/user/memory/$(date +%%Y-%%m-%%d).md\n\n"
+    "- Brief operational rules → echo \"- rule\" >> /home/user/store/learnings.md\n"
+    "- Today's analysis notes → echo \"- note\" >> /home/user/store/journal/$(date +%%Y-%%m-%%d).md\n\n"
     "If there is nothing new worth persisting, call idle immediately. "
     "Do NOT reply to the user — this is a silent background operation."
 )

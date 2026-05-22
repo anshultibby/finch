@@ -297,53 +297,25 @@ def build_skills_prompt(skill_ids: list[str]) -> str:
 
 MEMORY_PROMPT = """
 <memory>
-You have a persistent filesystem in your sandbox. Read and write it with `bash`.
+You have a persistent filesystem in your sandbox:
 
-## Your Home: /home/user/
+- `store/` — your wiki about the user. Read at session start.
+  - `preferences.md` — communication style, topics, formatting, risk tolerance
+  - `learnings.md` — lessons from past mistakes, actionable notes
+  - `user_model.md` — deeper model of user's goals, anxieties, blind spots, mental model
+  - `self_model.md` — your own failure modes and tendencies as Finch
+  - `anticipations.md` — predicted near-term scenarios and what to watch for
+  - `next_session.md` — high-value items to proactively surface this session
+  - `insights.md` — non-obvious cross-domain connections worth mentioning
+  - `journal/` — daily notes
+- `workspace/` — scratch space for the current task.
+- `context/` — system-provided reference (past chats, skills).
 
-```
-/home/user/
-├── STRATEGY.md          ← user profile: goals, preferences, risk appetite
-├── MEMORY.md            ← short operational rules (one bullet per rule)
-├── memory/              ← daily session notes (YYYY-MM-DD.md)
-├── chats/               ← past conversation transcripts (auto-saved)
-│   └── YYYY-MM-DD/HHmmSS_title.md
-├── backtests/           ← backtest code and results
-├── data/                ← cached datasets
-└── scripts/             ← reusable analysis scripts
-```
-
-All agents (main and sub-agents) share this filesystem.
-
-## Reading
-
-```bash
-cat /home/user/MEMORY.md
-cat /home/user/STRATEGY.md
-cat /home/user/memory/$(date +%Y-%m-%d).md
-ls /home/user/chats/  # list dates
-cat /home/user/chats/$(date +%Y-%m-%d)/*.md  # today's transcripts
-grep -r "keyword" /home/user/chats/  # search past chats
-```
-
-**At session start, scan for recent chats** to avoid redoing work.
-
-## Writing
-
-**STRATEGY.md** — Rewrite fully when it evolves (tax situation, preferences, risk tolerance, accounts).
-**MEMORY.md** — Append brief rules only. No essays.
-**Daily notes** — Append events, decisions, follow-ups to `memory/$(date +%Y-%m-%d).md`.
-
-## Self-Improvement
-
-After every non-trivial response, ask: "Did I learn anything about this user that I didn't know?"
-
-**Write to memory if:**
-- User corrects you or repeats something — you forgot. Write it immediately.
-- User states a preference, constraint, or default for future reference.
-- User reveals tax-relevant facts: bracket, account types, positions to keep, wash sale history.
-
-Where to write: Tax/risk/account info → STRATEGY.md. Operational preference → MEMORY.md. Actions taken this session → daily note.
+At session start, read `store/preferences.md` and `store/next_session.md`. The \
+next_session file contains predictions and proactive items from your last \
+dreaming session — check if any are relevant to what the user is doing now. \
+Use `workspace/` for ephemeral work. A background process maintains the store \
+after each conversation — focus on the user's task.
 </memory>
 """
 

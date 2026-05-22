@@ -79,6 +79,22 @@ class ChatFile(Base):
         return f"<ChatFile(id='{self.id}', chat='{self.chat_id}', filename='{self.filename}')>"
 
 
+class MessageFeedback(Base):
+    __tablename__ = "message_feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    message_index = Column(Integer, nullable=False)
+    feedback_type = Column(String, nullable=False)
+    comment = Column(Text, nullable=True)
+    message_content = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<MessageFeedback(id={self.id}, chat='{self.chat_id}', type='{self.feedback_type}')>"
+
+
 class Resource(Base):
     """
     Stores function call results as resources that users can browse

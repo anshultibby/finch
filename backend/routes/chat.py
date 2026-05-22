@@ -418,3 +418,41 @@ async def request_email_notification(
     logger.info(f"Email notification registered for chat {chat_id} -> {email}")
     return {"status": "registered", "email": email}
 
+
+class FeedbackRequest(BaseModel):
+    message_index: int
+    feedback_type: str
+    comment: Optional[str] = None
+    message_content: Optional[str] = None
+
+
+@router.post("/{chat_id}/feedback")
+async def submit_feedback(
+    chat_id: str,
+    body: FeedbackRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    if body.feedback_type not in ("like", "dislike"):
+        raise HTTPException(status_code=400, detail="feedback_type must be 'like' or 'dislike'")
+
+    from models.chat_models import MessageFeedback
+
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
+
+        fb = MessageFeedback(
+            chat_id=chat_id,
+            user_id=authenticated_user_id,
+            message_index=body.message_index,
+            feedback_type=body.feedback_type,
+            comment=body.comment,
+            message_content=body.message_content,
+        )
+        db.add(fb)
+        await db.commit()
+
+    return {"status": "ok"}
+

@@ -29,6 +29,7 @@ interface ChatMessageProps {
   onSendMessage?: (msg: string) => void;
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
   onEditMessage?: (newContent: string) => void;
+  onFeedback?: (type: 'like' | 'dislike', comment: string) => void;
   actions?: MessageAction[];
   isLastAssistantMessage?: boolean;
   isStreaming?: boolean;
@@ -966,7 +967,59 @@ function SwapCards({ swaps, userId }: { swaps: SwapData[]; userId: string }) {
   );
 }
 
-function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; alwaysVisible?: boolean }) {
+function FeedbackModal({ type, onSubmit, onClose }: {
+  type: 'like' | 'dislike';
+  onSubmit: (comment: string) => void;
+  onClose: () => void;
+}) {
+  const [comment, setComment] = React.useState('');
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const handleSubmit = () => { onSubmit(comment.trim()); onClose(); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          {type === 'like' ? (
+            <svg className="w-5 h-5 text-emerald-500" fill="currentColor" stroke="currentColor" strokeWidth={0.5} viewBox="0 0 24 24"><path d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>
+          ) : (
+            <svg className="w-5 h-5 text-red-500" fill="currentColor" stroke="currentColor" strokeWidth={0.5} viewBox="0 0 24 24"><path d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v2a3.5 3.5 0 003.5 3.5h.174a.535.535 0 00.524-.448l.497-2.986A1.5 1.5 0 0116.18 14.5H18a2.5 2.5 0 002.5-2.5v0a2.5 2.5 0 00-.69-1.726l-3.549-3.643A2 2 0 0014.846 6H10m0 8H7.5" /></svg>
+          )}
+          <span className="font-semibold text-gray-900 text-sm">
+            {type === 'like' ? 'What did you like?' : 'What could be better?'}
+          </span>
+        </div>
+        <textarea
+          ref={inputRef}
+          value={comment}
+          onChange={e => setComment(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+            if (e.key === 'Escape') onClose();
+          }}
+          placeholder={type === 'like' ? 'Tell us what was helpful (optional)...' : 'Tell us what went wrong (optional)...'}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:border-gray-400 resize-none"
+          rows={3}
+        />
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={handleSubmit} className="flex-1 py-2 text-sm text-white bg-gray-900 rounded-xl hover:bg-gray-800 transition-colors">Submit</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageActions({ actions, alwaysVisible, onFeedback, feedbackGiven, setFeedbackModal }: {
+  actions: MessageAction[];
+  alwaysVisible?: boolean;
+  onFeedback?: (type: 'like' | 'dislike', comment: string) => void;
+  feedbackGiven?: 'like' | 'dislike' | null;
+  setFeedbackModal?: (type: 'like' | 'dislike' | null) => void;
+}) {
   return (
     <div className={`flex items-center gap-0.5 mt-3 -ml-1 ${alwaysVisible ? 'opacity-100' : 'opacity-0 group-hover/msg:opacity-100'} transition-opacity`}>
       {actions.map((action, idx) => (
@@ -984,14 +1037,35 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
           )}
         </button>
       ))}
+      {onFeedback && setFeedbackModal && (
+        <>
+          <button
+            onClick={() => setFeedbackModal('like')}
+            className={`flex items-center justify-center w-8 h-8 rounded-md transition-all touch-manipulation ${feedbackGiven === 'like' ? 'text-emerald-500' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+            title="Good response"
+          >
+            <svg className="w-4 h-4" fill={feedbackGiven === 'like' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>
+          </button>
+          <button
+            onClick={() => setFeedbackModal('dislike')}
+            className={`flex items-center justify-center w-8 h-8 rounded-md transition-all touch-manipulation ${feedbackGiven === 'dislike' ? 'text-red-500' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+            title="Bad response"
+          >
+            <svg className="w-4 h-4" fill={feedbackGiven === 'dislike' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v2a3.5 3.5 0 003.5 3.5h.174a.535.535 0 00.524-.448l.497-2.986A1.5 1.5 0 0116.18 14.5H18a2.5 2.5 0 002.5-2.5v0a2.5 2.5 0 00-.69-1.726l-3.549-3.643A2 2 0 0014.846 6H10m0 8H7.5" /></svg>
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
+  const [feedbackModal, setFeedbackModal] = useState<'like' | 'dislike' | null>(null);
+  const [feedbackGiven, setFeedbackGiven] = useState<'like' | 'dislike' | null>(null);
+  const [userCopied, setUserCopied] = useState(false);
   const editRef = React.useRef<HTMLTextAreaElement>(null);
   const contentCleaned = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
   const content = !isUser && contentCleaned ? preprocessCitations(contentCleaned) : contentCleaned;
@@ -1060,17 +1134,30 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
     return (
       <div className="flex justify-end mb-3 group/user">
         <div className="max-w-3xl flex items-start gap-1.5">
-          {onEditMessage && (
+          <div className="flex items-center gap-0.5 mt-2 opacity-0 group-hover/user:opacity-100 transition-opacity">
             <button
-              onClick={() => { setEditText(rawContent); setIsEditing(true); }}
-              className="mt-2 p-1 rounded-md text-gray-300 hover:text-gray-500 opacity-0 group-hover/user:opacity-100 transition-opacity"
-              title="Edit message"
+              onClick={() => { navigator.clipboard.writeText(rawContent); setUserCopied(true); setTimeout(() => setUserCopied(false), 1500); }}
+              className="p-1 rounded-md text-gray-300 hover:text-gray-500"
+              title="Copy"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-              </svg>
+              {userCopied ? (
+                <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              )}
             </button>
-          )}
+            {onEditMessage && (
+              <button
+                onClick={() => { setEditText(rawContent); setIsEditing(true); }}
+                className="p-1 rounded-md text-gray-300 hover:text-gray-500"
+                title="Edit"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                </svg>
+              </button>
+            )}
+          </div>
           <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-sm shadow-sm">
             <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{content}</p>
           </div>
@@ -1081,30 +1168,35 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
 
   if (content && (!toolCalls || toolCalls.length === 0)) {
     return (
-      <div className="flex justify-start mb-2 group/msg">
-        <div className="w-full px-3">
-          {hasSpecialTags ? (
-            <div className="prose prose-sm prose-slate max-w-none">
-              {parsedContent?.map((part, idx) =>
-                typeof part === 'string' ? (
-                  <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
-                    {preprocessCitations(part)}
-                  </ReactMarkdown>
-                ) : part
-              )}
-            </div>
-          ) : (
-            <div className="prose prose-sm prose-slate max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                {content}
-              </ReactMarkdown>
-            </div>
-          )}
-          {actions && actions.length > 0 && (
-            <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} />
-          )}
+      <>
+        <div className="flex justify-start mb-2 group/msg">
+          <div className="w-full px-3">
+            {hasSpecialTags ? (
+              <div className="prose prose-sm prose-slate max-w-none">
+                {parsedContent?.map((part, idx) =>
+                  typeof part === 'string' ? (
+                    <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {preprocessCitations(part)}
+                    </ReactMarkdown>
+                  ) : part
+                )}
+              </div>
+            ) : (
+              <div className="prose prose-sm prose-slate max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {content}
+                </ReactMarkdown>
+              </div>
+            )}
+            {actions && actions.length > 0 && (
+              <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} onFeedback={onFeedback} feedbackGiven={feedbackGiven} setFeedbackModal={setFeedbackModal} />
+            )}
+          </div>
         </div>
-      </div>
+        {feedbackModal && (
+          <FeedbackModal type={feedbackModal} onSubmit={(comment) => { setFeedbackGiven(feedbackModal); onFeedback?.(feedbackModal, comment); }} onClose={() => setFeedbackModal(null)} />
+        )}
+      </>
     );
   }
 
@@ -1119,37 +1211,42 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
   }
 
   return (
-    <div className="flex justify-start mb-2 group/msg">
-      <div className="w-full px-3">
-        {content && (
-          hasSpecialTags ? (
-            <div className="prose prose-sm prose-slate max-w-none mb-2">
-              {parsedContent?.map((part, idx) =>
-                typeof part === 'string' ? (
-                  <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
-                    {preprocessCitations(part)}
-                  </ReactMarkdown>
-                ) : part
-              )}
-            </div>
-          ) : (
-            <div className="prose prose-sm prose-slate max-w-none mb-2">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                {content}
-              </ReactMarkdown>
-            </div>
-          )
-        )}
-        {swap_data && swap_data.length > 0 && (
-          <SwapCards swaps={swap_data} userId={userId || ''} />
-        )}
-        {toolCalls && toolCalls.length > 0 && (
-          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
-        )}
-        {actions && actions.length > 0 && (
-          <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} />
-        )}
+    <>
+      <div className="flex justify-start mb-2 group/msg">
+        <div className="w-full px-3">
+          {content && (
+            hasSpecialTags ? (
+              <div className="prose prose-sm prose-slate max-w-none mb-2">
+                {parsedContent?.map((part, idx) =>
+                  typeof part === 'string' ? (
+                    <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {preprocessCitations(part)}
+                    </ReactMarkdown>
+                  ) : part
+                )}
+              </div>
+            ) : (
+              <div className="prose prose-sm prose-slate max-w-none mb-2">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {content}
+                </ReactMarkdown>
+              </div>
+            )
+          )}
+          {swap_data && swap_data.length > 0 && (
+            <SwapCards swaps={swap_data} userId={userId || ''} />
+          )}
+          {toolCalls && toolCalls.length > 0 && (
+            <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
+          )}
+          {actions && actions.length > 0 && (
+            <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} onFeedback={onFeedback} feedbackGiven={feedbackGiven} setFeedbackModal={setFeedbackModal} />
+          )}
+        </div>
       </div>
-    </div>
+      {feedbackModal && (
+        <FeedbackModal type={feedbackModal} onSubmit={(comment) => { setFeedbackGiven(feedbackModal); onFeedback?.(feedbackModal, comment); }} onClose={() => setFeedbackModal(null)} />
+      )}
+    </>
   );
 }

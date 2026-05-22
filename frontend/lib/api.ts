@@ -413,6 +413,15 @@ export const chatApi = {
     await api.post(`/chat/${chatId}/notify-email`);
   },
 
+  submitFeedback: async (chatId: string, messageIndex: number, feedbackType: 'like' | 'dislike', comment?: string, messageContent?: string): Promise<void> => {
+    await api.post(`/chat/${chatId}/feedback`, {
+      message_index: messageIndex,
+      feedback_type: feedbackType,
+      comment: comment || null,
+      message_content: messageContent || null,
+    });
+  },
+
   healthCheck: async (): Promise<{ status: string }> => {
     const response = await api.get('/health');
     return response.data;
@@ -953,6 +962,7 @@ export const botsApi = {
     if (!response.ok) throw new Error('Failed to cancel wakeup');
     return response.json();
   },
+
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1232,6 +1242,139 @@ export const visualizationsApi = {
   getSharedHtml: async (shareToken: string) => {
     const response = await api.get(`/api/visualizations/shared/${shareToken}/render`, { responseType: 'text' });
     return response.data as string;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Memory Store & Dreams API (user-scoped, auth via Bearer token)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const storeApi = {
+  async listStoreFiles(): Promise<import('./types').StoreFile[]> {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/store/files`, { headers: auth });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async readStoreFile(filename: string): Promise<import('./types').StoreFile | null> {
+    const auth = await getAuthHeader();
+    const path = filename.startsWith('store/') ? filename.slice(6) : filename;
+    const res = await fetch(`${API_BASE_URL}/store/files/${path}`, { headers: auth });
+    if (!res.ok) return null;
+    return res.json();
+  },
+
+  async updateStoreFile(filename: string, content: string): Promise<void> {
+    const auth = await getAuthHeader();
+    const path = filename.startsWith('store/') ? filename.slice(6) : filename;
+    await fetch(`${API_BASE_URL}/store/files/${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  async listDreams(limit: number = 20): Promise<import('./types').Dream[]> {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/store/dreams?limit=${limit}`, { headers: auth });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async triggerDream(): Promise<{ dream_id: string }> {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/store/dreams/trigger`, {
+      method: 'POST',
+      headers: auth,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Failed to trigger dream');
+    }
+    return res.json();
+  },
+
+  async getDreamTranscript(dreamId: string): Promise<{ transcript: any[] }> {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/store/dreams/${dreamId}/transcript`, { headers: auth });
+    if (!res.ok) return { transcript: [] };
+    return res.json();
+  },
+
+  streamDreamProgress(dreamId: string, handlers: {
+    onStarted?: () => void;
+    onPhase?: (phase: string) => void;
+    onThinking?: (content: string) => void;
+    onTool?: (name: string, count: number) => void;
+    onFileWrite?: (data: { path: string; is_new?: boolean }) => void;
+    onCompleted?: (data: { summary: string; self_score: number | null; files_changed: number }) => void;
+    onFailed?: (error: string) => void;
+  }): { close: () => void } {
+    let controller: AbortController | null = new AbortController();
+
+    (async () => {
+      try {
+        const auth = await getAuthHeader();
+        const res = await fetch(`${API_BASE_URL}/store/dreams/${dreamId}/stream`, {
+          headers: { ...auth, Accept: 'text/event-stream' },
+          signal: controller?.signal,
+        });
+        if (!res.ok || !res.body) {
+          console.error('Dream stream failed:', res.status);
+          handlers.onFailed?.(`Stream failed: ${res.status}`);
+          return;
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let idx;
+          while ((idx = buffer.indexOf('\n\n')) !== -1) {
+            const block = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+
+            let eventType = '';
+            let eventData = '';
+            for (const line of block.split('\n')) {
+              if (line.startsWith('event: ')) eventType = line.slice(7);
+              else if (line.startsWith('data: ')) eventData = line.slice(6);
+            }
+            if (!eventType || !eventData) continue;
+
+            try {
+              const data = JSON.parse(eventData);
+              switch (eventType) {
+                case 'dream_started': handlers.onStarted?.(); break;
+                case 'dream_phase': handlers.onPhase?.(data.phase); break;
+                case 'dream_thinking': handlers.onThinking?.(data.content); break;
+                case 'dream_tool': handlers.onTool?.(data.tool_name, data.tool_count); break;
+                case 'dream_file_write': handlers.onFileWrite?.(data); break;
+                case 'dream_completed': handlers.onCompleted?.(data); break;
+                case 'dream_failed': handlers.onFailed?.(data.error); break;
+              }
+            } catch {}
+          }
+        }
+      } catch (e: any) {
+        if (e?.name !== 'AbortError') {
+          console.error('Dream stream error:', e);
+          handlers.onFailed?.(e?.message || 'Stream error');
+        }
+      }
+    })();
+
+    return {
+      close() {
+        controller?.abort();
+        controller = null;
+      },
+    };
   },
 };
 

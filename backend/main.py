@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from core.config import Config
 from core.rate_limit import limiter
-from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router, reminders_router, alpaca_router, market_router, alpaca_broker_router, execute_router, watchlist_router, push_router, analysis_router, visualizations_router
+from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router, reminders_router, alpaca_router, market_router, alpaca_broker_router, execute_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router
 from routes.analytics import router as analytics_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
@@ -126,6 +126,7 @@ app.include_router(watchlist_router)
 app.include_router(push_router)
 app.include_router(analysis_router)
 app.include_router(visualizations_router)
+app.include_router(bot_store_router)
 
 
 import asyncio

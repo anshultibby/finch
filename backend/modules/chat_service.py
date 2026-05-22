@@ -432,6 +432,26 @@ class ChatService:
                     except Exception:
                         pass
 
+                # Sync store files from sandbox to DB
+                try:
+                    from services.store_sync import sync_store_files
+                    asyncio.create_task(sync_store_files(user_id))
+                except Exception as e:
+                    logger.debug(f"Store sync failed (non-fatal): {e}")
+
+                # Trigger dreaming (post-chat reflection)
+                try:
+                    from services.dreaming import DreamingService
+                    asyncio.create_task(
+                        DreamingService().trigger_dream(
+                            user_id=user_id,
+                            trigger_type="post_chat",
+                            chat_ids=[chat_id],
+                        )
+                    )
+                except Exception as e:
+                    logger.debug(f"Dreaming trigger failed (non-fatal): {e}")
+
                 # Mark chat as no longer processing
                 try:
                     await chat_async.set_chat_processing(db, chat_id, is_processing=False)
@@ -613,7 +633,7 @@ async def _persist_chat_to_sandbox(user_id: str, chat_id: str, db) -> None:
     time_prefix = created.strftime("%H%M%S")
     safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in title)[:50].strip().replace(" ", "_")
     filename = f"{time_prefix}_{safe_title}.md" if safe_title else f"{time_prefix}.md"
-    sandbox_path = f"/home/user/chats/{date_dir}/{filename}"
+    sandbox_path = f"/home/user/context/chats/{date_dir}/{filename}"
 
     entry = await get_or_create_sandbox(user_id, {})
     await entry.sbx.files.write(sandbox_path, transcript.encode("utf-8"), request_timeout=30)
