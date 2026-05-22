@@ -622,8 +622,7 @@ async def execute_swap(
 ):
     """Execute a TLH swap via SnapTrade (sell + buy market orders)."""
     await verify_user_access(req.user_id, authenticated_user_id)
-    from skills.snaptrade.scripts.reference.search_symbols import search_symbols
-    from skills.snaptrade.scripts.trading.place_order import place_order
+    from modules.tools.clients.snaptrade_helpers import search_symbols, place_order
 
     # 1. Find sell symbol universal ID
     sell_search = await asyncio.to_thread(search_symbols, req.user_id, req.account_id, req.sell_symbol)

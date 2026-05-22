@@ -415,7 +415,7 @@ async def build_portfolio_history_endpoint(
     import uuid
     from datetime import date as date_type
     from sqlalchemy import select, delete
-    from skills.snaptrade.scripts.portfolio.build_history import build_portfolio_history
+    from modules.tools.clients.portfolio_history import build_portfolio_history
     from core.database import get_db_session
     from models.brokerage import PortfolioSnapshot
 
@@ -559,7 +559,7 @@ async def clear_portfolio_cache(
             delete(PortfolioIntradayCache).where(PortfolioIntradayCache.user_id == user_id)
         )
 
-    from skills.snaptrade.scripts.portfolio.build_history import clear_caches
+    from modules.tools.clients.portfolio_history import clear_caches
     clear_caches()
 
     return {

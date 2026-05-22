@@ -41,17 +41,18 @@ def build_portfolio_history(
     cached_holdings: Optional[Dict[str, float]] = None,
     cached_cash: Optional[float] = None,
 ) -> Dict[str, Any]:
-    from skills.snaptrade.scripts._client import get_snaptrade_client
+    from modules.tools.clients.snaptrade import snaptrade_tools
+    from modules.tools.clients.snaptrade_helpers import _get_session_sync
     from skills.financial_modeling_prep.scripts.api import fmp
     from concurrent.futures import ThreadPoolExecutor
     import time
 
     t0 = time.time()
-    client = get_snaptrade_client()
+    client = snaptrade_tools
     if creds:
         uid, secret = creds
     else:
-        session = client._get_session(user_id)
+        session = _get_session_sync(user_id)
         if not session or not session.is_connected:
             return {"success": False, "error": "Not connected."}
         uid = session.snaptrade_user_id
