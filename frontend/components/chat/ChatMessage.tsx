@@ -28,6 +28,7 @@ interface ChatMessageProps {
   onVisualizationClick?: (filename: string) => void;
   onSendMessage?: (msg: string) => void;
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
+  onEditMessage?: (newContent: string) => void;
   actions?: MessageAction[];
   isLastAssistantMessage?: boolean;
   isStreaming?: boolean;
@@ -37,6 +38,9 @@ interface ChatMessageProps {
 
 const getChatFileUrl = (chatId: string | undefined, filename: string): string => {
   if (!chatId) return '';
+  if (filename.startsWith('/')) {
+    return `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(filename)}`;
+  }
   return `${getApiBaseUrl()}/api/chat-files/${chatId}/download/${encodeURIComponent(filename)}`;
 };
 
@@ -664,7 +668,7 @@ const parseFileReferences = (
       );
     } else if (markerType === 'visualization') {
       // Render as a clickable chip that navigates to the Charts panel
-      const displayName = filename.replace(/\.html$/i, '').replace(/[_-]/g, ' ');
+      const displayName = filename.replace(/\.(html|js)$/i, '').replace(/[_-]/g, ' ');
       parts.push(
         <button
           key={`viz-${match.index}`}
@@ -984,8 +988,11 @@ function MessageActions({ actions, alwaysVisible }: { actions: MessageAction[]; 
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  const editRef = React.useRef<HTMLTextAreaElement>(null);
   const contentCleaned = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
   const content = !isUser && contentCleaned ? preprocessCitations(contentCleaned) : contentCleaned;
   const hasSpecialTags = !isUser && content && (
@@ -995,10 +1002,75 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
   const parsedContent = hasSpecialTags ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick, onSendMessage) : null;
   const mdComponents = React.useMemo(() => makeMarkdownComponents(chatId, onFileClick), [chatId, onFileClick]);
 
+  useEffect(() => {
+    if (isEditing && editRef.current) {
+      editRef.current.focus();
+      editRef.current.setSelectionRange(editRef.current.value.length, editRef.current.value.length);
+    }
+  }, [isEditing]);
+
   if (isUser) {
+    if (isEditing) {
+      return (
+        <div className="flex justify-end mb-3">
+          <div className="max-w-3xl w-full">
+            <textarea
+              ref={editRef}
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (editText.trim() && editText.trim() !== rawContent) {
+                    onEditMessage?.(editText.trim());
+                  }
+                  setIsEditing(false);
+                }
+                if (e.key === 'Escape') {
+                  setIsEditing(false);
+                }
+              }}
+              className="w-full rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-sm shadow-sm text-sm leading-relaxed resize-none outline-none focus:ring-2 focus:ring-primary-400"
+              rows={Math.max(2, editText.split('\n').length)}
+            />
+            <div className="flex justify-end gap-2 mt-1.5">
+              <button
+                onClick={() => setIsEditing(false)}
+                className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (editText.trim() && editText.trim() !== rawContent) {
+                    onEditMessage?.(editText.trim());
+                  }
+                  setIsEditing(false);
+                }}
+                className="px-3 py-1 text-xs text-white bg-primary-600 hover:bg-primary-700 rounded-md transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex justify-end mb-3">
-        <div className="max-w-2xl">
+      <div className="flex justify-end mb-3 group/user">
+        <div className="max-w-3xl flex items-start gap-1.5">
+          {onEditMessage && (
+            <button
+              onClick={() => { setEditText(rawContent); setIsEditing(true); }}
+              className="mt-2 p-1 rounded-md text-gray-300 hover:text-gray-500 opacity-0 group-hover/user:opacity-100 transition-opacity"
+              title="Edit message"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+              </svg>
+            </button>
+          )}
           <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-sm shadow-sm">
             <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{content}</p>
           </div>

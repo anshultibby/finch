@@ -106,8 +106,7 @@ export default function ToolCallSummary({
     return () => clearInterval(interval);
   }, [isStreaming, startTime]);
 
-  // Auto-expand when only 1-2 regular tools and done
-  const shouldAutoExpand = !isStreaming && regularTools.length <= 2 && regularTools.length > 0;
+  const shouldAutoExpand = false;
 
   // If there are no regular tools, just render special tools
   if (regularTools.length === 0 && specialTools.length === 0) return null;

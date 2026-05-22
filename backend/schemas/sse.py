@@ -2,7 +2,7 @@
 Pydantic models for Server-Sent Events (SSE)
 """
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, Literal, List
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 
@@ -16,14 +16,6 @@ class SSEEvent(BaseModel):
         import json
         # Use string concatenation to avoid f-string interpreting JSON curly braces as format specs
         return "event: " + self.event + "\ndata: " + json.dumps(self.data) + "\n\n"
-
-
-class ToolCallStartEvent(BaseModel):
-    """Event sent when a tool call starts"""
-    tool_call_id: str
-    tool_name: str
-    arguments: Dict[str, Any]
-    timestamp: str = datetime.now().isoformat()
 
 
 class CodeOutput(BaseModel):
@@ -83,23 +75,6 @@ class FileContent(BaseModel):
     is_complete: bool = True
 
 
-class ToolCallCompleteEvent(BaseModel):
-    """Event sent when a tool call completes"""
-    tool_call_id: str
-    tool_name: str
-    status: Literal["completed", "error"]
-    resource_id: Optional[str] = None
-    error: Optional[str] = None
-    result_summary: Optional[str] = None  # Brief summary of result for display to user
-    code_output: Optional[CodeOutput] = None  # Code execution output (stdout/stderr)
-    search_results: Optional[SearchResults] = None  # Web/news search results
-    scraped_content: Optional[ScrapedContent] = None  # Scraped webpage content
-    file_content: Optional[FileContent] = None  # File content from read_chat_file
-    sub_agent_id: Optional[str] = None  # Set when tool is create_agent — the created bot's ID
-    sub_agent_chat_id: Optional[str] = None  # Set when tool is create_agent — the bot's initial chat ID
-    timestamp: str = datetime.now().isoformat()
-
-
 class ThinkingEvent(BaseModel):
     """Event sent when AI is processing/generating response after tool calls"""
     message: str = "Generating response..."
@@ -127,49 +102,7 @@ class ErrorEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
-class OptionButton(BaseModel):
-    """Model for a single option button"""
-    id: str  # Unique identifier for this option
-    label: str  # Display text on the button
-    value: str  # Value to send back when clicked
-    description: Optional[str] = None  # Optional tooltip/description
-
-
-class OptionsEvent(BaseModel):
-    """Event sent when the assistant wants to present options to the user"""
-    question: str  # The question/prompt to show above the options
-    options: List[OptionButton]  # List of option buttons to display
-    timestamp: str = datetime.now().isoformat()
-
-
-class ToolStatusEvent(BaseModel):
-    """Event sent when a tool emits a status update during execution"""
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
-    status: str  # Status string (fetching, analyzing, processing, etc.)
-    message: Optional[str] = None  # Optional detailed message
-    timestamp: str = datetime.now().isoformat()
-
-
-class ToolProgressEvent(BaseModel):
-    """Event sent when a tool emits a progress update"""
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
-    percent: float  # 0-100
-    message: Optional[str] = None
-    timestamp: str = datetime.now().isoformat()
-
-
-class ToolLogEvent(BaseModel):
-    """Event sent when a tool emits a log message"""
-    tool_call_id: Optional[str] = None
-    tool_name: Optional[str] = None
-    level: Literal["debug", "info", "warning", "error"]
-    message: str
-    timestamp: str = datetime.now().isoformat()
-
-
-# Internal agent loop events (similar to LangChain's event system)
+# Internal agent loop events
 class LLMStartEvent(BaseModel):
     """Event when LLM call starts"""
     message_count: int

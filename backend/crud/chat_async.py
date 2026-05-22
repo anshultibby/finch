@@ -307,6 +307,34 @@ async def get_chat_messages_for_display(
     return messages, has_more
 
 
+async def delete_messages_from_user_turn(db: AsyncSession, chat_id: str, user_turn_index: int) -> int:
+    """Delete the Nth user message (0-indexed) and all subsequent messages."""
+    messages = await get_chat_messages(db, chat_id)
+    user_count = 0
+    target_sequence = None
+    for msg in messages:
+        if msg.role == "user":
+            if user_count == user_turn_index:
+                target_sequence = msg.sequence
+                break
+            user_count += 1
+
+    if target_sequence is None:
+        return 0
+
+    result = await db.execute(
+        select(ChatMessage).where(
+            ChatMessage.chat_id == chat_id,
+            ChatMessage.sequence >= target_sequence
+        )
+    )
+    to_delete = list(result.scalars().all())
+    for msg in to_delete:
+        await db.delete(msg)
+    await db.commit()
+    return len(to_delete)
+
+
 async def delete_messages_by_ids(db: AsyncSession, message_ids: List[int]) -> int:
     """Delete messages by IDs and return count deleted."""
     if not message_ids:

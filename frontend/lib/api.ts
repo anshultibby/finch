@@ -404,6 +404,11 @@ export const chatApi = {
     return response.data;
   },
 
+  truncateChat: async (chatId: string, fromUserIndex: number): Promise<{ deleted: number }> => {
+    const response = await api.post(`/chat/${chatId}/truncate`, { from_user_index: fromUserIndex });
+    return response.data;
+  },
+
   requestEmailNotification: async (chatId: string): Promise<void> => {
     await api.post(`/chat/${chatId}/notify-email`);
   },

@@ -422,7 +422,7 @@ async def get_earnings_calendar_endpoint(
 # ---------------------------------------------------------------------------
 
 @router.get("/batch-quote")
-async def get_batch_quotes(symbols: str):
+async def get_batch_quote(symbols: str):
     """Return quotes for comma-separated symbols."""
     from skills.financial_modeling_prep.scripts.api import fmp
 

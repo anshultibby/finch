@@ -193,7 +193,7 @@ async def delete_visualization(
     db: AsyncSession = Depends(get_async_db),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete a visualization."""
+    """Delete a visualization and its sandbox file."""
     result = await db.execute(
         select(Visualization)
         .where(Visualization.id == viz_id, Visualization.user_id == user_id)
@@ -201,8 +201,24 @@ async def delete_visualization(
     viz = result.scalar_one_or_none()
     if not viz:
         raise HTTPException(status_code=404, detail="Visualization not found")
+
+    filename = viz.filename
     await db.delete(viz)
     await db.commit()
+
+    # Also remove the file from the sandbox so it doesn't get re-synced.
+    # DB stores .html filename, but the source might be .js (auto-wrapped on sync).
+    try:
+        from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
+        sbx = await _get_or_reconnect_sandbox(user_id)
+        if sbx and filename:
+            base = f"/home/user/chat_files/{filename}"
+            js_variant = re.sub(r"\.html$", ".js", base, flags=re.IGNORECASE)
+            await sbx.commands.run(f"rm -f {base} {js_variant}", timeout=5)
+            logger.info(f"Deleted sandbox viz files for {filename} (user {user_id})")
+    except Exception as e:
+        logger.debug(f"Sandbox file deletion skipped (non-fatal): {e}")
+
     return {"ok": True}
 
 

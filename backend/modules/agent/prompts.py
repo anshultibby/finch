@@ -283,7 +283,7 @@ def build_skills_prompt(skill_ids: list[str]) -> str:
 
     lines = ["", "", "<available_skills>"]
     lines.append("You have the following skills available in your sandbox.")
-    lines.append("Read a skill's full instructions when you need it:")
+    lines.append("IMPORTANT: NEVER guess skill import paths. Always read the skill's SKILL.md BEFORE writing any import statement.")
     lines.append("  read_chat_file(filename=\"<location>/SKILL.md\")  -- never truncates, always returns full content")
     lines.append("")
     for skill in active:

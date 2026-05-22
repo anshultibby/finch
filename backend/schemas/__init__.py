@@ -3,7 +3,7 @@ Pydantic request/response schemas for the Finch API.
 
 ORM models live in models/. This package contains only Pydantic schemas.
 """
-from .chat import ChatMessage, ChatResponse, Message
+from .chat import ChatMessage
 from .snaptrade import (
     SnapTradeConnectionRequest,
     SnapTradeConnectionResponse,
@@ -24,17 +24,10 @@ from .resource import (
 )
 from .sse import (
     SSEEvent,
-    ToolCallStartEvent,
-    ToolCallCompleteEvent,
     ThinkingEvent,
     MessageEndEvent,
     DoneEvent,
     ErrorEvent,
-    OptionButton,
-    OptionsEvent,
-    ToolStatusEvent,
-    ToolProgressEvent,
-    ToolLogEvent,
     LLMStartEvent,
     LLMEndEvent,
     ToolsEndEvent,

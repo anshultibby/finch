@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { ArrowLeft, Trash2, BarChart3, LayoutGrid, Clock, Tag, Share2 } from 'lucide-react';
+import { ArrowLeft, Trash2, BarChart3, LayoutGrid, Clock, Tag, Share2, MessageSquare, Pencil, X, Check } from 'lucide-react';
 import { Visualization } from '@/lib/types';
 import { visualizationsApi } from '@/lib/api';
 import api from '@/lib/api';
+import { useNavigation } from '@/contexts/NavigationContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -62,6 +63,7 @@ interface VisualizationsPanelProps {
 }
 
 export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps) {
+  const { loadChat } = useNavigation();
   const [visualizations, setVisualizations] = useState<Visualization[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -70,6 +72,9 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
   const [htmlLoading, setHtmlLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // ── Fetch list ──
@@ -89,8 +94,9 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
   // ── Resolve vizId prop to selectedId ──
   useEffect(() => {
     if (!vizId || visualizations.length === 0) return;
-    const match = vizId.endsWith('.html')
-      ? visualizations.find(v => v.filename === vizId)
+    const normalizedId = vizId.replace(/\.js$/i, '.html');
+    const match = normalizedId.endsWith('.html')
+      ? visualizations.find(v => v.filename === normalizedId)
       : visualizations.find(v => v.id === vizId);
     if (match) setSelectedId(match.id);
   }, [vizId, visualizations]);
@@ -158,6 +164,24 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
     }
   };
 
+  const handleRename = (id: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingId(null); return; }
+    setVisualizations(prev => prev.map(v => v.id === id ? { ...v, title: trimmed } : v));
+    setRenamingId(null);
+    visualizationsApi.update(id, { title: trimmed }).catch(e => console.error('Failed to rename', e));
+  };
+
+  const handleGalleryDelete = async (id: string) => {
+    try {
+      await visualizationsApi.delete(id);
+      setVisualizations(prev => prev.filter(v => v.id !== id));
+    } catch (e) {
+      console.error('Failed to delete', e);
+    }
+    setDeletingId(null);
+  };
+
   const handleShare = async () => {
     if (!selectedId || !selectedViz) return;
     setShareLoading(true);
@@ -204,6 +228,15 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
             )}
           </div>
           <div className="flex items-center gap-1">
+            {selectedViz.chat_id && (
+              <button
+                onClick={() => loadChat(selectedViz.chat_id!)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600"
+                title="Open in Chat"
+              >
+                <MessageSquare className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={handleShare}
               disabled={shareLoading}
@@ -329,20 +362,82 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filtered.map((viz, i) => (
-              <button
+              <div
                 key={viz.id}
-                onClick={() => setSelectedId(viz.id)}
-                className="group text-left finch-surface finch-surface-hover rounded-xl overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className="group relative text-left finch-surface finch-surface-hover rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-emerald-400"
                 style={{ animationDelay: `${i * 40}ms` }}
               >
+                {/* Hover actions */}
+                <div className="absolute top-2.5 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setRenamingId(viz.id); setRenameValue(viz.title || displayName(viz)); }}
+                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                    title="Rename"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeletingId(viz.id); }}
+                    className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Delete confirm overlay */}
+                {deletingId === viz.id && (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/95 backdrop-blur-sm">
+                    <div className="text-center">
+                      <p className="text-xs text-gray-600 mb-2">Delete this visualization?</p>
+                      <div className="flex items-center gap-1.5 justify-center">
+                        <button
+                          onClick={() => handleGalleryDelete(viz.id)}
+                          className="px-2.5 py-1 text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded-md"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setSelectedId(viz.id)}
+                  className="w-full text-left focus:outline-none"
+                >
                 {/* Accent strip */}
                 <div className={`h-1.5 bg-gradient-to-r ${getCategoryAccent(viz.category)}`} />
 
                 <div className="p-4">
-                  {/* Title */}
-                  <h3 className="text-sm font-semibold text-gray-900 truncate group-hover:text-emerald-700 transition-colors">
-                    {displayName(viz)}
-                  </h3>
+                  {/* Title — inline rename */}
+                  {renamingId === viz.id ? (
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleRename(viz.id); if (e.key === 'Escape') setRenamingId(null); }}
+                        className="flex-1 text-sm font-semibold text-gray-900 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 outline-none focus:border-emerald-400"
+                      />
+                      <button onClick={() => handleRename(viz.id)} className="p-0.5 text-emerald-600 hover:text-emerald-700">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => setRenamingId(null)} className="p-0.5 text-gray-400 hover:text-gray-600">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <h3 className="text-sm font-semibold text-gray-900 truncate group-hover:text-emerald-700 transition-colors">
+                      {displayName(viz)}
+                    </h3>
+                  )}
 
                   {/* Description */}
                   {viz.description && (
@@ -376,7 +471,8 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
                     </div>
                   )}
                 </div>
-              </button>
+                </button>
+              </div>
             ))}
           </div>
         )}

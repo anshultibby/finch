@@ -444,71 +444,43 @@ class ChatService:
 
                 logger.info("Chat turn complete - all messages saved incrementally")
     
-    async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:
-        """Get chat history for a chat, including tool calls (OpenAI format)"""
+    async def _with_db(self, db, coro_fn):
         if db is None:
             async with get_db_session() as db:
-                messages = await chat_async.get_chat_messages(db, chat_id)
-                history = ChatHistory.from_db_messages(messages, chat_id, user_id=None)
-                return history.to_openai_format()
-        else:
+                return await coro_fn(db)
+        return await coro_fn(db)
+
+    async def get_chat_history(self, chat_id: str, db=None) -> List[dict]:
+        async def _run(db):
             messages = await chat_async.get_chat_messages(db, chat_id)
             history = ChatHistory.from_db_messages(messages, chat_id, user_id=None)
             return history.to_openai_format()
-    
-    async def clear_chat(self, chat_id: str, db=None) -> bool:
-        """Clear chat history for a chat"""
-        if db is None:
-            async with get_db_session() as db:
-                count = await chat_async.clear_chat_messages(db, chat_id)
-                return count > 0
-        else:
-            count = await chat_async.clear_chat_messages(db, chat_id)
-            return count > 0
-    
-    async def chat_exists(self, chat_id: str, db=None) -> bool:
-        """Check if chat exists"""
-        if db is None:
-            async with get_db_session() as db:
-                return await chat_async.get_chat(db, chat_id) is not None
-        else:
-            return await chat_async.get_chat(db, chat_id) is not None
-    
-    async def get_user_chats(self, user_id: str, limit: int = 50, db=None) -> List[dict]:
-        """Get all chats for a user with last message preview (single optimized query)"""
-        if db is None:
-            async with get_db_session() as db:
-                # Use optimized function that gets chats and previews in a single query
-                return await chat_async.get_user_chats_with_preview(db, user_id, limit)
-        else:
-            return await chat_async.get_user_chats_with_preview(db, user_id, limit)
-    
-    async def is_chat_processing(self, chat_id: str, db=None) -> bool:
-        """
-        Check if a chat is currently being processed.
-        Used for reconnection logic to determine if streaming should resume.
-        
-        Returns:
-            True if the chat is currently being processed, False otherwise
-        """
-        if db is None:
-            async with get_db_session() as db:
-                return await chat_async.is_chat_processing(db, chat_id)
-        else:
-            return await chat_async.is_chat_processing(db, chat_id)
-    
-    async def get_chat_history_for_display(self, chat_id: str, db=None, limit: int = 50, before_sequence: int | None = None) -> Dict[str, Any]:
-        """
-        Get chat history formatted for UI display.
+        return await self._with_db(db, _run)
 
-        SIMPLE: Each message has content and optional tool_calls attached directly.
-        Frontend just renders messages in order.
-        """
-        if db is None:
-            async with get_db_session() as db:
-                return await self._get_chat_history_for_display_impl(db, chat_id, limit, before_sequence)
-        else:
+    async def clear_chat(self, chat_id: str, db=None) -> bool:
+        async def _run(db):
+            return await chat_async.clear_chat_messages(db, chat_id) > 0
+        return await self._with_db(db, _run)
+
+    async def chat_exists(self, chat_id: str, db=None) -> bool:
+        async def _run(db):
+            return await chat_async.get_chat(db, chat_id) is not None
+        return await self._with_db(db, _run)
+
+    async def get_user_chats(self, user_id: str, limit: int = 50, db=None) -> List[dict]:
+        async def _run(db):
+            return await chat_async.get_user_chats_with_preview(db, user_id, limit)
+        return await self._with_db(db, _run)
+
+    async def is_chat_processing(self, chat_id: str, db=None) -> bool:
+        async def _run(db):
+            return await chat_async.is_chat_processing(db, chat_id)
+        return await self._with_db(db, _run)
+
+    async def get_chat_history_for_display(self, chat_id: str, db=None, limit: int = 50, before_sequence: int | None = None) -> Dict[str, Any]:
+        async def _run(db):
             return await self._get_chat_history_for_display_impl(db, chat_id, limit, before_sequence)
+        return await self._with_db(db, _run)
     
     async def _get_chat_history_for_display_impl(self, db, chat_id: str, limit: int = 50, before_sequence: int | None = None) -> Dict[str, Any]:
         """Internal implementation of get_chat_history_for_display"""

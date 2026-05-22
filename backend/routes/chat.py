@@ -9,7 +9,7 @@ import uuid
 import asyncio
 import json
 
-from schemas import ChatMessage, ChatResponse
+from schemas import ChatMessage
 from modules.chat_service import ChatService
 from services.chat_title import generate_chat_title
 from core.database import get_db_session
@@ -227,6 +227,28 @@ async def clear_chat_history(
         await verify_user_access(chat.user_id, authenticated_user_id)
     success = await chat_service.clear_chat(chat_id)
     return {"message": "Chat history cleared" if success else "Chat not found or already cleared"}
+
+
+class TruncateChatRequest(BaseModel):
+    from_user_index: int
+
+
+@router.post("/{chat_id}/truncate")
+async def truncate_chat(
+    chat_id: str,
+    data: TruncateChatRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Delete the Nth user message (0-indexed) and everything after it."""
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
+        deleted = await chat_async.delete_messages_from_user_turn(
+            db, chat_id, data.from_user_index
+        )
+    return {"deleted": deleted}
 
 
 @router.delete("/sandbox/{user_id}")

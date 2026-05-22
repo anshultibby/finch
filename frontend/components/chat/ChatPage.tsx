@@ -25,7 +25,7 @@ export default function ChatPage({
 
   return (
     <div className="flex flex-col h-full bg-white">
-      <div className="flex-1 overflow-hidden max-w-4xl w-full mx-auto">
+      <div className="flex-1 overflow-hidden">
         <ChatView
           externalChatId={currentChatId}
           onChatIdChange={setCurrentChatId}

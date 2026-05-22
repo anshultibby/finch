@@ -28,12 +28,6 @@ logger = logging.getLogger(__name__)
 # Bot CRUD
 # ============================================================================
 
-def _slugify(name: str) -> str:
-    """Convert bot name to a filesystem-safe directory name."""
-    slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
-    return slug or 'bot'
-
-
 def _compute_pnl(side: Optional[str], entry_price: float, current_price: float, quantity: float) -> float:
     """Compute P&L in USD. Prices are in cents (0-100), so divide by 100."""
     if side == "no":

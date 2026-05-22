@@ -5,10 +5,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc as sa_desc
-from services.analytics import analytics_service
+from sqlalchemy import select, desc as sa_desc
 from services.transaction_sync import transaction_sync_service
-from crud.snaptrade_user import get_user_by_id as get_snaptrade_user
 from core.database import get_async_db
 from auth.dependencies import get_current_user_id, verify_user_access
 
@@ -45,35 +43,6 @@ async def sync_transactions(
         )
         
         return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/performance")
-async def get_performance(
-    user_id: str = Query(..., description="User ID (from Supabase auth)"),
-    period: str = Query("all_time", regex="^(all_time|ytd|1m|3m|6m|1y)$"),
-    authenticated_user_id: str = Depends(get_current_user_id),
-):
-    await verify_user_access(user_id, authenticated_user_id)
-    try:
-        metrics = analytics_service.calculate_performance_metrics(user_id, period)
-        return metrics
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/patterns")
-async def get_trading_patterns(
-    user_id: str = Query(..., description="User ID (from Supabase auth)"),
-    authenticated_user_id: str = Depends(get_current_user_id),
-):
-    await verify_user_access(user_id, authenticated_user_id)
-    try:
-        patterns = analytics_service.analyze_trading_patterns(user_id)
-        return {"patterns": patterns}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

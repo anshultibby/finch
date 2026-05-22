@@ -62,25 +62,9 @@ export default function SharedVisualizationPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
-      {/* Branding bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/20">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="text-xs font-medium text-emerald-300">Created with Finch</span>
-        </div>
-        <a
-          href="https://finchapp.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
-        >
-          Try Finch &rarr;
-        </a>
-      </div>
-
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
-        <div className="p-1 rounded-lg bg-emerald-500/10">
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-[#111] border-b border-white/10">
+        <div className="p-1.5 rounded-lg bg-emerald-500/10">
           <BarChart3 className="w-4 h-4 text-emerald-400" />
         </div>
         <div className="flex-1 min-w-0">
@@ -92,6 +76,17 @@ export default function SharedVisualizationPage() {
               {meta.category}
             </span>
           )}
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs text-gray-500">Created by Finch</span>
+          <a
+            href="https://finchapp.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors"
+          >
+            Try Finch
+          </a>
         </div>
       </div>
 
@@ -110,7 +105,7 @@ export default function SharedVisualizationPage() {
             ref={iframeRef}
             src={blobUrl}
             sandbox="allow-scripts"
-            className="w-full h-[calc(100vh-85px)] border-0"
+            className="w-full h-[calc(100vh-49px)] border-0"
             title={meta?.title || 'Shared Visualization'}
           />
         )}

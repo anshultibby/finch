@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     # =========================================================================
     AGENT_LLM_MODEL: str = Field(
-        default=Models.CLAUDE_OPUS_4_6,
+        default=Models.CLAUDE_SONNET_4_6,
         description="LLM model for the agent"
     )
     OPENAI_API_KEY: Optional[str] = Field(

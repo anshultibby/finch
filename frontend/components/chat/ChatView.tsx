@@ -120,6 +120,7 @@ export default function ChatView({
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [timeEstimate, setTimeEstimate] = useState<import('@/hooks/useChatStream').TimeEstimate | null>(null);
   const [emailRequested, setEmailRequested] = useState(false);
+  const [emailDismissed, setEmailDismissed] = useState(false);
 
   // UI state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
@@ -456,6 +457,7 @@ export default function ChatView({
     if ((!content.trim() && (!images || images.length === 0)) || !userId) return;
 
     setEmailRequested(false);
+    setEmailDismissed(false);
     const isFirst = isNewChat || !currentChatId;
     let creatingChatTimeout: NodeJS.Timeout | null = null;
 
@@ -501,6 +503,42 @@ export default function ChatView({
     if (currentChatId) {
       stopStream(currentChatId, true, syncDisplay);
     }
+  };
+
+  const handleEditMessage = async (messageIndex: number, newContent: string) => {
+    if (!currentChatId || !userId) return;
+
+    // Count which user turn this is (0-indexed)
+    let userTurnIndex = 0;
+    for (let j = 0; j < messageIndex; j++) {
+      if (messages[j].role === 'user') userTurnIndex++;
+    }
+
+    // Stop any active stream
+    if (isLoading) {
+      stopStream(currentChatId, false, syncDisplay);
+    }
+
+    // Truncate local messages to before the edited message
+    const truncated = messages.slice(0, messageIndex);
+    updateChatState(currentChatId, {
+      messages: truncated,
+      streamingText: '',
+      streamingTools: [],
+      toolQueue: [],
+      isLoading: false,
+      error: null,
+    }, syncDisplay);
+
+    // Tell backend to delete from that user turn onwards
+    try {
+      await chatApi.truncateChat(currentChatId, userTurnIndex);
+    } catch {
+      // Best effort — the re-send will still work since backend rebuilds from DB
+    }
+
+    // Send the edited message through the normal flow
+    await handleSendMessage(newContent);
   };
 
   const handleOptionSelect = async (option: OptionButton) => {
@@ -565,7 +603,9 @@ export default function ChatView({
       const filename = tool.arguments?.filename || tool.arguments?.params?.filename;
       if (filename && currentChatId) {
         try {
-          const url = `${getApiBaseUrl()}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`;
+          const url = filename.startsWith('/')
+            ? `${getApiBaseUrl()}/api/chat-files/${currentChatId}/sandbox-file?path=${encodeURIComponent(filename)}`
+            : `${getApiBaseUrl()}/api/chat-files/${currentChatId}/download/${encodeURIComponent(filename)}`;
           const content = await loadFileContent(url, filename);
           setSelectedTool({
             ...tool,
@@ -684,38 +724,43 @@ export default function ChatView({
         <ChatModeBanner />
 
         {/* Email notification banner — appears during long streams */}
-        {isLoading && streamStartTime && !emailRequested && currentChatId && (Date.now() - streamStartTime) > 15000 && (
-          <div className="mx-4 mt-3 mb-1 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 px-4 py-3 shadow-sm">
-              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <p className="flex-1 text-sm text-gray-600">
-                This analysis is still running. Want a heads up when it's done?
+        {isLoading && streamStartTime && !emailRequested && !emailDismissed && currentChatId && (Date.now() - streamStartTime) > 15000 && (
+          <div className="mx-4 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200/60 bg-emerald-50/80 px-3 py-1.5">
+              <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <p className="flex-1 text-xs text-gray-600">
+                Still working — get an email when it's done?
               </p>
               <button
                 onClick={() => {
                   setEmailRequested(true);
                   chatApi.requestEmailNotification(currentChatId).catch(() => {});
+                  setTimeout(() => setEmailRequested(false), 3000);
                 }}
-                className="flex-shrink-0 text-sm font-medium text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg px-3.5 py-1.5 transition-colors shadow-sm"
+                className="flex-shrink-0 text-xs font-medium text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1 transition-colors"
               >
-                Notify me
+                Email me
+              </button>
+              <button
+                onClick={() => setEmailDismissed(true)}
+                className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors p-0.5"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
           </div>
         )}
         {isLoading && emailRequested && (
-          <div className="mx-4 mt-3 mb-1 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200/60 px-4 py-3">
-              <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-sm text-emerald-700">We'll email you when your analysis is ready.</p>
+          <div className="mx-4 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200/60 bg-emerald-50/80 px-3 py-1.5">
+              <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M5 13l4 4L19 7" />
+              </svg>
+              <p className="text-xs text-emerald-700">We'll email you when this is ready.</p>
             </div>
           </div>
         )}
@@ -737,7 +782,7 @@ export default function ChatView({
             }
           }}
         >
-          <div className={`pt-8 pb-16 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
+          <div className={`pt-8 pb-16 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-4xl mx-auto w-full px-4 sm:px-8'}`}>
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
@@ -805,6 +850,7 @@ export default function ChatView({
                       onVisualizationClick={(filename) => navigateTo({ type: 'visualizations', vizId: filename })}
                       onSendMessage={(text) => handleSendMessage(text)}
                       onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
+                      onEditMessage={msg.role === 'user' && !isLoading && currentChatId ? (newContent) => handleEditMessage(i, newContent) : undefined}
                       actions={messageActions}
                       isLastAssistantMessage={showActions && isLast}
                     />
@@ -865,7 +911,7 @@ export default function ChatView({
         )}
 
         {error && (
-          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-3xl mx-auto w-full px-4 sm:px-8'}`}>
+          <div className={`py-3 bg-red-50 border-t border-red-200 ${showComputerPanel ? 'px-3 sm:px-6' : 'max-w-4xl mx-auto w-full px-4 sm:px-8'}`}>
             {error.toLowerCase().includes('credit') || error.toLowerCase().includes('daily limit') ? (
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs sm:text-sm text-red-600">{formatErrorForUser(error)}</p>
@@ -885,7 +931,7 @@ export default function ChatView({
 
         {messages.length > 0 && (
           <div className="absolute bottom-3 left-0 right-0 z-10">
-            <div className="max-w-3xl mx-auto px-4 sm:px-8">
+            <div className="max-w-4xl mx-auto px-4 sm:px-8">
               <ChatInput
                 onSendMessage={handleSendMessage}
                 onStop={handleStopStream}

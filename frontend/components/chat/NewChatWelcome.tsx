@@ -43,7 +43,7 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
 
   return (
     <div className="flex flex-col h-full items-center justify-center px-5">
-      <div className="w-full max-w-2xl -mt-20">
+      <div className="w-full max-w-3xl -mt-20">
         <h1 className="text-4xl font-light text-gray-800 text-center mb-2 tracking-tight">Finch</h1>
         <p className="text-sm text-gray-400 text-center mb-8">Research smarter. Invest better.</p>
 
