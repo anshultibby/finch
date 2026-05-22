@@ -1,9 +1,9 @@
 ---
-name: finch_api
-description: Call the Finch backend directly from the sandbox to sync and fetch brokerage transactions, portfolio data, and other resources that require server-side credentials.
+name: connected_accounts
+description: Access the user's connected brokerage accounts — sync and query transaction history, get portfolio holdings, and manage account data. All brokerage operations go through the Finch backend which holds the credentials.
 metadata:
-  emoji: "🔗"
-  category: backend
+  emoji: "🏦"
+  category: brokerage
   is_system: true
   auto_on: true
   requires:
@@ -11,49 +11,123 @@ metadata:
     bins: []
 ---
 
-# Finch Backend API
+# Connected Accounts
 
-Call the Finch backend directly from the sandbox. Use this whenever you need data that requires server-side credentials (e.g. SnapTrade user_secret) that are NOT available in the sandbox.
+Access the user's connected brokerage data from the sandbox. All requests go through the Finch backend, which holds the SnapTrade credentials — **do NOT try to call SnapTrade or any brokerage API directly from the sandbox**.
 
-**IMPORTANT**: Do NOT try to call SnapTrade or other credential-gated APIs directly from the sandbox. Use this client instead — it calls the backend which has the credentials.
+## How It Works
 
-## Usage
+The sandbox has `FINCH_API_URL` and `FINCH_AUTH_TOKEN` env vars. This client uses them to call the backend, which authenticates the user and talks to SnapTrade on their behalf. Data flows sandbox → backend → sandbox without touching agent context.
+
+## Server-Side Tools (use these directly, not from sandbox)
+
+These tools are available as agent tools and run server-side. Call them normally:
+
+- **`get_brokerage_status`** — check if user has a connected brokerage, account count, account details
+- **`get_portfolio`** — current holdings with prices, P&L, cost basis (call `get_brokerage_status` first)
+- **`connect_brokerage`** — initiate OAuth flow to connect a new broker
+
+## Sandbox Client (for data the tools don't cover)
+
+Use this when you need **transaction history**, **activity logs**, or other brokerage data not available through the server-side tools above.
 
 ```python
 from skills.finch_api.scripts import sync_transactions, get_transactions, finch_api
-
-# Sync brokerage transactions into the DB (triggers server-side SnapTrade fetch)
-result = sync_transactions()
-# result: {"success": true, "transactions_fetched": 42, "transactions_inserted": 10, ...}
-
-# Fetch synced transactions from the DB
-txns = get_transactions(symbol="AAPL", limit=50)
-# txns: [{"symbol": "AAPL", "type": "BUY", "date": "...", "data": {...}}, ...]
-
-# Fetch all transactions in a date range
-txns = get_transactions(start_date="2025-01-01", end_date="2026-01-01")
-
-# Generic: call any backend endpoint
-data = finch_api("GET", "/api/some/endpoint", params={"key": "value"})
 ```
 
-## Available Functions
+### Sync Transactions
 
-### `sync_transactions(start_date=None, end_date=None, force_resync=False)`
-Triggers a server-side sync of brokerage transactions from SnapTrade into the database. Defaults to last 12 months. Returns sync stats (fetched, inserted, updated counts).
+Triggers a server-side fetch of brokerage transactions from SnapTrade into the database. Call this before querying transactions if the data might be stale.
 
-### `get_transactions(symbol=None, start_date=None, end_date=None, limit=100)`
-Fetches previously synced transactions from the database. Max limit is 500. Returns a list of transaction dicts.
+```python
+result = sync_transactions()
+# {"success": true, "transactions_fetched": 42, "transactions_inserted": 10, ...}
 
-### `finch_api(method, path, params=None, body=None)`
-Generic escape hatch to call any backend API endpoint. User auth is automatically injected.
+# With date range
+result = sync_transactions(start_date="2025-01-01", end_date="2026-01-01")
+
+# Force re-sync even if recently synced
+result = sync_transactions(force_resync=True)
+```
+
+### Get Transactions
+
+Fetch previously synced transactions from the database. Always call `sync_transactions()` first if data might be stale.
+
+```python
+# All recent transactions
+txns = get_transactions(limit=200)
+
+# Filter by symbol
+txns = get_transactions(symbol="AAPL")
+
+# Date range
+txns = get_transactions(start_date="2025-06-01", end_date="2026-01-01")
+```
+
+Each transaction has:
+- `symbol` — ticker (e.g. "AAPL")
+- `type` — BUY, SELL, DIVIDEND, TRANSFER, FEE, INTEREST, SPLIT
+- `date` — ISO timestamp
+- `data` — dict with `quantity`, `price`, `fee`, `total_amount`, `currency`, `description`
+
+### Generic API Call
+
+Call any backend endpoint:
+
+```python
+data = finch_api("GET", "/api/some/endpoint", params={"key": "value"})
+data = finch_api("POST", "/api/some/endpoint", body={"key": "value"})
+```
+
+User auth is automatically injected.
 
 ## Error Handling
 
-- `FinchAuthError` — 401/403, token expired or invalid
-- `FinchAPIError` — other HTTP errors (4xx/5xx)
-- `FinchConnectionError` — backend unreachable
+```python
+from skills.finch_api.scripts.client import FinchAuthError, FinchAPIError, FinchConnectionError
 
-## Dates
+try:
+    txns = get_transactions()
+except FinchAuthError:
+    print("Auth token expired — user may need to start a new session")
+except FinchAPIError as e:
+    print(f"Backend error: HTTP {e.status}")
+except FinchConnectionError:
+    print("Cannot reach backend")
+```
 
-Use ISO format strings: `"2025-06-01"` or `"2025-06-01T00:00:00"`.
+## Common Workflow: Portfolio + Transaction Analysis
+
+```python
+# 1. Use the server-side tools for current portfolio
+#    (call get_brokerage_status, then get_portfolio as agent tools)
+
+# 2. Sync and fetch transaction history in sandbox code
+from skills.finch_api.scripts import sync_transactions, get_transactions
+
+sync_transactions()  # ensure DB is up to date
+txns = get_transactions(limit=500)  # max 500 per request
+
+# 3. Analyze in pandas, build charts, etc.
+import pandas as pd
+df = pd.DataFrame([
+    {
+        "symbol": t["data"]["symbol"] if "symbol" in t.get("data", {}) else t["symbol"],
+        "type": t["type"],
+        "date": t["date"],
+        "quantity": t["data"].get("quantity"),
+        "price": t["data"].get("price"),
+        "total": t["data"].get("total_amount"),
+    }
+    for t in txns
+])
+```
+
+## Notes
+
+- Transaction sync defaults to the last 12 months
+- Max 500 transactions per `get_transactions()` call — paginate with date ranges for more
+- Sync has a 5-minute cooldown to avoid hammering SnapTrade
+- Dates use ISO format: `"2025-06-01"` or `"2025-06-01T00:00:00"`
+- Activity types: BUY, SELL, DIVIDEND, INTEREST, TRANSFER, FEE, SPLIT
