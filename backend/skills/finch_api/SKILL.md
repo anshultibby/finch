@@ -1,5 +1,5 @@
 ---
-name: connected_accounts
+name: finch_api
 description: Access the user's connected brokerage accounts — sync and query transaction history, get portfolio holdings, and manage account data. All brokerage operations go through the Finch backend which holds the credentials.
 metadata:
   emoji: "🏦"
