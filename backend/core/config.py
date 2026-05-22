@@ -300,6 +300,10 @@ class Settings(BaseSettings):
         default="https://finchapp.ai",
         description="Base URL for approval links in notifications"
     )
+    FINCH_BACKEND_URL: str = Field(
+        default="http://localhost:8000",
+        description="Public URL of this backend, used by E2B sandbox to call back. Must be internet-reachable in production."
+    )
 
     # =========================================================================
     # Payments (Stripe)

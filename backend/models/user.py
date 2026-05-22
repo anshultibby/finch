@@ -22,7 +22,7 @@ class SnapTradeUser(Base):
     brokerage_name = Column(String, nullable=True)
     plan = Column(String, nullable=False, default="free")  # free | pro | admin
     stripe_customer_id = Column(String, nullable=True)
-    credits = Column(Integer, nullable=False, default=1000)
+    credits = Column(Integer, nullable=False, default=2_000)
     total_credits_used = Column(Integer, nullable=False, default=0)
     last_credit_refresh = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

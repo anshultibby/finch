@@ -46,8 +46,8 @@ CREDITS_PER_DOLLAR = 100
 # Premium multiplier (20% markup over raw API cost)
 PREMIUM_MULTIPLIER = 1.2
 
-# Default credits granted to new users (1000 = $10)
-DEFAULT_NEW_USER_CREDITS = 1000
+# Default credits granted to new users (2000 = $20)
+DEFAULT_NEW_USER_CREDITS = 2_000
 
 # Daily refresh: credits accrued per day (computed on-the-fly, no cron needed)
 DAILY_REFRESH = {

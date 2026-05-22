@@ -518,7 +518,7 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
     env: Dict[str, str] = {
         "FINCH_USER_ID": context.user_id or "",
         "FINCH_CHAT_ID": context.chat_id or "",
-        "FINCH_API_URL": getattr(Config, "FINCH_BACKEND_URL", None) or "http://localhost:8000",
+        "FINCH_API_URL": Config.FINCH_BACKEND_URL,
         "FINCH_AUTH_TOKEN": auth_token,
         "PYTHONWARNINGS": "ignore",
         "LOG_LEVEL": "ERROR",
