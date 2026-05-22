@@ -2,7 +2,7 @@
 Service for syncing transactions from SnapTrade
 """
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import asyncio
 from core.database import SessionLocal
@@ -48,7 +48,7 @@ class TransactionSyncService:
             return True
         
         # Check if enough time has passed
-        time_since_sync = (datetime.now() - last_sync).total_seconds()
+        time_since_sync = (datetime.now(timezone.utc) - last_sync).total_seconds()
         return time_since_sync >= self._sync_cooldown_seconds
     
     async def sync_user_transactions(
@@ -82,7 +82,7 @@ class TransactionSyncService:
             last_sync_time = latest_job.completed_at
             self._last_sync_time[user_id] = last_sync_time
         
-        staleness_seconds = int((datetime.now() - last_sync_time).total_seconds()) if last_sync_time else None
+        staleness_seconds = int((datetime.now(timezone.utc) - last_sync_time).total_seconds()) if last_sync_time else None
         
         # Check if we should sync (throttle)
         should_sync = self._should_sync(user_id, force_resync)
@@ -141,7 +141,7 @@ class TransactionSyncService:
                     "start_date": start_date.isoformat() if start_date else None,
                     "end_date": end_date.isoformat() if end_date else None,
                     "force_resync": force_resync,
-                    "started_at": datetime.now().isoformat()
+                    "started_at": datetime.now(timezone.utc).isoformat()
                 }
             )
             
@@ -153,7 +153,7 @@ class TransactionSyncService:
                     str(job.id),
                     status="failed",
                     data={**job.data, "error": "No active brokerage connection"},
-                    completed_at=datetime.now()
+                    completed_at=datetime.now(timezone.utc)
                 )
                 return {
                     "success": False,
@@ -162,9 +162,9 @@ class TransactionSyncService:
             
             # Default to last year if no start date
             if not start_date:
-                start_date = datetime.now() - timedelta(days=365)
+                start_date = datetime.now(timezone.utc) - timedelta(days=365)
             if not end_date:
-                end_date = datetime.now()
+                end_date = datetime.now(timezone.utc)
             
             # Get all accounts for this user
             accounts = await self._get_user_accounts(
@@ -178,7 +178,7 @@ class TransactionSyncService:
                     str(job.id),
                     status="completed",
                     data={**job.data, "accounts_synced": 0, "message": "No accounts found"},
-                    completed_at=datetime.now()
+                    completed_at=datetime.now(timezone.utc)
                 )
                 return {
                     "success": True,
@@ -219,11 +219,11 @@ class TransactionSyncService:
                     "transactions_updated": total_updated,
                     "accounts_synced": len(accounts)
                 },
-                completed_at=datetime.now()
+                completed_at=datetime.now(timezone.utc)
             )
             
             # Update last sync time cache
-            self._last_sync_time[user_id] = datetime.now()
+            self._last_sync_time[user_id] = datetime.now(timezone.utc)
             
             logger.info(f"Sync completed for user {user_id}: {total_inserted} inserted, {total_updated} updated")
             
@@ -235,7 +235,7 @@ class TransactionSyncService:
                 "transactions_updated": total_updated,
                 "accounts_synced": len(accounts),
                 "cached": False,
-                "last_synced_at": datetime.now().isoformat(),
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
                 "staleness_seconds": 0
             }
             
@@ -249,7 +249,7 @@ class TransactionSyncService:
                     str(job.id),
                     status="failed",
                     data={**job.data, "error": str(e)},
-                    completed_at=datetime.now()
+                    completed_at=datetime.now(timezone.utc)
                 )
             
             return {
