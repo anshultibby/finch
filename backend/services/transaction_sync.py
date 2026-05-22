@@ -168,7 +168,7 @@ class TransactionSyncService:
             
             # Get all accounts for this user
             accounts = await self._get_user_accounts(
-                user_id,
+                snaptrade_user.snaptrade_user_id,
                 snaptrade_user.snaptrade_user_secret
             )
             
@@ -197,7 +197,7 @@ class TransactionSyncService:
             for account in accounts:
                 logger.info(f"Syncing account {account.get('id')} for user {user_id}")
                 result = await self._sync_account_transactions(
-                    user_id=user_id,
+                    user_id=snaptrade_user.snaptrade_user_id,
                     user_secret=snaptrade_user.snaptrade_user_secret,
                     account_id=account.get("id"),
                     start_date=start_date,
