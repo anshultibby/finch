@@ -141,26 +141,59 @@ function SandboxImage({
   );
 }
 
-const SUPERSCRIPT_DIGITS = '⁰¹²³⁴⁵⁶⁷⁸⁹';
-function toSuperscript(n: string): string {
-  return n.split('').map(d => SUPERSCRIPT_DIGITS[parseInt(d)] || d).join('');
-}
-const CITE_BADGE_RE = /^[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/;
+const CITE_BADGE_RE = /^\d+$/;
 
-// Convert [^N](url) → linked superscript badge, [^N] → non-linked badge.
-// Uses unicode superscript digits so remark-gfm doesn't treat them as footnotes.
+function extractCitations(md: string): Map<number, string> {
+  const refs = new Map<number, string>();
+  const linked = /\[\^(\d+)\]\((https?:\/\/[^)]+)\)/g;
+  let m;
+  while ((m = linked.exec(md)) !== null) {
+    refs.set(parseInt(m[1]), m[2]);
+  }
+  const defs = /^\[\^(\d+)\]:\s*(https?:\/\/\S+)/gm;
+  while ((m = defs.exec(md)) !== null) {
+    if (!refs.has(parseInt(m[1]))) refs.set(parseInt(m[1]), m[2]);
+  }
+  return refs;
+}
+
 function preprocessCitations(md: string): string {
-  // [^N](url) → linked badge
   let result = md.replace(/\[\^(\d+)\]\((https?:\/\/[^)]+)\)/g, (_m, n, url) =>
-    `[${toSuperscript(n)}](${url})`
+    `[${n}](${url})`
   );
-  // [^N] not followed by : (not a GFM definition) → non-linked badge
-  result = result.replace(/\[\^(\d+)\](?![:(])/g, (_m, n) =>
-    toSuperscript(n)
-  );
-  // Remove leftover GFM footnote definitions (model may still emit them)
+  result = result.replace(/\[\^(\d+)\](?![:(])/g, (_m, n) => n);
   result = result.replace(/^\[\^\d+\]:.*$/gm, '');
   return result;
+}
+
+function citationDomain(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return host;
+  } catch { return url; }
+}
+
+function CitationReferences({ citations }: { citations: Map<number, string> }) {
+  if (citations.size === 0) return null;
+  const sorted = Array.from(citations.entries()).sort((a, b) => a[0] - b[0]);
+  return (
+    <div className="mt-3 pt-2 border-t border-gray-200">
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {sorted.map(([num, url]) => (
+          <a
+            key={num}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors group/ref"
+          >
+            <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full shrink-0">{num}</span>
+            <span className="group-hover/ref:underline truncate max-w-[200px]">{citationDomain(url)}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Custom ReactMarkdown components that route sandbox image paths through the API
@@ -182,16 +215,17 @@ const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filen
   a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
     const text = typeof children === 'string' ? children
       : Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
-    if (CITE_BADGE_RE.test(text)) {
+    if (CITE_BADGE_RE.test(text.trim())) {
       return (
         <a
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="no-underline inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1 relative"
+          title={href}
+          className="no-underline inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[11px] font-bold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1.5 relative"
           {...props}
         >
-          {text}
+          {text.trim()}
         </a>
       );
     }
@@ -1069,6 +1103,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
   const editRef = React.useRef<HTMLTextAreaElement>(null);
   const contentCleaned = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
   const content = !isUser && contentCleaned ? preprocessCitations(contentCleaned) : contentCleaned;
+  const citations = React.useMemo(() => !isUser && contentCleaned ? extractCitations(contentCleaned) : new Map<number, string>(), [isUser, contentCleaned]);
   const hasSpecialTags = !isUser && content && (
     HAS_CURLY_TAGS_RE.test(content) ||
     /\[(file|visualization|image):\s*[^\]]+\]/.test(content)
@@ -1132,35 +1167,35 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
     }
 
     return (
-      <div className="flex justify-end mb-3 group/user">
-        <div className="max-w-3xl flex items-start gap-1.5">
-          <div className="flex items-center gap-0.5 mt-2 opacity-0 group-hover/user:opacity-100 transition-opacity">
-            <button
-              onClick={() => { navigator.clipboard.writeText(rawContent); setUserCopied(true); setTimeout(() => setUserCopied(false), 1500); }}
-              className="p-1 rounded-md text-gray-300 hover:text-gray-500"
-              title="Copy"
-            >
-              {userCopied ? (
-                <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-              ) : (
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-              )}
-            </button>
-            {onEditMessage && (
-              <button
-                onClick={() => { setEditText(rawContent); setIsEditing(true); }}
-                className="p-1 rounded-md text-gray-300 hover:text-gray-500"
-                title="Edit"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                </svg>
-              </button>
-            )}
-          </div>
+      <div className="flex flex-col items-end mb-3 group/user">
+        <div className="max-w-3xl">
           <div className="rounded-2xl px-4 py-3 bg-primary-600 text-white rounded-br-sm shadow-sm">
             <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{content}</p>
           </div>
+        </div>
+        <div className="flex items-center gap-0.5 mt-1 mr-1 opacity-0 group-hover/user:opacity-100 transition-opacity">
+          <button
+            onClick={() => { navigator.clipboard.writeText(rawContent); setUserCopied(true); setTimeout(() => setUserCopied(false), 1500); }}
+            className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all"
+            title="Copy"
+          >
+            {userCopied ? (
+              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+            )}
+          </button>
+          {onEditMessage && (
+            <button
+              onClick={() => { setEditText(rawContent); setIsEditing(true); }}
+              className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-all"
+              title="Edit"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1188,6 +1223,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
                 </ReactMarkdown>
               </div>
             )}
+            <CitationReferences citations={citations} />
             {actions && actions.length > 0 && (
               <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} onFeedback={onFeedback} feedbackGiven={feedbackGiven} setFeedbackModal={setFeedbackModal} />
             )}
@@ -1233,6 +1269,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
               </div>
             )
           )}
+          <CitationReferences citations={citations} />
           {swap_data && swap_data.length > 0 && (
             <SwapCards swaps={swap_data} userId={userId || ''} />
           )}

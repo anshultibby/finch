@@ -103,12 +103,9 @@ async def _emit_dream_event(dream_id: str, event_type: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 _PHASE_PATTERNS = [
-    (r"phase\s*1|replay|hippocampal", "replay"),
-    (r"phase\s*2|simulate|constructive\s*episodic", "simulate"),
-    (r"phase\s*3|mentalize|theory\s*of\s*mind", "mentalize"),
-    (r"phase\s*4|connect|creative\s*association", "connect"),
-    (r"phase\s*5|evaluate|value\s*estimation", "evaluate"),
-    (r"phase\s*6|consolidate|memory\s*consolidation", "consolidate"),
+    (r"step\s*1|read(?:ing)?(?:\s+all)?\s+store", "read"),
+    (r"step\s*2|extract|organize|organiz", "organize"),
+    (r"step\s*3|look\s*ahead|anticipat|next.session", "look-ahead"),
 ]
 
 
@@ -128,123 +125,122 @@ DREAMING_SYSTEM_ADDENDUM = """\
 
 
 <dreaming_mode>
-You are now in DREAMING MODE. This is NOT a conversation with the user. You are \
-alone with your memories — replaying, recombining, imagining, and consolidating.
+You are now in DREAMING MODE. This is NOT a conversation with the user.
 
-This process is modeled on the brain's default mode network: the system that \
-activates between tasks to replay experiences, simulate futures, model other \
-agents, and forge connections across distant memories. Follow all six phases.
+Your job is to be a LIBRARIAN for the user's memory wiki. You process recent \
+conversations, extract what matters, and organize it into a densely cross-linked \
+wiki — like a personal Wikipedia about the user's financial life.
 
-## Phase 1: REPLAY — Hippocampal Replay & Recombination
+## Step 1: READ
 
-Read your store files (`ls /home/user/store/`, `cat /home/user/store/*.md`) and \
-recent chat transcripts from `context/chats/`.
+Read all store files and recent chat transcripts:
+```
+ls /home/user/store/ && cat /home/user/store/*.md
+ls /home/user/store/journal/ 2>/dev/null && cat /home/user/store/journal/*.md 2>/dev/null
+ls /home/user/context/chats/ && cat /home/user/context/chats/*/*.md
+```
 
-Do NOT just review conversations in order. After reading, actively look for:
-- **Cross-conversation patterns** — themes, concerns, or questions that recur \
-across sessions the user may not have connected themselves
-- **Contradictions** — places where the user's stated preferences conflict with \
-their actual behavior (e.g., says they want diversification but keeps adding tech)
-- **Surprising overlaps** — a question from one conversation that sheds light on \
-a completely different conversation
+As you read, note what's new: facts, decisions, corrections, positions, \
+questions, mistakes.
 
-Write notable cross-links to `store/journal/` with today's date.
+## Step 2: ORGANIZE THE WIKI
 
-## Phase 2: SIMULATE — Constructive Episodic Simulation
+Think like Wikipedia. Pages should be about **topics**, not categories. \
+Don't shove everything into a few big files — create pages for whatever \
+deserves its own page.
 
-Imagine 2-3 concrete future scenarios the user is likely to face based on what \
-you know about their portfolio, interests, and current market conditions:
-- What market events might affect their holdings in the next 1-4 weeks?
-- What financial decisions are they approaching (earnings, rebalancing, tax events)?
-- What might they ask you about next, and what data would you want ready?
+Examples of good page names:
+- `VRDN.md` — everything known about this position: thesis, catalysts, risks, \
+dates, what the user thinks about it
+- `tax-loss-harvesting.md` — the user's approach, rules, past swaps
+- `concentrated-positions.md` — the user's philosophy on concentration vs. \
+diversification, how it shows up in their portfolio
+- `binary-events.md` — pattern of how the user trades around PDUFA dates, \
+earnings, etc.
+- `communication-style.md` — how the user wants Finch to respond
 
-For each scenario, write a brief anticipatory note to `store/anticipations.md` — \
-what to watch for, what data to pull, what to proactively surface. Replace the \
-file each dream (these are living predictions, not a log). Mark each with a date.
+Some pages will be about **stocks/positions**, some about **strategies**, \
+some about **the user**, some about **Finch itself**. Let the content dictate \
+the structure. Create a new page whenever a topic has enough substance to \
+stand alone — don't wait for permission.
 
-This is the medial temporal subsystem: constructing novel future scenes from \
-stored fragments, not just reviewing the past.
+A few pages are special and should always exist:
+- **next_session.md** — 2-3 things to proactively surface next conversation. \
+Replace each dream.
+- **journal/YYYY-MM-DD.md** — daily log of notable events and decisions.
 
-## Phase 3: MENTALIZE — Theory of Mind & Self-Model
+For every page:
+- **Bullet points**, not paragraphs. Keep pages under ~50 lines.
+- **Deduplicate** and **prune** stale content.
+- **Create new pages** when a topic outgrows its current location.
+- **Split big pages** — if a page covers 3 distinct topics, make it 3 pages.
 
-### User model
-Go beyond surface preferences. Build a model of the user as an agent:
-- What are their actual investment goals (not just stated — inferred from behavior)?
-- What are they anxious about? What makes them engage vs. disengage?
-- What are their blind spots — things they should be thinking about but aren't?
-- What do their corrections and pushback reveal about their mental model?
+### Cross-linking — the most important part
 
-Update `store/user_model.md` with concise bullet points. This file is your \
-theory of mind — not "user likes tables" but "user is building conviction for \
-a concentrated tech bet and wants data to stress-test it, not permission."
+A wiki without links is just a folder of files. Your job is to weave pages \
+into a connected knowledge graph using `[[page]]` syntax.
 
-### Self-model
-Reflect on your own patterns as Finch:
-- Where do you tend to over-explain or under-deliver?
-- What types of requests do you handle well vs. poorly?
-- Are there recurring failure modes (wrong data, missed intent, slow responses)?
+Link aggressively:
+- When a page mentions a stock that has its own page → `[[VRDN]]`
+- When a strategy references the user's preferences → `[[communication-style]]`
+- When a learning came from a specific position → `[[IMUX]]`
+- When a journal entry records a decision about a strategy → `[[concentrated-positions]]`
 
-Update `store/self_model.md`. Keep it under 20 lines. This feeds future behavior.
+Examples:
+- `- Holding through PDUFA (see [[binary-events]], [[VRDN]])`
+- `- User prefers stress-test framing over permission-seeking (see [[communication-style]])`
+- `- Missed warrant dilution in analysis — see [[IMUX]], [[learnings]]`
 
-## Phase 4: CONNECT — Creative Association
+Every page should link to at least 2 other pages. No orphans. After editing, \
+ask: "could someone navigate the full picture by following links from any \
+starting page?" If not, add more links.
 
-This is the divergent thinking phase. Cross-reference what you know about the \
-user's holdings, interests, and questions with broader market and financial \
-knowledge. Look for non-obvious connections:
-- A holding in one sector that creates exposure to a risk discussed in another context
-- A recurring question that points to an unmet need you could address differently
-- Two separate interests that intersect (e.g., AI exposure + energy costs = data center REITs)
+## Step 3: LOOK AHEAD (brief)
 
-If you find a genuinely useful connection, write it to `store/insights.md` with \
-a brief explanation. Keep only the 5-10 best insights. Prune aggressively — most \
-associations are noise.
-
-## Phase 5: EVALUATE — Value Estimation
-
-Score the outputs from phases 2-4. Not everything you imagined or connected is \
-worth keeping. For each item ask:
-- Would this actually change what I say or do in the next conversation?
-- Is this actionable or just interesting?
-- Confidence level: am I speculating or is this grounded in data?
-
-Delete low-value items. Promote high-value ones to `store/next_session.md` — \
-a short list of things to proactively surface or check at the start of the next \
-conversation. Replace this file each dream.
-
-## Phase 6: CONSOLIDATE — Memory Consolidation
-
-Now do the maintenance work:
-- Extract user preferences and corrections from recent conversations → \
-update `store/preferences.md`
-- Extract actionable learnings from mistakes → update `store/learnings.md`
-- Merge redundant entries across all store files
-- Promote recurring journal patterns to preferences or learnings
-- Remove stale or outdated notes
-- Keep each file under ~50 lines. Concise is better.
-
-Rate yourself 1-10 with brief justification.
+After organizing, update `next_session.md` with 2-3 things to surface next \
+conversation. If you spotted a non-obvious connection across topics, note it \
+on the relevant page — don't create a separate insights dump.
 
 ## Rules
 - USE YOUR TOOLS. Read and write files with bash.
-- Keep all store files CONCISE. Bullet points, not paragraphs.
-- Cross-link between pages using `[[page]]` wiki syntax (e.g., `see [[preferences]]`, \
-`related to [[user_model]]`). The user sees these as clickable links.
-- Be surgical with updates. Don't rewrite files that don't need it.
-- Phases 1-5 are the novel DMN-inspired work. Phase 6 is maintenance. Spend most \
-of your effort on 1-5 — that's where the value is.
-- End with a brief summary of what you changed, top insight, and self-score (1-10).
+- Spend ~80% of effort on Step 2 and ~20% on Step 3.
+- The wiki's value is in its LINKS. The user sees `[[page]]` as clickable \
+navigation in the UI. A well-linked wiki is the entire point.
+- Create pages freely. There is no fixed schema — the wiki grows organically.
+- Be surgical. Don't rewrite pages that don't need changes.
 - Do NOT attempt to message the user or take any external actions.
+
+## Final message (IMPORTANT)
+Your LAST message is shown directly to the user as the dream summary. Make it \
+a clear, readable recap of everything you did:
+- Which chat transcripts you processed
+- Pages created or updated (with brief note on what changed)
+- New connections or insights you noticed
+- What you put in next_session.md
+
+Keep it concise but complete — this is the user's only window into what the \
+dream accomplished.
 </dreaming_mode>
 """
 
-DREAMING_USER_PROMPT = """\
-Begin your dreaming session. Work through all six phases: REPLAY, SIMULATE, \
-MENTALIZE, CONNECT, EVALUATE, CONSOLIDATE.
+_DREAMING_USER_PROMPT_BASE = """\
+Begin your dreaming session. Read your store and recent chat transcripts, then \
+organize the wiki. Focus on extracting and filing new information from \
+conversations, deduplicating, pruning stale entries, and cross-linking. \
+After organizing, briefly update anticipations and next_session."""
 
-Start by reading your store contents and recent chat transcripts. After the \
-review, spend most of your effort on simulation, mentalizing, and creative \
-connections — the consolidation phase is important but the forward-looking \
-phases are where the real value lives."""
+
+def build_dreaming_user_prompt(last_dream_at: Optional[datetime] = None) -> str:
+    if not last_dream_at:
+        return _DREAMING_USER_PROMPT_BASE
+    ts = last_dream_at.strftime("%Y-%m-%d %H:%M UTC")
+    return (
+        f"{_DREAMING_USER_PROMPT_BASE}\n\n"
+        f"Your last dreaming session completed at {ts}. You must read chat "
+        f"transcripts from AFTER that time — those haven't been processed yet. "
+        f"You may also reference older transcripts if needed, but the new ones "
+        f"are the priority."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +263,7 @@ class DreamingService:
             return None
 
         from core.database import get_db_session
-        from crud.store import get_running_dream, get_recent_dream, create_dream
+        from crud.store import get_running_dream, get_recent_dream, get_last_completed_dream, create_dream
 
         async with get_db_session() as db:
             running = await get_running_dream(db, user_id)
@@ -275,16 +271,20 @@ class DreamingService:
                 logger.debug(f"Dream already running for user {user_id}, skipping")
                 return None
 
-            recent = await get_recent_dream(db, user_id, Config.DREAMING_COOLDOWN_MINUTES)
-            if recent:
-                logger.debug(f"Dream ran recently for user {user_id}, skipping (cooldown)")
-                return None
+            if trigger_type != "manual":
+                recent = await get_recent_dream(db, user_id, Config.DREAMING_COOLDOWN_MINUTES)
+                if recent:
+                    logger.debug(f"Dream ran recently for user {user_id}, skipping (cooldown)")
+                    return None
+
+            last_completed = await get_last_completed_dream(db, user_id)
+            last_dream_at = last_completed.completed_at if last_completed else None
 
             dream = await create_dream(db, user_id, trigger_type, chat_ids)
             dream_id = str(dream.id)
 
         _event_bus.init_dream(dream_id)
-        asyncio.create_task(self._execute_dream(dream_id, user_id, chat_ids or []))
+        asyncio.create_task(self._execute_dream(dream_id, user_id, chat_ids or [], last_dream_at))
         logger.info(f"Triggered dream {dream_id} for user {user_id} ({trigger_type})")
         return dream_id
 
@@ -293,6 +293,7 @@ class DreamingService:
         dream_id: str,
         user_id: str,
         source_chat_ids: List[str],
+        last_dream_at: Optional[datetime] = None,
     ) -> None:
         """Run the dream as a full agentic chat with tool access."""
         from core.database import get_db_session
@@ -323,14 +324,18 @@ class DreamingService:
             agent = await create_agent(context, user_id=user_id, skill_ids=[])
             agent.system_prompt = agent.system_prompt + DREAMING_SYSTEM_ADDENDUM
 
+            pre_files = await self._snapshot_store_files(user_id)
+
+            user_prompt = build_dreaming_user_prompt(last_dream_at)
+
             empty_history = ChatHistory(chat_id=dream_chat_id, user_id=user_id)
-            empty_history.add_user_message(DREAMING_USER_PROMPT)
+            empty_history.add_user_message(user_prompt)
 
             last_assistant_content = ""
             streaming_text = ""
             output_diff = []
             seen_paths = set()
-            transcript: List[dict] = [{"role": "user", "content": DREAMING_USER_PROMPT}]
+            transcript: List[dict] = [{"role": "user", "content": user_prompt}]
             current_phase = None
             tool_count = 0
 
@@ -340,7 +345,7 @@ class DreamingService:
             logger.info(f"Dream {dream_id}: starting agent stream, subscribers={len(_event_bus._subscribers.get(dream_id, []))}")
 
             async for event in agent.process_message_stream(
-                message=DREAMING_USER_PROMPT,
+                message=user_prompt,
                 chat_history=empty_history,
                 history_limit=50,
             ):
@@ -429,7 +434,16 @@ class DreamingService:
                                     **diff_entry,
                                 })
 
-            summary = last_assistant_content[:2000] if last_assistant_content else "Dream completed"
+            post_files = await self._snapshot_store_files(user_id)
+            file_changes = self._compute_file_changes(pre_files, post_files)
+
+            summary = last_assistant_content if last_assistant_content else "Dream completed"
+            if file_changes:
+                changes_section = "\n\n**Files changed:**\n" + "\n".join(
+                    f"- {'+ ' if c['action'] == 'added' else '- ' if c['action'] == 'deleted' else '~ '}{c['path']}"
+                    for c in file_changes
+                )
+                summary = summary + changes_section
             self_score = self._extract_score(last_assistant_content)
 
             async with get_db_session() as db:
@@ -439,7 +453,7 @@ class DreamingService:
                     status="completed",
                     summary=summary,
                     self_score=self_score,
-                    output_diff=output_diff if output_diff else None,
+                    output_diff=file_changes if file_changes else (output_diff if output_diff else None),
                     transcript=transcript,
                     completed_at=datetime.now(timezone.utc),
                 )
@@ -487,8 +501,40 @@ class DreamingService:
             out[k] = s[:max_len] + "..." if len(s) > max_len else s
         return out
 
+    @staticmethod
+    async def _snapshot_store_files(user_id: str) -> dict[str, int]:
+        """Return {relative_path: size} for all files in the user's store."""
+        try:
+            from modules.tools.implementations.code_execution import get_or_create_sandbox
+            entry = await get_or_create_sandbox(user_id, envs={})
+            entries = await entry.sbx.files.list("/home/user/store", depth=3)
+            result = {}
+            for e in entries:
+                if hasattr(e, "type") and e.type == "dir":
+                    continue
+                name = e.name if hasattr(e, "name") else str(e)
+                size = e.size if hasattr(e, "size") else 0
+                result[name] = size
+            return result
+        except Exception as exc:
+            logger.debug(f"Could not snapshot store files: {exc}")
+            return {}
+
+    @staticmethod
+    def _compute_file_changes(
+        before: dict[str, int], after: dict[str, int]
+    ) -> List[dict]:
+        changes = []
+        for path in sorted(after.keys() - before.keys()):
+            changes.append({"path": path, "action": "added"})
+        for path in sorted(before.keys() - after.keys()):
+            changes.append({"path": path, "action": "deleted"})
+        for path in sorted(before.keys() & after.keys()):
+            if before[path] != after[path]:
+                changes.append({"path": path, "action": "modified"})
+        return changes
+
     def _extract_score(self, text: str) -> Optional[int]:
-        """Try to extract a self-score (1-10) from the agent's final message."""
         patterns = [
             r'(?:self[- ]?score|rating|score)[:\s]*(\d{1,2})\s*/\s*10',
             r'(\d{1,2})\s*/\s*10',

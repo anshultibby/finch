@@ -129,6 +129,16 @@ async def get_running_dream(db: AsyncSession, user_id: str) -> Optional[Dream]:
     return result.scalar_one_or_none()
 
 
+async def get_last_completed_dream(db: AsyncSession, user_id: str) -> Optional[Dream]:
+    result = await db.execute(
+        select(Dream).where(
+            Dream.user_id == user_id,
+            Dream.status == "completed",
+        ).order_by(Dream.completed_at.desc()).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_recent_dream(
     db: AsyncSession,
     user_id: str,

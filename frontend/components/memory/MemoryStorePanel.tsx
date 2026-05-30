@@ -60,12 +60,6 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-function scoreColor(score: number): string {
-  if (score >= 8) return 'text-emerald-600 bg-emerald-50';
-  if (score >= 6) return 'text-amber-600 bg-amber-50';
-  return 'text-red-600 bg-red-50';
-}
-
 function processWikiLinks(text: string): string {
   return text.replace(/\[\[([^\]]+)\]\]/g, (_, page) => {
     const slug = page.trim();
@@ -236,7 +230,7 @@ function TranscriptViewer({ entries }: { entries: TranscriptEntry[] }) {
       {entries.map((entry, idx) => {
         if (entry.role === 'user') {
           return (
-            <div key={idx} className="flex gap-2">
+            <div key={idx} className="flex gap-2.5">
               <div className="w-5 h-5 rounded bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
                 <span className="text-[10px] text-gray-500 font-medium">U</span>
               </div>
@@ -251,25 +245,30 @@ function TranscriptViewer({ entries }: { entries: TranscriptEntry[] }) {
             <div key={idx} className="ml-7">
               <button
                 onClick={() => toggleTool(idx)}
-                className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600 font-mono transition-colors"
+                className="flex items-center gap-2 py-1 px-2 -mx-2 rounded hover:bg-gray-50 transition-colors group w-full text-left"
               >
-                <span className="text-[9px]">{isOpen ? '▼' : '▶'}</span>
-                <span className="text-amber-600">{entry.tool_name}</span>
+                <svg className={`w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span className="text-[11px] font-mono font-medium text-amber-700">{entry.tool_name}</span>
+                {!isOpen && entry.output && (
+                  <span className="text-[10px] text-gray-400 truncate ml-1 flex-1">{entry.output.slice(0, 60)}...</span>
+                )}
               </button>
               {isOpen && (
-                <div className="mt-1 ml-3 border-l-2 border-gray-100 pl-3 space-y-1">
+                <div className="mt-1.5 ml-5 border-l-2 border-amber-100 pl-3 space-y-2 pb-1">
                   {entry.input && Object.keys(entry.input).length > 0 && (
                     <div>
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase">Input</span>
-                      <pre className="text-[11px] text-gray-500 whitespace-pre-wrap mt-0.5 max-h-32 overflow-auto">
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Input</span>
+                      <pre className="text-[11px] text-gray-600 bg-gray-50 rounded p-2 mt-1 whitespace-pre-wrap max-h-40 overflow-auto">
                         {Object.entries(entry.input).map(([k, v]) => `${k}: ${v}`).join('\n')}
                       </pre>
                     </div>
                   )}
                   {entry.output && (
                     <div>
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase">Output</span>
-                      <pre className="text-[11px] text-gray-500 whitespace-pre-wrap mt-0.5 max-h-32 overflow-auto">{entry.output}</pre>
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Output</span>
+                      <pre className="text-[11px] text-gray-600 bg-gray-50 rounded p-2 mt-1 whitespace-pre-wrap max-h-40 overflow-auto">{entry.output}</pre>
                     </div>
                   )}
                 </div>
@@ -279,12 +278,12 @@ function TranscriptViewer({ entries }: { entries: TranscriptEntry[] }) {
         }
 
         return (
-          <div key={idx} className="flex gap-2">
+          <div key={idx} className="flex gap-2.5">
             <div className="w-5 h-5 rounded bg-gray-800 flex items-center justify-center shrink-0 mt-0.5">
               <span className="text-[10px] text-white font-medium">A</span>
             </div>
             <div className="text-xs text-gray-700 leading-relaxed flex-1">
-              <div className="prose prose-xs prose-gray max-w-none">
+              <div className="prose prose-xs prose-gray max-w-none [&_p]:text-[13px] [&_li]:text-[13px]">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content || ''}</ReactMarkdown>
               </div>
             </div>
@@ -338,11 +337,6 @@ function DreamLog({
               <div className="flex items-center gap-1.5 shrink-0">
                 {dream.status === 'running' && (
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                )}
-                {dream.self_score != null && (
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${scoreColor(dream.self_score)}`}>
-                    {dream.self_score}/10
-                  </span>
                 )}
               </div>
             </div>
@@ -480,15 +474,12 @@ function ContentViewer({
 
 const PHASE_LABELS: Record<string, string> = {
   starting: 'Starting up',
-  replay: 'Phase 1: Replay',
-  simulate: 'Phase 2: Simulate',
-  mentalize: 'Phase 3: Mentalize',
-  connect: 'Phase 4: Connect',
-  evaluate: 'Phase 5: Evaluate',
-  consolidate: 'Phase 6: Consolidate',
+  read: 'Reading store & chats',
+  organize: 'Extracting & organizing',
+  'look-ahead': 'Looking ahead',
 };
 
-const PHASE_ORDER = ['replay', 'simulate', 'mentalize', 'connect', 'evaluate', 'consolidate'];
+const PHASE_ORDER = ['read', 'organize', 'look-ahead'];
 
 function DreamProgressView({ dream, onDreamComplete }: { dream: Dream; onDreamComplete: () => void }) {
   const [phase, setPhase] = useState<string>('starting');
@@ -626,15 +617,7 @@ function DreamProgressView({ dream, onDreamComplete }: { dream: Dream; onDreamCo
         {/* Completion result */}
         {completed && result && (
           <div className="border border-gray-100 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-sm font-medium text-gray-800">Dream complete</span>
-              {result.self_score != null && (
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${scoreColor(result.self_score)}`}>
-                  {result.self_score}/10
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-600 leading-relaxed">{result.summary}</p>
+            <span className="text-sm font-medium text-gray-800">Dream complete</span>
           </div>
         )}
       </div>
@@ -646,27 +629,57 @@ function DreamProgressView({ dream, onDreamComplete }: { dream: Dream; onDreamCo
 // Dream Content Viewer (right pane)
 // ---------------------------------------------------------------------------
 
-function DreamContentViewer({ dream, onNavigate }: { dream: Dream; onNavigate: (filename: string) => void }) {
+const IS_DEV = process.env.NODE_ENV === 'development';
+
+function DreamTranscriptSection({ dreamId }: { dreamId: string }) {
+  const [open, setOpen] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (!IS_DEV || !open || transcript !== null) return;
     let cancelled = false;
     setLoading(true);
-    storeApi.getDreamTranscript(dream.id).then(data => {
-      if (!cancelled) {
-        setTranscript(data.transcript || []);
-        setLoading(false);
-      }
+    storeApi.getDreamTranscript(dreamId).then(data => {
+      if (!cancelled) { setTranscript(data.transcript || []); setLoading(false); }
     }).catch(() => {
-      if (!cancelled) {
-        setTranscript([]);
-        setLoading(false);
-      }
+      if (!cancelled) { setTranscript([]); setLoading(false); }
     });
     return () => { cancelled = true; };
-  }, [dream.id]);
+  }, [open, dreamId, transcript]);
 
+  if (!IS_DEV) return null;
+
+  return (
+    <div className="border-t border-gray-100">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-5 py-3 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50/50 transition-colors"
+      >
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="font-medium">Transcript (dev)</span>
+        {loading && <div className="w-3 h-3 border border-gray-300 border-t-gray-500 rounded-full animate-spin ml-1" />}
+      </button>
+      {open && (
+        <div className="px-5 pb-5">
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+            </div>
+          ) : transcript && transcript.length > 0 ? (
+            <TranscriptViewer entries={transcript} />
+          ) : (
+            <p className="text-xs text-gray-400 py-4">No transcript recorded</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DreamContentViewer({ dream, onNavigate }: { dream: Dream; onNavigate: (filename: string) => void }) {
   const duration = formatDuration(dream.started_at, dream.completed_at);
   const dateStr = new Date(dream.created_at).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -677,66 +690,29 @@ function DreamContentViewer({ dream, onNavigate }: { dream: Dream; onNavigate: (
 
   return (
     <div className="flex flex-col h-full">
+      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-gray-800 font-mono">drm_{dream.id.slice(0, 8)}</span>
           {statusBadge(dream.status)}
-          {dream.self_score != null && (
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${scoreColor(dream.self_score)}`}>
-              {dream.self_score}/10
-            </span>
-          )}
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+        <div className="flex items-center gap-3 text-[11px] text-gray-400">
+          {duration && <span>{duration}</span>}
           <span>{dateStr}, {timeStr}</span>
-          {duration && <><span>·</span><span>{duration}</span></>}
         </div>
       </div>
 
       <div className="flex-1 overflow-auto">
-        {/* Summary */}
+        {/* Summary — the main content */}
         {dream.summary && (
-          <div className="px-5 py-4 border-b border-gray-50">
-            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Summary</p>
-            <div className="prose prose-sm prose-gray max-w-none">
+          <div className="px-5 py-4">
+            <div className="prose prose-sm prose-gray max-w-none [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-4 [&_h2]:mb-1.5 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_p]:text-[13px] [&_li]:text-[13px] [&_table]:text-xs">
               <WikiMarkdown content={dream.summary} onNavigate={onNavigate} />
             </div>
           </div>
         )}
 
-        {/* Memory updates */}
-        {dream.output_diff && dream.output_diff.length > 0 && (
-          <div className="px-5 py-4 border-b border-gray-50">
-            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Files changed ({dream.output_diff.length})
-            </p>
-            <div className="space-y-0.5">
-              {dream.output_diff.map((d, i) => (
-                <div key={i} className="flex items-center gap-2 py-1 text-xs font-mono text-gray-600">
-                  <span className="text-gray-300">-</span>
-                  <span className="truncate flex-1">{d.path.replace(/^\/home\/user\//, '').replace(/^store\//, '')}</span>
-                  {d.is_new && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">new</span>}
-                  {d.lines_added != null && <span className="text-emerald-600">+{d.lines_added}</span>}
-                  {d.lines_removed != null && <span className="text-red-500">-{d.lines_removed}</span>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Transcript */}
-        <div className="px-5 py-4">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Transcript</p>
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
-            </div>
-          ) : transcript && transcript.length > 0 ? (
-            <TranscriptViewer entries={transcript} />
-          ) : (
-            <p className="text-xs text-gray-400">No transcript recorded for this dream</p>
-          )}
-        </div>
+        {/* Transcript — collapsed by default, lazy-loaded on expand */}
+        <DreamTranscriptSection dreamId={dream.id} />
       </div>
     </div>
   );
@@ -801,9 +777,12 @@ export default function MemoryStorePanel() {
     loadFiles();
   }, [user, selectedFile, loadFiles]);
 
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+
   const handleTriggerDream = useCallback(async () => {
     if (!user || triggering) return;
     setTriggering(true);
+    setTriggerError(null);
     try {
       const data = await storeApi.triggerDream();
       if (data.dream_id) {
@@ -820,7 +799,13 @@ export default function MemoryStorePanel() {
         setTab('dreams');
       }
     } catch (e: any) {
-      // Could show a toast here
+      const msg = e?.message || '';
+      if (msg.includes('already running') || msg.includes('cooldown')) {
+        setTriggerError('A dream is already running');
+      } else {
+        setTriggerError('Failed to trigger dream');
+      }
+      setTimeout(() => setTriggerError(null), 4000);
     } finally {
       setTriggering(false);
     }
@@ -880,6 +865,9 @@ export default function MemoryStorePanel() {
                 >
                   {triggering ? 'Triggering...' : 'Trigger Dream'}
                 </button>
+                {triggerError && (
+                  <p className="text-[11px] text-red-500 mt-1 px-0.5">{triggerError}</p>
+                )}
               </div>
               <DreamLog
                 dreams={dreams}
