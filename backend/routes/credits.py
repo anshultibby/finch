@@ -387,11 +387,11 @@ async def cancel_subscription(
                 current_period_end=period_end,
             )
             end_str = period_end.strftime("%b %d, %Y") if period_end else "end of billing period"
-            reason_str = f" ({request.reason})" if request.reason else ""
             await CreditsService.add_credits(
                 db, request.user_id, 0,
                 transaction_type="subscription_cancelled",
-                description=f"Pro subscription cancelled{reason_str} — active until {end_str}",
+                description=f"Pro subscription cancelled — active until {end_str}",
+                metadata={"reason": request.reason} if request.reason else None,
             )
 
         return {
@@ -411,7 +411,7 @@ async def resubscribe(
     await verify_user_access(request.user_id, authenticated_user_id)
     import stripe
 
-    if not Config.STRIPE_SECRET_KEY:
+    if not Config.STRIPE_SECRET_KEY or not Config.STRIPE_PRO_PRICE_ID:
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
     async with get_db_session() as db:
@@ -425,26 +425,37 @@ async def resubscribe(
         sub_id = row[0] if row else None
         sub_status = row[1] if row else None
 
-    if not sub_id or sub_status not in ("active",):
-        raise HTTPException(status_code=400, detail="No cancellable subscription found")
-
     client = stripe.StripeClient(Config.STRIPE_SECRET_KEY)
+
+    if sub_id and sub_status == "active":
+        try:
+            sub = client.v1.subscriptions.update(sub_id, {"cancel_at_period_end": False})
+            from datetime import datetime, timezone
+            cancel_at = sub.cancel_at
+            period_end = datetime.fromtimestamp(cancel_at, tz=timezone.utc) if cancel_at else None
+
+            async with get_db_session() as db:
+                await CreditsService.set_subscription_info(
+                    db, request.user_id,
+                    cancel_at_period_end=False,
+                    current_period_end=period_end,
+                )
+            return {"success": True}
+        except Exception as e:
+            logger.warning(f"Could not undo cancellation, creating new checkout: {e}")
+
+    base_url = Config.FRONTEND_URL or "http://localhost:3000"
     try:
-        sub = client.v1.subscriptions.update(sub_id, {"cancel_at_period_end": False})
-        from datetime import datetime, timezone
-        cancel_at = sub.cancel_at
-        period_end = datetime.fromtimestamp(cancel_at, tz=timezone.utc) if cancel_at else None
-
-        async with get_db_session() as db:
-            await CreditsService.set_subscription_info(
-                db, request.user_id,
-                cancel_at_period_end=False,
-                current_period_end=period_end,
-            )
-
-        return {"success": True}
+        session = client.v1.checkout.sessions.create({
+            "mode": "subscription",
+            "line_items": [{"price": Config.STRIPE_PRO_PRICE_ID, "quantity": 1}],
+            "success_url": f"{base_url}?upgraded=true",
+            "cancel_url": base_url,
+            "client_reference_id": request.user_id,
+        })
+        return {"success": True, "checkout_url": session.url}
     except Exception as e:
-        logger.error(f"Stripe resubscribe error: {e}")
+        logger.error(f"Stripe resubscribe checkout error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

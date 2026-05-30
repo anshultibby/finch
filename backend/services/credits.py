@@ -355,7 +355,8 @@ class CreditsService:
         user_id: str,
         credits: int,
         transaction_type: str = "admin_adjustment",
-        description: str = "Credits added"
+        description: str = "Credits added",
+        metadata: Optional[dict] = None,
     ) -> bool:
         """
         Add credits to user balance and log transaction.
@@ -391,7 +392,7 @@ class CreditsService:
             balance_after=new_balance,
             transaction_type=transaction_type,
             description=description,
-            transaction_metadata=None
+            transaction_metadata=metadata
         )
         db.add(transaction)
 

@@ -28,6 +28,7 @@ export default function CreditsModal() {
   const [toppingUp, setToppingUp] = useState<number | null>(null);
   const [cancelStep, setCancelStep] = useState<'idle' | 'confirming' | 'cancelling'>('idle');
   const [cancelReason, setCancelReason] = useState<string | null>(null);
+  const [cancelOtherText, setCancelOtherText] = useState('');
   const [resubscribing, setResubscribing] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [promoStatus, setPromoStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
@@ -37,6 +38,7 @@ export default function CreditsModal() {
     if (!modalOpen) {
       setCancelStep('idle');
       setCancelReason(null);
+      setCancelOtherText('');
       return;
     }
     if (tab === 'history' && user) {
@@ -71,10 +73,14 @@ export default function CreditsModal() {
     if (!user) return;
     setCancelStep('cancelling');
     try {
-      await creditsApi.cancelSubscription(user.id, cancelReason || undefined);
+      const reason = cancelReason === 'Other' && cancelOtherText.trim()
+        ? `Other: ${cancelOtherText.trim()}`
+        : cancelReason || undefined;
+      await creditsApi.cancelSubscription(user.id, reason);
       await refresh();
       setCancelStep('idle');
       setCancelReason(null);
+      setCancelOtherText('');
     } catch {
       setCancelStep('idle');
     }
@@ -84,7 +90,11 @@ export default function CreditsModal() {
     if (!user) return;
     setResubscribing(true);
     try {
-      await creditsApi.resubscribe(user.id);
+      const res = await creditsApi.resubscribe(user.id);
+      if (res.checkout_url) {
+        window.location.href = res.checkout_url;
+        return;
+      }
       await refresh();
     } catch {}
     setResubscribing(false);
@@ -156,7 +166,7 @@ export default function CreditsModal() {
                   <div>
                     <p className="text-sm font-medium text-gray-900">Why are you cancelling?</p>
                     <div className="mt-2 space-y-1.5">
-                      {['Too expensive', 'Not using it enough', 'Missing features I need', 'Just trying it out'].map(reason => (
+                      {['Too expensive', 'Not using it enough', 'Missing features I need', 'Just trying it out', 'Other'].map(reason => (
                         <button
                           key={reason}
                           onClick={() => setCancelReason(reason)}
@@ -169,6 +179,16 @@ export default function CreditsModal() {
                           {reason}
                         </button>
                       ))}
+                      {cancelReason === 'Other' && (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={cancelOtherText}
+                          onChange={e => setCancelOtherText(e.target.value)}
+                          placeholder="Tell us more..."
+                          className="w-full mt-1 px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300"
+                        />
+                      )}
                     </div>
                     <p className="text-[11px] text-gray-400 mt-2">
                       Active until {currentPeriodEnd ? formatDate(currentPeriodEnd) : 'end of billing period'}
@@ -182,7 +202,7 @@ export default function CreditsModal() {
                       </button>
                       <button
                         onClick={handleCancel}
-                        disabled={!cancelReason}
+                        disabled={!cancelReason || (cancelReason === 'Other' && !cancelOtherText.trim())}
                         className="flex-1 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
                       >
                         Cancel Subscription

@@ -744,7 +744,7 @@ export const creditsApi = {
     return response.data;
   },
 
-  resubscribe: async (userId: string): Promise<{ success: boolean }> => {
+  resubscribe: async (userId: string): Promise<{ success: boolean; checkout_url?: string }> => {
     const response = await api.post('/credits/resubscribe', { user_id: userId });
     return response.data;
   },
