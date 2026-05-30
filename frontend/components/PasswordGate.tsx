@@ -17,12 +17,16 @@ const prompts = [
 ];
 
 export default function AuthGate({ children }: AuthGateProps) {
-  const { user, loading, signInWithGoogle } = useAuth();
+  const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState('');
   const [currentPrompt, setCurrentPrompt] = useState(0);
   const [displayText, setDisplayText] = useState('');
   const [typing, setTyping] = useState(true);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     if (user) return;
@@ -53,6 +57,29 @@ export default function AuthGate({ children }: AuthGateProps) {
       await signInWithGoogle();
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
+      setSigningIn(false);
+    }
+  };
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    try {
+      setSigningIn(true);
+      setError('');
+      setMessage('');
+      if (mode === 'signup') {
+        const { needsConfirmation } = await signUpWithEmail(email, password);
+        if (needsConfirmation) {
+          setMessage('Account created. Check your email to confirm, then sign in.');
+          setMode('signin');
+        }
+      } else {
+        await signInWithEmail(email, password);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to authenticate');
+    } finally {
       setSigningIn(false);
     }
   };
@@ -115,8 +142,62 @@ export default function AuthGate({ children }: AuthGateProps) {
             </svg>
             {signingIn ? 'Signing in...' : 'Start with Google'}
           </button>
+
+          {/* Email / password */}
+          <div className="mt-6 w-full max-w-xs">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-px bg-gray-200 flex-1" />
+              <span className="text-xs text-gray-400">or</span>
+              <div className="h-px bg-gray-200 flex-1" />
+            </div>
+
+            <form onSubmit={handleEmailSubmit} className="flex flex-col gap-2.5">
+              <input
+                type="email"
+                autoComplete="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-white/70 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <input
+                type="password"
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-white/70 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                type="submit"
+                disabled={signingIn}
+                className="w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {signingIn ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
+              </button>
+            </form>
+
+            <p className="mt-3 text-center text-xs text-gray-500">
+              {mode === 'signup' ? 'Already have an account?' : "Don't have an account?"}{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode(mode === 'signup' ? 'signin' : 'signup');
+                  setError('');
+                  setMessage('');
+                }}
+                className="font-semibold text-emerald-600 hover:text-emerald-700"
+              >
+                {mode === 'signup' ? 'Sign in' : 'Sign up'}
+              </button>
+            </p>
+          </div>
+
           {error && (
             <p className="text-red-500 text-sm mt-3">{error}</p>
+          )}
+          {message && (
+            <p className="text-emerald-700 text-sm mt-3">{message}</p>
           )}
 
           <p className="text-gray-400 text-xs mt-4">Free to sign up. No credit card.</p>

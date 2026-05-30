@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "e2e": "playwright test",
+    "e2e:ux": "playwright test landing.public app-tour.app",
+    "e2e:headed": "playwright test --headed",
+    "e2e:report": "playwright show-report tests/__report__"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.5",
@@ -28,6 +32,7 @@
     "snaptrade-react": "^3.2.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/typography": "^0.5.10",
     "@types/node": "^20.10.5",
     "@types/react": "^18.2.45",

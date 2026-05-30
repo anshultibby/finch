@@ -188,6 +188,17 @@ export default function PriceRangeChart(props: Props) {
     return refPts.length ? refPts[refPts.length - 1].value : 0;
   }, [lines]);
 
+  // Single-symbol charts plot actual price on the Y-axis (not % change). The
+  // fetched series is % change anchored to the period-start close, so we
+  // reconstruct price from the known currentPrice: the last point's % maps to
+  // currentPrice, which fixes the period-start price; every point follows.
+  // Multi-symbol (comparison) charts stay in % — that's the only sensible shared
+  // axis across differently-priced tickers.
+  const priceMode =
+    isSymbolMode && singleSeries && typeof currentPrice === 'number' && currentPrice > 0;
+  const periodStartPrice = priceMode ? currentPrice! / (1 + periodEndValue / 100) : 0;
+  const toPrice = (pctVal: number) => periodStartPrice * (1 + pctVal / 100);
+
   useEffect(() => {
     if (hasData) onPeriodChange?.(periodEndValue);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,6 +229,11 @@ export default function PriceRangeChart(props: Props) {
         textColor: '#9ca3af',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: 11,
+      },
+      localization: {
+        // Single-symbol charts show price ($); comparison charts show % change.
+        priceFormatter: (price: number) =>
+          format === 'currency' || priceMode ? fmtCurrency(price) : `${price.toFixed(2)}%`,
       },
       grid: {
         vertLines: { visible: false },
@@ -264,7 +280,7 @@ export default function PriceRangeChart(props: Props) {
       const lineColor = line.color;
       const chartData = line.data.map(p => ({
         time: toUTCTimestamp(p.date),
-        value: p.value,
+        value: priceMode ? toPrice(p.value) : p.value,
       }));
 
       if (singleSeries) {
@@ -284,9 +300,10 @@ export default function PriceRangeChart(props: Props) {
         });
         series.setData(chartData as any);
 
-        if (format === 'pct' && line.data.length > 0) {
+        if ((format === 'pct' || priceMode) && line.data.length > 0) {
+          // Dashed reference at the period-start value (0% / start price).
           series.createPriceLine({
-            price: line.data[0].value,
+            price: priceMode ? toPrice(line.data[0].value) : line.data[0].value,
             color: '#d1d5db',
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
@@ -346,6 +363,11 @@ export default function PriceRangeChart(props: Props) {
         return;
       }
 
+      // In price mode the plotted value is a price; convert back to % so the
+      // header/tooltip math (which is %-based) keeps working unchanged.
+      const pctVal =
+        priceMode && periodStartPrice ? (sd.value / periodStartPrice - 1) * 100 : sd.value;
+
       const timeVal = param.time as number;
       const d = new Date(timeVal * 1000);
       const dateStr = d.toISOString();
@@ -356,13 +378,13 @@ export default function PriceRangeChart(props: Props) {
 
       const point = param.point;
       if (point) {
-        setHoverInfo({ x: point.x, y: point.y, date: formattedDate, value: sd.value });
+        setHoverInfo({ x: point.x, y: point.y, date: formattedDate, value: pctVal });
       }
 
-      setHoverValue(sd.value);
+      setHoverValue(pctVal);
       onHoverChange?.({
         date: dateStr,
-        value: sd.value,
+        value: pctVal,
         periodEndValue,
       });
     });
@@ -379,7 +401,7 @@ export default function PriceRangeChart(props: Props) {
       seriesRefs.current = [];
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, hasData, lines, height, singleSeries, format, props.markers]);
+  }, [loading, hasData, lines, height, singleSeries, format, props.markers, priceMode, periodStartPrice]);
 
   return (
     <div className={`flex flex-col ${className}`}>

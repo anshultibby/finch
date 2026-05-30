@@ -65,9 +65,10 @@ function useTypingAnimation() {
 }
 
 export default function LoginScreen() {
-  const { signInWithGoogle, signInWithEmail } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [showEmailLogin, setShowEmailLogin] = useState(false);
+  const [emailMode, setEmailMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const typingText = useTypingAnimation();
@@ -87,9 +88,23 @@ export default function LoginScreen() {
     if (!email || !password) return;
     setIsLoading(true);
     try {
-      await signInWithEmail(email, password);
+      if (emailMode === 'signup') {
+        const { needsConfirmation } = await signUpWithEmail(email, password);
+        if (needsConfirmation) {
+          Alert.alert(
+            'Confirm your email',
+            'Account created. Check your email to confirm, then sign in.'
+          );
+          setEmailMode('signin');
+        }
+      } else {
+        await signInWithEmail(email, password);
+      }
     } catch (error: any) {
-      Alert.alert('Sign in failed', error.message || 'Invalid credentials');
+      Alert.alert(
+        emailMode === 'signup' ? 'Sign up failed' : 'Sign in failed',
+        error.message || 'Invalid credentials'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -181,8 +196,20 @@ export default function LoginScreen() {
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.emailBtnText}>Sign in</Text>
+                <Text style={styles.emailBtnText}>
+                  {emailMode === 'signup' ? 'Create account' : 'Sign in'}
+                </Text>
               )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setEmailMode(emailMode === 'signup' ? 'signin' : 'signup')}
+              style={styles.emailToggle}
+            >
+              <Text style={styles.emailToggleText}>
+                {emailMode === 'signup'
+                  ? 'Already have an account? Sign in'
+                  : "Don't have an account? Sign up"}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (
