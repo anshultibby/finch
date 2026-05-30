@@ -705,6 +705,7 @@ export default function ChatView({
               <button
                 onClick={() => {
                   setEmailRequested(true);
+                  setEmailDismissed(true);
                   chatApi.requestEmailNotification(currentChatId).catch(() => {});
                   setTimeout(() => setEmailRequested(false), 3000);
                 }}
