@@ -669,6 +669,9 @@ export interface CreditBalance {
   credits: number;
   total_credits_used: number;
   plan: string;
+  subscription_status: string | null;
+  cancel_at_period_end: boolean;
+  current_period_end: string | null;
 }
 
 export interface CreditTransaction {
@@ -736,19 +739,27 @@ export const creditsApi = {
     return response.data;
   },
 
-  createPortalSession: async (userId: string): Promise<{ url: string }> => {
-    const response = await api.post<{ url: string }>('/credits/portal', {
+  cancelSubscription: async (userId: string, reason?: string): Promise<{ success: boolean; current_period_end: string }> => {
+    const response = await api.post('/credits/cancel-subscription', { user_id: userId, reason });
+    return response.data;
+  },
+
+  resubscribe: async (userId: string): Promise<{ success: boolean }> => {
+    const response = await api.post('/credits/resubscribe', { user_id: userId });
+    return response.data;
+  },
+
+  createCheckout: async (userId: string): Promise<{ url: string }> => {
+    const response = await api.post<{ url: string }>('/credits/checkout', {
       user_id: userId,
-      return_url: window.location.href,
     });
     return response.data;
   },
 
-  createCheckout: async (userId: string): Promise<{ url: string; session_id: string }> => {
-    const response = await api.post<{ url: string; session_id: string }>('/credits/checkout', {
+  createTopup: async (userId: string, amountCents: number): Promise<{ url: string }> => {
+    const response = await api.post<{ url: string }>('/credits/topup', {
       user_id: userId,
-      success_url: `${window.location.origin}?upgraded=true`,
-      cancel_url: window.location.href,
+      amount_cents: amountCents,
     });
     return response.data;
   },

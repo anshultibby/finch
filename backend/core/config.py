@@ -163,6 +163,10 @@ class Settings(BaseSettings):
         default=8000,
         description="Port for the API server"
     )
+    FRONTEND_URL: str = Field(
+        default="http://localhost:3000",
+        description="Frontend base URL for Stripe redirects"
+    )
     CORS_ORIGINS: str = Field(
         default="http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:8081,http://192.168.1.66:8081,http://192.168.1.66:19006,https://finch-omega.vercel.app,https://finchapp.ai,https://www.finchapp.ai",
         description="Allowed CORS origins (comma-separated)"

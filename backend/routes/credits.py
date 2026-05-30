@@ -20,11 +20,13 @@ router = APIRouter(prefix="/credits", tags=["credits"])
 
 
 class CreditBalanceResponse(BaseModel):
-    """Response model for credit balance"""
     user_id: str
     credits: int
     total_credits_used: int
     plan: str = "free"
+    subscription_status: Optional[str] = None
+    cancel_at_period_end: bool = False
+    current_period_end: Optional[str] = None
 
 
 class AddCreditsRequest(BaseModel):
@@ -78,19 +80,29 @@ async def get_credit_balance(
             from models.user import SnapTradeUser
             
             result = await db.execute(
-                select(SnapTradeUser.credits, SnapTradeUser.total_credits_used, SnapTradeUser.plan)
-                .where(SnapTradeUser.user_id == user_id)
+                select(
+                    SnapTradeUser.credits,
+                    SnapTradeUser.total_credits_used,
+                    SnapTradeUser.plan,
+                    SnapTradeUser.subscription_status,
+                    SnapTradeUser.cancel_at_period_end,
+                    SnapTradeUser.current_period_end,
+                ).where(SnapTradeUser.user_id == user_id)
             )
             row = result.first()
 
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
 
+            period_end = row[5]
             return CreditBalanceResponse(
                 user_id=user_id,
                 credits=row[0],
                 total_credits_used=row[1],
                 plan=row[2] or "free",
+                subscription_status=row[3],
+                cancel_at_period_end=bool(row[4]),
+                current_period_end=period_end.isoformat() if period_end else None,
             )
     
     except HTTPException:
@@ -225,8 +237,6 @@ async def get_pricing_info():
 
 class CheckoutRequest(BaseModel):
     user_id: str
-    success_url: str
-    cancel_url: str
 
 
 class SetPlanRequest(BaseModel):
@@ -261,120 +271,270 @@ async def create_checkout_session(
     request: CheckoutRequest,
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
-    """
-    Create a Stripe checkout session to upgrade to Pro.
-    Returns a URL to redirect the user to.
-    """
     await verify_user_access(request.user_id, authenticated_user_id)
-    try:
-        import stripe
-    except ImportError:
-        raise HTTPException(status_code=500, detail="Stripe not installed")
+    import stripe
 
-    if not Config.STRIPE_SECRET_KEY:
+    if not Config.STRIPE_SECRET_KEY or not Config.STRIPE_PRO_PRICE_ID:
         raise HTTPException(status_code=500, detail="Stripe not configured")
-    if not Config.STRIPE_PRO_PRICE_ID:
-        raise HTTPException(status_code=500, detail="Stripe Pro price not configured")
 
-    stripe.api_key = Config.STRIPE_SECRET_KEY
+    client = stripe.StripeClient(Config.STRIPE_SECRET_KEY)
+    base_url = Config.FRONTEND_URL or "http://localhost:3000"
     try:
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[{"price": Config.STRIPE_PRO_PRICE_ID, "quantity": 1}],
-            success_url=request.success_url,
-            cancel_url=request.cancel_url,
-            metadata={"user_id": request.user_id},
-        )
-        return {"url": session.url, "session_id": session.id}
+        session = client.v1.checkout.sessions.create({
+            "mode": "subscription",
+            "line_items": [{"price": Config.STRIPE_PRO_PRICE_ID, "quantity": 1}],
+            "success_url": f"{base_url}?upgraded=true",
+            "cancel_url": base_url,
+            "client_reference_id": request.user_id,
+        })
+        return {"url": session.url}
     except Exception as e:
         logger.error(f"Stripe checkout error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class PortalRequest(BaseModel):
+TOPUP_OPTIONS = {
+    500: {"credits": 500, "label": "500 credits"},
+    1000: {"credits": 1_050, "label": "1,050 credits"},
+    2500: {"credits": 2_750, "label": "2,750 credits"},
+}
+
+
+class TopupRequest(BaseModel):
     user_id: str
-    return_url: str
+    amount_cents: int  # 500, 1000, or 2500
 
 
-@router.post("/portal")
-async def create_portal_session(
-    request: PortalRequest,
+@router.post("/topup")
+async def create_topup_session(
+    request: TopupRequest,
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
-    """Create a Stripe Billing Portal session so users can cancel/manage their subscription."""
     await verify_user_access(request.user_id, authenticated_user_id)
-    try:
-        import stripe
-    except ImportError:
-        raise HTTPException(status_code=500, detail="Stripe not installed")
+    import stripe
 
     if not Config.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
-    stripe.api_key = Config.STRIPE_SECRET_KEY
+    option = TOPUP_OPTIONS.get(request.amount_cents)
+    if not option:
+        raise HTTPException(status_code=400, detail="Invalid top-up amount")
 
-    async with get_db_session() as db:
-        customer_id = await CreditsService.get_stripe_customer_id(db, request.user_id)
-
-    if not customer_id:
-        raise HTTPException(status_code=400, detail="No active subscription found")
-
+    client = stripe.StripeClient(Config.STRIPE_SECRET_KEY)
+    base_url = Config.FRONTEND_URL or "http://localhost:3000"
     try:
-        session = stripe.billing_portal.Session.create(
-            customer=customer_id,
-            return_url=request.return_url,
-        )
+        session = client.v1.checkout.sessions.create({
+            "mode": "payment",
+            "line_items": [{
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": request.amount_cents,
+                    "product_data": {"name": option["label"]},
+                },
+                "quantity": 1,
+            }],
+            "success_url": f"{base_url}?topup=success",
+            "cancel_url": base_url,
+            "client_reference_id": request.user_id,
+            "metadata": {"topup_credits": str(option["credits"])},
+        })
         return {"url": session.url}
     except Exception as e:
-        logger.error(f"Stripe portal error: {e}")
+        logger.error(f"Stripe topup error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SubscriptionActionRequest(BaseModel):
+    user_id: str
+    reason: Optional[str] = None
+
+
+@router.post("/cancel-subscription")
+async def cancel_subscription(
+    request: SubscriptionActionRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    await verify_user_access(request.user_id, authenticated_user_id)
+    import stripe
+
+    if not Config.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    async with get_db_session() as db:
+        from sqlalchemy import select
+        from models.user import SnapTradeUser
+        result = await db.execute(
+            select(SnapTradeUser.stripe_subscription_id)
+            .where(SnapTradeUser.user_id == request.user_id)
+        )
+        row = result.first()
+        sub_id = row[0] if row else None
+
+    if not sub_id:
+        raise HTTPException(status_code=400, detail="No active subscription")
+
+    client = stripe.StripeClient(Config.STRIPE_SECRET_KEY)
+    try:
+        sub = client.v1.subscriptions.update(sub_id, {"cancel_at_period_end": True})
+        from datetime import datetime, timezone
+        cancel_at = sub.cancel_at
+        period_end = datetime.fromtimestamp(cancel_at, tz=timezone.utc) if cancel_at else None
+
+        async with get_db_session() as db:
+            await CreditsService.set_subscription_info(
+                db, request.user_id,
+                cancel_at_period_end=True,
+                current_period_end=period_end,
+            )
+            end_str = period_end.strftime("%b %d, %Y") if period_end else "end of billing period"
+            reason_str = f" ({request.reason})" if request.reason else ""
+            await CreditsService.add_credits(
+                db, request.user_id, 0,
+                transaction_type="subscription_cancelled",
+                description=f"Pro subscription cancelled{reason_str} — active until {end_str}",
+            )
+
+        return {
+            "success": True,
+            "current_period_end": period_end.isoformat() if period_end else None,
+        }
+    except Exception as e:
+        logger.error(f"Stripe cancel error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/resubscribe")
+async def resubscribe(
+    request: SubscriptionActionRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    await verify_user_access(request.user_id, authenticated_user_id)
+    import stripe
+
+    if not Config.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    async with get_db_session() as db:
+        from sqlalchemy import select
+        from models.user import SnapTradeUser
+        result = await db.execute(
+            select(SnapTradeUser.stripe_subscription_id, SnapTradeUser.subscription_status)
+            .where(SnapTradeUser.user_id == request.user_id)
+        )
+        row = result.first()
+        sub_id = row[0] if row else None
+        sub_status = row[1] if row else None
+
+    if not sub_id or sub_status not in ("active",):
+        raise HTTPException(status_code=400, detail="No cancellable subscription found")
+
+    client = stripe.StripeClient(Config.STRIPE_SECRET_KEY)
+    try:
+        sub = client.v1.subscriptions.update(sub_id, {"cancel_at_period_end": False})
+        from datetime import datetime, timezone
+        cancel_at = sub.cancel_at
+        period_end = datetime.fromtimestamp(cancel_at, tz=timezone.utc) if cancel_at else None
+
+        async with get_db_session() as db:
+            await CreditsService.set_subscription_info(
+                db, request.user_id,
+                cancel_at_period_end=False,
+                current_period_end=period_end,
+            )
+
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Stripe resubscribe error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
-    """
-    Stripe webhook handler. Upgrades user to Pro on successful payment.
-    Configure in Stripe dashboard: checkout.session.completed + customer.subscription.deleted
-    """
-    try:
-        import stripe
-    except ImportError:
-        raise HTTPException(status_code=500, detail="Stripe not installed")
+    import stripe
 
     if not Config.STRIPE_SECRET_KEY or not Config.STRIPE_WEBHOOK_SECRET:
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
-    stripe.api_key = Config.STRIPE_SECRET_KEY
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
 
     try:
         event = stripe.Webhook.construct_event(payload, sig, Config.STRIPE_WEBHOOK_SECRET)
-    except stripe.error.SignatureVerificationError:
+    except stripe.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    event_type = event["type"]
+    obj = event["data"]["object"]
+    data = obj.to_dict() if hasattr(obj, 'to_dict') else obj
+
+    from datetime import datetime, timezone
+
     async with get_db_session() as db:
-        if event["type"] == "checkout.session.completed":
-            session = event["data"]["object"]
-            user_id = session.get("metadata", {}).get("user_id")
-            customer_id = session.get("customer")
-            if user_id:
+        if event_type == "checkout.session.completed":
+            user_id = data.get("client_reference_id")
+            customer_id = data.get("customer")
+            if not user_id:
+                logger.warning("checkout.session.completed without client_reference_id")
+                return {"status": "ignored"}
+
+            if customer_id:
+                await CreditsService.set_stripe_customer_id(db, user_id, customer_id)
+
+            metadata = data.get("metadata") or {}
+            topup_credits = metadata.get("topup_credits")
+
+            if topup_credits:
+                credits = int(topup_credits)
+                await CreditsService.add_credits(
+                    db, user_id, credits,
+                    transaction_type="topup",
+                    description=f"Credit top-up (+{credits:,} credits)",
+                )
+                logger.info(f"User {user_id} topped up {credits} credits")
+            else:
+                subscription_id = data.get("subscription")
                 await CreditsService.set_user_plan(db, user_id, "pro")
-                if customer_id:
-                    await CreditsService.set_stripe_customer_id(db, user_id, customer_id)
+                if subscription_id:
+                    await CreditsService.set_subscription_info(
+                        db, user_id,
+                        stripe_subscription_id=subscription_id,
+                        subscription_status="active",
+                        cancel_at_period_end=False,
+                    )
                 await CreditsService.add_credits(
                     db, user_id, 1_000,
                     transaction_type="subscription",
-                    description="Pro plan activation bonus (+1,000 credits / $10)"
+                    description="Pro plan activation bonus (+1,000 credits)",
                 )
                 logger.info(f"User {user_id} upgraded to pro via Stripe")
 
-        elif event["type"] == "customer.subscription.deleted":
-            session = event["data"]["object"]
-            user_id = session.get("metadata", {}).get("user_id")
+        elif event_type == "customer.subscription.updated":
+            customer_id = data.get("customer")
+            if not customer_id:
+                return {"status": "ignored"}
+            user_id = await CreditsService.get_user_id_by_stripe_customer(db, customer_id)
+            if user_id:
+                cancel_at_period = data.get("cancel_at_period_end", False)
+                status = data.get("status", "active")
+                cancel_at_ts = data.get("cancel_at")
+                period_end = datetime.fromtimestamp(cancel_at_ts, tz=timezone.utc) if cancel_at_ts else None
+                await CreditsService.set_subscription_info(
+                    db, user_id,
+                    subscription_status=status,
+                    cancel_at_period_end=cancel_at_period,
+                    current_period_end=period_end,
+                )
+                logger.info(f"User {user_id} subscription updated: status={status} cancel_at_period_end={cancel_at}")
+
+        elif event_type == "customer.subscription.deleted":
+            customer_id = data.get("customer")
+            if not customer_id:
+                return {"status": "ignored"}
+            user_id = await CreditsService.get_user_id_by_stripe_customer(db, customer_id)
             if user_id:
                 await CreditsService.set_user_plan(db, user_id, "free")
-                logger.info(f"User {user_id} downgraded to free (subscription cancelled)")
+                await CreditsService.clear_subscription_info(db, user_id)
+                logger.info(f"User {user_id} downgraded to free (subscription expired)")
 
     return {"status": "ok"}
 

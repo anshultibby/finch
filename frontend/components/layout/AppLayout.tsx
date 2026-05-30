@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCredits } from '@/contexts/CreditsContext';
 import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext';
 import type { View } from '@/contexts/NavigationContext';
 import AppSidebar, { type AppSidebarRef } from './AppSidebar';
@@ -15,6 +17,7 @@ import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
 import VisualizationsPanel from '@/components/VisualizationsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
+import CreditsModal from '@/components/CreditsModal';
 import { marketApi } from '@/lib/api';
 import type { SwapData } from '@/lib/types';
 
@@ -229,6 +232,55 @@ function saveStoredSwaps(userId: string, swaps: StoredSwap[]) {
 // Inner layout (uses navigation context)
 // ─────────────────────────────────────────────────────────────────────────────
 
+function StripeReturnBanner() {
+  const searchParams = useSearchParams();
+  const { refresh } = useCredits();
+  const [show, setShow] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    const upgraded = searchParams.get('upgraded') === 'true';
+    const topup = searchParams.get('topup') === 'success';
+    if (upgraded) {
+      setMessage('Welcome to Finch Pro! 1,000 bonus credits added.');
+      setShow(true);
+    } else if (topup) {
+      setMessage('Credits added to your account.');
+      setShow(true);
+    }
+    if (upgraded || topup) {
+      window.history.replaceState({}, '', window.location.pathname);
+      refresh();
+      setTimeout(() => refresh(), 3000);
+    }
+  }, [searchParams, refresh]);
+
+  useEffect(() => {
+    if (show) {
+      const t = setTimeout(() => setShow(false), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [show]);
+
+  if (!show) return null;
+
+  return (
+    <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
+      <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-800 text-sm px-4 py-2 rounded-full shadow-sm">
+        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+        {message}
+        <button onClick={() => setShow(false)} className="ml-1 text-green-600 hover:text-green-800">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppLayoutInner() {
   const { user } = useAuth();
   const {
@@ -339,6 +391,7 @@ function AppLayoutInner() {
 
   return (
     <div className="flex h-dvh bg-white overflow-hidden">
+      <CreditsModal />
       <AppSidebar
         ref={sidebarRef}
         userId={user.id}
@@ -354,8 +407,8 @@ function AppLayoutInner() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden relative pb-14 md:pb-0">
-        {/* Global top bar with breadcrumbs + search */}
         <TopBar />
+        <StripeReturnBanner />
 
         <ChatModeProvider>
           {currentView.type !== 'chat' && (

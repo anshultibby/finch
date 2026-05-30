@@ -3,6 +3,7 @@ import { DM_Sans } from 'next/font/google'
 import './globals.css'
 import 'katex/dist/katex.min.css'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { CreditsProvider } from '@/contexts/CreditsContext'
 import { GoogleOAuthWrapper } from '@/contexts/GoogleOAuthWrapper'
 
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-body' })
@@ -35,7 +36,9 @@ export default function RootLayout({
       <body className={`${dmSans.variable} ${dmSans.className}`}>
         <GoogleOAuthWrapper>
           <AuthProvider>
-            {children}
+            <CreditsProvider>
+              {children}
+            </CreditsProvider>
           </AuthProvider>
         </GoogleOAuthWrapper>
       </body>

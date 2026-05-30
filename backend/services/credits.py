@@ -43,11 +43,10 @@ MODEL_PRICING = {
 # Credits conversion: 100 credits = $1 USD (1 credit = 1 cent)
 CREDITS_PER_DOLLAR = 100
 
-# Premium multiplier (20% markup over raw API cost)
-PREMIUM_MULTIPLIER = 1.2
+# Premium multiplier (25% markup over raw API cost)
+PREMIUM_MULTIPLIER = 1.25
 
-# Default credits granted to new users (2000 = $20)
-DEFAULT_NEW_USER_CREDITS = 2_000
+DEFAULT_NEW_USER_CREDITS = 1_000
 
 # Daily refresh: credits accrued per day (computed on-the-fly, no cron needed)
 DAILY_REFRESH = {
@@ -417,6 +416,43 @@ class CreditsService:
             update(SnapTradeUser)
             .where(SnapTradeUser.user_id == user_id)
             .values(stripe_customer_id=customer_id)
+        )
+        return result.rowcount > 0
+
+    @staticmethod
+    async def get_user_id_by_stripe_customer(db: AsyncSession, customer_id: str) -> Optional[str]:
+        result = await db.execute(
+            select(SnapTradeUser.user_id).where(SnapTradeUser.stripe_customer_id == customer_id)
+        )
+        row = result.first()
+        return row[0] if row else None
+
+    @staticmethod
+    async def set_subscription_info(
+        db: AsyncSession, user_id: str, **kwargs
+    ) -> bool:
+        allowed = {"stripe_subscription_id", "subscription_status", "cancel_at_period_end", "current_period_end"}
+        values = {k: v for k, v in kwargs.items() if k in allowed}
+        if not values:
+            return False
+        result = await db.execute(
+            update(SnapTradeUser)
+            .where(SnapTradeUser.user_id == user_id)
+            .values(**values)
+        )
+        return result.rowcount > 0
+
+    @staticmethod
+    async def clear_subscription_info(db: AsyncSession, user_id: str) -> bool:
+        result = await db.execute(
+            update(SnapTradeUser)
+            .where(SnapTradeUser.user_id == user_id)
+            .values(
+                stripe_subscription_id=None,
+                subscription_status=None,
+                cancel_at_period_end=False,
+                current_period_end=None,
+            )
         )
         return result.rowcount > 0
 

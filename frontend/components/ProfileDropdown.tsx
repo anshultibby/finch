@@ -2,9 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCredits } from '@/contexts/CreditsContext';
 import ApiKeysModal from './ApiKeysModal';
-import CreditsModal from './CreditsModal';
-import { creditsApi } from '@/lib/api';
 
 interface ProfileDropdownProps {
   collapsed?: boolean;
@@ -12,53 +11,24 @@ interface ProfileDropdownProps {
 
 export default function ProfileDropdown({ collapsed = false }: ProfileDropdownProps) {
   const { user, signOut } = useAuth();
+  const { credits, loading: creditsLoading, openModal: openCreditsModal } = useCredits();
   const [isOpen, setIsOpen] = useState(false);
   const [showApiKeysModal, setShowApiKeysModal] = useState(false);
-  const [showCreditsModal, setShowCreditsModal] = useState(false);
-  const [credits, setCredits] = useState<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load credits when component mounts
-  useEffect(() => {
-    if (user) {
-      loadCredits();
-    }
-  }, [user]);
-
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
-
-  const loadCredits = async () => {
-    if (!user) return;
-    try {
-      const balance = await creditsApi.getBalance(user.id);
-      setCredits(balance.credits);
-    } catch (error) {
-      console.error('Error loading credits:', error);
-    }
-  };
 
   if (!user) return null;
 
-  // Get user initials for avatar
-  const getInitials = (email: string) => {
-    const name = email.split('@')[0];
-    return name.slice(0, 2).toUpperCase();
-  };
+  const getInitials = (email: string) => email.split('@')[0].slice(0, 2).toUpperCase();
 
   const handleSignOut = async () => {
     try {
@@ -71,25 +41,20 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
 
   return (
     <div className="relative w-full" ref={dropdownRef}>
-      {/* Profile Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`flex items-center gap-2 rounded-lg hover:bg-gray-100 transition-colors w-full ${collapsed ? 'justify-center p-1.5' : 'px-2 py-1.5'}`}
         title={collapsed ? user.email || 'Profile' : undefined}
       >
-        {/* Avatar Circle */}
         <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
           {getInitials(user.email || '')}
         </div>
         {!collapsed && (
           <>
             <span className="text-sm text-gray-700 truncate flex-1 text-left">{user.email?.split('@')[0]}</span>
-            {/* Dropdown Arrow */}
             <svg
               className={`w-3 h-3 text-gray-500 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
@@ -97,35 +62,18 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
         )}
       </button>
 
-      {/* Modals */}
-      <ApiKeysModal
-        isOpen={showApiKeysModal}
-        onClose={() => setShowApiKeysModal(false)}
-      />
-      <CreditsModal
-        isOpen={showCreditsModal}
-        onClose={() => {
-          setShowCreditsModal(false);
-          loadCredits(); // Reload credits when modal closes
-        }}
-      />
+      <ApiKeysModal isOpen={showApiKeysModal} onClose={() => setShowApiKeysModal(false)} />
 
-      {/* Dropdown Menu — opens upward */}
       {isOpen && (
         <div className="absolute left-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-          {/* User Info Section */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
             <p className="text-xs text-gray-500 mt-1">Signed in</p>
           </div>
 
-          {/* Credits Display */}
           <div className="px-4 py-3 border-b border-gray-100">
             <button
-              onClick={() => {
-                setShowCreditsModal(true);
-                setIsOpen(false);
-              }}
+              onClick={() => { openCreditsModal(); setIsOpen(false); }}
               className="w-full text-left hover:bg-gray-50 rounded-lg p-2 -m-2 transition-colors"
             >
               <div className="flex items-center justify-between">
@@ -138,7 +86,7 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
                   <div>
                     <p className="text-xs text-gray-500">Credits</p>
                     <p className="text-sm font-semibold text-gray-900">
-                      {credits !== null ? credits.toLocaleString() : 'Loading...'}
+                      {creditsLoading ? 'Loading...' : credits.toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -146,7 +94,7 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </div>
-              {credits !== null && credits < 100 && (
+              {!creditsLoading && credits < 100 && (
                 <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -157,16 +105,10 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
             </button>
           </div>
 
-          {/* Settings */}
           <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              Settings
-            </p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Settings</p>
             <button
-              onClick={() => {
-                setShowApiKeysModal(true);
-                setIsOpen(false);
-              }}
+              onClick={() => { setShowApiKeysModal(true); setIsOpen(false); }}
               className="w-full text-left py-2 text-sm text-gray-700 hover:text-gray-900 flex items-center gap-2 rounded transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -176,23 +118,12 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
             </button>
           </div>
 
-          {/* Logout Button */}
           <button
             onClick={handleSignOut}
             className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-              />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
             Sign Out
           </button>
@@ -201,4 +132,3 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
     </div>
   );
 }
-

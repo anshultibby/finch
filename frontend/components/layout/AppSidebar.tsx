@@ -1,11 +1,11 @@
 'use client';
 
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useRef } from 'react';
-import { chatApi, creditsApi } from '@/lib/api';
+import { chatApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
-import CreditsModal from '../CreditsModal';
 import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
+import { useCredits } from '@/contexts/CreditsContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -118,8 +118,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
-  const [credits, setCredits] = useState<number | null>(null);
-  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const { credits, loading: creditsLoading, openModal: openCreditsModal } = useCredits();
   const [searchQuery, setSearchQuery] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -136,11 +135,6 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
     { id: 'chat', label: 'Chat', view: { type: 'chat' }, icon: <ChatIcon />, mobileNav: true },
   ];
-
-  useEffect(() => {
-    if (!userId) return;
-    creditsApi.getBalance(userId).then(b => setCredits(b.credits)).catch(() => {});
-  }, [userId]);
 
   const loadChats = useCallback(async (search?: string) => {
     if (!userId) return;
@@ -225,9 +219,9 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
             <>
               <FinchLogo size={22} />
               <div className="flex items-center gap-1.5">
-                {credits !== null && (
+                {!creditsLoading && (
                   <button
-                    onClick={() => setShowCreditsModal(true)}
+                    onClick={openCreditsModal}
                     className="flex items-center gap-1 px-2 py-1 rounded-full border border-gray-200 hover:bg-gray-100 transition-colors"
                     title="Credits"
                   >
@@ -389,14 +383,6 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           <ProfileDropdown collapsed={!expanded} />
         </div>
       </div>
-
-      <CreditsModal
-        isOpen={showCreditsModal}
-        onClose={() => {
-          setShowCreditsModal(false);
-          if (userId) creditsApi.getBalance(userId).then(b => setCredits(b.credits)).catch(() => {});
-        }}
-      />
 
       {/* Mobile bottom nav */}
       <div className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 safe-area-bottom">
