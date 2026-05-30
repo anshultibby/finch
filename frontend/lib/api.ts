@@ -386,8 +386,13 @@ export const chatApi = {
     await api.delete(`/chat/history/${chatId}`);
   },
 
-  getUserChats: async (userId: string): Promise<UserChatsResponse> => {
-    const response = await api.get<UserChatsResponse>(`/chat/user/${userId}/chats`);
+  getUserChats: async (userId: string, opts?: { search?: string; offset?: number; limit?: number }): Promise<UserChatsResponse> => {
+    const params = new URLSearchParams();
+    if (opts?.search) params.set('search', opts.search);
+    if (opts?.offset) params.set('offset', String(opts.offset));
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    const response = await api.get<UserChatsResponse>(`/chat/user/${userId}/chats${qs ? `?${qs}` : ''}`);
     return response.data;
   },
 

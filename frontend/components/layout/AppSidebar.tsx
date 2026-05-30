@@ -1,6 +1,6 @@
 'use client';
 
-import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback } from 'react';
+import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useRef } from 'react';
 import { chatApi, creditsApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
 import CreditsModal from '../CreditsModal';
@@ -120,6 +120,12 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const PAGE_SIZE = 30;
   const navItems: NavItem[] = [
     { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon /> },
     { id: 'visualizations', label: 'Visualizations', view: { type: 'visualizations' }, icon: <ChartsIcon /> },
@@ -136,12 +142,17 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     creditsApi.getBalance(userId).then(b => setCredits(b.credits)).catch(() => {});
   }, [userId]);
 
-  const loadChats = useCallback(async () => {
+  const loadChats = useCallback(async (search?: string) => {
     if (!userId) return;
     setIsLoading(true);
     try {
-      const response = await chatApi.getUserChats(userId);
+      const response = await chatApi.getUserChats(userId, {
+        search: search || undefined,
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
       const fetched = response.chats || [];
+      setHasMore(!!response.has_more);
       setChats(prev => {
         const localTitles = new Map(
           prev.filter(c => c.title).map(c => [c.chat_id, c])
@@ -155,6 +166,21 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     } catch { /* ignore */ } finally { setIsLoading(false); }
   }, [userId]);
 
+  const loadMoreChats = useCallback(async () => {
+    if (!userId || isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const response = await chatApi.getUserChats(userId, {
+        search: searchQuery || undefined,
+        limit: PAGE_SIZE,
+        offset: chats.length,
+      });
+      const fetched = response.chats || [];
+      setHasMore(!!response.has_more);
+      setChats(prev => [...prev, ...fetched]);
+    } catch { /* ignore */ } finally { setIsLoadingMore(false); }
+  }, [userId, isLoadingMore, hasMore, searchQuery, chats.length]);
+
   const updateChatTitle = useCallback((chatId: string, title: string, icon: string) => {
     setChats(prev => {
       const exists = prev.find(c => c.chat_id === chatId);
@@ -165,16 +191,29 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
 
   useImperativeHandle(ref, () => ({ updateChatTitle }), [updateChatTitle]);
 
-  useEffect(() => { loadChats(); }, [loadChats, refreshTrigger]);
+  useEffect(() => { loadChats(searchQuery); }, [loadChats, refreshTrigger]);
   useEffect(() => {
     if (currentChatId) {
-      const timer = setTimeout(() => loadChats(), 100);
+      const timer = setTimeout(() => loadChats(searchQuery), 100);
       return () => clearTimeout(timer);
     }
   }, [currentChatId, loadChats]);
 
+  const searchMountRef = useRef(true);
+  useEffect(() => {
+    if (searchMountRef.current) { searchMountRef.current = false; return; }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => loadChats(searchQuery), 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [searchQuery]);
 
-
+  const handleChatListScroll = useCallback(() => {
+    const el = chatListRef.current;
+    if (!el || !hasMore || isLoadingMore) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+      loadMoreChats();
+    }
+  }, [hasMore, isLoadingMore, loadMoreChats]);
 
   return (
     <>
@@ -225,8 +264,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
         </div>
 
         {/* Main nav */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          <div className="px-2 space-y-0.5">
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="px-2 space-y-0.5 flex-shrink-0">
             {/* New Chat */}
             <button
               onClick={onNewChat}
@@ -258,49 +297,88 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           </div>
 
           {/* Divider */}
-          <div className="mx-3 my-2 border-t border-gray-200" />
+          <div className="mx-3 my-2 border-t border-gray-200 flex-shrink-0" />
 
-          {/* Recent chats — always visible when sidebar is expanded */}
+          {/* Chats section — scrollable with search */}
           {expanded && (
-            <div className="pb-2">
+            <div className="flex flex-col min-h-0 flex-1 pb-2">
               <button onClick={() => setChatsCollapsed(c => !c)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors">
-                <span>Recent Chats</span>
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors flex-shrink-0">
+                <span>Chats</span>
                 <svg className={`w-3 h-3 transition-transform ${chatsCollapsed ? '' : 'rotate-90'}`}
                   fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M7.293 4.707a1 1 0 010 1.414L3.414 10l3.879 3.879a1 1 0 01-1.414 1.414l-4.586-4.586a1 1 0 010-1.414l4.586-4.586a1 1 0 011.414 0z" clipRule="evenodd" transform="rotate(180 10 10)" />
                 </svg>
               </button>
               {!chatsCollapsed && (
-                <div className="px-2 space-y-0.5 mt-0.5">
-                  {isCreatingChat && (
-                    <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50/50 border border-blue-100">
-                      <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin flex-shrink-0" />
-                      <span className="text-xs text-blue-600">Creating chat...</span>
+                <>
+                  {/* Search input */}
+                  <div className="px-2 mb-1 flex-shrink-0">
+                    <div className="relative">
+                      <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="Search chats..."
+                        className="w-full pl-7 pr-7 py-1.5 text-xs rounded-md border border-gray-200 bg-white focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 placeholder-gray-400"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
-                  )}
-                  {chats.length === 0 && !isCreatingChat && !isLoading && (
-                    <div className="px-2 py-2 text-xs text-gray-400">No chats yet</div>
-                  )}
-                  {chats.slice(0, 12).map(chat => {
-                    const isActive = chat.chat_id === currentChatId && currentView.type === 'chat';
-                    const isChatStreaming = chat.chat_id === currentChatId && isStreamingChat;
-                    return (
-                      <button key={chat.chat_id} onClick={() => onSelectChat(chat.chat_id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm transition-colors text-left ${
-                          isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                        }`}>
-                        {isChatStreaming && (
-                          <span className="relative flex-shrink-0 w-2 h-2">
-                            <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
-                            <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
-                          </span>
-                        )}
-                        <span className="truncate flex-1">{chat.title || 'New Chat'}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                  </div>
+                  {/* Scrollable chat list */}
+                  <div
+                    ref={chatListRef}
+                    onScroll={handleChatListScroll}
+                    className="overflow-y-auto min-h-0 flex-1 px-2 space-y-0.5"
+                  >
+                    {isCreatingChat && (
+                      <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-blue-50/50 border border-blue-100">
+                        <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin flex-shrink-0" />
+                        <span className="text-xs text-blue-600">Creating chat...</span>
+                      </div>
+                    )}
+                    {chats.length === 0 && !isCreatingChat && !isLoading && (
+                      <div className="px-2 py-2 text-xs text-gray-400">
+                        {searchQuery ? 'No matching chats' : 'No chats yet'}
+                      </div>
+                    )}
+                    {chats.map(chat => {
+                      const isActive = chat.chat_id === currentChatId && currentView.type === 'chat';
+                      const isChatStreaming = chat.chat_id === currentChatId && isStreamingChat;
+                      return (
+                        <button key={chat.chat_id} onClick={() => onSelectChat(chat.chat_id)}
+                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                            isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                          }`}>
+                          {isChatStreaming && (
+                            <span className="relative flex-shrink-0 w-2 h-2">
+                              <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                              <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
+                            </span>
+                          )}
+                          <span className="truncate flex-1">{chat.title || 'New Chat'}</span>
+                        </button>
+                      );
+                    })}
+                    {isLoadingMore && (
+                      <div className="flex justify-center py-2">
+                        <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

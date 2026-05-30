@@ -44,22 +44,27 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
     return list(result.scalars().all())
 
 
-async def get_user_chats_with_preview(db: AsyncSession, user_id: str, limit: int = 50, max_length: int = 100) -> List[dict]:
+async def get_user_chats_with_preview(
+    db: AsyncSession, user_id: str, limit: int = 50, offset: int = 0,
+    search: Optional[str] = None, max_length: int = 100
+) -> List[dict]:
     """
     Get all chats for a user with last message preview.
     Uses a single optimized query with subquery to avoid N+1 queries.
+    Supports offset pagination and title search.
     """
     from sqlalchemy import func, literal_column
     from sqlalchemy.sql import text
 
-    # Subquery to get the last user or assistant message for each chat
-    # We'll do this in Python to avoid complex SQL - but efficiently
-    result = await db.execute(
+    query = (
         select(Chat)
         .where(Chat.user_id == user_id, Chat.bot_id.is_(None), Chat.parent_chat_id.is_(None))
-        .order_by(Chat.updated_at.desc())
-        .limit(limit)
     )
+    if search:
+        query = query.where(Chat.title.ilike(f"%{search}%"))
+    query = query.order_by(Chat.updated_at.desc()).offset(offset).limit(limit)
+
+    result = await db.execute(query)
     chats = result.scalars().all()
 
     # Batch fetch last messages for all chats in one query

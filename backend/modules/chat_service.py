@@ -487,9 +487,9 @@ class ChatService:
             return await chat_async.get_chat(db, chat_id) is not None
         return await self._with_db(db, _run)
 
-    async def get_user_chats(self, user_id: str, limit: int = 50, db=None) -> List[dict]:
+    async def get_user_chats(self, user_id: str, limit: int = 50, offset: int = 0, search: str | None = None, db=None) -> List[dict]:
         async def _run(db):
-            return await chat_async.get_user_chats_with_preview(db, user_id, limit)
+            return await chat_async.get_user_chats_with_preview(db, user_id, limit, offset=offset, search=search)
         return await self._with_db(db, _run)
 
     async def is_chat_processing(self, chat_id: str, db=None) -> bool:

@@ -271,17 +271,20 @@ async def reset_user_sandbox(
 async def list_user_chats(
     user_id: str,
     limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
-    List all chats for a user
+    List all chats for a user. Supports offset pagination and title search.
     """
     await verify_user_access(user_id, authenticated_user_id)
     try:
-        chats = await chat_service.get_user_chats(user_id, limit)
+        chats = await chat_service.get_user_chats(user_id, limit, offset=offset, search=search)
         return {
             "user_id": user_id,
-            "chats": chats
+            "chats": chats,
+            "has_more": len(chats) == limit,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -328,6 +328,7 @@ export interface UserChatsResponse {
     updated_at: string;
     last_message?: string;
   }>;
+  has_more?: boolean;
 }
 
 export interface GenerateTitleResponse {
