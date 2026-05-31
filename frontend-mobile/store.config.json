@@ -24,15 +24,6 @@
         "privacyPolicyUrl": "https://finchapp.ai/privacy"
       }
     },
-    "categories": ["FINANCE"],
-    "review": {
-      "firstName": "Anshul",
-      "lastName": "Tibrewal",
-      "email": "anshul.tibrewal2203@gmail.com",
-      "phone": "REPLACE_WITH_YOUR_PHONE",
-      "demoAccountName": "appstore.review@finchapp.ai",
-      "demoAccountPassword": "FinchApp",
-      "demoAccountRequired": true
-    }
+    "categories": ["FINANCE"]
   }
 }
