@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/contexts/AuthContext';
 import PriceRangeChart, { getStockRanges } from '@/components/ui/PriceRangeChart';
+import TickerLogo from '@/components/ui/TickerLogo';
 import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
 import ChatInput from '@/components/chat/ChatInput';
@@ -782,6 +783,9 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
   const [quote, setQuote] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [news, setNews] = useState<any[]>([]);
+  const [newsLimit, setNewsLimit] = useState(12);
+  const [newsLoadingMore, setNewsLoadingMore] = useState(false);
+  const [newsExhausted, setNewsExhausted] = useState(false);
   const [peers, setPeers] = useState<any[]>([]);
   const [position, setPosition] = useState<AlpacaBrokerPosition | null>(null);
   const [loading, setLoading] = useState(true);
@@ -812,6 +816,8 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
     setLoading(true);
     setPosition(null);
     setNews([]);
+    setNewsLimit(12);
+    setNewsExhausted(false);
     setPeers([]);
 
     marketApi.getQuote(symbol).catch(() => null).then(q => {
@@ -820,7 +826,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
     });
     marketApi.getProfile(symbol).catch(() => null).then(p => setProfile(p));
 
-    marketApi.getNews(symbol, 8).catch(() => []).then(n => setNews(Array.isArray(n) ? n : []));
+    marketApi.getNews(symbol, 12).catch(() => []).then(n => setNews(Array.isArray(n) ? n : []));
     marketApi.getPeers(symbol, 6).catch(() => []).then(pe => setPeers(Array.isArray(pe) ? pe : []));
     marketApi.getAnalyst(symbol).catch(() => null).then(a => setAnalyst(a));
     marketApi.getEarningsHistory(symbol, 12).catch(() => []).then(e => setEarningsHistory(Array.isArray(e) ? e : []));
@@ -847,6 +853,23 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
   }, [symbol, user]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const loadMoreNews = useCallback(async () => {
+    setNewsLoadingMore(true);
+    const next = newsLimit + 12;
+    try {
+      const n = await marketApi.getNews(symbol, next);
+      const arr = Array.isArray(n) ? n : [];
+      // If the API returned no additional items, we've hit the end.
+      if (arr.length <= news.length) setNewsExhausted(true);
+      setNews(arr);
+      setNewsLimit(next);
+    } catch {
+      setNewsExhausted(true);
+    } finally {
+      setNewsLoadingMore(false);
+    }
+  }, [symbol, newsLimit, news.length]);
 
 
   const price = quote?.price || profile?.price || 0;
@@ -877,6 +900,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 </svg>
               </button>
             )}
+            <TickerLogo symbol={symbol} size={40} rounded="rounded-xl" />
             <div>
               <div className="text-lg sm:text-xl font-bold text-gray-900">{name}</div>
               <div className="text-xs text-gray-400">{symbol}{profile?.exchange ? ` · ${profile.exchange}` : ''}</div>
@@ -944,9 +968,9 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 return (
                   <>
                     <div className="mb-1">
-                      <span className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{fmt(displayPrice, symbol)}</span>
+                      <span className="text-3xl sm:text-4xl font-bold text-gray-900 font-numeric">{fmt(displayPrice, symbol)}</span>
                     </div>
-                    <div className={`text-sm font-medium tabular-nums ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                    <div className={`text-sm font-medium font-numeric ${up ? 'text-emerald-600' : 'text-red-500'}`}>
                       {up ? '+' : '-'}{fmt(Math.abs(displayDollar), symbol)} ({pct(activePct)})
                     </div>
                     {showExtended && (
@@ -1064,10 +1088,22 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
 
           {activeTab === 'news' && (
             <div className="mb-5">
-              {news.length > 0
-                ? news.map((item, i) => <NewsCard key={i} item={item} />)
-                : <div className="text-sm text-gray-400 py-8 text-center">No recent news</div>
-              }
+              {news.length > 0 ? (
+                <>
+                  {news.map((item, i) => <NewsCard key={i} item={item} />)}
+                  {!newsExhausted && (
+                    <button
+                      onClick={loadMoreNews}
+                      disabled={newsLoadingMore}
+                      className="mt-3 w-full py-2.5 text-sm font-semibold text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-300 hover:bg-gray-50 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {newsLoadingMore ? 'Loading…' : 'Load more news'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div className="text-sm text-gray-400 py-8 text-center">No recent news</div>
+              )}
             </div>
           )}
 
@@ -1077,9 +1113,14 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {peers.map(p => (
                     <button key={p.symbol} onClick={() => openStock(p.symbol)}
-                      className="text-left rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 p-3 transition-colors">
-                      <div className="text-sm font-bold text-gray-900">{p.symbol}</div>
-                      {p.name && <div className="text-xs text-gray-400 truncate mb-1.5">{p.name}</div>}
+                      className="text-left rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 p-3 hover-lift">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <TickerLogo symbol={p.symbol} size={28} />
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-gray-900">{p.symbol}</div>
+                          {p.name && <div className="text-xs text-gray-400 truncate">{p.name}</div>}
+                        </div>
+                      </div>
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="text-sm font-semibold text-gray-900 tabular-nums">{p.price != null ? fmt(p.price, symbol) : '--'}</span>
                         {p.marketCap != null && (
@@ -1316,10 +1357,10 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
           )}
         </div>
 
-        <div className="h-4" />
-
-        {/* Sticky chat bar */}
-        <div className="sticky bottom-1 mb-1 max-w-3xl px-3 sm:px-4">
+        {/* Sticky chat bar — full-width fade so wide tables scroll under it
+            cleanly instead of peeking out beside a narrow floating box. */}
+        <div className="sticky bottom-0 px-3 sm:px-4 pt-8 pb-2 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none">
+          <div className="max-w-3xl pointer-events-auto">
           <ChatInput
             onSimpleSend={(msg) => openChatAbout(symbol, msg, {
               page: 'stock',
@@ -1336,6 +1377,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
             })}
             placeholder={`Ask about ${symbol}...`}
           />
+          </div>
         </div>
       </div>
 
@@ -1367,8 +1409,8 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
           </div>
         )}
 
-        {/* Analyst Consensus */}
-        {analyst?.grades && (
+        {/* Analyst Consensus — hidden on the analysis tab, where it's the main content */}
+        {analyst?.grades && activeTab !== 'analysis' && (
           <div className="p-5 border-b border-gray-100 cursor-pointer hover:bg-gray-50/50 transition-colors" onClick={() => setActiveTab('analysis')}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-bold text-gray-900">Analyst Consensus</div>

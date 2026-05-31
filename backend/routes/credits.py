@@ -92,7 +92,16 @@ async def get_credit_balance(
             row = result.first()
 
             if not row:
-                raise HTTPException(status_code=404, detail="User not found")
+                # New users may not have a SnapTradeUser row yet (created lazily
+                # on first credit operation). Return the free-tier default rather
+                # than 404 — a user should never see an error for their own balance.
+                from services.credits import DEFAULT_NEW_USER_CREDITS
+                return CreditBalanceResponse(
+                    user_id=user_id,
+                    credits=DEFAULT_NEW_USER_CREDITS,
+                    total_credits_used=0,
+                    plan="free",
+                )
 
             period_end = row[5]
             return CreditBalanceResponse(

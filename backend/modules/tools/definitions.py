@@ -19,6 +19,7 @@ from modules.tools.descriptions import (
     BUILD_CUSTOM_ETF_DESC,
     # Web Search
     WEB_SEARCH_DESC, NEWS_SEARCH_DESC, SCRAPE_URL_DESC,
+    RUN_STOCK_SCREEN_DESC,
     # Agent Management
     CREATE_AGENT_DESC,
 )
@@ -26,6 +27,7 @@ from modules.tools.descriptions import (
 # Import implementations
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
+from modules.tools.implementations import screener as screener_impl
 from modules.tools.implementations import agents as agents_impl
 
 
@@ -148,6 +150,20 @@ async def build_custom_etf(*, params: etf_builder.BuildCustomETFParams, context:
     """Build a custom ETF portfolio"""
     async for item in etf_builder.build_custom_etf_impl(params, context):
         yield item
+
+
+# ============================================================================
+# STOCK SCREENER TOOL
+# ============================================================================
+
+@tool(
+    name="run_stock_screen",
+    description=RUN_STOCK_SCREEN_DESC,
+    category="analysis"
+)
+def run_stock_screen(*, params: screener_impl.RunScreenParams, context: AgentContext):
+    """Screen the market by quantitative filters and return matching stocks."""
+    return screener_impl.run_stock_screen_impl(params, context)
 
 
 # ============================================================================

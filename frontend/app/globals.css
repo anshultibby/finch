@@ -237,3 +237,52 @@ body {
   animation: slideInRight 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ── Sparkline draw-in (uses pathLength=1, so dasharray is in [0,1]) ── */
+@keyframes sparklineDraw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.animate-sparkline {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: sparklineDraw 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* ── Generic fade-in ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* ── Distinctive numerals for prices/figures ── */
+.font-numeric {
+  font-family: var(--font-numeric), ui-monospace, "SF Mono", Menlo, monospace;
+  font-feature-settings: "tnum" 1, "lnum" 1; /* tabular lining figures */
+  letter-spacing: -0.01em;
+}
+
+/* ── Subtle lift used on interactive cards ── */
+.hover-lift {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.18);
+}
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-sparkline,
+  .animate-fade-in,
+  .animate-slide-in-right,
+  .animate-shimmer {
+    animation: none !important;
+  }
+  .animate-sparkline { stroke-dashoffset: 0; }
+  .animate-fade-in { opacity: 1 !important; }
+  .hover-lift:hover { transform: none; }
+}
+

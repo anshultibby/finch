@@ -61,8 +61,27 @@ export default function MiniSparkline({
 
   return (
     <svg width={width} height={height} className={className} viewBox={`0 0 ${width} ${height}`}>
-      <path d={path} fill="none" stroke={lineColor} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      {lastPoint && <circle cx={lastPoint.x} cy={lastPoint.y} r={2} fill={lineColor} />}
+      {/* pathLength={1} normalizes length so the dash animation is size-agnostic */}
+      <path
+        d={path}
+        pathLength={1}
+        fill="none"
+        stroke={lineColor}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="animate-sparkline"
+      />
+      {lastPoint && (
+        <circle
+          cx={lastPoint.x}
+          cy={lastPoint.y}
+          r={2}
+          fill={lineColor}
+          className="animate-fade-in"
+          style={{ opacity: 0, animationDelay: '0.7s' }}
+        />
+      )}
     </svg>
   );
 }

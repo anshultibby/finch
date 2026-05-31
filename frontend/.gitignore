@@ -5,3 +5,7 @@
 /tests/__report__/
 /test-results/
 /playwright-report/
+
+# test screenshots (regenerable)
+/tests/__shots__/
+/tsconfig.tsbuildinfo

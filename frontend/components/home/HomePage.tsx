@@ -7,6 +7,10 @@ import { alpacaBrokerApi, marketApi, snaptradeApi, watchlistApi } from '@/lib/ap
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import ChatInput from '@/components/chat/ChatInput';
+import EmptyState from '@/components/ui/EmptyState';
+import CountUp from '@/components/ui/CountUp';
+import TickerLogo from '@/components/ui/TickerLogo';
+import { Wallet } from 'lucide-react';
 import { SnapTradeReact } from 'snaptrade-react';
 import type { AlpacaPortfolioResponse, Brokerage, PortfolioResponse } from '@/lib/types';
 import { formatCurrency as fmt } from '@/lib/currency';
@@ -20,11 +24,14 @@ const MARKET_OPTIONS: { key: Market; label: string; flag: string }[] = [
   { key: 'india', label: 'India Markets', flag: '\u{1F1EE}\u{1F1F3}' },
 ];
 
+// Use real index symbols so the cards show actual index levels (S&P ~7580, not
+// the SPY ETF's ~$756). `navSymbol` is the tradeable ETF proxy we open on click,
+// since the index symbol itself has no stock-detail page.
 const US_INDICES = [
-  { symbol: 'SPY', label: 'S&P 500' },
-  { symbol: 'QQQ', label: 'NASDAQ' },
-  { symbol: 'DIA', label: 'Dow Jones' },
-  { symbol: 'VIXY', label: 'VIX' },
+  { symbol: '^GSPC', label: 'S&P 500', navSymbol: 'SPY' },
+  { symbol: '^IXIC', label: 'NASDAQ', navSymbol: 'QQQ' },
+  { symbol: '^DJI', label: 'Dow Jones', navSymbol: 'DIA' },
+  { symbol: '^VIX', label: 'VIX', navSymbol: 'VIXY' },
 ];
 
 const INDIA_INDICES = [
@@ -128,20 +135,20 @@ function IndexCard({ symbol, label, quote, onClick }: {
 
   return (
     <button onClick={onClick}
-      className="text-left p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all bg-white group">
+      className="text-left p-4 rounded-2xl border border-gray-200 shadow-sm bg-white group hover-lift hover:border-emerald-200">
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="text-sm font-semibold text-gray-900">{label}</div>
-          <div className="text-lg font-bold text-gray-900 tabular-nums mt-0.5">
-            {price != null ? fmt(price, symbol) : '--'}
+          <div className="text-xl font-bold text-gray-900 font-numeric mt-0.5">
+            {price != null ? <CountUp value={price} format={(n) => fmt(n, symbol)} /> : '--'}
           </div>
         </div>
         <div className="text-right">
-          <div className={`text-sm font-bold tabular-nums ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
+          <div className={`text-sm font-bold font-numeric ${isUp ? 'text-emerald-600' : 'text-red-500'}`}>
             <span className="mr-0.5">{isUp ? '↗' : '↘'}</span>
             {fmtPct(changePct)}
           </div>
-          <div className={`text-xs tabular-nums mt-0.5 ${isUp ? 'text-emerald-500' : 'text-red-400'}`}>
+          <div className={`text-xs font-numeric mt-0.5 ${isUp ? 'text-emerald-500' : 'text-red-400'}`}>
             {change >= 0 ? '+' : ''}{fmt(change, symbol)}
           </div>
         </div>
@@ -160,9 +167,7 @@ function WatchlistItem({ item, onClick }: { item: any; onClick: () => void }) {
   return (
     <button onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left">
-      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-        <span className="text-xs font-bold text-gray-500">{item.symbol?.slice(0, 2)}</span>
-      </div>
+      <TickerLogo symbol={item.symbol} size={32} />
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-gray-900 truncate">{item.name || item.symbol}</div>
         <div className="flex items-center gap-1">
@@ -306,9 +311,7 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
               return (
                 <button key={i} onClick={() => onStockClick(e.symbol)}
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white transition-colors text-left">
-                  <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-gray-600">{e.symbol?.slice(0, 2)}</span>
-                  </div>
+                  <TickerLogo symbol={e.symbol} size={36} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-gray-900">{e.symbol}</span>
@@ -588,7 +591,7 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
             </div>
           </div>
           <button onClick={onConnect}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 border-t border-gray-100 text-[13px] font-medium text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 border-t border-gray-100 text-[13px] font-semibold text-emerald-700 hover:text-white hover:bg-emerald-600 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
@@ -1004,7 +1007,7 @@ function AccountDropdown({ accounts, selectedAccountId, accountCount, onSelect }
   );
 }
 
-function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockClick, selectedAccountId, onClearAccount, onSelectAccount }: {
+function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockClick, selectedAccountId, onClearAccount, onSelectAccount, onConnect }: {
   portfolio: AlpacaPortfolioResponse | null;
   externalPortfolio: PortfolioResponse | null;
   hasBrokerage: boolean;
@@ -1012,6 +1015,7 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
   selectedAccountId?: string | null;
   onClearAccount?: () => void;
   onSelectAccount?: (id: string | null) => void;
+  onConnect?: () => void;
 }) {
   const selectedAccount = selectedAccountId
     ? externalPortfolio?.accounts?.find(a => a.id === selectedAccountId)
@@ -1051,9 +1055,14 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
 
   if (!hasBrokerage && !portfolio) {
     return (
-      <div className="flex items-center justify-center h-[300px] text-sm text-gray-400">
-        No portfolio connected. Link a brokerage account to see your holdings.
-      </div>
+      <EmptyState
+        icon={Wallet}
+        title="Connect your portfolio"
+        description="Link a brokerage to see your holdings, performance, and AI insights — all in one place."
+        action={onConnect ? { label: 'Connect a brokerage', onClick: onConnect } : undefined}
+        hint="Bank-level security · SnapTrade · 256-bit encryption"
+        className="h-[320px]"
+      />
     );
   }
 
@@ -1134,9 +1143,7 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
               return (
                 <button key={`${p.symbol}-${i}`} onClick={() => onStockClick(p.symbol)}
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left">
-                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-gray-500">{p.symbol.slice(0, 2)}</span>
-                  </div>
+                  <TickerLogo symbol={p.symbol} size={32} />
                   <div className="min-w-[60px]">
                     <div className="text-sm font-semibold text-gray-900">{p.symbol}</div>
                     <div className="text-xs text-gray-400">
@@ -1166,16 +1173,28 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
 // ── Market Summary (news) ────────────────────────────────────────────────────
 
 function MarketSummarySection({ news, onStockClick }: { news: any[]; onStockClick: (s: string) => void }) {
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(0);
+  const topRef = useRef<HTMLDivElement>(null);
   if (news.length === 0) return null;
+  const totalPages = Math.ceil(news.length / PAGE_SIZE);
+  const safePage = Math.min(page, totalPages - 1);
+  const shown = news.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  const goTo = (p: number) => {
+    setPage(p);
+    topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <div>
+    <div ref={topRef} className="scroll-mt-4">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-900">Market Summary</h2>
         <span className="text-xs text-gray-400">Updated just now</span>
       </div>
       <div className="space-y-3">
-        {news.slice(0, 4).map((n, i) => (
-          <a key={i} href={n.url} target="_blank" rel="noopener noreferrer"
+        {shown.map((n, i) => (
+          <a key={safePage * PAGE_SIZE + i} href={n.url} target="_blank" rel="noopener noreferrer"
             className="block p-3 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all bg-white">
             <div className="text-sm font-medium text-gray-900 leading-snug line-clamp-2 mb-1">{n.title}</div>
             <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -1191,6 +1210,40 @@ function MarketSummarySection({ news, onStockClick }: { news: any[]; onStockClic
           </a>
         ))}
       </div>
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-1.5">
+          <button
+            onClick={() => goTo(safePage - 1)}
+            disabled={safePage === 0}
+            className="px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:hover:text-gray-600 transition-colors"
+            aria-label="Previous page"
+          >
+            ←
+          </button>
+          {Array.from({ length: totalPages }, (_, p) => (
+            <button
+              key={p}
+              onClick={() => goTo(p)}
+              className={`min-w-[2rem] py-1.5 text-sm font-semibold rounded-lg border transition-colors ${
+                p === safePage
+                  ? 'bg-gray-900 text-white border-gray-900'
+                  : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+              aria-current={p === safePage ? 'page' : undefined}
+            >
+              {p + 1}
+            </button>
+          ))}
+          <button
+            onClick={() => goTo(safePage + 1)}
+            disabled={safePage === totalPages - 1}
+            className="px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:hover:text-gray-600 transition-colors"
+            aria-label="Next page"
+          >
+            →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1321,7 +1374,7 @@ export default function HomePage() {
     Promise.all([
       marketApi.getBatchQuotes(allSymbols).catch(() => []),
       marketApi.getMovers().catch(() => ({ gainers: [], losers: [] })),
-      marketApi.getGeneralNews(6).catch(() => []),
+      marketApi.getGeneralNews(50).catch(() => []),
       watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })),
       alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })),
       snaptradeApi.checkStatus(user.id).catch(() => ({ is_connected: false })),
@@ -1460,7 +1513,7 @@ export default function HomePage() {
                         symbol={idx.symbol}
                         label={idx.label}
                         quote={indexQuotes[idx.symbol]}
-                        onClick={() => openStock(idx.symbol)}
+                        onClick={() => openStock((idx as any).navSymbol || idx.symbol)}
                       />
                     ))}
                   </div>
@@ -1512,6 +1565,7 @@ export default function HomePage() {
                 selectedAccountId={selectedAccountId}
                 onClearAccount={() => setSelectedAccountId(null)}
                 onSelectAccount={setSelectedAccountId}
+                onConnect={openConnectModal}
               />
             )}
 

@@ -296,3 +296,16 @@ Do NOT write the task as a separate message — put it all in the task parameter
 # MARKET DATA TOOLS (Polygon.io)
 # ============================================================================
 
+
+# ============================================================================
+# STOCK SCREENER TOOL
+# ============================================================================
+
+RUN_STOCK_SCREEN_DESC = """Screen the US stock market for stocks matching quantitative filters, then reason over the results.
+
+Use this when the user wants to DISCOVER stocks by criteria (not look up a known ticker) — e.g. "profitable large-cap dividend payers", "low-beta healthcare names", "small-cap tech under $20". Translate their intent into the filter params:
+- market_cap_min/max (USD), price_min/max, beta_min/max, volume_min, dividend_min (per-share $)
+- sector / industry / exchange / country, is_etf
+- sort_by (marketCap|price|beta|volume|dividend), sort_dir, limit
+
+After it returns rows, summarize the most interesting matches and explain WHY they fit — don't just dump the table. The user sees the results rendered in the UI, so add insight: standouts, common themes, and any caveats. If the screen returns nothing, loosen the filters and try again."""

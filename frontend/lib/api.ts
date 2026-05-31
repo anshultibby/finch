@@ -1096,6 +1096,57 @@ export const chatFilesApi = {
 // Market Data API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface ScreenFilters {
+  marketCapMoreThan?: number | null;
+  marketCapLowerThan?: number | null;
+  priceMoreThan?: number | null;
+  priceLowerThan?: number | null;
+  betaMoreThan?: number | null;
+  betaLowerThan?: number | null;
+  volumeMoreThan?: number | null;
+  dividendMoreThan?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  country?: string | null;
+  exchange?: string | null;
+  isEtf?: boolean | null;
+  isActivelyTrading?: boolean | null;
+}
+
+export interface ScreenSpec {
+  name?: string | null;
+  description?: string | null;
+  filters: ScreenFilters;
+  sortBy: 'marketCap' | 'price' | 'beta' | 'volume' | 'dividend' | 'companyName';
+  sortDir: 'asc' | 'desc';
+  limit: number;
+}
+
+export interface ScreenRow {
+  symbol: string;
+  companyName?: string;
+  marketCap?: number;
+  sector?: string;
+  industry?: string;
+  beta?: number;
+  price?: number;
+  lastAnnualDividend?: number;
+  volume?: number;
+  exchangeShortName?: string;
+  isEtf?: boolean;
+}
+
+export const screenerApi = {
+  run: async (spec: ScreenSpec): Promise<{ spec: ScreenSpec; count: number; results: ScreenRow[] }> => {
+    const response = await api.post('/screener/run', spec);
+    return response.data;
+  },
+  ai: async (prompt: string): Promise<{ spec: any; count: number; results: ScreenRow[]; rationale?: string }> => {
+    const response = await api.post('/screener/ai', { prompt });
+    return response.data;
+  },
+};
+
 export const marketApi = {
   getQuote: async (symbol: string) => {
     const response = await api.get(`/market/quote/${symbol}`);

@@ -6,6 +6,7 @@ import { Visualization } from '@/lib/types';
 import { visualizationsApi } from '@/lib/api';
 import api from '@/lib/api';
 import { useNavigation } from '@/contexts/NavigationContext';
+import EmptyState from '@/components/ui/EmptyState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -63,7 +64,7 @@ interface VisualizationsPanelProps {
 }
 
 export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps) {
-  const { loadChat } = useNavigation();
+  const { loadChat, openChatWithPrompt } = useNavigation();
   const [visualizations, setVisualizations] = useState<Visualization[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -350,14 +351,19 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center py-20">
-            <div className="p-4 rounded-2xl bg-gray-50 mb-4">
-              <LayoutGrid className="w-8 h-8 text-gray-300" />
-            </div>
-            <p className="text-sm font-medium text-gray-500 mb-1">No visualizations yet</p>
-            <p className="text-xs text-gray-400 max-w-[260px]">
-              Ask the AI to create a chart, dashboard, or tracker — it&apos;ll appear here.
-            </p>
+          <div className="h-full flex items-center justify-center">
+            <EmptyState
+              icon={LayoutGrid}
+              title="No visualizations yet"
+              description="Ask Finch to build a chart, dashboard, or tracker and it'll show up here."
+              action={{
+                label: 'Create a visualization',
+                onClick: () => openChatWithPrompt(
+                  'Create a visualization: a chart comparing the YTD performance of AAPL, MSFT, NVDA, and GOOGL',
+                  'New visualization',
+                ),
+              }}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

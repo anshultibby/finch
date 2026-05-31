@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, KeyboardEvent, useRef, useEffect } from 'react';
+import { TrendingUp, Scale, Landmark, Trophy, Search, LineChart } from 'lucide-react';
 
 interface NewChatWelcomeProps {
   onSendMessage: (message: string, images?: any[], skills?: string[], files?: any) => void;
@@ -8,6 +9,17 @@ interface NewChatWelcomeProps {
   prefillMessage?: string;
   prefillLabel?: string;
 }
+
+// Example prompts shown as one-click starters. Mirrors the landing page so the
+// empty chat feels alive and teaches what Finch can do.
+const SUGGESTIONS: { icon: React.ElementType; label: string; prompt: string }[] = [
+  { icon: TrendingUp, label: 'Valuation check', prompt: 'Is NVDA overvalued right now?' },
+  { icon: Scale, label: 'Compare companies', prompt: 'Compare Apple and Microsoft margins over the last 5 years' },
+  { icon: Search, label: 'Insider activity', prompt: 'Which insiders bought their own stock this week?' },
+  { icon: Landmark, label: 'Macro & rates', prompt: 'What are prediction markets pricing for the next Fed decision?' },
+  { icon: Trophy, label: 'My portfolio', prompt: 'Show me my biggest winners this month' },
+  { icon: LineChart, label: 'Build a screen', prompt: 'Find profitable small-cap tech stocks growing revenue over 20%' },
+];
 
 export default function NewChatWelcome({ onSendMessage, disabled = false, prefillMessage, prefillLabel }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
@@ -76,6 +88,26 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
               </svg>
             </button>
           </div>
+        </div>
+
+        {/* One-click starters */}
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {SUGGESTIONS.map(({ icon: Icon, label, prompt }) => (
+            <button
+              key={label}
+              onClick={() => !disabled && onSendMessage(prompt)}
+              disabled={disabled}
+              className="group flex items-center gap-3 text-left rounded-xl border border-gray-200 bg-white px-4 py-3 transition-all hover:border-emerald-300 hover:shadow-sm hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
+                <Icon className="w-4 h-4" strokeWidth={2} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 group-hover:text-emerald-600 transition-colors">{label}</span>
+                <span className="block text-[13px] text-gray-700 truncate">{prompt}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </div>
     </div>

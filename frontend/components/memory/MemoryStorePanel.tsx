@@ -6,6 +6,8 @@ import { storeApi } from '@/lib/api';
 import type { StoreFile, Dream } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Database } from 'lucide-react';
+import EmptyState from '@/components/ui/EmptyState';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -362,12 +364,14 @@ function ContentViewer({
   loading,
   onEdit,
   onNavigate,
+  hasFiles = true,
 }: {
   file: StoreFile | null;
   content: string | null;
   loading: boolean;
   onEdit: (content: string) => Promise<void>;
   onNavigate: (filename: string) => void;
+  hasFiles?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -378,10 +382,20 @@ function ContentViewer({
   }, [file?.filename]);
 
   if (!file) {
-    return (
-      <div className="flex items-center justify-center h-full text-gray-300">
-        <p className="text-sm">Select a file to view</p>
-      </div>
+    return hasFiles ? (
+      <EmptyState
+        icon={Database}
+        title="Select a file"
+        description="Pick a note from the list to read or edit what Finch remembers."
+        className="h-full"
+      />
+    ) : (
+      <EmptyState
+        icon={Database}
+        title="Finch's memory is empty — for now"
+        description="As you chat, Finch saves what it learns about you and the markets — your preferences, watchlist context, and research notes show up here."
+        className="h-full"
+      />
     );
   }
 
@@ -894,6 +908,7 @@ export default function MemoryStorePanel() {
             loading={contentLoading}
             onEdit={handleEdit}
             onNavigate={handleSelectFile}
+            hasFiles={files.length > 0}
           />
         )}
       </div>
