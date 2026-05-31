@@ -60,7 +60,7 @@ export default function NewChatWelcome({ onSendMessage, disabled }: NewChatWelco
         </View>
         <Text className="text-xl font-body-bold text-gray-900">How can I help?</Text>
         <Text className="text-[13px] font-body text-gray-400 mt-1 text-center">
-          Ask anything about your portfolio, markets, or trading.
+          Ask anything about your portfolio, markets, or any stock.
         </Text>
       </View>
 

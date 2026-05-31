@@ -27,9 +27,7 @@ export default function MainLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="chat" />
           <Stack.Screen name="profile" />
-          <Stack.Screen name="markets" />
           <Stack.Screen name="watchlist" />
-          <Stack.Screen name="portfolio" />
         </Stack>
         <Sidebar />
       </View>

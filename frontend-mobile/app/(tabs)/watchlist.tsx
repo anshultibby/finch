@@ -218,7 +218,7 @@ export default function WatchlistScreen() {
           title="No stocks in this list"
           description="Search for stocks and add them to your watchlist"
           actionLabel="Search Stocks"
-          onAction={() => router.push('/(tabs)/markets' as any)}
+          onAction={() => router.push('/(tabs)' as any)}
         />
       ) : (
         <FlatList

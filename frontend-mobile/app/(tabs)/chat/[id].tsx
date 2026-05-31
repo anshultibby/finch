@@ -121,7 +121,7 @@ export default function ChatScreen() {
               ref={flatListRef}
               data={messages}
               keyExtractor={(_, index) => index.toString()}
-              renderItem={({ item }) => <ChatMessage message={item} />}
+              renderItem={({ item, index }) => <ChatMessage message={item} chatId={id} messageIndex={index} />}
               contentContainerClassName="px-4 pt-3 pb-4"
               onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
               ListFooterComponent={
@@ -132,7 +132,7 @@ export default function ChatScreen() {
                     <Text className="text-[13px] font-body text-red-600">{error}</Text>
                     {(error.toLowerCase().includes('credit') || error.toLowerCase().includes('daily limit')) && (
                       <TouchableOpacity
-                        onPress={() => router.push('/(tabs)/settings')}
+                        onPress={() => router.push('/settings')}
                         className="mt-2 bg-blue-600 rounded-lg py-2 px-4 self-start"
                       >
                         <Text className="text-white text-[13px] font-body-semibold">Add Credits</Text>

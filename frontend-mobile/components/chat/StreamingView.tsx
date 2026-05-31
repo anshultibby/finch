@@ -4,6 +4,8 @@ import { Bell } from 'lucide-react-native';
 import Markdown from 'react-native-markdown-display';
 import type { ToolCallStatus } from '@/lib/types';
 import ToolCallCard from './ToolCallCard';
+import { VisualizationChip } from './VisualizationPreview';
+import { parseMessageParts } from '@/lib/messageMarkers';
 
 const streamMdStyles = {
   body: { color: '#374151', fontSize: 14, lineHeight: 21, fontFamily: 'DMSans' },
@@ -53,7 +55,13 @@ export default function StreamingView({ text, tools }: StreamingViewProps) {
       )}
       {text.length > 0 && (
         <View className="w-full">
-          <Markdown style={streamMdStyles} rules={streamRules}>{text}</Markdown>
+          {parseMessageParts(text).map((part, i) =>
+            part.type === 'visualization' ? (
+              <VisualizationChip key={`viz-${i}`} filename={part.filename} />
+            ) : (
+              <Markdown key={`md-${i}`} style={streamMdStyles} rules={streamRules}>{part.value}</Markdown>
+            )
+          )}
         </View>
       )}
       {text.length === 0 && tools.length === 0 && (

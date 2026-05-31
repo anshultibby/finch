@@ -74,6 +74,7 @@ export default function ProfileScreen() {
             icon={<Bell size={17} color="#6b7280" />}
             label="Notifications"
             detail="Push & email"
+            onPress={() => router.push('/notification-settings')}
             isLast
           />
         </View>
@@ -82,6 +83,7 @@ export default function ProfileScreen() {
           <MenuItem
             icon={<Shield size={17} color="#6b7280" />}
             label="Privacy & Security"
+            onPress={() => router.push('/privacy')}
             isLast
           />
         </View>

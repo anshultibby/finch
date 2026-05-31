@@ -89,8 +89,6 @@ export function setupNotificationListeners() {
         router.push(`/(tabs)/chat/${data.chatId}`);
       } else if (data?.symbol) {
         router.push(`/stock/${data.symbol}`);
-      } else if (data?.screen === 'orders') {
-        router.push('/orders');
       }
     });
 

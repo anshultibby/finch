@@ -65,8 +65,6 @@ export default function NotificationsScreen() {
       router.push(`/(tabs)/chat/${notif.data.chatId}`);
     } else if (notif.data?.symbol) {
       router.push(`/stock/${notif.data.symbol}`);
-    } else if (notif.data?.screen === 'orders') {
-      router.push('/orders');
     }
   };
 
@@ -117,7 +115,7 @@ export default function NotificationsScreen() {
               <View className="py-20 items-center">
                 <Bell size={48} color="#e5e7eb" />
                 <Text style={ns.emptyTitle}>No notifications</Text>
-                <Text style={ns.emptyDesc}>You'll see updates here when your analyses complete or trades execute.</Text>
+                <Text style={ns.emptyDesc}>You'll see updates here when your analyses and research complete.</Text>
               </View>
             }
           />

@@ -33,8 +33,7 @@ import type {
   ApiKeysResponse,
   ApiKeyResponse,
   TestApiKeyResponse,
-  AlpacaPortfolioResponse,
-  AlpacaOrder,
+  Visualization,
 } from './types';
 
 import { Platform } from 'react-native';
@@ -272,28 +271,20 @@ export const chatApi = {
   requestEmailNotification: async (chatId: string): Promise<void> => {
     await api.post(`/chat/${chatId}/notify-email`);
   },
-};
 
-export const alpacaBrokerApi = {
-  getAccountStatus: async (userId: string) => {
-    const response = await api.get(`/alpaca/broker/accounts/${userId}`);
-    return response.data;
-  },
-  getPortfolio: async (userId: string) => {
-    const response = await api.get(`/alpaca/broker/accounts/${userId}/portfolio`);
-    return response.data as AlpacaPortfolioResponse;
-  },
-  placeOrder: async (userId: string, order: { symbol: string; side: string; qty?: number; notional?: number; order_type?: string; time_in_force?: string }) => {
-    const response = await api.post(`/alpaca/broker/accounts/${userId}/orders`, { user_id: userId, ...order });
-    return response.data;
-  },
-  getOrders: async (userId: string, status: string = 'all', limit: number = 50) => {
-    const response = await api.get(`/alpaca/broker/accounts/${userId}/orders`, { params: { status, limit } });
-    return response.data as AlpacaOrder[];
-  },
-  cancelOrder: async (userId: string, orderId: string) => {
-    const response = await api.delete(`/alpaca/broker/accounts/${userId}/orders/${orderId}`);
-    return response.data;
+  submitFeedback: async (
+    chatId: string,
+    messageIndex: number,
+    feedbackType: 'like' | 'dislike',
+    comment?: string,
+    messageContent?: string,
+  ): Promise<void> => {
+    await api.post(`/chat/${chatId}/feedback`, {
+      message_index: messageIndex,
+      feedback_type: feedbackType,
+      comment,
+      message_content: messageContent,
+    });
   },
 };
 
@@ -477,6 +468,17 @@ export const notificationsApi = {
   markRead: async (notificationIds?: string[]) => {
     const response = await api.post('/push/notifications/read', { notification_ids: notificationIds || null });
     return response.data;
+  },
+};
+
+export const visualizationsApi = {
+  list: async (): Promise<{ visualizations: Visualization[] }> => {
+    const response = await api.get('/api/visualizations');
+    return response.data;
+  },
+  getRenderHtml: async (id: string): Promise<string> => {
+    const response = await api.get(`/api/visualizations/${id}/render`, { responseType: 'text' });
+    return response.data as string;
   },
 };
 

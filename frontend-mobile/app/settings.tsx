@@ -1,9 +1,10 @@
 import { View, Text, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, Modal, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { creditsApi, apiKeysApi } from '@/lib/api';
-import { CreditCard, LogOut, ChevronRight, Key, Shield, X, Check, Trash2 } from 'lucide-react-native';
+import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2 } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
@@ -16,6 +17,7 @@ interface ApiKeyEntry {
 
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const [credits, setCredits] = useState<number | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -112,9 +114,22 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Notifications */}
+        <View style={styles.menuCard} className="mb-3">
+          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" onPress={() => router.push('/notification-settings')} activeOpacity={0.7}>
+            <View className="flex-row items-center gap-3">
+              <View style={[styles.iconBox, { backgroundColor: '#eef2ff' }]}>
+                <Bell size={16} color="#6366f1" />
+              </View>
+              <Text className="text-[13px] font-body-medium text-gray-900">Notifications</Text>
+            </View>
+            <ChevronRight size={16} color="#d1d5db" />
+          </TouchableOpacity>
+        </View>
+
         {/* Privacy */}
         <View style={styles.menuCard} className="mb-3">
-          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" activeOpacity={0.7}>
+          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" onPress={() => router.push('/privacy')} activeOpacity={0.7}>
             <View className="flex-row items-center gap-3">
               <View style={[styles.iconBox, { backgroundColor: '#f9fafb' }]}>
                 <Shield size={16} color={COLORS.gray500} />

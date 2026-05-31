@@ -29,20 +29,30 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
-          name="orders"
+          name="settings"
           options={{
             headerShown: true,
-            headerTitle: 'Orders',
+            headerTitle: 'Settings',
             headerBackTitle: 'Back',
             headerStyle: { backgroundColor: '#fafaf9' },
             headerShadowVisible: false,
           }}
         />
         <Stack.Screen
-          name="settings"
+          name="privacy"
           options={{
             headerShown: true,
-            headerTitle: 'Settings',
+            headerTitle: 'Privacy & Security',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="notification-settings"
+          options={{
+            headerShown: true,
+            headerTitle: 'Notifications',
             headerBackTitle: 'Back',
             headerStyle: { backgroundColor: '#fafaf9' },
             headerShadowVisible: false,

@@ -1,17 +1,16 @@
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, StyleSheet, Platform, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
-import { marketApi, chatApi, watchlistApi, analysisApi, alpacaBrokerApi } from '@/lib/api';
+import { marketApi, chatApi, watchlistApi, analysisApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { MessageSquare, Star, ShoppingCart, BarChart3, FileText, TrendingUp, ChevronRight } from 'lucide-react-native';
+import { MessageSquare, Star, BarChart3, FileText, TrendingUp, ChevronRight } from 'lucide-react-native';
 import { COLORS, formatCurrency, formatPct, formatVolume, currencySymbol } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
-import TradeModal from '@/components/trade/TradeModal';
 import SectionHeader from '@/components/ui/SectionHeader';
 import NewsCard from '@/components/market/NewsCard';
 import PriceChange from '@/components/ui/PriceChange';
 
-type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis' | 'trades';
+type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis';
 
 const TABS: { key: StockTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
@@ -19,7 +18,6 @@ const TABS: { key: StockTab; label: string }[] = [
   { key: 'financials', label: 'Financials' },
   { key: 'news', label: 'News' },
   { key: 'analysis', label: 'Analysis' },
-  { key: 'trades', label: 'Trades' },
 ];
 
 export default function StockDetailScreen() {
@@ -33,12 +31,9 @@ export default function StockDetailScreen() {
   const [analyst, setAnalyst] = useState<any>(null);
   const [earningsHistory, setEarningsHistory] = useState<any[]>([]);
   const [analysis, setAnalysis] = useState<any[]>([]);
-  const [holdings, setHoldings] = useState<any>(null);
-  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [inWatchlist, setInWatchlist] = useState(false);
-  const [showTrade, setShowTrade] = useState(false);
   const [activeTab, setActiveTab] = useState<StockTab>('overview');
 
   const fetchData = useCallback(async () => {
@@ -65,19 +60,6 @@ export default function StockDetailScreen() {
           const wl = await watchlistApi.getWatchlist(user.id);
           const symbols = (wl.symbols || wl.watchlist || []).map((s: any) => typeof s === 'string' ? s : s.symbol);
           setInWatchlist(symbols.includes(symbol));
-        } catch {}
-
-        try {
-          const portfolio = await alpacaBrokerApi.getPortfolio(user.id);
-          const positions = portfolio?.positions || [];
-          const position = positions.find((p: any) => p.symbol?.toUpperCase() === symbol.toUpperCase());
-          if (position) setHoldings(position);
-        } catch {}
-
-        try {
-          const allOrders = await alpacaBrokerApi.getOrders(user.id, 'all', 100);
-          const stockOrders = (allOrders || []).filter((o: any) => o.symbol?.toUpperCase() === symbol.toUpperCase());
-          setOrders(stockOrders);
         } catch {}
       }
     } catch {} finally {
@@ -142,52 +124,15 @@ export default function StockDetailScreen() {
               )}
             </View>
 
-            {/* Holdings (if owned) */}
-            {holdings && (
-              <View className="px-4 mb-3">
-                <View style={s.holdingsCard}>
-                  <Text style={s.holdingsTitle}>YOUR POSITION</Text>
-                  <View className="flex-row justify-between mt-2">
-                    <View>
-                      <Text style={s.holdingsLabel}>Shares</Text>
-                      <Text style={s.holdingsValue}>{parseFloat(holdings.qty || holdings.quantity || 0).toFixed(2)}</Text>
-                    </View>
-                    <View>
-                      <Text style={s.holdingsLabel}>Avg Price</Text>
-                      <Text style={s.holdingsValue}>{formatCurrency(parseFloat(holdings.avg_entry_price || holdings.cost_basis || '0'), false, symbol)}</Text>
-                    </View>
-                    <View>
-                      <Text style={s.holdingsLabel}>Mkt Value</Text>
-                      <Text style={s.holdingsValue}>{formatCurrency(parseFloat(holdings.market_value || '0'), false, symbol)}</Text>
-                    </View>
-                    <View className="items-end">
-                      <Text style={s.holdingsLabel}>P&L</Text>
-                      <Text style={[s.holdingsValue, { color: parseFloat(holdings.unrealized_pl || 0) >= 0 ? '#059669' : '#ef4444' }]}>
-                        {parseFloat(holdings.unrealized_pl || 0) >= 0 ? '+' : ''}{formatCurrency(parseFloat(holdings.unrealized_pl || '0'), false, symbol)}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            )}
-
             {/* Action Buttons */}
             <View className="flex-row gap-2 px-4 mb-4">
-              <TouchableOpacity
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowTrade(true); }}
-                style={[s.actionBtn, { backgroundColor: '#059669' }]}
-                activeOpacity={0.8}
-              >
-                <ShoppingCart size={15} color="#fff" />
-                <Text style={s.actionBtnText}>Trade</Text>
-              </TouchableOpacity>
               <TouchableOpacity
                 onPress={chatAboutStock}
                 style={[s.actionBtn, { backgroundColor: '#111827' }]}
                 activeOpacity={0.8}
               >
                 <MessageSquare size={15} color="#fff" />
-                <Text style={s.actionBtnText}>Ask AI</Text>
+                <Text style={s.actionBtnText}>Ask Finch AI</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={toggleWatchlist}
@@ -241,9 +186,6 @@ export default function StockDetailScreen() {
                 onChat={chatAboutStock}
               />
             )}
-            {activeTab === 'trades' && (
-              <TradesTab orders={orders} symbol={symbol} />
-            )}
           </>
         ) : (
           <View className="py-20 items-center">
@@ -251,16 +193,6 @@ export default function StockDetailScreen() {
           </View>
         )}
       </ScrollView>
-
-      {quote && user && (
-        <TradeModal
-          visible={showTrade}
-          onClose={() => setShowTrade(false)}
-          symbol={symbol}
-          currentPrice={quote.price}
-          userId={user.id}
-        />
-      )}
     </>
   );
 }
@@ -926,85 +858,6 @@ function AnalysisTab({ analyst, analysis, quote, onChat }: {
   );
 }
 
-// ── Trades Tab ────────────────────────────────────────────────────────────────
-
-function TradesTab({ orders, symbol }: { orders: any[]; symbol: string }) {
-  if (orders.length === 0) {
-    return (
-      <View className="py-16 items-center">
-        <ShoppingCart size={40} color="#d1d5db" />
-        <Text style={s.emptyText}>No trades yet</Text>
-        <Text style={{ fontSize: 12, fontFamily: 'DMSans', color: '#d1d5db', marginTop: 4 }}>
-          Your trade history for this stock will appear here
-        </Text>
-      </View>
-    );
-  }
-
-  const filled = orders.filter((o: any) => o.status === 'filled');
-  const totalBought = filled.filter((o: any) => o.side === 'buy').reduce((sum: number, o: any) => sum + parseFloat(o.filled_avg_price || o.notional || 0) * parseFloat(o.filled_qty || o.qty || 0), 0);
-  const totalSold = filled.filter((o: any) => o.side === 'sell').reduce((sum: number, o: any) => sum + parseFloat(o.filled_avg_price || o.notional || 0) * parseFloat(o.filled_qty || o.qty || 0), 0);
-
-  return (
-    <View className="px-4">
-      {filled.length > 0 && (
-        <View className="flex-row gap-2 mb-4">
-          <View style={s.miniStat}>
-            <Text style={s.miniStatValue}>{formatCurrency(totalBought, false, symbol)}</Text>
-            <Text style={s.miniStatLabel}>Total Invested</Text>
-          </View>
-          <View style={s.miniStat}>
-            <Text style={s.miniStatValue}>{formatCurrency(totalSold, false, symbol)}</Text>
-            <Text style={s.miniStatLabel}>Total Returned</Text>
-          </View>
-        </View>
-      )}
-
-      <View style={s.listCard}>
-        {orders.map((order: any, i: number) => {
-          const isBuy = order.side === 'buy';
-          const qty = parseFloat(order.filled_qty || order.qty || 0);
-          const price = parseFloat(order.filled_avg_price || order.limit_price || 0);
-          const date = order.filled_at || order.submitted_at || order.created_at;
-          return (
-            <View key={order.id || i} style={[tStyles.row, i > 0 && { borderTopWidth: 1, borderTopColor: '#f3f4f6' }]}>
-              <View style={[tStyles.badge, { backgroundColor: isBuy ? '#ecfdf5' : '#fef2f2' }]}>
-                <Text style={[tStyles.badgeText, { color: isBuy ? '#059669' : '#dc2626' }]}>
-                  {isBuy ? 'BUY' : 'SELL'}
-                </Text>
-              </View>
-              <View className="flex-1 ml-3">
-                <Text style={tStyles.orderQty}>{qty.toFixed(2)} shares @ {formatCurrency(price, false, symbol)}</Text>
-                <Text style={tStyles.orderDate}>
-                  {date ? new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                </Text>
-              </View>
-              <View className="items-end">
-                <Text style={tStyles.orderTotal}>{formatCurrency(qty * price, false, symbol)}</Text>
-                <Text style={[tStyles.orderStatus, {
-                  color: order.status === 'filled' ? '#059669' : order.status === 'canceled' ? '#9ca3af' : '#d97706'
-                }]}>
-                  {order.status}
-                </Text>
-              </View>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-const tStyles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontSize: 10, fontFamily: 'DMSans-Bold', letterSpacing: 0.5 },
-  orderQty: { fontSize: 13, fontFamily: 'DMSans-Medium', color: '#111827' },
-  orderDate: { fontSize: 11, fontFamily: 'DMSans', color: '#9ca3af', marginTop: 2 },
-  orderTotal: { fontSize: 13, fontFamily: 'DMSans-Medium', color: '#111827' },
-  orderStatus: { fontSize: 10, fontFamily: 'DMSans-Medium', marginTop: 2, textTransform: 'capitalize' },
-});
-
 // ── Styles ──────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
@@ -1086,28 +939,4 @@ const s = StyleSheet.create({
   aiCtaDesc: { fontSize: 12, fontFamily: 'DMSans', color: '#6b7280', lineHeight: 17, marginTop: 2 },
   aiCtaBtn: { backgroundColor: '#059669', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   aiCtaBtnText: { fontSize: 12, fontFamily: 'DMSans-Medium', color: '#fff' },
-  holdingsCard: {
-    backgroundColor: '#f0fdf4',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#d1fae5',
-  },
-  holdingsTitle: {
-    fontSize: 10,
-    fontFamily: 'DMSans-Bold',
-    color: '#059669',
-    letterSpacing: 0.5,
-  },
-  holdingsLabel: {
-    fontSize: 10,
-    fontFamily: 'DMSans',
-    color: '#6b7280',
-  },
-  holdingsValue: {
-    fontSize: 13,
-    fontFamily: 'DMSans-Bold',
-    color: '#111827',
-    marginTop: 2,
-  },
 });

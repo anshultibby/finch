@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import type { Message } from '@/lib/types';
 import ToolCallCard from './ToolCallCard';
+import { VisualizationChip } from './VisualizationPreview';
+import { parseMessageParts } from '@/lib/messageMarkers';
+import { chatApi } from '@/lib/api';
 
 const mdStyles = {
   body: { color: '#374151', fontSize: 14, lineHeight: 21, fontFamily: 'DMSans' },
@@ -38,10 +42,16 @@ const mdRules = {
   ),
 };
 
-export default function ChatMessage({ message }: { message: Message }) {
+export default function ChatMessage({ message, chatId, messageIndex }: {
+  message: Message;
+  chatId?: string;
+  messageIndex?: number;
+}) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+
+  const parts = useMemo(() => parseMessageParts(message.content || ''), [message.content]);
 
   const handleCopy = async () => {
     if (!message.content) return;
@@ -52,6 +62,17 @@ export default function ChatMessage({ message }: { message: Message }) {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const sendFeedback = (next: 'up' | 'down') => {
+    const value = feedback === next ? null : next;
+    setFeedback(value);
+    Haptics.selectionAsync();
+    if (value && chatId != null && messageIndex != null) {
+      chatApi
+        .submitFeedback(chatId, messageIndex, value === 'up' ? 'like' : 'dislike', undefined, message.content)
+        .catch(() => {});
+    }
   };
 
   return (
@@ -70,21 +91,27 @@ export default function ChatMessage({ message }: { message: Message }) {
         </View>
       ) : message.content ? (
         <View className="w-full">
-          <Markdown style={mdStyles} rules={mdRules}>{message.content}</Markdown>
+          {parts.map((part, i) =>
+            part.type === 'visualization' ? (
+              <VisualizationChip key={`viz-${i}`} filename={part.filename} />
+            ) : (
+              <Markdown key={`md-${i}`} style={mdStyles} rules={mdRules}>{part.value}</Markdown>
+            )
+          )}
           {/* Message Actions */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, marginBottom: 4 }}>
             <TouchableOpacity onPress={handleCopy} style={{ padding: 6, borderRadius: 6 }} activeOpacity={0.6}>
               {copied ? <Check size={14} color="#059669" /> : <Copy size={14} color="#d1d5db" />}
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => setFeedback(feedback === 'up' ? null : 'up')}
+              onPress={() => sendFeedback('up')}
               style={{ padding: 6, borderRadius: 6 }}
               activeOpacity={0.6}
             >
               <ThumbsUp size={14} color={feedback === 'up' ? '#059669' : '#d1d5db'} fill={feedback === 'up' ? '#059669' : 'none'} />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => setFeedback(feedback === 'down' ? null : 'down')}
+              onPress={() => sendFeedback('down')}
               style={{ padding: 6, borderRadius: 6 }}
               activeOpacity={0.6}
             >

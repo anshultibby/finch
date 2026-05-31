@@ -90,7 +90,12 @@ export default function HomeScreen() {
       ]);
       if (moversData) setMovers(moversData);
       setNews(newsData?.news || newsData || []);
-      if (batchQuotes) setIndexQuotes(batchQuotes);
+      // batch-quotes returns an array; key it by symbol for O(1) lookup.
+      if (Array.isArray(batchQuotes)) {
+        const quoteMap: Record<string, any> = {};
+        batchQuotes.forEach((q: any) => { if (q?.symbol) quoteMap[q.symbol] = q; });
+        setIndexQuotes(quoteMap);
+      }
     } catch {} finally {
       setMarketsLoading(false);
     }
@@ -239,6 +244,7 @@ export default function HomeScreen() {
           <SearchIcon size={16} color={COLORS.gray400} />
           <TextInput
             ref={searchInputRef}
+            testID="search-input"
             value={searchQuery}
             onChangeText={handleSearch}
             placeholder="Search stocks..."
@@ -261,7 +267,7 @@ export default function HomeScreen() {
             <FinchLogo size={22} showText />
           </View>
           <View style={headerStyles.headerRight}>
-            <TouchableOpacity onPress={() => setSearchActive(true)} style={headerStyles.iconBtn} activeOpacity={0.7}>
+            <TouchableOpacity testID="search-button" onPress={() => setSearchActive(true)} style={headerStyles.iconBtn} activeOpacity={0.7}>
               <SearchIcon size={20} color="#6b7280" />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => router.push('/notifications')} style={headerStyles.iconBtn} activeOpacity={0.7}>
