@@ -135,6 +135,7 @@ export default function StockDetailScreen() {
                 <Text style={s.actionBtnText}>Ask Finch AI</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                testID="watchlist-toggle"
                 onPress={toggleWatchlist}
                 style={[s.watchlistBtn, inWatchlist && { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}
                 activeOpacity={0.8}

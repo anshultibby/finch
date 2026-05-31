@@ -26,27 +26,33 @@ export function currencySymbol(symbol?: string): string {
   return isIndianStock(symbol) ? '₹' : '$';
 }
 
-export function formatCurrency(value: number, compact = false, symbol?: string): string {
+export function formatCurrency(value: number | null | undefined, compact = false, symbol?: string): string {
   const cs = currencySymbol(symbol);
+  const n = typeof value === 'number' ? value : value == null ? NaN : Number(value);
+  if (!Number.isFinite(n)) return '—';
   if (compact) {
-    if (Math.abs(value) >= 1e12) return `${cs}${(value / 1e12).toFixed(1)}T`;
-    if (Math.abs(value) >= 1e9) return `${cs}${(value / 1e9).toFixed(1)}B`;
-    if (Math.abs(value) >= 1e6) return `${cs}${(value / 1e6).toFixed(1)}M`;
-    if (Math.abs(value) >= 1e3) return `${cs}${(value / 1e3).toFixed(1)}K`;
+    if (Math.abs(n) >= 1e12) return `${cs}${(n / 1e12).toFixed(1)}T`;
+    if (Math.abs(n) >= 1e9) return `${cs}${(n / 1e9).toFixed(1)}B`;
+    if (Math.abs(n) >= 1e6) return `${cs}${(n / 1e6).toFixed(1)}M`;
+    if (Math.abs(n) >= 1e3) return `${cs}${(n / 1e3).toFixed(1)}K`;
   }
   const locale = isIndianStock(symbol) ? 'en-IN' : 'en-US';
-  return `${cs}${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${cs}${n.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function formatPct(value: number): string {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+export function formatPct(value: number | null | undefined): string {
+  const n = typeof value === 'number' ? value : value == null ? NaN : Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
 
-export function formatVolume(vol: number): string {
-  if (vol >= 1e9) return `${(vol / 1e9).toFixed(1)}B`;
-  if (vol >= 1e6) return `${(vol / 1e6).toFixed(1)}M`;
-  if (vol >= 1e3) return `${(vol / 1e3).toFixed(1)}K`;
-  return vol.toString();
+export function formatVolume(vol: number | null | undefined): string {
+  const n = typeof vol === 'number' ? vol : vol == null ? NaN : Number(vol);
+  if (!Number.isFinite(n)) return '—';
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toString();
 }
 
 export function formatRelativeTime(dateStr: string): string {

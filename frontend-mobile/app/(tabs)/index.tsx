@@ -638,10 +638,10 @@ function WatchlistTab({ items, loading, refreshing, onRefresh, onStockPress, onR
           </View>
           <View className="flex-row items-center gap-2">
             <MiniSparkline symbol={item.symbol} width={48} height={20} days={30} />
-            {item.price !== undefined && (
+            {item.price != null && (
               <View className="items-end">
                 <Text className="text-[15px] font-body-medium text-gray-900 tabular-nums">{formatCurrency(item.price, false, item.symbol)}</Text>
-                {item.change_pct !== undefined && (
+                {item.change_pct != null && (
                   <Text className={`text-sm font-body tabular-nums ${item.change_pct >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {formatPct(item.change_pct)}
                   </Text>

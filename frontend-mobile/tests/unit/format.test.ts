@@ -52,3 +52,18 @@ describe('formatVolume', () => {
     expect(formatVolume(750)).toBe('750');
   });
 });
+
+// Regression: a watchlist item with a null/undefined price used to crash the
+// app (formatCurrency(null).toLocaleString). Formatters must never throw.
+describe('formatters are null/NaN-safe', () => {
+  it('returns a dash instead of throwing on null/undefined/NaN', () => {
+    for (const bad of [null, undefined, NaN] as any[]) {
+      expect(() => formatCurrency(bad)).not.toThrow();
+      expect(() => formatPct(bad)).not.toThrow();
+      expect(() => formatVolume(bad)).not.toThrow();
+      expect(formatCurrency(bad)).toBe('—');
+      expect(formatPct(bad)).toBe('—');
+      expect(formatVolume(bad)).toBe('—');
+    }
+  });
+});
