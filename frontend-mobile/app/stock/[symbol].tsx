@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import SectionHeader from '@/components/ui/SectionHeader';
 import NewsCard from '@/components/market/NewsCard';
 import PriceChange from '@/components/ui/PriceChange';
+import { CountUp } from '@/components/ui/CountUp';
 
 type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis';
 
@@ -114,7 +115,7 @@ export default function StockDetailScreen() {
                 {profile?.companyName || quote.name || symbol}
               </Text>
               <View className="flex-row items-baseline gap-2.5 mt-0.5">
-                <Text style={s.price}>{formatCurrency(quote.price, false, symbol)}</Text>
+                <CountUp value={quote.price} format={(n) => formatCurrency(n, false, symbol)} style={s.price} />
                 <PriceChange value={quote.change || 0} percent={quote.changesPercentage} size="lg" />
               </View>
               {profile?.exchangeShortName && (

@@ -1,7 +1,18 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { View } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedProps,
+  withTiming,
+  interpolate,
+  Extrapolation,
+} from 'react-native-reanimated';
 import { marketApi } from '@/lib/api';
+import { EASE_OUT, DUR } from '@/lib/animations';
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface MiniSparklineProps {
   symbol: string;
@@ -31,8 +42,8 @@ export default function MiniSparkline({
       .catch(() => {});
   }, [symbol, days]);
 
-  const { path, lastPoint } = useMemo(() => {
-    if (data.length < 2) return { path: '', lastPoint: null };
+  const { path, lastPoint, length } = useMemo(() => {
+    if (data.length < 2) return { path: '', lastPoint: null, length: 0 };
     const min = Math.min(...data);
     const max = Math.max(...data);
     const range = max - min || 1;
@@ -40,27 +51,56 @@ export default function MiniSparkline({
     const w = width - pad * 2;
     const h = height - pad * 2;
 
-    const pathStr = data.map((v, i) => {
-      const x = pad + (i / (data.length - 1)) * w;
-      const y = pad + (1 - (v - min) / range) * h;
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
+    const pts = data.map((v, i) => ({
+      x: pad + (i / (data.length - 1)) * w,
+      y: pad + (1 - (v - min) / range) * h,
+    }));
 
-    const lastX = pad + w;
-    const lastY = pad + (1 - (data[data.length - 1] - min) / range) * h;
+    const pathStr = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) {
+      len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    }
 
-    return { path: pathStr, lastPoint: { x: lastX, y: lastY } };
+    return { path: pathStr, lastPoint: pts[pts.length - 1], length: len };
   }, [data, width, height]);
 
   const isUp = data.length >= 2 ? data[data.length - 1] >= data[0] : true;
   const lineColor = color || (isUp ? '#10b981' : '#ef4444');
 
+  // Draw-in: stroke reveals from start to end, then the end dot pops.
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    if (!path) return;
+    progress.value = 0;
+    progress.value = withTiming(1, { duration: DUR.slow, easing: EASE_OUT });
+  }, [path, progress]);
+
+  const pathProps = useAnimatedProps(() => ({
+    strokeDashoffset: length * (1 - progress.value),
+  }));
+  const dotProps = useAnimatedProps(() => ({
+    opacity: interpolate(progress.value, [0.6, 1], [0, 1], Extrapolation.CLAMP),
+    r: 2 * interpolate(progress.value, [0.6, 1], [0.2, 1], Extrapolation.CLAMP),
+  }));
+
   if (!path) return <View style={{ width, height }} />;
 
   return (
     <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <Path d={path} fill="none" stroke={lineColor} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      {lastPoint && <Circle cx={lastPoint.x} cy={lastPoint.y} r={2} fill={lineColor} />}
+      <AnimatedPath
+        d={path}
+        fill="none"
+        stroke={lineColor}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray={length}
+        animatedProps={pathProps}
+      />
+      {lastPoint && (
+        <AnimatedCircle cx={lastPoint.x} cy={lastPoint.y} fill={lineColor} animatedProps={dotProps} />
+      )}
     </Svg>
   );
 }

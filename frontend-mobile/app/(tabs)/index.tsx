@@ -13,6 +13,8 @@ import MoverCard from '@/components/market/MoverCard';
 import NewsCard from '@/components/market/NewsCard';
 import EmptyState from '@/components/ui/EmptyState';
 import MiniSparkline from '@/components/shared/MiniSparkline';
+import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 
@@ -413,7 +415,17 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
   const [showRegionPicker, setShowRegionPicker] = useState(false);
 
   if (loading) {
-    return <View className="flex-1 items-center justify-center"><ActivityIndicator color={COLORS.gray900} /></View>;
+    return (
+      <View className="flex-1 pt-5">
+        <View className="flex-row gap-2.5 px-4 mb-6">
+          {[0, 1, 2].map((i) => <Skeleton key={i} width={150} height={72} radius={14} />)}
+        </View>
+        <View className="px-4 mb-3"><Skeleton width={110} height={14} radius={4} /></View>
+        <SkeletonMoverRow />
+        <View className="px-4 mt-6 mb-3"><Skeleton width={90} height={14} radius={4} /></View>
+        <SkeletonRows count={4} />
+      </View>
+    );
   }
 
   const indices = MARKET_INDICES[marketRegion];
@@ -484,8 +496,10 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
         <View className="mt-4 mb-5">
           <View className="px-4"><SectionHeader title="Top Gainers" /></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="px-4">
-            {gainers.map((m: any) => (
-              <MoverCard key={m.symbol} symbol={m.symbol} name={m.name || m.companyName || ''} price={m.price} changePct={m.changesPercentage} onPress={() => onStockPress(m.symbol)} />
+            {gainers.map((m: any, i: number) => (
+              <Animated.View key={m.symbol} entering={FadeInDown.delay(i * 45).springify().damping(14)}>
+                <MoverCard symbol={m.symbol} name={m.name || m.companyName || ''} price={m.price} changePct={m.changesPercentage} onPress={() => onStockPress(m.symbol)} />
+              </Animated.View>
             ))}
           </ScrollView>
         </View>
@@ -495,8 +509,10 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
         <View className="mb-5">
           <View className="px-4"><SectionHeader title="Top Losers" /></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="px-4">
-            {losers.map((m: any) => (
-              <MoverCard key={m.symbol} symbol={m.symbol} name={m.name || m.companyName || ''} price={m.price} changePct={m.changesPercentage} onPress={() => onStockPress(m.symbol)} />
+            {losers.map((m: any, i: number) => (
+              <Animated.View key={m.symbol} entering={FadeInDown.delay(i * 45).springify().damping(14)}>
+                <MoverCard symbol={m.symbol} name={m.name || m.companyName || ''} price={m.price} changePct={m.changesPercentage} onPress={() => onStockPress(m.symbol)} />
+              </Animated.View>
             ))}
           </ScrollView>
         </View>
