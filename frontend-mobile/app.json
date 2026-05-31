@@ -51,7 +51,8 @@
           "icon": "./assets/images/icon.png",
           "sounds": []
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
