@@ -843,7 +843,7 @@ function WatchlistTabView({ userId, onStockClick }: {
                     className="flex-1 px-2 py-1.5 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-300" />
                   <button onClick={handleCreateList} disabled={!newListName.trim()}
                     className="px-3 py-1.5 text-xs font-semibold text-white rounded-lg disabled:opacity-40"
-                    style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>Add</button>
+                    style={{ background: '#059669' }}>Add</button>
                   <button onClick={() => { setShowNewList(false); setNewListName(''); }}
                     className="text-gray-400 hover:text-gray-600">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

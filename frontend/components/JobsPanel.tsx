@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { jobsApi, type ScheduledJob, type JobListResponse, type Recurrence } from '@/lib/api';
 import { useNavigation } from '@/contexts/NavigationContext';
+import PageHeader from '@/components/ui/PageHeader';
 
 const RUNS_PER_WEEK: Record<string, number> = { hourly: 168, daily: 7, weekdays: 5, weekly: 1 };
 const RECURRENCE_LABEL: Record<string, string> = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', weekdays: 'Weekdays' };
@@ -67,16 +68,16 @@ export default function JobsPanel() {
     <div className="flex flex-col h-full bg-white overflow-y-auto">
       <div className="max-w-5xl px-6 sm:px-10 py-8">
         {/* Header */}
-        <div className="flex items-end justify-between gap-4 mb-7">
-          <div>
-            <h1 className="text-[26px] font-bold text-gray-900 tracking-tight leading-none">Scheduled</h1>
-            <p className="text-[13px] text-gray-500 mt-2">
-              {data ? `${data.recurring_count}/${data.recurring_limit} recurring · ${data.oneoff_count}/${data.oneoff_limit} one-off` : ''}
+        <PageHeader
+          title="Scheduled"
+          subtitle={data ? (
+            <>
+              {data.recurring_count}/{data.recurring_limit} recurring · {data.oneoff_count}/{data.oneoff_limit} one-off
               {totalWeekly > 0 && <span> · <span className="font-medium text-gray-600">~{fmtCr(totalWeekly)}</span> credits/week</span>}
-            </p>
-          </div>
-          {!isEmpty && (
-            <div className="flex items-center gap-2 flex-shrink-0">
+            </>
+          ) : undefined}
+          actions={!isEmpty && (
+            <>
               {active.length > 0 && (
                 <button
                   onClick={() => act(() => (allPaused ? jobsApi.resumeAll() : jobsApi.pauseAll()), 'all')}
@@ -92,9 +93,9 @@ export default function JobsPanel() {
               >
                 <Plus className="w-4 h-4" /> New
               </button>
-            </div>
+            </>
           )}
-        </div>
+        />
 
         {error && <div className="mb-4 text-sm text-red-500 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">{error}</div>}
 

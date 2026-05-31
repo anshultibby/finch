@@ -257,6 +257,24 @@ body {
   animation: fadeIn 0.4s ease-out forwards;
 }
 
+/* ── Design tokens: cards ── */
+.card {
+  border-radius: 1rem; /* rounded-2xl */
+  border: 1px solid #e5e7eb; /* gray-200 */
+  background: #fff;
+}
+.card-interactive {
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+.card-interactive:hover {
+  border-color: #d1d5db; /* gray-300 */
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.15);
+}
+/* Skeleton block — shimmer sized like the content it stands in for */
+.skel { border-radius: 0.5rem; }
+.skel, .skel-pill { background: linear-gradient(90deg, #f3f4f6 25%, #e9eaec 50%, #f3f4f6 75%); background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite; }
+.skel-pill { border-radius: 9999px; }
+
 /* ── Distinctive numerals for prices/figures ── */
 .font-numeric {
   font-family: var(--font-numeric), ui-monospace, "SF Mono", Menlo, monospace;

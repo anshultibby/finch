@@ -398,7 +398,7 @@ function AlpacaSignupModal({ onClose, userId, approvedCount, approvedSavings, sw
                 onClick={handleSnaptradeExecute}
                 disabled={loading}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl disabled:opacity-40"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
+                style={{ background: '#059669', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
                 Execute trades
               </button>
             </div>
@@ -432,7 +432,7 @@ function AlpacaSignupModal({ onClose, userId, approvedCount, approvedSavings, sw
             <button
               onClick={() => { onManualDone?.(); onClose(); }}
               className="w-full py-2.5 text-sm font-bold text-white rounded-xl mb-2"
-              style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
+              style={{ background: '#059669', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
               Set 61-day reminder
             </button>
             <button onClick={onClose} className="w-full text-xs text-gray-400 hover:text-gray-600 py-1">
@@ -547,7 +547,7 @@ function AlpacaSignupModal({ onClose, userId, approvedCount, approvedSavings, sw
               <button
                 onClick={() => { onManualDone?.(); onClose(); }}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
+                style={{ background: '#059669', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
                 Done — set 61-day reminder
               </button>
               <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600 text-center">
@@ -1031,7 +1031,7 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
         )}
         {showWaitlistBanner && (
           <div className="mb-3 rounded-2xl overflow-hidden relative"
-            style={{ background: 'linear-gradient(135deg, #111827 0%, #1f2937 100%)' }}>
+            style={{ background: '#111827' }}>
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
             <div className="p-3.5 flex items-center gap-3">
               <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
@@ -1103,7 +1103,7 @@ export default function SwapsPanel({ swaps, userId, onApprove, onReject, onDismi
             <button
               onClick={handleBatchApprove}
               className="px-3 py-1.5 text-xs font-bold text-white rounded-lg transition-colors"
-              style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}
+              style={{ background: '#059669' }}
             >
               Approve {selectedIds.size}
             </button>

@@ -540,7 +540,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
                   <div className="text-sm text-gray-500 mb-5">Your agent&apos;s brokerage account is ready. It can now execute trades on your behalf.</div>
                   <button onClick={() => { onSuccess?.(); onClose(); }}
                     className="w-full py-2.5 text-sm font-bold text-white rounded-xl"
-                    style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                    style={{ background: '#059669' }}>
                     Done
                   </button>
                 </>
@@ -575,7 +575,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
               <button
                 onClick={() => advance(validatePersonal, 'address')}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                style={{ background: '#059669' }}>
                 Continue
               </button>
             )}
@@ -583,7 +583,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
               <button
                 onClick={() => advance(validateAddress, 'identity')}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                style={{ background: '#059669' }}>
                 Continue
               </button>
             )}
@@ -591,7 +591,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
               <button
                 onClick={() => advance(validateIdentity, 'disclosures')}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                style={{ background: '#059669' }}>
                 Continue
               </button>
             )}
@@ -599,7 +599,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
               <button
                 onClick={() => { setError(''); setStep('agreements'); }}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                style={{ background: '#059669' }}>
                 Continue
               </button>
             )}
@@ -608,7 +608,7 @@ export default function AlpacaOnboarding({ userId, onClose, onSuccess }: AlpacaO
                 onClick={handleSubmit}
                 disabled={loading || !form.agreements_accepted}
                 className="w-full py-2.5 text-sm font-bold text-white rounded-xl disabled:opacity-40 transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                style={{ background: '#059669' }}>
                 {loading ? 'Submitting...' : 'Submit application'}
               </button>
             )}

@@ -88,7 +88,7 @@ function TradePanel({ symbol, price, userId, onSuccess }: {
           className={`w-full py-2.5 text-sm font-bold text-white rounded-xl transition-all disabled:opacity-50 ${
             done ? 'bg-emerald-500' : ''
           }`}
-          style={!done ? { background: side === 'buy' ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #dc2626, #ef4444)' } : {}}>
+          style={!done ? { background: side === 'buy' ? '#059669' : '#dc2626' } : {}}>
           {done ? 'Order placed!' : loading ? 'Placing...' : 'Trade now'}
         </button>
       </div>
@@ -102,7 +102,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="py-3 border-b border-gray-100">
       <div className="text-xs text-gray-400 mb-0.5">{label}</div>
-      <div className="text-sm font-semibold text-gray-900 tabular-nums">{value}</div>
+      <div className="text-[15px] font-semibold text-gray-900 font-numeric">{value}</div>
     </div>
   );
 }
@@ -1008,12 +1008,12 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
             <div className="lg:hidden px-4 py-3 flex gap-2">
               <button onClick={() => setShowMobileTrade(true)}
                 className="flex-1 py-3 text-sm font-bold text-white rounded-xl"
-                style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+                style={{ background: '#059669' }}>
                 Buy
               </button>
               <button onClick={() => setShowMobileTrade(true)}
                 className="flex-1 py-3 text-sm font-bold text-white rounded-xl"
-                style={{ background: 'linear-gradient(135deg, #dc2626, #ef4444)' }}>
+                style={{ background: '#dc2626' }}>
                 Sell
               </button>
               <button onClick={() => openChatAbout(symbol)}
@@ -1143,7 +1143,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 <div className="mb-6">
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-6 h-6 rounded-lg flex items-center justify-center"
-                      style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}>
+                      style={{ background: '#ecfdf5' }}>
                       <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
                       </svg>
@@ -1314,7 +1314,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
               <div className="max-w-lg">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-                    style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}>
+                    style={{ background: '#ecfdf5' }}>
                     <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
                     </svg>
@@ -1342,7 +1342,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                 </div>
                 <button onClick={() => openChatAbout(symbol)}
                   className="w-full py-2.5 text-sm font-semibold text-white rounded-xl transition-all hover:shadow-md flex items-center justify-center gap-2"
-                  style={{ background: 'linear-gradient(135deg, #0f172a, #1f2937)' }}>
+                  style={{ background: '#0f172a' }}>
                   Start analysis
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />

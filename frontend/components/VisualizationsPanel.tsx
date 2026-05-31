@@ -7,6 +7,7 @@ import { visualizationsApi } from '@/lib/api';
 import api from '@/lib/api';
 import { useNavigation } from '@/contexts/NavigationContext';
 import EmptyState from '@/components/ui/EmptyState';
+import PageHeader from '@/components/ui/PageHeader';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -301,18 +302,11 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-5 pt-5 pb-3">
-        <div className="flex items-center gap-2.5 mb-4">
-          <div className="p-1.5 rounded-lg bg-emerald-50">
-            <BarChart3 className="w-4 h-4 text-emerald-600" />
-          </div>
-          <h1 className="text-lg font-semibold text-gray-900 tracking-tight">Visualizations</h1>
-          {visualizations.length > 0 && (
-            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-1.5 py-0.5 rounded-full">
-              {visualizations.length}
-            </span>
-          )}
-        </div>
+      <div className="px-6 sm:px-10 pt-8 pb-3">
+        <PageHeader
+          title="Visualizations"
+          subtitle={visualizations.length > 0 ? `${visualizations.length} saved` : 'Charts, dashboards & trackers'}
+        />
 
         {/* Category filters */}
         {categories.length > 1 && (
@@ -337,7 +331,7 @@ export default function VisualizationsPanel({ vizId }: VisualizationsPanelProps)
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 pb-5">
+      <div className="flex-1 overflow-y-auto px-6 sm:px-10 pb-8">
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-pulse">
             {[1, 2, 3].map(i => (

@@ -197,8 +197,8 @@ function TradeModal({ userId, onClose, onSuccess, prefill }: {
             className="w-full py-2.5 text-sm font-bold text-white rounded-xl disabled:opacity-40 transition-opacity"
             style={{
               background: side === 'buy'
-                ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
-                : 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
+                ? '#059669'
+                : '#dc2626',
             }}>
             {loading ? 'Placing...' : `${side === 'buy' ? 'Buy' : 'Sell'} ${symbol || '...'}`}
           </button>
@@ -441,7 +441,7 @@ export default function PortfolioPanel() {
           <button
             onClick={() => setShowOnboarding(true)}
             className="px-8 py-3 text-sm font-bold text-white rounded-xl transition-all hover:opacity-90 hover:shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
+            style={{ background: '#059669', boxShadow: '0 4px 14px rgba(16,185,129,0.3)' }}>
             Get started
           </button>
         </div>
@@ -559,7 +559,7 @@ export default function PortfolioPanel() {
         <button
           onClick={() => setTradeModal({})}
           className="w-full py-2.5 text-sm font-bold text-white rounded-xl transition-all hover:opacity-90"
-          style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
+          style={{ background: '#059669', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}>
           Trade
         </button>
       </div>
