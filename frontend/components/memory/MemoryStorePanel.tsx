@@ -6,7 +6,7 @@ import { storeApi } from '@/lib/api';
 import type { StoreFile, Dream } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Database } from 'lucide-react';
+import { Database, Moon, Sparkles } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
 
 // ---------------------------------------------------------------------------
@@ -307,10 +307,14 @@ function DreamLog({
 }) {
   if (dreams.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-        <div className="text-3xl mb-3">~</div>
-        <p className="text-sm">No dreams yet</p>
-        <p className="text-xs mt-1">Dreams run automatically after conversations</p>
+      <div className="px-4 py-10 text-center">
+        <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-500 mb-3">
+          <Moon className="w-5 h-5" strokeWidth={1.75} />
+        </div>
+        <p className="text-sm font-semibold text-gray-700">No dreams yet</p>
+        <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+          After conversations, Finch <span className="text-gray-600">dreams</span> — reflecting on what happened and distilling it into lasting memory.
+        </p>
       </div>
     );
   }
@@ -839,7 +843,15 @@ export default function MemoryStorePanel() {
   const selectedFileObj = files.find(f => f.filename === selectedFile) || null;
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col h-full">
+      {/* Header — frames what Memory is (Claude-style clarity) */}
+      <div className="shrink-0 px-5 sm:px-6 py-4 border-b border-gray-100">
+        <h1 className="text-lg font-bold text-gray-900 tracking-tight">Memory</h1>
+        <p className="text-[13px] text-gray-500 mt-0.5">
+          What Finch knows about you and the markets — built up as you chat, and refined while it dreams.
+        </p>
+      </div>
+      <div className="flex flex-1 min-h-0">
       {/* Left sidebar */}
       <div className="w-64 border-r border-gray-100 flex flex-col shrink-0">
         {/* Tabs — matches dashboard TopNavBar pattern */}
@@ -875,9 +887,10 @@ export default function MemoryStorePanel() {
                 <button
                   onClick={handleTriggerDream}
                   disabled={triggering}
-                  className="w-full text-xs text-gray-600 hover:text-gray-800 border border-gray-200 hover:border-gray-300 rounded-md py-1.5 transition-colors disabled:opacity-50"
+                  className="w-full inline-flex items-center justify-center gap-1.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg py-2 transition-colors disabled:opacity-50"
                 >
-                  {triggering ? 'Triggering...' : 'Trigger Dream'}
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {triggering ? 'Dreaming…' : 'Reflect now'}
                 </button>
                 {triggerError && (
                   <p className="text-[11px] text-red-500 mt-1 px-0.5">{triggerError}</p>
@@ -911,6 +924,7 @@ export default function MemoryStorePanel() {
             hasFiles={files.length > 0}
           />
         )}
+      </div>
       </div>
     </div>
   );
