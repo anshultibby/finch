@@ -1050,6 +1050,47 @@ export const skillsApi = {
 // Analytics / Transactions API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type Recurrence = 'hourly' | 'daily' | 'weekly' | 'weekdays' | null;
+
+export interface ScheduledJob {
+  id: string;
+  name: string;
+  message: string;
+  run_at: string;
+  recurrence: Recurrence;
+  priority: number;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+  created_at: string;
+  last_run_at: string | null;
+  run_count: number;
+  last_error: string | null;
+}
+
+export interface JobListResponse {
+  jobs: ScheduledJob[];
+  recurring_count: number;
+  oneoff_count: number;
+  recurring_limit: number;
+  oneoff_limit: number;
+}
+
+export const jobsApi = {
+  list: async (): Promise<JobListResponse> => {
+    const response = await api.get('/jobs');
+    return response.data;
+  },
+  cancel: async (jobId: string): Promise<void> => {
+    await api.delete(`/jobs/${jobId}`);
+  },
+  update: async (jobId: string, patch: Partial<Pick<ScheduledJob, 'name' | 'message' | 'run_at' | 'recurrence' | 'priority'>>): Promise<ScheduledJob> => {
+    const response = await api.patch(`/jobs/${jobId}`, patch);
+    return response.data;
+  },
+  registerToken: async (refreshToken: string): Promise<void> => {
+    await api.post('/jobs/register-token', { refresh_token: refreshToken });
+  },
+};
+
 export const analyticsApi = {
   async getTransactions(userId: string, symbol?: string, limit: number = 200) {
     const params = new URLSearchParams({ user_id: userId, limit: String(limit) });

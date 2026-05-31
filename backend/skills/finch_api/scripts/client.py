@@ -137,3 +137,44 @@ def get_transactions(
         params["end_date"] = end_date
     result = _request("GET", "/api/analytics/transactions", params=params)
     return result.get("transactions", [])
+
+
+# ── Scheduled jobs ───────────────────────────────────────────────────────────
+
+def schedule_job(message, run_at=None, in_minutes=None, recurrence=None,
+                 name=None, priority=5, context_paths=None):
+    """Schedule a one-off or recurring job that runs `message` at a future time.
+
+    Provide either run_at (ISO-8601 UTC, e.g. '2026-06-01T13:30:00Z') OR
+    in_minutes (relative). recurrence: None | 'hourly' | 'daily' | 'weekly' |
+    'weekdays'. For an ALERT, make it recurring and have the message both check
+    the condition AND notify only if it's met. Limits: 5 recurring + 10 one-off.
+    """
+    from datetime import datetime, timezone, timedelta
+    if run_at is None:
+        mins = in_minutes if in_minutes is not None else 60
+        run_at = (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat()
+    body = {"message": message, "run_at": run_at, "recurrence": recurrence,
+            "name": name, "priority": priority, "context_paths": context_paths or []}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", "/jobs", body=body)
+
+
+def list_jobs():
+    """List the user's scheduled jobs and how full their quota is."""
+    return _request("GET", "/jobs")
+
+
+def update_job(job_id, message=None, run_at=None, recurrence=None,
+               clear_recurrence=False, name=None, priority=None):
+    """Modify a scheduled job. Only provided fields change. Set
+    clear_recurrence=True to turn a recurring job into a one-off."""
+    body = {"message": message, "run_at": run_at, "recurrence": recurrence,
+            "clear_recurrence": clear_recurrence, "name": name, "priority": priority}
+    body = {k: v for k, v in body.items() if v is not None and not (k == "clear_recurrence" and v is False)}
+    return _request("PATCH", f"/jobs/{job_id}", body=body)
+
+
+def cancel_job(job_id):
+    """Cancel a scheduled job by id."""
+    return _request("DELETE", f"/jobs/{job_id}")

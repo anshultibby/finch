@@ -9,6 +9,7 @@ from core.config import Config
 from core.rate_limit import limiter
 from routes import chat_router, snaptrade_router, resources_router, chat_files_router, api_keys_router, credits_router, reminders_router, alpaca_router, market_router, alpaca_broker_router, execute_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router
 from routes.analytics import router as analytics_router
+from routes.jobs import router as jobs_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
 
@@ -127,6 +128,7 @@ app.include_router(push_router)
 app.include_router(analysis_router)
 app.include_router(visualizations_router)
 app.include_router(bot_store_router)
+app.include_router(jobs_router)
 
 
 import asyncio
@@ -183,6 +185,11 @@ async def startup_event():
     from services.reminder_scheduler import run_reminder_loop
     asyncio.create_task(run_reminder_loop())
     logger.info("Started TLH reminder scheduler")
+
+    # Start the scheduled-job waker (file-backed jobs)
+    from services.job_scheduler import run_job_loop
+    asyncio.create_task(run_job_loop())
+    logger.info("Started job scheduler")
 
     # Initialize Supabase Storage bucket (if configured)
     if storage_service.is_available():

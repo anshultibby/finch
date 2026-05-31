@@ -182,3 +182,16 @@ class Notification(Base):
     data = Column(JSON, nullable=True)
     read = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserAuthToken(Base):
+    """Stored Supabase refresh token so scheduled jobs can run as the user.
+
+    The refresh token (long-lived) is exchanged for a fresh access token at job
+    run time. It's a credential — server-side only.
+    """
+    __tablename__ = "user_auth_tokens"
+
+    user_id = Column(String, primary_key=True, index=True)
+    refresh_token = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

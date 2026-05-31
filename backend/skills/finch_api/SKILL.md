@@ -131,3 +131,28 @@ df = pd.DataFrame([
 - Sync has a 5-minute cooldown to avoid hammering SnapTrade
 - Dates use ISO format: `"2025-06-01"` or `"2025-06-01T00:00:00"`
 - Activity types: BUY, SELL, DIVIDEND, INTEREST, TRANSFER, FEE, SPLIT
+
+## Scheduled Jobs
+
+Schedule work to run later — one-off or recurring. Running a job = the backend sends your `message` to the agent (as the user) at the scheduled time, so it runs with full tools (notifications, portfolio, web, etc.).
+
+**Alerts are just recurring jobs**: e.g. a daily job whose message is "Check if NVDA is below $200; if so, notify me, otherwise do nothing."
+
+```python
+from skills.finch_api.scripts import schedule_job, list_jobs, update_job, cancel_job
+
+# One-off in 30 minutes
+schedule_job("Summarize today's market close for my watchlist", in_minutes=30, name="Market close recap")
+
+# Recurring alert (checks + notifies only if met)
+schedule_job(
+    "Check if NVDA is below $200. If yes, notify me. If not, do nothing.",
+    run_at="2026-06-02T13:30:00Z", recurrence="weekdays", name="NVDA dip alert",
+)
+
+list_jobs()                              # {"jobs": [...], "recurring": "1/5", "oneoff": "0/10"}
+update_job("<id>", run_at="2026-06-03T14:00:00Z")   # modify
+cancel_job("<id>")                       # cancel
+```
+
+Write the `message` as a **self-contained instruction** — it runs fresh with no prior chat context. Include everything needed. Limits per user: **5 recurring + 10 one-off**; if a limit is hit you'll get an error — tell the user and offer to cancel one.

@@ -1,5 +1,5 @@
 """
-Trading bot ORM models: TradingBot, BotFile, BotExecution, BotPosition, BotWakeup, TradeLog
+Trading bot ORM models: TradingBot, BotFile, BotExecution, BotPosition, TradeLog
 """
 from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -30,7 +30,6 @@ class TradingBot(Base):
     files = relationship("BotFile", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
     executions = relationship("BotExecution", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
     positions = relationship("BotPosition", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
-    wakeups = relationship("BotWakeup", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
     trade_logs = relationship("TradeLog", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
@@ -111,34 +110,6 @@ class BotPosition(Base):
 
     def __repr__(self):
         return f"<BotPosition(id='{self.id}', bot='{self.bot_id}', market='{self.market}', status='{self.status}')>"
-
-
-class BotWakeup(Base):
-    """
-    Scheduled wake-up for a trading bot.
-    """
-    __tablename__ = "bot_wakeups"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    bot_id = Column(String, ForeignKey("trading_bots.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(String, nullable=False, index=True)
-    trigger_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    trigger_type = Column(String, nullable=False, default="custom")
-    reason = Column(Text, nullable=False)
-    context = Column(JSONB, nullable=False, default=dict)
-    status = Column(String, nullable=False, default="pending", index=True)
-    chat_id = Column(String, nullable=True)
-    triggered_at = Column(DateTime(timezone=True), nullable=True)
-    recurrence = Column(String, nullable=True)
-    message = Column(Text, nullable=True)
-    retry_count = Column(Integer, nullable=False, default=0, server_default="0")
-    error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    bot = relationship("TradingBot", back_populates="wakeups")
-
-    def __repr__(self):
-        return f"<BotWakeup(id='{self.id}', bot='{self.bot_id}', trigger_at='{self.trigger_at}', status='{self.status}')>"
 
 
 class TradeLog(Base):

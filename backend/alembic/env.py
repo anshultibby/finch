@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.config import Config
 from core.database import Base
-from models.user import SnapTradeUser  # Import all models here
+from models.user import SnapTradeUser, UserAuthToken  # Import all models here
+from models.jobs import ScheduledJob
 
 # this is the Alembic Config object
 config = context.config

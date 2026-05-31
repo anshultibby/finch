@@ -23,10 +23,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Register the refresh token so scheduled jobs can run as the user. Supabase
+    // rotates refresh tokens, so we re-register on every refresh to keep the
+    // backend's stored token valid. Best-effort — never blocks auth.
+    const registerJobToken = (session: Session | null) => {
+      const rt = session?.refresh_token;
+      if (rt) { import('@/lib/api').then(({ jobsApi }) => jobsApi.registerToken(rt).catch(() => {})); }
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      registerJobToken(session);
     });
 
     const {
@@ -35,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      registerJobToken(session);
     });
 
     return () => subscription.unsubscribe();

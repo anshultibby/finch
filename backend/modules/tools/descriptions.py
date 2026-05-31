@@ -289,8 +289,3 @@ Task instructions should be brief and precise:
 
 After creating, tell the user the agent is running and they can peek at progress.
 Do NOT write the task as a separate message — put it all in the task parameter."""
-
-
-
-# ============================================================================
-# MARKET DATA TOOLS (Polygon.io)
