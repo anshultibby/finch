@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import Markdown from 'react-native-markdown-display';
 import { Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -76,7 +77,7 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
   };
 
   return (
-    <View className={`mb-3 ${isUser ? 'items-end' : 'items-start'}`}>
+    <Animated.View entering={FadeInDown.springify().damping(15).mass(0.7)} className={`mb-3 ${isUser ? 'items-end' : 'items-start'}`}>
       {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
         <View className="w-full mb-1.5">
           {message.toolCalls.map((tc) => (
@@ -120,6 +121,6 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
           </View>
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }

@@ -10,6 +10,7 @@ import SectionHeader from '@/components/ui/SectionHeader';
 import NewsCard from '@/components/market/NewsCard';
 import PriceChange from '@/components/ui/PriceChange';
 import { CountUp } from '@/components/ui/CountUp';
+import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
 
 type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis';
 
@@ -104,8 +105,18 @@ export default function StockDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
-          <View className="py-20 items-center">
-            <ActivityIndicator color={COLORS.gray400} />
+          <View className="pt-3">
+            <View className="px-4 mb-5">
+              <Skeleton width={120} height={12} radius={4} />
+              <Skeleton width={170} height={34} radius={6} style={{ marginTop: 10 }} />
+              <Skeleton width={90} height={14} radius={4} style={{ marginTop: 10 }} />
+            </View>
+            <View className="flex-row gap-2 px-4 mb-5">
+              <Skeleton width={180} height={40} radius={12} />
+              <Skeleton width={48} height={40} radius={12} />
+            </View>
+            <View className="px-4 mb-5"><Skeleton width="100%" height={150} radius={14} /></View>
+            <SkeletonRows count={4} />
           </View>
         ) : quote ? (
           <>

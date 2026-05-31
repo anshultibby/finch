@@ -170,8 +170,10 @@ export default function HomeScreen() {
   }, [fetchMarkets, fetchEarnings, fetchWatchlist, fetchPortfolio]));
 
   const onRefresh = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRefreshing(true);
     await Promise.all([fetchMarkets(), fetchEarnings(), fetchWatchlist(), fetchPortfolio()]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setRefreshing(false);
   }, [fetchMarkets, fetchEarnings, fetchWatchlist, fetchPortfolio]);
 
@@ -566,7 +568,7 @@ function EarningsTab({ earnings, loading, refreshing, onRefresh, onStockPress }:
   onStockPress: (symbol: string) => void;
 }) {
   if (loading) {
-    return <View className="flex-1 items-center justify-center"><ActivityIndicator color={COLORS.gray900} /></View>;
+    return <View className="flex-1 pt-4"><SkeletonRows count={7} /></View>;
   }
 
   return (
@@ -618,7 +620,7 @@ function WatchlistTab({ items, loading, refreshing, onRefresh, onStockPress, onR
   onStockPress: (symbol: string) => void; onRemove: (symbol: string) => void;
 }) {
   if (loading) {
-    return <View className="flex-1 items-center justify-center"><ActivityIndicator color={COLORS.gray900} /></View>;
+    return <View className="flex-1 pt-4"><SkeletonRows count={7} /></View>;
   }
 
   if (items.length === 0) {
@@ -694,7 +696,7 @@ function PortfolioTab({ isConnected, portfolioData, accounts, performance, broke
   const [brokerSearch, setBrokerSearch] = useState('');
 
   if (loading) {
-    return <View className="flex-1 items-center justify-center"><ActivityIndicator color={COLORS.gray900} /></View>;
+    return <View className="flex-1 pt-4"><SkeletonRows count={7} /></View>;
   }
 
   const handleConnect = async (brokerId?: string) => {

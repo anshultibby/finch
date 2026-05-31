@@ -132,6 +132,11 @@ function IndexCard({ symbol, label, quote, onClick }: {
   const change = quote?.change || 0;
   const changePct = quote?.changesPercentage || 0;
   const isUp = changePct >= 0;
+  // Indices (e.g. ^GSPC) aren't dollar-denominated — show the level without a $.
+  const isIndex = symbol.startsWith('^');
+  const fmtVal = (n: number) => isIndex
+    ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : fmt(n, symbol);
 
   return (
     <button onClick={onClick}
@@ -140,7 +145,7 @@ function IndexCard({ symbol, label, quote, onClick }: {
         <div>
           <div className="text-sm font-semibold text-gray-900">{label}</div>
           <div className="text-xl font-bold text-gray-900 font-numeric mt-0.5">
-            {price != null ? <CountUp value={price} format={(n) => fmt(n, symbol)} /> : '--'}
+            {price != null ? <CountUp value={price} format={fmtVal} /> : '--'}
           </div>
         </div>
         <div className="text-right">
@@ -149,7 +154,7 @@ function IndexCard({ symbol, label, quote, onClick }: {
             {fmtPct(changePct)}
           </div>
           <div className={`text-xs font-numeric mt-0.5 ${isUp ? 'text-emerald-500' : 'text-red-400'}`}>
-            {change >= 0 ? '+' : ''}{fmt(change, symbol)}
+            {change >= 0 ? '+' : ''}{fmtVal(change)}
           </div>
         </div>
       </div>
@@ -1481,9 +1486,47 @@ export default function HomePage() {
   }, []);
 
   if (loading) {
+    // Skeleton mirroring the dashboard shape — feels instant/stable vs a spinner.
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin" />
+      <div className="flex flex-col h-full bg-white">
+        <div className="shrink-0 flex items-center gap-6 px-6 py-3.5 border-b border-gray-100">
+          <div className="w-28 h-5 rounded-md animate-shimmer" />
+          <div className="w-16 h-4 rounded-md animate-shimmer" />
+          <div className="w-16 h-4 rounded-md animate-shimmer" />
+          <div className="w-16 h-4 rounded-md animate-shimmer" />
+        </div>
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 px-4 sm:px-6 py-5">
+            <div className="w-24 h-4 rounded animate-shimmer mb-4" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-7">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="p-4 rounded-2xl border border-gray-200">
+                  <div className="w-20 h-3.5 rounded animate-shimmer mb-2.5" />
+                  <div className="w-28 h-6 rounded animate-shimmer mb-4" />
+                  <div className="w-full h-12 rounded animate-shimmer" />
+                </div>
+              ))}
+            </div>
+            <div className="w-24 h-4 rounded animate-shimmer mb-3" />
+            <div className="flex gap-2 mb-7">
+              {Array.from({ length: 6 }).map((_, i) => <div key={i} className="w-20 h-7 rounded-full animate-shimmer" />)}
+            </div>
+            <div className="w-32 h-4 rounded animate-shimmer mb-3" />
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="p-3 rounded-xl border border-gray-100">
+                  <div className="w-3/4 h-4 rounded animate-shimmer mb-2" />
+                  <div className="w-24 h-3 rounded animate-shimmer" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="hidden lg:block w-[340px] shrink-0 border-l border-gray-100 px-5 py-5 space-y-4">
+            <div className="h-40 rounded-2xl border border-gray-200 animate-shimmer" />
+            <div className="w-24 h-4 rounded animate-shimmer mt-2" />
+            <div className="h-16 rounded-xl animate-shimmer" />
+          </div>
+        </div>
       </div>
     );
   }
