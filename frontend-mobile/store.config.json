@@ -1,0 +1,38 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "info": {
+      "en-US": {
+        "title": "Finch: AI Investing",
+        "subtitle": "Your AI research desk",
+        "description": "Finch is your AI-powered investment research assistant. Ask anything about the markets in plain English and get clear, sourced answers — then go deeper with full stock research, your portfolio, and watchlists, all in one place.\n\nWHAT YOU CAN DO\n\n• Chat with an AI research desk — ask about any company, compare fundamentals, summarize earnings, or break down what moved a stock today.\n\n• Live markets — top gainers, losers, and most active names, major index movers, and the latest market news, for both US and India.\n\n• Deep stock research — quotes and key stats, 52-week range, analyst ratings and price targets, full financial statements (income, balance sheet, cash flow, ratios), earnings history, peers, and news.\n\n• Track your portfolio — securely connect your brokerage (Robinhood, Schwab, Fidelity, E*TRADE and more) to see holdings, balances, and performance in one view.\n\n• Watchlists — follow the tickers you care about with live prices and sparklines.\n\n• Earnings calendar — never miss an upcoming report.\n\nFinch is for research and information only and does not provide financial advice.",
+        "keywords": [
+          "stocks",
+          "investing",
+          "AI",
+          "portfolio",
+          "watchlist",
+          "market",
+          "research",
+          "finance",
+          "earnings",
+          "analysis"
+        ],
+        "promoText": "Ask anything about stocks, markets, and your portfolio — Finch's AI research desk has the answer, with the data to back it up.",
+        "marketingUrl": "https://finchapp.ai",
+        "supportUrl": "https://finchapp.ai",
+        "privacyPolicyUrl": "https://finchapp.ai/privacy"
+      }
+    },
+    "categories": ["FINANCE"],
+    "review": {
+      "firstName": "Anshul",
+      "lastName": "Tibrewal",
+      "email": "anshul.tibrewal2203@gmail.com",
+      "phone": "REPLACE_WITH_YOUR_PHONE",
+      "demoAccountName": "appstore.review@finchapp.ai",
+      "demoAccountPassword": "FinchApp",
+      "demoAccountRequired": true
+    }
+  }
+}

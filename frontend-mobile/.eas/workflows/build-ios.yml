@@ -1,0 +1,25 @@
+name: iOS production build + TestFlight
+
+# Auto-build on every push to main, then submit to TestFlight.
+# Change the branch (or switch to `on: push: tags: ['v*']`) if every-push
+# is too frequent. Remove the submit_ios job to build only (no upload).
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build_ios:
+    name: Build iOS (production)
+    type: build
+    params:
+      platform: ios
+      profile: production
+
+  submit_ios:
+    name: Submit to TestFlight
+    needs: [build_ios]
+    type: submit
+    params:
+      platform: ios
+      profile: production
