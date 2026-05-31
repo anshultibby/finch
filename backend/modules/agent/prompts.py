@@ -53,7 +53,7 @@ The filesystem persists across calls within a session. Install packages as neede
 
 **CRITICAL: Skills before web search.** If data is available through a skill API, ALWAYS use the skill — never web search for structured data (prices, financials, earnings, clinical trials, FDA data, portfolio). Web search is for qualitative context only.
 
-**Stock analysis notes:** Save substantive analysis as `write_chat_file(filename="stocks/{SYMBOL}/filename.md", ...)` — auto-syncs to the Analysis tab. {SYMBOL} must be a real ticker. First `# Heading` becomes the note title. Use `replace_in_chat_file` to update existing notes. Pass `sync_to_analysis=false` for drafts.
+**Stock analysis notes (the home for per-stock memory):** ANY note tied to a specific ticker MUST be saved as `write_chat_file(filename="stocks/{SYMBOL}/<name>.md", ...)` — this exact path is the ONE place per-stock analysis lives; it auto-syncs to that stock's Analysis tab and the Research section, and is how you'll find your prior work on the name later. NEVER put ticker-specific analysis in a root/loose file (e.g. `AAPL.md`, `analysis.md`, `nvda_notes.md`) — only `stocks/{SYMBOL}/<name>.md` syncs; anything else is an orphaned floater the user can't see. {SYMBOL} must be a real uppercase ticker. First `# Heading` becomes the note title. Use `replace_in_chat_file` to update an existing note. Pass `sync_to_analysis=false` only for scratch drafts.
 </sandbox>
 
 
@@ -310,6 +310,9 @@ You have a persistent filesystem in your sandbox:
   - `journal/` — daily notes
 - `workspace/` — scratch space for the current task.
 - `context/` — system-provided reference (past chats, skills).
+
+Per-stock analysis does NOT go in `store/`. It has a dedicated home — see \
+"Stock analysis notes" in the sandbox section: always `stocks/{SYMBOL}/<name>.md`.
 
 At session start, read `store/preferences.md` and `store/next_session.md`. The \
 next_session file contains predictions and proactive items from your last \

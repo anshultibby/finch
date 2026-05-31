@@ -8,6 +8,9 @@ Store layout in the user's E2B sandbox:
     journal/YYYY-MM-DD.md        — daily journal entries
     modules/*.py                 — reusable code
 
+  (per-stock analysis lives separately: chat_files/stocks/{SYMBOL}/*.md,
+   synced to the Analysis tab — see file_management._maybe_sync_stock_analysis)
+
   /home/user/workspace/          — ephemeral working memory
   /home/user/context/            — system-provided reference (chats, skills)
 """
