@@ -1050,28 +1050,7 @@ export const skillsApi = {
 // Analytics / Transactions API
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface AnalyticsAllocation { label: string; value: number; weight: number; }
-export interface AnalyticsTopHolding { symbol: string; value: number; weight: number; sector?: string; beta?: number; }
-export interface AnalyticsView {
-  total_value: number;
-  holding_count: number;
-  sector_allocation: AnalyticsAllocation[];
-  top_holdings: AnalyticsTopHolding[];
-  top5_concentration: number;
-  largest_position_weight: number;
-  weighted_beta?: number | null;
-  annual_dividend_income: number;
-  dividend_yield: number;
-  enriched_count: number;
-  narration?: string | null;
-}
-
 export const analyticsApi = {
-  async analyzePortfolio(holdings: { symbol: string; value: number }[], narrate = true): Promise<AnalyticsView> {
-    const response = await api.post('/api/analytics/portfolio', { holdings, narrate });
-    return response.data as AnalyticsView;
-  },
-
   async getTransactions(userId: string, symbol?: string, limit: number = 200) {
     const params = new URLSearchParams({ user_id: userId, limit: String(limit) });
     if (symbol) params.set('symbol', symbol);
@@ -1116,57 +1095,6 @@ export const chatFilesApi = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Market Data API
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface ScreenFilters {
-  marketCapMoreThan?: number | null;
-  marketCapLowerThan?: number | null;
-  priceMoreThan?: number | null;
-  priceLowerThan?: number | null;
-  betaMoreThan?: number | null;
-  betaLowerThan?: number | null;
-  volumeMoreThan?: number | null;
-  dividendMoreThan?: number | null;
-  sector?: string | null;
-  industry?: string | null;
-  country?: string | null;
-  exchange?: string | null;
-  isEtf?: boolean | null;
-  isActivelyTrading?: boolean | null;
-}
-
-export interface ScreenSpec {
-  name?: string | null;
-  description?: string | null;
-  filters: ScreenFilters;
-  sortBy: 'marketCap' | 'price' | 'beta' | 'volume' | 'dividend' | 'companyName';
-  sortDir: 'asc' | 'desc';
-  limit: number;
-}
-
-export interface ScreenRow {
-  symbol: string;
-  companyName?: string;
-  marketCap?: number;
-  sector?: string;
-  industry?: string;
-  beta?: number;
-  price?: number;
-  lastAnnualDividend?: number;
-  volume?: number;
-  exchangeShortName?: string;
-  isEtf?: boolean;
-}
-
-export const screenerApi = {
-  run: async (spec: ScreenSpec): Promise<{ spec: ScreenSpec; count: number; results: ScreenRow[] }> => {
-    const response = await api.post('/screener/run', spec);
-    return response.data;
-  },
-  ai: async (prompt: string): Promise<{ spec: any; count: number; results: ScreenRow[]; rationale?: string }> => {
-    const response = await api.post('/screener/ai', { prompt });
-    return response.data;
-  },
-};
 
 export const marketApi = {
   getQuote: async (symbol: string) => {

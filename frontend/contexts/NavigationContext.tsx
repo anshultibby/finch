@@ -14,9 +14,7 @@ export type View =
   | { type: 'swaps' }
   | { type: 'chat' }
   | { type: 'visualizations'; vizId?: string }
-  | { type: 'memory-store' }
-  | { type: 'screener' }
-  | { type: 'analytics' };
+  | { type: 'memory-store' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context

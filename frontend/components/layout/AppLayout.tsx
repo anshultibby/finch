@@ -18,8 +18,6 @@ import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
 import VisualizationsPanel from '@/components/VisualizationsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
-import ScreenerPanel from '@/components/ScreenerPanel';
-import AnalyticsPanel from '@/components/AnalyticsPanel';
 import CreditsModal from '@/components/CreditsModal';
 import { marketApi } from '@/lib/api';
 import type { SwapData } from '@/lib/types';
@@ -38,8 +36,6 @@ function viewLabel(view: View): string {
     case 'chat': return 'Chat';
     case 'visualizations': return 'Visualizations';
     case 'memory-store': return 'Memory Store';
-    case 'screener': return 'Screener';
-    case 'analytics': return 'Analytics';
     default: return '';
   }
 }
@@ -412,10 +408,6 @@ function AppLayoutInner() {
         return <VisualizationsPanel vizId={currentView.vizId} />;
       case 'memory-store':
         return <MemoryStorePanel />;
-      case 'screener':
-        return <ScreenerPanel />;
-      case 'analytics':
-        return <AnalyticsPanel />;
       case 'chat':
         return null;
       default:
