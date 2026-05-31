@@ -1050,7 +1050,28 @@ export const skillsApi = {
 // Analytics / Transactions API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface AnalyticsAllocation { label: string; value: number; weight: number; }
+export interface AnalyticsTopHolding { symbol: string; value: number; weight: number; sector?: string; beta?: number; }
+export interface AnalyticsView {
+  total_value: number;
+  holding_count: number;
+  sector_allocation: AnalyticsAllocation[];
+  top_holdings: AnalyticsTopHolding[];
+  top5_concentration: number;
+  largest_position_weight: number;
+  weighted_beta?: number | null;
+  annual_dividend_income: number;
+  dividend_yield: number;
+  enriched_count: number;
+  narration?: string | null;
+}
+
 export const analyticsApi = {
+  async analyzePortfolio(holdings: { symbol: string; value: number }[], narrate = true): Promise<AnalyticsView> {
+    const response = await api.post('/api/analytics/portfolio', { holdings, narrate });
+    return response.data as AnalyticsView;
+  },
+
   async getTransactions(userId: string, symbol?: string, limit: number = 200) {
     const params = new URLSearchParams({ user_id: userId, limit: String(limit) });
     if (symbol) params.set('symbol', symbol);

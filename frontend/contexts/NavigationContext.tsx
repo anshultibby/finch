@@ -15,7 +15,8 @@ export type View =
   | { type: 'chat' }
   | { type: 'visualizations'; vizId?: string }
   | { type: 'memory-store' }
-  | { type: 'screener' };
+  | { type: 'screener' }
+  | { type: 'analytics' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context
