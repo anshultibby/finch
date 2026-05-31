@@ -62,6 +62,32 @@ async def cancel_job(job_id: str, user_id: str = Depends(get_current_user_id)):
     return {"ok": True}
 
 
+@router.post("/{job_id}/pause")
+async def pause_job(job_id: str, user_id: str = Depends(get_current_user_id)):
+    ok = await job_scheduler.set_status(user_id, job_id, "paused")
+    if not ok:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True}
+
+
+@router.post("/{job_id}/resume")
+async def resume_job(job_id: str, user_id: str = Depends(get_current_user_id)):
+    ok = await job_scheduler.set_status(user_id, job_id, "pending")
+    if not ok:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True}
+
+
+@router.post("/pause-all")
+async def pause_all(user_id: str = Depends(get_current_user_id)):
+    return {"paused": await job_scheduler.pause_all(user_id)}
+
+
+@router.post("/resume-all")
+async def resume_all(user_id: str = Depends(get_current_user_id)):
+    return {"resumed": await job_scheduler.resume_all(user_id)}
+
+
 @router.get("/status")
 async def status(user_id: str = Depends(get_current_user_id)):
     """Whether this user has a stored token (jobs can run authenticated)."""

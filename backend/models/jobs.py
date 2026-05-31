@@ -25,3 +25,5 @@ class ScheduledJob(Base):
     last_run_at = Column(DateTime(timezone=True), nullable=True)
     run_count = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
+    last_run_credits = Column(Integer, nullable=False, default=0, server_default="0")
+    credits_spent = Column(Integer, nullable=False, default=0, server_default="0")

@@ -8,7 +8,10 @@ from datetime import datetime
 
 # Recurrence: None = one-off. Otherwise a simple cadence.
 Recurrence = Literal["hourly", "daily", "weekly", "weekdays"]
-JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
+JobStatus = Literal["pending", "running", "done", "failed", "cancelled", "paused"]
+
+# Approx runs-per-week per cadence — for projecting ongoing cost.
+RUNS_PER_WEEK = {"hourly": 168, "daily": 7, "weekdays": 5, "weekly": 1}
 
 
 class JobCreate(BaseModel):
@@ -49,10 +52,19 @@ class Job(BaseModel):
     chat_id: Optional[str] = None
     context_paths: List[str] = Field(default_factory=list)
     last_error: Optional[str] = None
+    last_run_credits: int = 0
+    credits_spent: int = 0
 
     @property
     def is_recurring(self) -> bool:
         return self.recurrence is not None
+
+    @property
+    def projected_weekly_credits(self) -> int:
+        """Estimated ongoing credits/week from the last run's cost."""
+        if not self.recurrence or not self.last_run_credits:
+            return 0
+        return self.last_run_credits * RUNS_PER_WEEK.get(self.recurrence, 0)
 
 
 class JobList(BaseModel):

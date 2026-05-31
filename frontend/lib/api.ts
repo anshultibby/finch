@@ -1059,11 +1059,21 @@ export interface ScheduledJob {
   run_at: string;
   recurrence: Recurrence;
   priority: number;
-  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'paused';
   created_at: string;
   last_run_at: string | null;
   run_count: number;
   last_error: string | null;
+  last_run_credits: number;
+  credits_spent: number;
+}
+
+export interface CreateJobInput {
+  message: string;
+  run_at: string;
+  recurrence?: Recurrence;
+  name?: string;
+  priority?: number;
 }
 
 export interface JobListResponse {
@@ -1079,9 +1089,17 @@ export const jobsApi = {
     const response = await api.get('/jobs');
     return response.data;
   },
+  create: async (input: CreateJobInput): Promise<ScheduledJob> => {
+    const response = await api.post('/jobs', input);
+    return response.data;
+  },
   cancel: async (jobId: string): Promise<void> => {
     await api.delete(`/jobs/${jobId}`);
   },
+  pause: async (jobId: string): Promise<void> => { await api.post(`/jobs/${jobId}/pause`); },
+  resume: async (jobId: string): Promise<void> => { await api.post(`/jobs/${jobId}/resume`); },
+  pauseAll: async (): Promise<void> => { await api.post('/jobs/pause-all'); },
+  resumeAll: async (): Promise<void> => { await api.post('/jobs/resume-all'); },
   update: async (jobId: string, patch: Partial<Pick<ScheduledJob, 'name' | 'message' | 'run_at' | 'recurrence' | 'priority'>>): Promise<ScheduledJob> => {
     const response = await api.patch(`/jobs/${jobId}`, patch);
     return response.data;

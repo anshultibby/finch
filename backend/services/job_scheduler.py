@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 RECURRING_LIMIT = 5
 ONEOFF_LIMIT = 10
-ACTIVE = ("pending", "running")
+ACTIVE = ("pending", "running", "paused")
 CLAIM_BATCH = 25
 
 
@@ -65,6 +65,7 @@ def _to_dto(row: ScheduledJob) -> Job:
         status=row.status, created_at=row.created_at, last_run_at=row.last_run_at,
         run_count=row.run_count, chat_id=row.chat_id,
         context_paths=row.context_paths or [], last_error=row.last_error,
+        last_run_credits=row.last_run_credits or 0, credits_spent=row.credits_spent or 0,
     )
 
 
@@ -113,6 +114,41 @@ async def create_job(user_id: str, jc: JobCreate) -> Job:
         await db.refresh(row)
         logger.info(f"Scheduled job {row.id} for {user_id} at {run_at.isoformat()} (recurrence={jc.recurrence})")
         return _to_dto(row)
+
+
+async def set_status(user_id: str, job_id: str, new_status: str) -> bool:
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.id == job_id, ScheduledJob.user_id == user_id)
+        )).scalars().first()
+        if not row:
+            return False
+        row.status = new_status
+        await db.commit()
+        return True
+
+
+async def pause_all(user_id: str) -> int:
+    """Pause every pending job for a user. Returns count paused."""
+    async with get_db_session() as db:
+        result = await db.execute(
+            update(ScheduledJob)
+            .where(ScheduledJob.user_id == user_id, ScheduledJob.status == "pending")
+            .values(status="paused")
+        )
+        await db.commit()
+        return result.rowcount or 0
+
+
+async def resume_all(user_id: str) -> int:
+    async with get_db_session() as db:
+        result = await db.execute(
+            update(ScheduledJob)
+            .where(ScheduledJob.user_id == user_id, ScheduledJob.status == "paused")
+            .values(status="pending")
+        )
+        await db.commit()
+        return result.rowcount or 0
 
 
 async def cancel_job(user_id: str, job_id: str) -> bool:
@@ -193,7 +229,16 @@ async def _claim_due(now: datetime) -> List[Job]:
     return claimed
 
 
-async def _finalize(job: Job, *, error: Optional[str]) -> None:
+async def _user_credits(user_id: str) -> int:
+    try:
+        from services.credits import CreditsService
+        async with get_db_session() as db:
+            return await CreditsService.get_user_credits(db, user_id) or 0
+    except Exception:
+        return 0
+
+
+async def _finalize(job: Job, *, error: Optional[str], credits: int = 0) -> None:
     async with get_db_session() as db:
         row = (await db.execute(
             select(ScheduledJob).where(ScheduledJob.id == job.id)
@@ -204,6 +249,9 @@ async def _finalize(job: Job, *, error: Optional[str]) -> None:
         if error is None:
             row.run_count = (row.run_count or 0) + 1
             row.last_run_at = _now()
+        if credits > 0:
+            row.last_run_credits = credits
+            row.credits_spent = (row.credits_spent or 0) + credits
         if row.recurrence:
             row.run_at = _advance_past_now(row.run_at, row.recurrence)
             row.status = "pending"
@@ -225,14 +273,17 @@ async def run_job(job: Job) -> None:
         if job.context_paths:
             message += "\n\n[Context files you can read]\n" + "\n".join(job.context_paths[:10])
 
+        before = await _user_credits(job.user_id)
         async for _ in service.send_message_stream(
             message=message, chat_id=chat_id, user_id=job.user_id,
             auth_token=auth_token,
             page_context={"source": "scheduled_job", "job_id": job.id},
         ):
             pass
-        await _finalize(job, error=None)
-        logger.info(f"Ran job {job.id}")
+        after = await _user_credits(job.user_id)
+        spent = max(0, before - after)
+        await _finalize(job, error=None, credits=spent)
+        logger.info(f"Ran job {job.id} (spent {spent} credits)")
     except Exception as e:
         logger.error(f"Job {job.id} failed: {e}")
         await _finalize(job, error=str(e)[:300])
