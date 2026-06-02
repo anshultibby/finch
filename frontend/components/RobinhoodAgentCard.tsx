@@ -88,17 +88,6 @@ export default function RobinhoodAgentCard() {
     if (status === 'connected') load();
   }, [load]);
 
-  const handleConnect = async () => {
-    if (!user?.id) return;
-    setBusy(true); setError(null);
-    try {
-      const res = await robinhoodApi.connect(user.id);
-      if (res.authorize_url) { window.location.href = res.authorize_url; return; }
-      setError(res.message || 'Couldn’t start.');
-    } catch { setError('Couldn’t start.'); }
-    setBusy(false);
-  };
-
   const handleDisconnect = async () => {
     if (!user?.id) return;
     setBusy(true);
@@ -187,10 +176,13 @@ export default function RobinhoodAgentCard() {
               </li>
             ))}
           </ul>
-          <button onClick={handleConnect} disabled={busy}
-            className="mt-3 w-full rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50">
-            {busy ? 'Connecting…' : 'Enable trading'}
-          </button>
+          {/* Robinhood only allows connecting from a native (on-device) app, so
+              web users are pointed to the Finch mobile app rather than a flow
+              that can't complete in the browser. */}
+          <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2.5 text-center">
+            <div className="text-xs font-medium text-gray-700">Connect in the Finch app</div>
+            <div className="mt-0.5 text-[11px] text-gray-400">Robinhood requires connecting on your device</div>
+          </div>
         </div>
       )}
     </div>
