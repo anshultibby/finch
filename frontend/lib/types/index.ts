@@ -328,11 +328,19 @@ export interface UserChatsResponse {
     chat_id: string;
     title: string | null;
     icon: string | null;
+    model?: string | null;
     created_at: string;
     updated_at: string;
     last_message?: string;
   }>;
   has_more?: boolean;
+}
+
+/** A selectable LLM model for the chat model picker (from GET /chat/models). */
+export interface ModelOption {
+  id: string;
+  label: string;
+  provider?: string;
 }
 
 export interface GenerateTitleResponse {

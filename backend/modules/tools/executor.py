@@ -287,6 +287,7 @@ class ToolExecutor:
             chat_id=context.chat_id,
             user_id=context.user_id,
             exc_reported=isinstance(raw_result, dict) and raw_result.get("_exc_reported", False),
+            alerted=raw_result.get("_alerted") if isinstance(raw_result, dict) else None,
         )
 
         return ToolExecutionResult(
@@ -343,6 +344,7 @@ class ToolExecutor:
             chat_id=context.chat_id if context else "",
             user_id=context.user_id if context else "",
             exc_reported=isinstance(raw_result, dict) and raw_result.get("_exc_reported", False),
+            alerted=raw_result.get("_alerted") if isinstance(raw_result, dict) else None,
         )
 
         return ToolExecutionResult(

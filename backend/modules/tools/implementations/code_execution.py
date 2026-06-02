@@ -573,6 +573,18 @@ async def _build_sandbox_env(context: AgentContext) -> Dict[str, str]:
             private_key = kalshi["private_key"].get().replace("\\n", "\n")
             env["KALSHI_PRIVATE_KEY_B64"] = base64.b64encode(private_key.encode()).decode()
 
+        # Robinhood agentic trading — mint a fresh access token (refreshing if
+        # needed) and hand it to the sandbox so the robinhood skill's MCP client
+        # can authenticate. Only present when the user has connected Robinhood.
+        try:
+            from services import robinhood_auth
+            rh_token = await robinhood_auth.get_access_token(context.user_id)
+            if rh_token:
+                env["ROBINHOOD_MCP_TOKEN"] = rh_token
+                env["ROBINHOOD_MCP_URL"] = Config.ROBINHOOD_MCP_URL
+        except Exception:
+            pass
+
     return env
 
 

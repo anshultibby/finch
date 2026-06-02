@@ -240,16 +240,32 @@ async def upload_file_to_sandbox(
 
     Returns the sandbox path so the frontend can reference it in the chat message.
     """
-    user_id, _ = await _get_chat_info(chat_id, db)
+    # Resolve the owning user. On a brand-new chat the Chat row may not exist yet
+    # (it's created on the first message), so fall back to the authenticated user —
+    # the sandbox is per-user, so uploads land in the right place regardless of chat.
+    try:
+        user_id, _ = await _get_chat_info(chat_id, db)
+    except HTTPException as e:
+        if e.status_code == 404:
+            user_id = authenticated_user_id
+        else:
+            raise
     await verify_user_access(user_id, authenticated_user_id)
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
     try:
-        from modules.tools.implementations.code_execution import _get_or_reconnect_sandbox
+        from modules.tools.implementations.code_execution import (
+            _get_or_reconnect_sandbox,
+            get_or_create_sandbox,
+        )
         sbx = await _get_or_reconnect_sandbox(user_id)
         if not sbx:
-            raise HTTPException(status_code=503, detail="Sandbox not available — start a chat first")
+            # No sandbox yet (e.g. first action in a fresh chat). Provision one now
+            # so attaching a file before the first message works. envs are applied
+            # per-command at agent run time, so an empty env here is fine.
+            entry = await get_or_create_sandbox(user_id, envs={})
+            sbx = entry.sbx
 
         content = await file.read()
         if len(content) > MAX_FILE_SIZE:

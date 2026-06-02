@@ -104,6 +104,7 @@ async def send_chat_message_stream(
                         skill_ids=skill_ids if skill_ids else None,
                         auth_token=auth_token,
                         page_context=chat_message.page_context,
+                        requested_model=chat_message.model,
                     ):
                         await queue.put(sse_data)
                     await queue.put(None)  # end sentinel
@@ -201,10 +202,12 @@ async def get_chat_history_display(
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
         await verify_user_access(chat.user_id, authenticated_user_id)
+        chat_model = chat.model
     try:
         display_data = await chat_service.get_chat_history_for_display(chat_id, limit=limit, before_sequence=before_sequence)
         return {
             "chat_id": chat_id,
+            "model": chat_model,
             **display_data
         }
     except ValueError:
@@ -305,15 +308,28 @@ async def create_new_chat(
     
     try:
         chat_id = str(uuid.uuid4())
+        # Optional initial model selection (validated against the allowlist)
+        from core.model_registry import is_selectable
+        requested_model = data.get("model")
+        model = requested_model if is_selectable(requested_model) else None
         # Actually create the chat in DB
         async with get_db_session() as db:
-            await chat_async.create_chat(db, chat_id, user_id)
+            await chat_async.create_chat(db, chat_id, user_id, model=model)
         return {"chat_id": chat_id}
     except Exception as e:
         import traceback
         logger.error(f"Failed to create chat: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/models")
+async def list_selectable_models(
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Return the LLM models the user may pick from in the chat model picker."""
+    from core.model_registry import selectable_models
+    return {"models": selectable_models()}
 
 
 @router.post("/generate-title", response_model=GenerateTitleResponse)

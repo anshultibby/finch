@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     # =========================================================================
     AGENT_LLM_MODEL: str = Field(
-        default=Models.CLAUDE_SONNET_4_6,
+        default=Models.CLAUDE_OPUS_4_8,
         description="LLM model for the agent"
     )
     SUBAGENT_LLM_MODEL: str = Field(
@@ -342,6 +342,35 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # Robinhood Agentic Trading (MCP)
+    # =========================================================================
+    # Robinhood's agentic-trading MCP is a standard remote MCP server gated by
+    # OAuth 2.1 + PKCE + dynamic client registration (RFC 7591). No pre-arranged
+    # credentials are needed — Finch self-registers a public client at connect
+    # time. These defaults come from the server's published OAuth metadata
+    # (/.well-known/oauth-authorization-server) and are overridable via .env.
+    ROBINHOOD_MCP_URL: str = Field(
+        default="https://agent.robinhood.com/mcp/trading",
+        description="Robinhood agentic-trading MCP server (Streamable HTTP)."
+    )
+    ROBINHOOD_OAUTH_REGISTRATION_URL: str = Field(
+        default="https://agent.robinhood.com/oauth/trading/register",
+        description="RFC 7591 dynamic client registration endpoint."
+    )
+    ROBINHOOD_OAUTH_AUTHORIZE_URL: str = Field(
+        default="https://robinhood.com/oauth",
+        description="User-facing authorization endpoint (login + consent + funding)."
+    )
+    ROBINHOOD_OAUTH_TOKEN_URL: str = Field(
+        default="https://api.robinhood.com/oauth2/token/",
+        description="OAuth token endpoint (authorization_code + refresh_token grants)."
+    )
+    ROBINHOOD_OAUTH_SCOPE: str = Field(
+        default="internal",
+        description="OAuth scope advertised by the Robinhood MCP server."
+    )
+
+    # =========================================================================
     # Payments (Stripe)
     # =========================================================================
     STRIPE_SECRET_KEY: Optional[str] = Field(
@@ -377,8 +406,12 @@ class Settings(BaseSettings):
         description="Fraction of transactions to send to Sentry for performance tracing (0.0-1.0)"
     )
     TOOL_ALERTS_ENABLED: bool = Field(
-        default=True,
-        description="Email an alert when a tool call fails or runs slow (throttled/deduped)"
+        default=False,
+        description=(
+            "Send Finch's own email when a tool fails/runs slow. Off by default: "
+            "Sentry is the single alert channel (its dashboard rule emails on the "
+            "events we report). Turn on only if you want Finch's email in addition."
+        )
     )
     TOOL_ALERT_SLOW_MS: int = Field(
         default=30000,
@@ -386,7 +419,21 @@ class Settings(BaseSettings):
     )
     TOOL_ALERT_THROTTLE_SECONDS: int = Field(
         default=3600,
-        description="Minimum seconds between alerts for the same tool+error signature"
+        description=(
+            "Once a signature crosses TOOL_ALERT_MIN_FAILURES, suppress further "
+            "alerts for it for this many seconds (so the 6th, 7th... failures don't re-fire)"
+        )
+    )
+    TOOL_ALERT_MIN_FAILURES: int = Field(
+        default=5,
+        description=(
+            "Only report a tool+error signature to Sentry once it has failed this many "
+            "times within TOOL_ALERT_WINDOW_SECONDS. Keeps one-off blips out of Sentry."
+        )
+    )
+    TOOL_ALERT_WINDOW_SECONDS: int = Field(
+        default=3600,
+        description="Rolling window (seconds) over which repeated failures are counted toward TOOL_ALERT_MIN_FAILURES"
     )
 
     # =========================================================================

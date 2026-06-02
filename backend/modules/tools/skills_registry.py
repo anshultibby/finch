@@ -38,6 +38,12 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     # User keys — each user provides their own via Settings > API Keys
     "KALSHI_API_KEY_ID":  ("KALSHI", "user"),
     "KALSHI_PRIVATE_KEY": ("KALSHI", "user"),
+
+    # Robinhood agentic trading — per-user OAuth access token (minted/refreshed
+    # at sandbox-build time from services/robinhood_auth.py), plus the MCP URL.
+    # Injected explicitly in _build_sandbox_env, not via the generic loop.
+    "ROBINHOOD_MCP_TOKEN": ("ROBINHOOD", "user"),
+    "ROBINHOOD_MCP_URL":   ("ROBINHOOD", "user"),
 }
 
 

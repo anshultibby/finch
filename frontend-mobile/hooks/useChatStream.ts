@@ -25,7 +25,7 @@ export function useChatStream(userId: string, chatId: string) {
     setState(prev => ({ ...prev, messages: msgs }));
   }, []);
 
-  const sendMessage = useCallback((text: string, images?: ImageAttachment[]) => {
+  const sendMessage = useCallback((text: string, images?: ImageAttachment[], model?: string) => {
     const userMessage: Message = {
       role: 'user',
       content: text,
@@ -111,7 +111,7 @@ export function useChatStream(userId: string, chatId: string) {
       },
     };
 
-    streamRef.current = chatApi.sendMessageStream(text, userId, chatId, handlers, images);
+    streamRef.current = chatApi.sendMessageStream(text, userId, chatId, handlers, images, undefined, model);
   }, [userId, chatId]);
 
   const stopStream = useCallback(() => {

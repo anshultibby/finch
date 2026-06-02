@@ -19,6 +19,7 @@ class ChatMessage(BaseModel):
     images: Optional[List[ImageAttachment]] = None  # Optional image attachments for multimodal
     skills: Optional[List[str]] = None  # Skill IDs manually selected for this turn
     page_context: Optional[Dict[str, Any]] = None  # Context from the page the user is viewing
+    model: Optional[str] = None  # Per-chat LLM model selection (litellm id); persisted on the chat
 
 
 class ToolCall(BaseModel):

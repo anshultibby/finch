@@ -6,6 +6,7 @@ import { useNavigation } from '@/contexts/NavigationContext';
 import { alpacaBrokerApi, marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
+import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import ChatInput from '@/components/chat/ChatInput';
 import EmptyState from '@/components/ui/EmptyState';
 import CountUp from '@/components/ui/CountUp';
@@ -1644,6 +1645,11 @@ export default function HomePage() {
               onSelectAccount={(id) => { setSelectedAccountId(id); setActiveTab('portfolio'); }}
               selectedAccountId={selectedAccountId}
             />
+
+            {/* Robinhood agentic trading account */}
+            <div className="p-4 border-b border-gray-100">
+              <RobinhoodAgentCard />
+            </div>
 
             {/* Watchlist — hide when watchlist tab is active to avoid duplication */}
             {activeTab !== 'watchlist' && (

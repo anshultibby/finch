@@ -11,14 +11,15 @@ from enum import StrEnum
 
 class Models(StrEnum):
     # Claude
+    CLAUDE_OPUS_4_8 = "anthropic/claude-opus-4-8"
     CLAUDE_SONNET_4_6 = "anthropic/claude-sonnet-4-6"
     CLAUDE_OPUS_4_6 = "anthropic/claude-opus-4-6"
     CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4-5"
     CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4-5-20251101"
     CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4-5"
 
-    # Gemini
-    GEMINI_3_PRO = "gemini/gemini-3-pro-preview"
+    # Gemini (gemini-3-pro-preview was retired; 3.1 is the current pro preview)
+    GEMINI_3_1_PRO = "gemini/gemini-3.1-pro-preview"
     GEMINI_3_FLASH = "gemini/gemini-3-flash-preview"
     GEMINI_2_5_PRO = "gemini/gemini-2.5-pro"
     GEMINI_2_5_FLASH = "gemini/gemini-2.5-flash"

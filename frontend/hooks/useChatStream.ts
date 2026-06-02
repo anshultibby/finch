@@ -453,7 +453,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     onStateChange: (state: ChatStreamState) => void,
     onChatIdChange: (chatId: string) => void,
     skills?: string[],
-    pageContext?: Record<string, any>
+    pageContext?: Record<string, any>,
+    model?: string
   ): Promise<string> => {
     if (!content.trim() && (!images || images.length === 0)) {
       throw new Error('Message content is required');
@@ -504,7 +505,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       const stream = chatApi.sendMessageStream(
         trimmed, userId, targetChatId,
         createEventHandlers(targetChatId, onStateChange),
-        images, skills, pageContext
+        images, skills, pageContext, model
       );
       update(targetChatId, { stream }, onStateChange);
       return targetChatId;

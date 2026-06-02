@@ -195,3 +195,28 @@ class UserAuthToken(Base):
     user_id = Column(String, primary_key=True, index=True)
     refresh_token = Column(Text, nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class RobinhoodConnection(Base):
+    """Per-user OAuth connection to Robinhood's agentic-trading MCP server.
+
+    Uses the standard MCP authorization flow (OAuth 2.1 + PKCE + RFC 7591
+    dynamic client registration). Each user self-registers a public client (no
+    secret), authorizes via Robinhood's login/consent/funding flow, and we store
+    the resulting tokens. Access + refresh tokens are Fernet-encrypted at rest —
+    server-side only, never returned to the frontend.
+
+    The in-flight CSRF state + PKCE verifier are carried in a signed (Fernet-
+    encrypted) `state` parameter rather than stored here, so a row is only
+    created once the user has actually connected.
+    """
+    __tablename__ = "robinhood_connections"
+
+    user_id = Column(String, primary_key=True, index=True)
+    client_id = Column(String, nullable=True)  # DCR-registered public client
+    encrypted_access_token = Column(Text, nullable=True)
+    encrypted_refresh_token = Column(Text, nullable=True)
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_connected = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

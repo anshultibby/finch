@@ -66,10 +66,12 @@ class ModelSpec:
     # Extra default kwargs merged into LLMConfig for this family.
     defaults: Dict[str, Any] = field(default_factory=dict)
     # How this provider expresses reasoning/thinking, used by `reasoning_params`:
-    #   "anthropic_budget"  -> {"thinking": {...budget_tokens...}, scaled "max_tokens"}
-    #   "openai_effort"     -> {"reasoning_effort": <effort>}
-    #   "auto"              -> {} (provider reasons by default, e.g. GLM/Z.ai)
-    #   None                -> no reasoning support
+    #   "anthropic_budget"   -> {"thinking": {...budget_tokens...}, scaled "max_tokens"}
+    #   "anthropic_adaptive" -> {"thinking": {"type":"adaptive"}, "output_config":{"effort":...}}
+    #                           (Opus 4.7/4.8: manual budget_tokens is rejected)
+    #   "openai_effort"      -> {"reasoning_effort": <effort>}
+    #   "auto"               -> {} (provider reasons by default, e.g. GLM/Z.ai)
+    #   None                 -> no reasoning support
     reasoning_style: Optional[str] = None
     # Default effort tier ("low"|"medium"|"high") when a caller doesn't specify one.
     # None means thinking is off by default for this family.
@@ -80,6 +82,22 @@ class ModelSpec:
 
 # Ordered most-specific → least-specific. `resolve()` returns the first match.
 MODEL_SPECS: List[ModelSpec] = [
+    # ----------------------------------------------------- Anthropic Claude Opus
+    # More specific than the general Claude spec below (different pricing), so it
+    # must come first. Opus 4.5+ is priced at the lower $5/$25 tier.
+    # Opus 4.7/4.8 reject manual extended thinking (`thinking.type:"enabled"` +
+    # budget_tokens) — they use adaptive thinking with `output_config.effort`.
+    ModelSpec(
+        prefixes=("anthropic/claude-opus", "claude-opus"),
+        provider="anthropic",
+        api_key_setting="ANTHROPIC_API_KEY",
+        caching="anthropic",
+        stream_usage=True,
+        defaults={"caching": True, "max_tokens": 32000},
+        reasoning_style="anthropic_adaptive",
+        default_effort="medium",
+        pricing={"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
+    ),
     # ---------------------------------------------------------------- Anthropic
     ModelSpec(
         prefixes=("anthropic/", "claude"),
@@ -168,6 +186,29 @@ _FALLBACK_SPEC = ModelSpec(
 )
 
 
+# Models the user may pick from in the chat UI (the per-chat model picker).
+# Each entry is verified to work with the configured provider keys. `id` is the
+# LiteLLM model string stored on the chat row; `label` is shown in the picker.
+SELECTABLE_MODELS: List[Dict[str, str]] = [
+    {"id": "anthropic/claude-opus-4-8", "label": "Claude Opus 4.8", "provider": "Anthropic"},
+    {"id": "anthropic/claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "Anthropic"},
+    {"id": "zai/glm-5.1", "label": "GLM-5.1", "provider": "Z.ai"},
+    {"id": "gemini/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "provider": "Google"},
+]
+
+_SELECTABLE_IDS = {m["id"] for m in SELECTABLE_MODELS}
+
+
+def selectable_models() -> List[Dict[str, str]]:
+    """Return the list of user-selectable models for the chat picker."""
+    return [dict(m) for m in SELECTABLE_MODELS]
+
+
+def is_selectable(model: Optional[str]) -> bool:
+    """Whether `model` is on the user-selectable allowlist."""
+    return bool(model) and model in _SELECTABLE_IDS
+
+
 def resolve(model: str) -> ModelSpec:
     """Return the ModelSpec whose prefix matches `model` (case-insensitive)."""
     model_lower = (model or "").lower()
@@ -240,6 +281,15 @@ def reasoning_params(model: str, effort: Optional[str] = None) -> Dict[str, Any]
         return {
             "thinking": {"type": "enabled", "budget_tokens": budget},
             "max_tokens": budget + _THINKING_OUTPUT_HEADROOM,
+        }
+
+    if style == "anthropic_adaptive":
+        # Opus 4.7/4.8: manual budget_tokens is rejected with a 400. Enable thinking
+        # via adaptive mode and control depth with output_config.effort. LiteLLM
+        # forwards both to Anthropic and validates effort ∈ {low, medium, high}.
+        return {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": effort},
         }
 
     # "auto" and anything else: provider handles reasoning itself.

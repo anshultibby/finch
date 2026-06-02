@@ -4,6 +4,8 @@ import { DollarSign, PieChart, Search, Send, Sparkles } from 'lucide-react-nativ
 import * as Haptics from 'expo-haptics';
 import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
 import { COLORS } from '@/lib/constants';
+import type { ModelOption } from '@/lib/types';
+import ModelPicker from './ModelPicker';
 
 const QUICK_ACTIONS = [
   {
@@ -32,9 +34,12 @@ const QUICK_ACTIONS = [
 interface NewChatWelcomeProps {
   onSendMessage: (message: string) => void;
   disabled?: boolean;
+  models?: ModelOption[];
+  model?: string;
+  onModelChange?: (id: string) => void;
 }
 
-export default function NewChatWelcome({ onSendMessage, disabled }: NewChatWelcomeProps) {
+export default function NewChatWelcome({ onSendMessage, disabled, models, model, onModelChange }: NewChatWelcomeProps) {
   const [message, setMessage] = useState('');
 
   const handleSend = () => {
@@ -92,7 +97,10 @@ export default function NewChatWelcome({ onSendMessage, disabled }: NewChatWelco
           className="px-3.5 py-2.5 text-[14px] font-body text-gray-900 min-h-[70px] max-h-[140px]"
           editable={!disabled}
         />
-        <View className="flex-row items-center justify-end px-3 py-2 border-t border-gray-100">
+        <View className="flex-row items-center justify-between px-3 py-2 border-t border-gray-100">
+          {models && models.length > 0 && onModelChange ? (
+            <ModelPicker models={models} value={model} onChange={onModelChange} disabled={disabled} />
+          ) : <View />}
           <TouchableOpacity
             onPress={handleSend}
             disabled={disabled || !hasContent}

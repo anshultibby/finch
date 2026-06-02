@@ -7,11 +7,12 @@ import { useChatStream } from '@/hooks/useChatStream';
 import { chatApi } from '@/lib/api';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Menu, SquarePen } from 'lucide-react-native';
-import type { ImageAttachment } from '@/lib/types';
+import type { ImageAttachment, ModelOption } from '@/lib/types';
 import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import StreamingView from '@/components/chat/StreamingView';
 import NewChatWelcome from '@/components/chat/NewChatWelcome';
+import ModelPicker from '@/components/chat/ModelPicker';
 import { COLORS } from '@/lib/constants';
 
 export default function ChatScreen() {
@@ -21,6 +22,8 @@ export default function ChatScreen() {
   const router = useRouter();
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [chatTitle, setChatTitle] = useState('Chat');
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
   const flatListRef = useRef<FlatList>(null);
   const hasGeneratedTitle = useRef(false);
 
@@ -36,9 +39,14 @@ export default function ChatScreen() {
   } = useChatStream(user?.id || '', id);
 
   useEffect(() => {
+    chatApi.getModels().then(setModels).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const loadHistory = async () => {
       try {
         const data = await chatApi.getChatHistoryForDisplay(id);
+        setSelectedModel((data as any).model || undefined);
         if (data.messages?.length > 0) {
           setMessages(data.messages.map(m => ({
             role: m.role,
@@ -69,13 +77,13 @@ export default function ChatScreen() {
 
   const handleSend = useCallback((text: string, images?: ImageAttachment[]) => {
     if (!text.trim() || isStreaming) return;
-    sendMessage(text, images);
-  }, [isStreaming, sendMessage]);
+    sendMessage(text, images, selectedModel);
+  }, [isStreaming, sendMessage, selectedModel]);
 
   const handleWelcomeSend = useCallback((text: string) => {
     if (!text.trim() || isStreaming) return;
-    sendMessage(text);
-  }, [isStreaming, sendMessage]);
+    sendMessage(text, undefined, selectedModel);
+  }, [isStreaming, sendMessage, selectedModel]);
 
   const showWelcome = !loadingHistory && messages.length === 0 && !isStreaming;
 
@@ -114,7 +122,7 @@ export default function ChatScreen() {
             <ActivityIndicator color={COLORS.gray400} />
           </View>
         ) : showWelcome ? (
-          <NewChatWelcome onSendMessage={handleWelcomeSend} disabled={isStreaming} />
+          <NewChatWelcome onSendMessage={handleWelcomeSend} disabled={isStreaming} models={models} model={selectedModel} onModelChange={setSelectedModel} />
         ) : (
           <>
             <FlatList
@@ -142,6 +150,11 @@ export default function ChatScreen() {
                 ) : null
               }
             />
+            {models.length > 0 && (
+              <View className="px-3 pt-1">
+                <ModelPicker models={models} value={selectedModel} onChange={setSelectedModel} disabled={isStreaming} />
+              </View>
+            )}
             <ChatInput onSend={handleSend} onStop={stopStream} isStreaming={isStreaming} />
           </>
         )}

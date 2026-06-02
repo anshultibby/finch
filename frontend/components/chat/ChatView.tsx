@@ -23,6 +23,7 @@ import type {
   SSEOptionsEvent,
   OptionButton,
   ImageAttachment,
+  ModelOption,
 } from '@/lib/types';
 
 interface ChatViewProps {
@@ -129,6 +130,11 @@ export default function ChatView({
   const [isExporting, setIsExporting] = useState(false);
   const [isPortfolioConnected, setIsPortfolioConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Per-chat model picker. `selectedModel` undefined => use the chat's stored
+  // model / backend default (we only send an override once the user picks).
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
 
 
   // Sub-agent peek panel
@@ -292,6 +298,11 @@ export default function ChatView({
     init();
   }, [userId]);
 
+  // Fetch the selectable model list once
+  useEffect(() => {
+    chatApi.getModels().then(setModels).catch(() => {});
+  }, []);
+
   // Load chat history when switching chats
   useEffect(() => {
     const load = async () => {
@@ -322,6 +333,8 @@ export default function ChatView({
           toolCalls: msg.tool_calls,
         }));
 
+        // Restore the chat's stored model into the picker (undefined = default)
+        setSelectedModel((displayData as any).model || undefined);
         setHasMoreMessages(displayData.has_more);
         setOldestSequence(displayData.oldest_sequence);
         updateChatState(currentChatId, { messages: loadedMessages }, syncDisplay);
@@ -486,6 +499,7 @@ export default function ChatView({
         },
         skills,
         isFirst ? pageContext : undefined,
+        selectedModel,
       );
     } catch {
       // Errors handled inside useChatStream
@@ -737,7 +751,7 @@ export default function ChatView({
 
         {messages.length === 0 && !isLoading && !loadingHistory && (currentChatId || isNewChat) ? (
           <div className="flex-1 min-h-0">
-            <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} prefillLabel={prefillLabel} />
+            <NewChatWelcome onSendMessage={handleSendMessage} disabled={isLoading || isConnecting} prefillMessage={prefillMessage} prefillLabel={prefillLabel} models={models} model={selectedModel} onModelChange={setSelectedModel} />
           </div>
         ) : loadingHistory ? (
           <div className="flex-1 min-h-0" />
@@ -900,6 +914,9 @@ export default function ChatView({
                 isStreaming={isLoading}
                 placeholder={mode.type === 'general' ? 'Ask me anything about investing...' : `Ask about ${mode.type}...`}
                 chatId={currentChatId || undefined}
+                models={models}
+                model={selectedModel}
+                onModelChange={setSelectedModel}
               />
             </div>
           </div>

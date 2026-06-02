@@ -39,6 +39,7 @@ class ChatService:
         skill_ids: List[str] = None,
         auth_token: str = None,
         page_context: dict = None,
+        requested_model: str = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send a message and stream SSE events as they happen.
@@ -93,7 +94,21 @@ class ChatService:
                 # STEP 1: Load history and save user message
                 db_chat = await chat_async.get_chat(db, chat_id)
                 if not db_chat:
-                    await chat_async.create_chat(db, chat_id, user_id)
+                    db_chat = await chat_async.create_chat(db, chat_id, user_id)
+
+                # Resolve the per-chat model. A valid requested model (from the picker)
+                # is persisted on the chat so the selection sticks across turns.
+                # Anything not on the allowlist is ignored and we fall back to the
+                # chat's stored model, then the configured default.
+                from core.model_registry import is_selectable
+                if requested_model and is_selectable(requested_model):
+                    if requested_model != db_chat.model:
+                        await chat_async.update_chat_model(db, chat_id, requested_model)
+                    effective_model = requested_model
+                else:
+                    if requested_model:
+                        logger.warning(f"Ignoring non-selectable model '{requested_model}' for chat {chat_id}")
+                    effective_model = db_chat.model  # None => default in create_agent
                 
                 # Load chat history using ChatHistory model
                 db_messages = await chat_async.get_chat_messages(db, chat_id)
@@ -151,7 +166,7 @@ class ChatService:
                     logger.info(f"🛑 Cancelling previous agent execution for chat {chat_id}")
                     previous_context.cancel()
                 
-                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids)
+                agent = await create_agent(agent_context, user_id=user_id, skill_ids=skill_ids, model=effective_model)
                 
                 # Prepend current datetime so the LLM is always aware of the current time
                 now = datetime.now(timezone.utc).strftime("%A, %B %d, %Y %H:%M UTC")

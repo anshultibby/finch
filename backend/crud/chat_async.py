@@ -11,17 +11,28 @@ from datetime import datetime
 
 # Chat operations
 
-async def create_chat(db: AsyncSession, chat_id: str, user_id: str, title: Optional[str] = None, icon: Optional[str] = None) -> Chat:
+async def create_chat(db: AsyncSession, chat_id: str, user_id: str, title: Optional[str] = None, icon: Optional[str] = None, model: Optional[str] = None) -> Chat:
     """Create a new chat session"""
     db_chat = Chat(
         chat_id=chat_id,
         user_id=user_id,
         title=title,
-        icon=icon
+        icon=icon,
+        model=model,
     )
     db.add(db_chat)
     await db.commit()
     await db.refresh(db_chat)
+    return db_chat
+
+
+async def update_chat_model(db: AsyncSession, chat_id: str, model: Optional[str]) -> Optional[Chat]:
+    """Update a chat's selected LLM model (None resets to the default)."""
+    db_chat = await get_chat(db, chat_id)
+    if db_chat:
+        db_chat.model = model
+        await db.commit()
+        await db.refresh(db_chat)
     return db_chat
 
 
@@ -110,6 +121,7 @@ async def get_user_chats_with_preview(
             "chat_id": chat.chat_id,
             "title": chat.title,
             "icon": chat.icon,
+            "model": chat.model,
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat(),
             "last_message": last_message

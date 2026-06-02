@@ -29,8 +29,12 @@ async def _get_sandbox_file_listing(user_id: str) -> str:
         return ""
 
 
-async def create_agent(context, user_id: str = None, skill_ids: list[str] = None):
-    """Create an agent with the base system prompt."""
+async def create_agent(context, user_id: str = None, skill_ids: list[str] = None, model: str = None):
+    """Create an agent with the base system prompt.
+
+    `model` overrides the default agent model (Config.AGENT_LLM_MODEL) — used by
+    the per-chat model picker. None falls back to the configured default.
+    """
     from .base_agent import BaseAgent
 
     # Static part — identical across sessions for the same user/skills (cacheable)
@@ -52,7 +56,7 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
         context=context,
         system_prompt=system_prompt,
         system_prompt_dynamic=dynamic_context,
-        model=Config.AGENT_LLM_MODEL,
+        model=model or Config.AGENT_LLM_MODEL,
         tool_names=Config.AGENT_TOOLS,
         enable_tool_streaming=True,
     )

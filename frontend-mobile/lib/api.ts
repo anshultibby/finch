@@ -6,6 +6,7 @@ export * from './types';
 import type {
   ChatHistory,
   UserChatsResponse,
+  ModelOption,
   GenerateTitleResponse,
   Resource,
   SnapTradeConnectionResponse,
@@ -98,7 +99,8 @@ export const chatApi = {
     chatId: string,
     handlers: SSEEventHandlers,
     images?: ImageAttachment[],
-    skills?: string[]
+    skills?: string[],
+    model?: string
   ): { close: () => void } => {
     const url = `${API_BASE_URL}/chat/stream`;
     const abortController = new AbortController();
@@ -109,6 +111,7 @@ export const chatApi = {
       chat_id: chatId,
       ...(images && images.length > 0 && { images }),
       ...(skills && skills.length > 0 && { skills }),
+      ...(model && { model }),
     };
 
     let isClosed = false;
@@ -258,6 +261,11 @@ export const chatApi = {
   createChat: async (userId: string): Promise<string> => {
     const response = await api.post<{ chat_id: string }>('/chat/create', { user_id: userId });
     return response.data.chat_id;
+  },
+
+  getModels: async (): Promise<ModelOption[]> => {
+    const response = await api.get<{ models: ModelOption[] }>('/chat/models');
+    return response.data.models;
   },
 
   generateTitle: async (chatId: string, firstMessage: string): Promise<GenerateTitleResponse> => {

@@ -21,6 +21,7 @@ exporter, not changing call sites.
 import asyncio
 import re
 import time
+from collections import deque
 from typing import Optional
 
 from core.config import Config
@@ -39,6 +40,11 @@ except ImportError:
 # Per-process is fine — Railway runs a single backend; worst case a second
 # instance sends one extra alert per window.
 _last_alert: dict[str, float] = {}
+
+# Per-process rolling window of failure timestamps (monotonic seconds) per signature.
+# Used to require N failures within a window before a signature is worth reporting,
+# so a single transient blip never reaches Sentry/email.
+_failure_window: dict[str, deque] = {}
 
 
 def _error_signature(tool_name: str, error: Optional[str]) -> str:
@@ -67,6 +73,34 @@ def _should_alert(signature: str) -> bool:
         return False
     _last_alert[signature] = now
     return True
+
+
+def should_report_failure(tool_name: str, error: Optional[str]) -> bool:
+    """
+    Rolling-window failure gate. Record this failure and return True only once the
+    same tool+error signature has failed ``TOOL_ALERT_MIN_FAILURES`` times within the
+    last ``TOOL_ALERT_WINDOW_SECONDS`` — then throttle (``TOOL_ALERT_THROTTLE_SECONDS``)
+    so the 6th, 7th, ... failures don't re-fire.
+
+    Net effect: a one-off failure is invisible; a tool that's genuinely broken
+    (≥5 failures/hour by default) surfaces exactly once per window.
+
+    MUST be called exactly once per failed outcome — it mutates the window counter.
+    """
+    signature = _error_signature(tool_name, error)
+    now = time.monotonic()
+    window = Config.TOOL_ALERT_WINDOW_SECONDS
+
+    dq = _failure_window.setdefault(signature, deque())
+    dq.append(now)
+    cutoff = now - window
+    while dq and dq[0] < cutoff:
+        dq.popleft()
+
+    if len(dq) < Config.TOOL_ALERT_MIN_FAILURES:
+        return False
+    # Threshold crossed — collapse the ongoing burst to one alert per throttle window.
+    return _should_alert(signature)
 
 
 def _report_to_sentry(
@@ -148,16 +182,20 @@ def record_tool_outcome(
     chat_id: str = "",
     user_id: str = "",
     exc_reported: bool = False,
+    alerted: Optional[bool] = None,
 ) -> None:
     """
     Record the outcome of a single tool call. Best-effort; never raises.
 
-    Call this once per completed tool execution. Failures and slow calls are reported
-    to Sentry and (throttled) emailed; successes are logged at debug level only.
+    Call this once per completed tool execution. Successes are logged at debug level.
+    Failures only reach Sentry/email once the same tool+error signature has failed
+    ``TOOL_ALERT_MIN_FAILURES`` times within ``TOOL_ALERT_WINDOW_SECONDS`` (see
+    ``should_report_failure``); slow calls use a simple per-window throttle.
 
-    exc_reported: True when this failure was a raised exception already sent to Sentry
-    (with full traceback) at the source — we then skip the flat-message Sentry report
-    to avoid duplicate issues, but still log and email.
+    exc_reported: True when this failure was a raised exception already handled at the
+    source (tool runner) — it ran the same rolling-window gate and, if it crossed the
+    threshold, captured the exception to Sentry with its real traceback. In that case
+    ``alerted`` carries the gate's decision so we don't re-count or re-report here.
     """
     try:
         slow = success and duration_ms >= Config.TOOL_ALERT_SLOW_MS
@@ -174,15 +212,32 @@ def record_tool_outcome(
             return  # nothing to alert on
 
         signature = _error_signature(tool_name, None if slow else error)
-        # Exceptions are captured at the source (tool runner) with their traceback;
-        # only report non-exception failures and slow calls from here.
-        if not exc_reported:
-            _report_to_sentry(
-                tool_name=tool_name, signature=signature, error=error,
-                duration_ms=duration_ms, slow=slow, chat_id=chat_id, user_id=user_id,
-            )
 
-        if not Config.TOOL_ALERTS_ENABLED or not _should_alert(signature):
+        # Decide whether this outcome is worth surfacing, and report to Sentry if so.
+        if exc_reported:
+            # The runner already ran the rolling-window gate and, if it crossed the
+            # threshold, captured the exception to Sentry with its real traceback.
+            # Reuse its decision; don't re-count or re-report.
+            should = bool(alerted)
+        elif slow:
+            # Slow calls aren't "failures" — keep the simple one-per-window throttle.
+            should = _should_alert(signature)
+            if should:
+                _report_to_sentry(
+                    tool_name=tool_name, signature=signature, error=error,
+                    duration_ms=duration_ms, slow=slow, chat_id=chat_id, user_id=user_id,
+                )
+        else:
+            # Non-exception failure (e.g. a 4xx the tool returned): count it toward
+            # the rolling window and report to Sentry only once it crosses the threshold.
+            should = should_report_failure(tool_name, error)
+            if should:
+                _report_to_sentry(
+                    tool_name=tool_name, signature=signature, error=error,
+                    duration_ms=duration_ms, slow=slow, chat_id=chat_id, user_id=user_id,
+                )
+
+        if not should or not Config.TOOL_ALERTS_ENABLED:
             return
 
         # Fire the email without blocking the tool path. Requires a running loop,

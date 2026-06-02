@@ -14,6 +14,7 @@ from modules.agent.tracing_utils import ToolTracer
 from .registry import tool_registry
 from schemas.sse import SSEEvent
 from utils.sentry import capture_tool_exception
+from services.tool_monitoring import should_report_failure
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -203,13 +204,17 @@ class ToolRunner:
 
                 # ToolTracer.execution() context manager already recorded the exception
 
-                # Report to Sentry here (at the source) so the real traceback is
-                # preserved. _exc_reported tells the downstream monitor not to
-                # double-report this as a flat message.
-                capture_tool_exception(
-                    e, tool_name=tool_name,
-                    chat_id=context.chat_id, user_id=context.user_id,
-                )
+                # Run the rolling-window gate at the source: only capture to Sentry
+                # (with the real traceback) once this tool+error signature has failed
+                # enough times within the window. _exc_reported + _alerted tell the
+                # downstream monitor we already counted/decided, so it neither
+                # re-counts nor re-reports — it just reuses _alerted for its email.
+                alerted = should_report_failure(tool_name, error_msg)
+                if alerted:
+                    capture_tool_exception(
+                        e, tool_name=tool_name,
+                        chat_id=context.chat_id, user_id=context.user_id,
+                    )
 
                 # Yield error result
                 yield {
@@ -218,6 +223,7 @@ class ToolRunner:
                     "message": f"Tool execution failed: {error_msg}",
                     "traceback": error_trace,
                     "_exc_reported": True,
+                    "_alerted": alerted,
                 }
     
     def validate_arguments(

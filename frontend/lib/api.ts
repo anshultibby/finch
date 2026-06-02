@@ -11,6 +11,7 @@ export * from './types';
 import type {
   ChatHistory,
   UserChatsResponse,
+  ModelOption,
   GenerateTitleResponse,
   Resource,
   SnapTradeConnectionResponse,
@@ -119,7 +120,8 @@ export const chatApi = {
     handlers: SSEEventHandlers,
     images?: ImageAttachment[],
     skills?: string[],
-    pageContext?: Record<string, any>
+    pageContext?: Record<string, any>,
+    model?: string
   ): { close: () => void; reconnect: () => void } => {
     const url = new URL('/chat/stream', API_BASE_URL);
     const abortController = new AbortController();
@@ -131,6 +133,7 @@ export const chatApi = {
       ...(images && images.length > 0 && { images }),
       ...(skills && skills.length > 0 && { skills }),
       ...(pageContext && { page_context: pageContext }),
+      ...(model && { model }),
     };
 
     // Track if we're closed to prevent processing after abort
@@ -401,6 +404,11 @@ export const chatApi = {
     return response.data.chat_id;
   },
 
+  getModels: async (): Promise<ModelOption[]> => {
+    const response = await api.get<{ models: ModelOption[] }>('/chat/models');
+    return response.data.models;
+  },
+
   generateTitle: async (chatId: string, firstMessage: string): Promise<GenerateTitleResponse> => {
     const response = await api.post<GenerateTitleResponse>('/chat/generate-title', {
       chat_id: chatId,
@@ -537,6 +545,52 @@ export const snaptradeApi = {
       `/snaptrade/accounts/${userId}/${accountId}/visibility`,
       { is_visible: isVisible }
     );
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Robinhood agentic trading API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RobinhoodAccount {
+  account_number: string;
+  brokerage_account_type?: string;
+  type?: string;
+  nickname?: string;
+  agentic_allowed?: boolean;
+}
+
+export interface RobinhoodAccountsResponse {
+  is_connected: boolean;
+  accounts: RobinhoodAccount[];
+  agentic_account: RobinhoodAccount | null;
+  portfolio: {
+    total_value?: string;
+    cash?: string;
+    buying_power?: { buying_power?: string };
+  } | null;
+}
+
+export const robinhoodApi = {
+  // Returns the Robinhood authorize URL the user should open to connect.
+  connect: async (userId: string): Promise<{ success: boolean; authorize_url?: string; message?: string }> => {
+    const response = await api.post('/robinhood/connect', { user_id: userId });
+    return response.data;
+  },
+
+  checkStatus: async (userId: string): Promise<{ is_connected: boolean }> => {
+    const response = await api.get<{ is_connected: boolean }>(`/robinhood/status/${userId}`);
+    return response.data;
+  },
+
+  getAccounts: async (userId: string): Promise<RobinhoodAccountsResponse> => {
+    const response = await api.get<RobinhoodAccountsResponse>(`/robinhood/accounts/${userId}`);
+    return response.data;
+  },
+
+  disconnect: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    const response = await api.delete<{ success: boolean; message: string }>(`/robinhood/disconnect/${userId}`);
     return response.data;
   },
 };
