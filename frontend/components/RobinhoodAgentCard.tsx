@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { robinhoodApi, type RobinhoodAccountsResponse } from '@/lib/api';
+import { robinhoodApi, snaptradeApi, type RobinhoodAccountsResponse } from '@/lib/api';
 
 function fmtUsd(v?: string | null): string {
   if (v == null) return '—';
@@ -10,18 +10,33 @@ function fmtUsd(v?: string | null): string {
   return Number.isNaN(n) ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
 
-const Feather = ({ className = 'w-4 h-4' }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
-    <line x1="16" y1="8" x2="2" y2="22" />
-    <line x1="17.5" y1="15" x2="9" y2="15" />
+// Our own ownable agent mark — the app's "AI" sparkle, not a borrowed brand glyph.
+const Sparkle = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
   </svg>
 );
+
+// "Powered by" lockup using Robinhood's *real* logo, sourced from the same broker
+// logo feed the app already uses. Falls back to the plain name if unavailable.
+function PoweredBy({ logo }: { logo: string | null }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
+      Powered by
+      {logo && !failed
+        ? <img src={logo} alt="Robinhood" className="h-3 w-3 rounded-sm object-contain" onError={() => setFailed(true)} />
+        : null}
+      <span className="font-medium text-gray-500">Robinhood</span>
+    </span>
+  );
+}
 
 /** A trading agent that places real orders — powered by Robinhood's agentic MCP. */
 export default function RobinhoodAgentCard() {
   const { user } = useAuth();
   const [data, setData] = useState<RobinhoodAccountsResponse | null>(null);
+  const [logo, setLogo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +50,16 @@ export default function RobinhoodAgentCard() {
   }, [user?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Official Robinhood logo from the existing broker-logo feed (one-time).
+  useEffect(() => {
+    snaptradeApi.getBrokerages()
+      .then(res => {
+        const rh = (res.brokerages || []).find(b => b.name?.toLowerCase().includes('robinhood'));
+        if (rh?.logo) setLogo(rh.logo);
+      })
+      .catch(() => {});
+  }, []);
 
   // Surface the OAuth redirect result, then clean the URL.
   useEffect(() => {
@@ -71,17 +96,18 @@ export default function RobinhoodAgentCard() {
   const pf = data?.portfolio ?? null;
 
   return (
-    <div>
-      {/* Header */}
+    <div className="rounded-xl border border-gray-200 p-3.5">
+      {/* Header: own sparkle mark + powered-by Robinhood */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 text-white">
-          <Feather />
+          <Sparkle />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-gray-900">Trading Agent</div>
-          <div className="text-[11px] text-gray-400">Powered by Robinhood</div>
+          <div className="text-sm font-semibold text-gray-900">AI Trading Agent</div>
+          {connected
+            ? <div className="flex items-center gap-1.5 text-[11px] text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Active</div>
+            : <PoweredBy logo={logo} />}
         </div>
-        {connected && <span className="h-2 w-2 rounded-full bg-emerald-500" title="Connected" />}
       </div>
 
       {error && <div className="mt-2 text-xs text-red-500">{error}</div>}
@@ -91,25 +117,34 @@ export default function RobinhoodAgentCard() {
       ) : connected ? (
         <div className="mt-3">
           <div className="rounded-lg bg-gray-50 p-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-gray-700">
-                Agentic{agentic && <span className="ml-1 text-gray-400">••{agentic.account_number.slice(-4)}</span>}
-              </span>
-              <span className="font-semibold text-gray-900">{fmtUsd(pf?.buying_power?.buying_power)}</span>
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-[11px] text-gray-400">Account value</div>
+                <div className="text-lg font-bold tabular-nums text-gray-900">{fmtUsd(pf?.total_value)}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[11px] text-gray-400">Buying power</div>
+                <div className="text-sm font-semibold tabular-nums text-gray-700">{fmtUsd(pf?.buying_power?.buying_power)}</div>
+              </div>
             </div>
           </div>
-          <button onClick={handleDisconnect} disabled={busy}
-            className="mt-2 text-[11px] text-gray-400 hover:text-red-500 disabled:opacity-50">
-            Disconnect
-          </button>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400">
+            <span>Agentic{agentic && <span className="ml-1">••{agentic.account_number.slice(-4)}</span>}</span>
+            <button onClick={handleDisconnect} disabled={busy} className="hover:text-red-500 disabled:opacity-50">Disconnect</button>
+          </div>
         </div>
       ) : (
         <div className="mt-3">
-          <p className="text-xs leading-relaxed text-gray-500">
-            An agent that places real trades for you — in an isolated account, never your main portfolio.
-          </p>
+          <ul className="space-y-1.5 text-xs text-gray-600">
+            {['Trades from chat — just ask', 'Its own account — never your main one', 'You set the limits'].map((t) => (
+              <li key={t} className="flex items-start gap-2">
+                <span className="mt-1.5 h-px w-2 shrink-0 bg-emerald-500" />
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
           <button onClick={handleConnect} disabled={busy}
-            className="mt-3 w-full rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50">
+            className="mt-3 w-full rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50">
             {busy ? 'Connecting…' : 'Enable trading'}
           </button>
         </div>

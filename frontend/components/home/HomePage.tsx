@@ -1647,7 +1647,7 @@ export default function HomePage() {
             />
 
             {/* Robinhood agentic trading account */}
-            <div className="p-4 border-b border-gray-100">
+            <div className="px-5 pb-5">
               <RobinhoodAgentCard />
             </div>
 
