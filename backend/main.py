@@ -12,10 +12,14 @@ from routes.analytics import router as analytics_router
 from routes.jobs import router as jobs_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
+from utils.sentry import setup_sentry
 
 # Configure logging for the entire application
 configure_logging()
 logger = get_logger(__name__)
+
+# Initialize Sentry before the app handles requests (no-op if SENTRY_DSN unset)
+setup_sentry()
 
 # Import tool definitions to register all tools
 from modules.tools import definitions  # noqa: F401 - imported for side effects (tool registration)

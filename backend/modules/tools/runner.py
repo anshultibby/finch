@@ -13,6 +13,7 @@ from modules.agent.context import AgentContext
 from modules.agent.tracing_utils import ToolTracer
 from .registry import tool_registry
 from schemas.sse import SSEEvent
+from utils.sentry import capture_tool_exception
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -199,15 +200,24 @@ class ToolRunner:
                 
                 logger.error(f"Error executing tool {tool_name}: {error_msg}")
                 logger.debug(f"Traceback:\n{error_trace}")
-                
+
                 # ToolTracer.execution() context manager already recorded the exception
-                
+
+                # Report to Sentry here (at the source) so the real traceback is
+                # preserved. _exc_reported tells the downstream monitor not to
+                # double-report this as a flat message.
+                capture_tool_exception(
+                    e, tool_name=tool_name,
+                    chat_id=context.chat_id, user_id=context.user_id,
+                )
+
                 # Yield error result
                 yield {
                     "success": False,
                     "error": error_msg,
                     "message": f"Tool execution failed: {error_msg}",
-                    "traceback": error_trace
+                    "traceback": error_trace,
+                    "_exc_reported": True,
                 }
     
     def validate_arguments(

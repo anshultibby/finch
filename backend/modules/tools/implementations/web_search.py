@@ -50,7 +50,14 @@ def _call_serper_api(endpoint: str, payload: dict) -> dict:
         )
         response.raise_for_status()
         return response.json()
-    
+
+    except requests.HTTPError as e:
+        # Surface the response body — Serper returns the real reason there
+        # (e.g. {"message":"Not enough credits"}); str(e) is just the status line.
+        resp = e.response
+        body = resp.text[:300] if resp is not None else ""
+        status = resp.status_code if resp is not None else "?"
+        return {"error": f"Serper API {status}: {body or str(e)}"}
     except requests.RequestException as e:
         return {"error": f"Serper API request failed: {str(e)}"}
 

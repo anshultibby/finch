@@ -200,7 +200,7 @@ class Settings(BaseSettings):
             'get_brokerage_status',
             'get_portfolio',
             # Orchestration
-            # 'delegate',
+            'delegate',
         ],
         description="All agent tools"
     )
@@ -347,6 +347,34 @@ class Settings(BaseSettings):
     ADMIN_SECRET: Optional[str] = Field(
         default=None,
         description="Secret token for admin-only API endpoints (set a strong random value)"
+    )
+
+    # =========================================================================
+    # Observability & Alerting
+    # =========================================================================
+    SENTRY_DSN: Optional[str] = Field(
+        default=None,
+        description="Sentry DSN. If unset, Sentry is disabled (no-op)."
+    )
+    SENTRY_ENVIRONMENT: str = Field(
+        default="development",
+        description="Sentry environment tag (e.g. 'production', 'development')"
+    )
+    SENTRY_TRACES_SAMPLE_RATE: float = Field(
+        default=0.0,
+        description="Fraction of transactions to send to Sentry for performance tracing (0.0-1.0)"
+    )
+    TOOL_ALERTS_ENABLED: bool = Field(
+        default=True,
+        description="Email an alert when a tool call fails or runs slow (throttled/deduped)"
+    )
+    TOOL_ALERT_SLOW_MS: int = Field(
+        default=30000,
+        description="Tool calls slower than this (ms) trigger a slow-call alert"
+    )
+    TOOL_ALERT_THROTTLE_SECONDS: int = Field(
+        default=3600,
+        description="Minimum seconds between alerts for the same tool+error signature"
     )
 
     # =========================================================================
