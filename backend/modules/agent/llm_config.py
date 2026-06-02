@@ -29,10 +29,14 @@ class LLMConfig(BaseModel):
     stream: bool = Field(False, description="Enable streaming responses")
     stream_options: Optional[Dict[str, Any]] = Field(None, description="Streaming options")
     
-    # OpenAI-specific
+    # Reasoning / extended thinking
     reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(
-        None, 
-        description="Reasoning effort for o1/o3 models"
+        None,
+        description="Reasoning effort for OpenAI reasoning models (gpt-5/o1/o3)"
+    )
+    thinking: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Anthropic extended-thinking config, e.g. {'type':'enabled','budget_tokens':10000}"
     )
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     
@@ -65,136 +69,79 @@ class LLMConfig(BaseModel):
             if value is not None:
                 kwargs[field_name] = value
 
+        # Defensive guard: Anthropic requires budget_tokens < max_tokens. If a caller
+        # set a small max_tokens (e.g. a short utility call), drop thinking rather than
+        # let the API reject the request.
+        thinking = kwargs.get("thinking")
+        if isinstance(thinking, dict) and thinking.get("type") == "enabled":
+            budget = thinking.get("budget_tokens", 0)
+            max_tokens = kwargs.get("max_tokens")
+            if not max_tokens or budget >= max_tokens:
+                kwargs.pop("thinking", None)
+
         return kwargs
     
     @staticmethod
     def _get_model_defaults(model: str) -> Dict[str, Any]:
         """
-        Get model-specific defaults based on model name prefix
-        
-        Args:
-            model: Model name (e.g., "gpt-5", "gpt-4o", "claude-3-5-sonnet")
-        
-        Returns:
-            Dict of default parameters for that model family
+        Get model-specific defaults from the central model registry.
+
+        See `core.model_registry` to add or tune a model family.
         """
-        model_lower = model.lower()
-        
-        # OpenAI o1/o3 series (reasoning models)
-        if model_lower.startswith(("gpt-5", "o1", "o3")):
-            return {
-                "reasoning_effort": "medium",
-                "caching": True,
-                "seed": 42,
-            }
-        
-        # OpenAI GPT-4o series
-        elif model_lower.startswith("gpt-4o"):
-            return {
-                "caching": True,
-                "seed": 42,
-            }
-        
-        # OpenAI GPT-4 series
-        elif model_lower.startswith("gpt-4"):
-            return {
-                "caching": True,
-                "seed": 42,
-            }
-        
-        # Anthropic Claude (handles both "claude-..." and "anthropic/claude-...")
-        elif model_lower.startswith("claude") or model_lower.startswith("anthropic/"):
-            return {
-                "caching": True,
-                "max_tokens": 16000,  # Higher limit for file writes - Claude default is only 4096
-            }
-        
-        # Google Gemini
-        elif model_lower.startswith("gemini"):
-            return {
-                "caching": False,  # Gemini handles caching differently
-            }
-        
-        # Default fallback
-        else:
-            return {
-                "caching": True,
-                "seed": 42,
-            }
-    
+        from core.model_registry import get_defaults
+        return get_defaults(model)
+
     @staticmethod
     def _get_api_key_for_model(model: str) -> Optional[str]:
         """
-        Get the appropriate API key based on model provider
-        
-        Args:
-            model: Model name (e.g., "gpt-5", "claude-sonnet-4-20250514", "gemini/gemini-2.5-pro")
-        
-        Returns:
-            API key for the model's provider
+        Get the appropriate API key for `model`'s provider from the registry.
+
+        See `core.model_registry` to add or tune a model family.
         """
-        from core.config import Config
-        
-        model_lower = model.lower()
-        
-        # Anthropic Claude models (handles both "claude-..." and "anthropic/claude-...")
-        if model_lower.startswith("claude") or model_lower.startswith("anthropic/"):
-            return Config.ANTHROPIC_API_KEY
-        
-        # Google Gemini models (both "gemini/" prefix and direct "gemini-" names)
-        if model_lower.startswith("gemini"):
-            return Config.GEMINI_API_KEY
-        
-        # OpenAI models (default)
-        return Config.OPENAI_API_KEY
-    
+        from core.model_registry import get_api_key
+        return get_api_key(model)
+
     @staticmethod
     def from_config(
         model: Optional[str] = None,
         stream: bool = False,
         temperature: float = 1.0,
+        reasoning_effort: Optional[str] = None,
         **overrides
     ) -> "LLMConfig":
         """
-        Create LLMConfig with smart defaults based on model family
-        
-        Auto-detects model-specific settings (e.g., reasoning_effort for o1/o3 models).
-        
+        Create LLMConfig with smart defaults based on model family.
+
+        All provider-specific behaviour (defaults, API key, reasoning/thinking) is
+        resolved through `core.model_registry`.
+
         Args:
-            model: Model name (default: from Config.LLM_MODEL)
+            model: Model name (default: Config.AGENT_LLM_MODEL)
             stream: Enable streaming (default: False)
-            temperature: Sampling temperature (default: 1.0)
-            **overrides: Override any LLMConfig field
-        
+            temperature: Sampling temperature (default: 1.0; must be 1.0 for Claude
+                thinking, which is the default)
+            reasoning_effort: "low" | "medium" | "high". Overrides the model's default
+                thinking budget / reasoning effort. None uses the family default.
+            **overrides: Override any LLMConfig field (highest priority)
+
         Examples:
-            # Use default model from config
-            LLMConfig.from_config(stream=True)
-            
-            # Specify model (auto-detects o1 defaults)
-            LLMConfig.from_config(model="gpt-5", stream=True)
-            
-            # Use Claude 4.5 Sonnet
-            LLMConfig.from_config(model="claude-sonnet-4-5-20250929", stream=True)
-            
-            # Override specific fields
-            LLMConfig.from_config(
-                model="gpt-4o",
-                stream=True,
-                temperature=0.5,
-                max_tokens=2000
-            )
+            LLMConfig.from_config(stream=True)                       # default model
+            LLMConfig.from_config(model="zai/glm-5.1", stream=True)  # GLM
+            LLMConfig.from_config(model="anthropic/claude-sonnet-4-6",
+                                  reasoning_effort="high")           # bigger thinking budget
         """
         from core.config import Config
-        
+        from core.model_registry import reasoning_params
+
         # Determine model (default to AGENT_LLM_MODEL if not specified)
         selected_model = model or Config.AGENT_LLM_MODEL
-        
+
         # Get model-specific defaults
         model_defaults = LLMConfig._get_model_defaults(selected_model)
-        
+
         # Get the correct API key for this model
         api_key = LLMConfig._get_api_key_for_model(selected_model)
-        
+
         # Base config
         defaults = {
             "model": selected_model,
@@ -203,12 +150,16 @@ class LLMConfig(BaseModel):
             "stream": stream,
             "stream_options": {"include_usage": False} if stream else None,
         }
-        
+
         # Merge in model-specific defaults
         defaults.update(model_defaults)
-        
+
+        # Merge in reasoning/thinking params (scales max_tokens with the thinking
+        # budget for Anthropic). Applied after defaults so it can raise max_tokens.
+        defaults.update(reasoning_params(selected_model, reasoning_effort))
+
         # Apply user overrides (highest priority)
         defaults.update(overrides)
-        
+
         return LLMConfig(**defaults)
 

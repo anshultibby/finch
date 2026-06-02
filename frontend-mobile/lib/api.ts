@@ -313,8 +313,8 @@ export const marketApi = {
     const response = await api.get(`/market/news/${symbol}`, { params: { limit } });
     return response.data;
   },
-  getGeneralNews: async (limit = 10) => {
-    const response = await api.get('/market/general-news', { params: { limit } });
+  getGeneralNews: async (limit = 10, market = 'us') => {
+    const response = await api.get('/market/general-news', { params: { limit, market } });
     return response.data;
   },
   getEarnings: async () => {

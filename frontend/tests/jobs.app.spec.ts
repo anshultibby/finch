@@ -26,7 +26,7 @@ test.describe('Jobs UI', () => {
   test('list with cost + pause-all', async ({ page }, testInfo) => {
     await page.goto('/');
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Scheduled' }).first().click();
+    await page.getByRole('button', { name: 'Automations' }).first().click();
     await expect(page.getByText(/NVDA dip alert/)).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(300);
     await snap(page, testInfo, '01-jobs-list');
@@ -35,9 +35,9 @@ test.describe('Jobs UI', () => {
   test('create modal', async ({ page }, testInfo) => {
     await page.goto('/');
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Scheduled' }).first().click();
+    await page.getByRole('button', { name: 'Automations' }).first().click();
     await page.getByRole('button', { name: /^New$/ }).click();
-    await expect(page.getByText('New scheduled job')).toBeVisible();
+    await expect(page.getByText('New automation')).toBeVisible();
     await page.getByPlaceholder(/Check if NVDA/).fill('Every weekday at 4pm, give me a market close recap for my holdings.');
     await page.getByRole('button', { name: 'Weekdays' }).click();
     await page.waitForTimeout(300);

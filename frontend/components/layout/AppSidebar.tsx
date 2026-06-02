@@ -133,7 +133,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const PAGE_SIZE = 30;
   const navItems: NavItem[] = [
     { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon /> },
-    { id: 'jobs', label: 'Scheduled', view: { type: 'jobs' }, icon: <ScheduledIcon /> },
+    { id: 'jobs', label: 'Automations', view: { type: 'jobs' }, icon: <ScheduledIcon /> },
     { id: 'visualizations', label: 'Visualizations', view: { type: 'visualizations' }, icon: <ChartsIcon /> },
     { id: 'memory-store', label: 'Memory Store', view: { type: 'memory-store' }, icon: <MemoryStoreIcon /> },
   ];

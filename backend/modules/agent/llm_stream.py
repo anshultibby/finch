@@ -39,10 +39,7 @@ logger = get_logger(__name__)
 FILE_STREAMING_TOOLS = {'write_chat_file', 'replace_in_chat_file'}
 
 
-def _is_claude_model(model: str) -> bool:
-    """Check if the model is a Claude model that supports prompt caching"""
-    m = model.lower()
-    return m.startswith("claude") or m.startswith("anthropic/")
+from core.model_registry import caching_style, wants_stream_usage, extract_cache_tokens
 
 
 
@@ -122,11 +119,12 @@ def _log_cache_diagnostics(
         }
 
         if usage_info:
+            cache_read, cache_creation = extract_cache_tokens(usage_info)
             entry["usage"] = {
                 "prompt_tokens": getattr(usage_info, "prompt_tokens", 0),
                 "completion_tokens": getattr(usage_info, "completion_tokens", 0),
-                "cache_read": getattr(usage_info, "cache_read_input_tokens", 0),
-                "cache_creation": getattr(usage_info, "cache_creation_input_tokens", 0),
+                "cache_read": cache_read,
+                "cache_creation": cache_creation,
             }
 
         cache_log.parent.mkdir(parents=True, exist_ok=True)
@@ -206,31 +204,30 @@ async def stream_llm_response(
         system_message = messages[0]
         conversation_messages = messages[1:]
     
-    # Apply prompt caching for Claude models
-    is_claude = _is_claude_model(llm_kwargs["model"])
+    # Apply prompt caching based on the model's caching style (see core.model_registry).
+    model_name = llm_kwargs["model"]
+    cache_mode = caching_style(model_name)
 
-    if is_claude and llm_config.caching:
-        # Use automatic caching: top-level cache_control tells the API to
-        # auto-place breakpoints on the last cacheable block and move them
-        # forward as the conversation grows. No manual breakpoint management needed.
+    llm_kwargs["messages"] = messages
+    if tools:
+        llm_kwargs["tools"] = tools
+        llm_kwargs["tool_choice"] = "auto"
+
+    if cache_mode == "anthropic" and llm_config.caching:
+        # Anthropic-style caching: a top-level cache_control breakpoint tells the
+        # API to auto-place it on the last cacheable block and move it forward as
+        # the conversation grows. No manual breakpoint management needed.
         llm_kwargs["cache_control"] = {"type": "ephemeral"}
-        llm_kwargs["messages"] = messages
+        logger.debug(f"  📝 Anthropic prompt caching with {len(conversation_messages)} messages")
+    elif cache_mode == "automatic":
+        # Provider caches the prompt prefix automatically (e.g. Z.ai/GLM, OpenAI) —
+        # nothing to send; hits are reported back in usage.
+        logger.debug(f"  📝 Automatic prompt caching ({model_name}) with {len(conversation_messages)} messages")
 
-        if tools:
-            llm_kwargs["tools"] = tools
-            llm_kwargs["tool_choice"] = "auto"
-
-        logger.debug(f"  📝 Automatic prompt caching with {len(conversation_messages)} messages")
-    else:
-        llm_kwargs["messages"] = messages
-        if tools:
-            llm_kwargs["tools"] = tools
-            llm_kwargs["tool_choice"] = "auto"
-    
     llm_kwargs["stream"] = True
-    # Enable usage tracking in streaming for cache statistics (Claude supports this)
-    # Always set this to override any default from llm_config
-    llm_kwargs["stream_options"] = {"include_usage": True} if is_claude else {"include_usage": False}
+    # Request usage stats while streaming so we can capture cache statistics.
+    # Always set this to override any default from llm_config.
+    llm_kwargs["stream_options"] = {"include_usage": wants_stream_usage(model_name)}
     
     # Stream response — scale timeout with context size so large conversations
     # don't get killed while the model is still processing.

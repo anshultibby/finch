@@ -51,6 +51,13 @@ const getToolIcon = (toolName: string) => {
           <polyline points="22,4 12,14.01 9,11.01" />
         </svg>
       );
+    case 'delegate':
+      return (
+        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="12" r="3" />
+          <path d="M9 6h3a3 3 0 013 3M9 18h3a3 3 0 003-3" />
+        </svg>
+      );
     default:
       return (
         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -188,6 +195,7 @@ const getToolDisplayName = (toolName: string): string => {
     'get_reddit_ticker_sentiment': 'Get Reddit Sentiment',
     'place_trade': 'Place Trade',
     'list_trades': 'List Trades',
+    'delegate': 'Delegate',
   };
   
   return nameMap[toolName] || toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -281,6 +289,8 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
   const filename = isFile ? extractFilename(toolCall) : null;
   const searchQuery = isSearch ? extractSearchQuery(toolCall) : null;
   const url = isScrape ? extractUrl(toolCall) : null;
+  const isDelegate = toolCall.tool_name === 'delegate';
+  const delegateTask = isDelegate ? (toolCall.arguments?.task_id as string | undefined) || null : null;
 
   // Truncate search query for display
   const displayQuery = searchQuery && searchQuery.length > 80
@@ -351,6 +361,13 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
           {displayUrl && (
             <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
               {displayUrl}
+            </span>
+          )}
+
+          {/* Task pill for delegate operations */}
+          {delegateTask && (
+            <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+              {delegateTask}
             </span>
           )}
 

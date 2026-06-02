@@ -18,6 +18,11 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Per-chat tally of how many sub-agents delegate has spawned. Bounds cost/concurrency
+# (SUBAGENT_MAX_PER_CHAT). In-memory is fine: a single backend process, and the cap is a
+# soft guard, not a billing control. Keyed by chat_id; entries are cheap and short-lived.
+_subagents_spawned: dict[str, int] = {}
+
 DELEGATE_SYSTEM_PROMPT = """You are a focused sub-agent executing a specific task delegated by a coordinator.
 
 Your job: complete the task described below, then return a clear, structured result.
@@ -34,7 +39,7 @@ After completing your work, write a summary of your findings as your final messa
 
 
 @tool(
-    description="Delegate a task to a sub-agent that runs to completion and returns results. Use for independent subtasks that can run in parallel. The sub-agent has access to all tools except delegate (no recursion). Write a plan to /home/user/_plan.md first to track your decomposition.",
+    description="Delegate a task to a sub-agent that runs to completion and returns results. Use for independent subtasks that can run in parallel. The sub-agent has access to all tools except delegate (no recursion). LIMIT: at most 2 sub-agents per chat — never call delegate more than twice; pick the 2 highest-value subtasks and do the rest yourself. Write a plan to /home/user/_plan.md first to track your decomposition.",
     name="delegate",
     category="orchestration",
 )
@@ -55,6 +60,25 @@ async def delegate_task(
     """
     from modules.agent.base_agent import BaseAgent
     from core.config import Config
+
+    # Enforce the per-chat sub-agent cap. This check-and-increment block has no `await`,
+    # so it runs atomically even when a turn fires several delegate() calls concurrently
+    # (the asyncio loop can't switch tasks mid-block). Reject excess before spawning.
+    chat_id = context.chat_id
+    spawned = _subagents_spawned.get(chat_id, 0)
+    if spawned >= Config.SUBAGENT_MAX_PER_CHAT:
+        logger.info(f"Delegate cap reached for chat {chat_id}: {spawned}/{Config.SUBAGENT_MAX_PER_CHAT}")
+        yield {
+            "success": False,
+            "error": "subagent_limit_reached",
+            "message": (
+                f"Sub-agent limit reached for this chat "
+                f"({Config.SUBAGENT_MAX_PER_CHAT} max). Do this task '{task_id}' yourself "
+                f"instead of delegating, and avoid further delegate calls in this chat."
+            ),
+        }
+        return
+    _subagents_spawned[chat_id] = spawned + 1
 
     sub_agent_id = generate_agent_id()
     chat_dir = f"/home/user/_tasks/{context.chat_id}"
@@ -92,7 +116,7 @@ This file will be read by the coordinator to synthesize the final answer."""
     agent = BaseAgent(
         context=sub_context,
         system_prompt=system_prompt,
-        model=Config.AGENT_LLM_MODEL,
+        model=Config.SUBAGENT_LLM_MODEL,  # cheaper model for delegated work
         tool_names=sub_tools,
         enable_tool_streaming=True,
     )

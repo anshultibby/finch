@@ -432,10 +432,14 @@ class ChatService:
                     except Exception:
                         pass
 
-                # Sync store files from sandbox to DB
+                # Sync store files from sandbox to DB. Await it (rather than
+                # fire-and-forget) so it completes while the sandbox is still
+                # alive — the response has already streamed, so the brief cleanup
+                # delay is invisible to the user. The dream (triggered below) runs
+                # its own sync after writing, so this captures the chat's own edits.
                 try:
                     from services.store_sync import sync_store_files
-                    asyncio.create_task(sync_store_files(user_id))
+                    await sync_store_files(user_id)
                 except Exception as e:
                     logger.debug(f"Store sync failed (non-fatal): {e}")
 

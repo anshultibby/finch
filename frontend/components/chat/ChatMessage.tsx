@@ -158,10 +158,13 @@ function extractCitations(md: string): Map<number, string> {
 }
 
 function preprocessCitations(md: string): string {
+  // [^N](url) → a clickable badge link.
   let result = md.replace(/\[\^(\d+)\]\((https?:\/\/[^)]+)\)/g, (_m, n, url) =>
     `[${n}](${url})`
   );
-  result = result.replace(/\[\^(\d+)\](?![:(])/g, (_m, n) => n);
+  // Bare [^N] (no url) → a superscript badge that scrolls to the matching source,
+  // instead of a digit glued onto the preceding word.
+  result = result.replace(/\[\^(\d+)\](?![:(])/g, (_m, n) => `[${n}](#cite-${n})`);
   result = result.replace(/^\[\^\d+\]:.*$/gm, '');
   return result;
 }
@@ -182,10 +185,11 @@ function CitationReferences({ citations }: { citations: Map<number, string> }) {
         {sorted.map(([num, url]) => (
           <a
             key={num}
+            id={`cite-${num}`}
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors group/ref"
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors group/ref scroll-mt-24"
           >
             <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full shrink-0">{num}</span>
             <span className="group-hover/ref:underline truncate max-w-[200px]">{citationDomain(url)}</span>
@@ -216,13 +220,31 @@ const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filen
     const text = typeof children === 'string' ? children
       : Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
     if (CITE_BADGE_RE.test(text.trim())) {
+      const badgeClass = "no-underline inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[11px] font-bold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1.5 relative";
+      // In-page citation (bare [^N]) → scroll to the source row, don't open a tab.
+      if (href?.startsWith('#cite-')) {
+        return (
+          <a
+            href={href}
+            title="Jump to source"
+            className={badgeClass}
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById(href.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+            {...props}
+          >
+            {text.trim()}
+          </a>
+        );
+      }
       return (
         <a
           href={href}
           target="_blank"
           rel="noopener noreferrer"
           title={href}
-          className="no-underline inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[11px] font-bold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1.5 relative"
+          className={badgeClass}
           {...props}
         >
           {text.trim()}
@@ -234,6 +256,13 @@ const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filen
     }
     return <a href={href} {...props}>{children}</a>;
   },
+  // Wide comparison tables are common in financial output — let them scroll
+  // horizontally on narrow screens instead of breaking the layout.
+  table: ({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) => (
+    <div className="my-3 overflow-x-auto rounded-lg border border-gray-200">
+      <table className="min-w-full text-sm m-0" {...props}>{children}</table>
+    </div>
+  ),
 });
 
 // Inline CSV Preview Component

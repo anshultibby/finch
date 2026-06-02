@@ -37,7 +37,7 @@ function viewLabel(view: View): string {
     case 'chat': return 'Chat';
     case 'visualizations': return 'Visualizations';
     case 'memory-store': return 'Memory Store';
-    case 'jobs': return 'Scheduled';
+    case 'jobs': return 'Automations';
     default: return '';
   }
 }

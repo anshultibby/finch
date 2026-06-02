@@ -256,6 +256,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           arguments: event.arguments,
           agent_id: event.agent_id,
           parent_agent_id: event.parent_agent_id,
+          sub_agent_id: event.sub_agent_id,
+          task_id: event.task_id,
         }, chatId),
       }, notify);
     },
@@ -272,12 +274,14 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         tool_name: event.tool_name,
         status: event.status,
         error: event.error,
+        result_summary: event.result_summary ?? existing?.result_summary,
         code_output: hasStreamedOutput ? existing!.code_output : event.code_output,
         search_results: event.search_results,
         agent_id: event.agent_id,
         parent_agent_id: event.parent_agent_id,
         sub_agent_id: event.sub_agent_id,
         sub_agent_chat_id: event.sub_agent_chat_id,
+        task_id: event.task_id ?? existing?.task_id,
       };
 
       const updates: Partial<ChatStreamState> = {

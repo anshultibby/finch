@@ -13,8 +13,21 @@ npm run e2e:headed   # watch it drive the browser
 npm run e2e:report   # open the HTML report — screenshots inline
 ```
 
-Override the login account with `E2E_EMAIL` / `E2E_PASSWORD` env vars
-(defaults to the shared review account).
+## Test login (credentials)
+
+Login is **Supabase email/password** (not Google OAuth) via the gate in
+`components/PasswordGate.tsx`. The login flow lives in **`auth.setup.ts`**, which
+signs in once and saves the session to `.auth/user.json` for the `app` project.
+
+| Where | Variables | Notes |
+|-------|-----------|-------|
+| `frontend/.env.local` | `E2E_EMAIL` / `E2E_PASSWORD` (+ `TEST_EMAIL` / `TEST_PASSWORD`) | Read by `auth.setup.ts`; gitignored |
+| `backend/.env` | same | Mirrored for backend/manual use; gitignored |
+| `auth.setup.ts` defaults | `appstore.review@finchapp.ai` / `FinchApp` | Used if the env vars are unset |
+
+Shared review/test account: **`appstore.review@finchapp.ai`** / **`FinchApp`**.
+Override per-run with `E2E_EMAIL` / `E2E_PASSWORD`. To log in manually, open
+`localhost:3000` and enter these in the email/password gate.
 
 ## Layout
 

@@ -437,6 +437,16 @@ class DreamingService:
             post_files = await self._snapshot_store_files(user_id)
             file_changes = self._compute_file_changes(pre_files, post_files)
 
+            # Persist the dream's store writes to the DB (store_files table) NOW,
+            # while the sandbox is still alive. The dream is the primary store
+            # writer, so without this the consolidated memory never leaves the
+            # sandbox before it idle-pauses and the Memory Store UI reads empty.
+            try:
+                from services.store_sync import sync_store_files
+                await sync_store_files(user_id)
+            except Exception as e:
+                logger.warning(f"Store sync after dream failed for {user_id}: {e}")
+
             summary = last_assistant_content if last_assistant_content else "Dream completed"
             if file_changes:
                 changes_section = "\n\n**Files changed:**\n" + "\n".join(

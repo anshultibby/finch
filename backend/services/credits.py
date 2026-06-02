@@ -38,6 +38,8 @@ MODEL_PRICING = {
     "gemini-2.0": {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0},  # Free tier
     "gemini-2.5": {"input": 1.25, "output": 5.0, "cache_read": 0.125, "cache_write": 1.5625},
     "gemini-3": {"input": 2.5, "output": 10.0, "cache_read": 0.25, "cache_write": 3.125},
+    # Z.ai / Zhipu GLM (matches pricing in core.model_registry; estimated)
+    "glm-": {"input": 0.60, "output": 2.20, "cache_read": 0.11, "cache_write": 0.0},
 }
 
 # Credits conversion: 100 credits = $1 USD (1 credit = 1 cent)

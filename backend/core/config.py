@@ -42,6 +42,14 @@ class Settings(BaseSettings):
         default=Models.CLAUDE_SONNET_4_6,
         description="LLM model for the agent"
     )
+    SUBAGENT_LLM_MODEL: str = Field(
+        default=Models.CLAUDE_HAIKU_4_5,
+        description="LLM model for delegated sub-agents (cheaper than the coordinator)"
+    )
+    SUBAGENT_MAX_PER_CHAT: int = Field(
+        default=2,
+        description="Max sub-agents the delegate tool may spawn per chat (cost guard)"
+    )
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
         description="OpenAI API key (required for OpenAI models)"
@@ -53,6 +61,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = Field(
         default=None,
         description="Google Gemini API key (required for Gemini models)"
+    )
+    ZAI_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Z.ai (Zhipu) API key (required for GLM models, e.g. zai/glm-5.1)"
     )
 
     # =========================================================================

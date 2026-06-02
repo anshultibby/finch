@@ -27,6 +27,8 @@ from modules.tools.descriptions import (
 from modules.tools.implementations import control
 from modules.tools.implementations import code_execution, file_management, etf_builder, web_search
 from modules.tools.implementations import agents as agents_impl
+# Import for side effect: registers the `delegate` tool via its @tool decorator.
+from modules.tools.implementations import delegate as delegate_impl  # noqa: F401
 
 
 # ============================================================================

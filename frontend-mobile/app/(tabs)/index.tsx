@@ -87,7 +87,7 @@ export default function HomeScreen() {
       const indices = MARKET_INDICES[marketRegion].map(i => i.symbol);
       const [moversData, newsData, batchQuotes] = await Promise.all([
         marketApi.getMovers().catch(() => null),
-        marketApi.getGeneralNews(8).catch(() => []),
+        marketApi.getGeneralNews(8, marketRegion).catch(() => []),
         marketApi.getBatchQuotes(indices).catch(() => ({})),
       ]);
       if (moversData) setMovers(moversData);

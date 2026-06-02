@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import ToolCall from './ToolCall';
+import SubAgentGroup, { isLimitSkipped } from './SubAgentGroup';
 import type { ToolCallStatus } from '@/lib/types';
 import type { TimeEstimate } from '@/hooks/useChatStream';
 
@@ -49,6 +50,7 @@ function getActiveToolLabel(toolName: string): string {
     'build_custom_etf': 'Building ETF',
     'present_swaps': 'Preparing results',
     'connect_brokerage': 'Connecting brokerage',
+    'delegate': 'Delegating to sub-agent',
   };
   return map[toolName] || toolName.replace(/_/g, ' ');
 }
@@ -71,12 +73,22 @@ export default function ToolCallSummary({
   );
 
   const specialTools: ToolCallStatus[] = [];
-  const regularTools: ToolCallStatus[] = [];
+  const regularTools: ToolCallStatus[] = [];   // top-level (main-agent) tools, incl. delegate parents
+  const childrenByTask = new Map<string, ToolCallStatus[]>();  // sub-agent tools keyed by task_id
   let completedCount = 0;
   let errorCount = 0;
   let activeToolName: string | null = null;
 
   for (const t of sortedTools) {
+    // Sub-agent tools (emitted by `delegate`) are nested under their parent, not
+    // counted as top-level steps. Group them by task_id for rendering below.
+    if (t.sub_agent_id && t.task_id) {
+      const arr = childrenByTask.get(t.task_id) ?? [];
+      arr.push(t);
+      childrenByTask.set(t.task_id, arr);
+      if (t.status === 'calling' || t.status === 'detected') activeToolName = t.tool_name;
+      continue;
+    }
     if (ALWAYS_VISIBLE_TOOLS.has(t.tool_name)) {
       specialTools.push(t);
     } else {
@@ -88,6 +100,32 @@ export default function ToolCallSummary({
   }
 
   const totalCount = regularTools.length;
+  // Sub-agents that actually ran (delegates not rejected by the per-chat cap).
+  const subAgentCount = regularTools.filter(t => t.tool_name === 'delegate' && !isLimitSkipped(t)).length;
+
+  /** Render a top-level tool; a `delegate` becomes a rich sub-agent card with its tools + result. */
+  const renderTool = (tool: ToolCallStatus) => {
+    if (tool.tool_name === 'delegate') {
+      const taskId = (tool.arguments?.task_id as string) || tool.task_id || '';
+      return (
+        <SubAgentGroup
+          key={tool.tool_call_id}
+          parent={tool}
+          childTools={childrenByTask.get(taskId) ?? []}
+          onSelectTool={onSelectTool}
+          onPeekAgent={onPeekAgent}
+        />
+      );
+    }
+    return (
+      <ToolCall
+        key={tool.tool_call_id}
+        toolCall={tool}
+        onShowOutput={() => onSelectTool?.(tool)}
+        onPeekAgent={onPeekAgent}
+      />
+    );
+  };
 
   // Elapsed time ticker — captures final value when streaming ends
   useEffect(() => {
@@ -178,6 +216,11 @@ export default function ToolCallSummary({
               ? `Working... ${completedCount}/${totalCount > 0 ? totalCount : '?'} steps`
               : `Completed ${totalCount} step${totalCount !== 1 ? 's' : ''}`
             }
+            {subAgentCount > 0 && (
+              <span className={`ml-1.5 font-normal ${isStreaming ? 'text-indigo-500/80' : 'text-indigo-500/70'}`}>
+                · {subAgentCount} sub-agent{subAgentCount !== 1 ? 's' : ''}
+              </span>
+            )}
           </span>
 
           {/* Active tool name or estimate description */}
@@ -230,14 +273,7 @@ export default function ToolCallSummary({
       {/* Expanded tool list */}
       {expanded && (
         <div className="flex flex-col gap-1 pl-1 animate-in fade-in duration-200">
-          {regularTools.map(tool => (
-            <ToolCall
-              key={tool.tool_call_id}
-              toolCall={tool}
-              onShowOutput={() => onSelectTool?.(tool)}
-              onPeekAgent={onPeekAgent}
-            />
-          ))}
+          {regularTools.map(renderTool)}
         </div>
       )}
     </div>

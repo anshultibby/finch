@@ -1379,16 +1379,14 @@ export default function HomePage() {
     Promise.all([
       marketApi.getBatchQuotes(allSymbols).catch(() => []),
       marketApi.getMovers().catch(() => ({ gainers: [], losers: [] })),
-      marketApi.getGeneralNews(50).catch(() => []),
       watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })),
       alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })),
       snaptradeApi.checkStatus(user.id).catch(() => ({ is_connected: false })),
-    ]).then(([quotes, m, n, wl, status, brokerage]) => {
+    ]).then(([quotes, m, wl, status, brokerage]) => {
       const quoteMap: Record<string, any> = {};
       if (Array.isArray(quotes)) quotes.forEach((q: any) => { quoteMap[q.symbol] = q; });
       setIndexQuotes(quoteMap);
       setMovers({ gainers: m.gainers || [], losers: m.losers || [] });
-      setNews(Array.isArray(n) ? n : []);
       setWatchlist(wl.symbols || []);
 
       const s = status as any;
@@ -1403,6 +1401,14 @@ export default function HomePage() {
       }
     }).finally(() => setLoading(false));
   }, [user]);
+
+  // News re-fetches on market toggle so India shows Indian headlines.
+  useEffect(() => {
+    if (!user) return;
+    marketApi.getGeneralNews(50, market)
+      .then(n => setNews(Array.isArray(n) ? n : []))
+      .catch(() => setNews([]));
+  }, [user, market]);
 
   const handleDisconnectAccount = useCallback(async (accountId: string, accountName: string) => {
     if (!user?.id) return;

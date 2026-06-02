@@ -49,7 +49,7 @@ export default function JobsPanel() {
 
   const jobs = data?.jobs || [];
   const active = jobs.filter(j => ['pending', 'running', 'paused'].includes(j.status));
-  const past = jobs.filter(j => ['done', 'failed'].includes(j.status));
+  const past = jobs.filter(j => ['done', 'failed', 'cancelled'].includes(j.status));
   const anyActive = active.some(j => j.status === 'pending' || j.status === 'running');
   const allPaused = active.length > 0 && active.every(j => j.status === 'paused');
   const totalWeekly = active.reduce((s, j) => s + projectedWeekly(j), 0);
@@ -59,7 +59,7 @@ export default function JobsPanel() {
     return (
       <div className="flex flex-col h-full bg-white items-center justify-center gap-3">
         <RefreshCw className="w-6 h-6 text-emerald-500 animate-spin" />
-        <p className="text-sm text-gray-400">Loading scheduled jobs…</p>
+        <p className="text-sm text-gray-400">Loading automations…</p>
       </div>
     );
   }
@@ -69,7 +69,7 @@ export default function JobsPanel() {
       <div className="max-w-5xl px-6 sm:px-10 py-8">
         {/* Header */}
         <PageHeader
-          title="Scheduled"
+          title="Automations"
           subtitle={data ? (
             <>
               {data.recurring_count}/{data.recurring_limit} recurring · {data.oneoff_count}/{data.oneoff_limit} one-off
@@ -104,7 +104,7 @@ export default function JobsPanel() {
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-50 mb-5">
               <CalendarClock className="w-7 h-7 text-emerald-500" strokeWidth={1.75} />
             </div>
-            <h2 className="text-lg font-bold text-gray-900 mb-2">Nothing scheduled yet</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">No automations yet</h2>
             <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
               Have Finch check a price, send a digest, or run research on a schedule — once or repeating. Ask in chat, or set one up by hand.
             </p>
@@ -112,7 +112,7 @@ export default function JobsPanel() {
               onClick={() => setShowCreate(true)}
               className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-all hover:shadow-md"
             >
-              <Plus className="w-4 h-4" /> New scheduled job
+              <Plus className="w-4 h-4" /> New automation
             </button>
           </div>
         ) : (
@@ -131,7 +131,7 @@ export default function JobsPanel() {
               <>
                 <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">History</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {past.slice(0, 6).map(job => <JobCard key={job.id} job={job} busy={false} readOnly />)}
+                  {past.map(job => <JobCard key={job.id} job={job} busy={false} readOnly />)}
                 </div>
               </>
             )}
@@ -155,7 +155,7 @@ function JobCard({ job, busy, onPause, onResume, onCancel, readOnly }: {
 }) {
   const isRecurring = !!job.recurrence;
   const paused = job.status === 'paused';
-  const done = job.status === 'done' || job.status === 'failed';
+  const done = job.status === 'done' || job.status === 'failed' || job.status === 'cancelled';
   const weekly = projectedWeekly(job);
 
   const timeLabel = paused ? 'Paused'
@@ -270,7 +270,7 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/30 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-gray-200 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-2 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-gray-900">New scheduled job</h2>
+          <h2 className="text-lg font-bold text-gray-900">New automation</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
             <X className="w-5 h-5" />
           </button>

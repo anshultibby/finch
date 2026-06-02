@@ -112,6 +112,7 @@ export interface ToolCallStatus {
   parent_agent_id?: string;
   sub_agent_id?: string;
   sub_agent_chat_id?: string;
+  task_id?: string;
   _insertionOrder?: number;
 }
 
@@ -125,6 +126,8 @@ export interface SSEToolCallStartEvent {
   arguments: Record<string, any>;
   agent_id: string;
   parent_agent_id?: string;
+  sub_agent_id?: string;
+  task_id?: string;
   timestamp: string;
 }
 
@@ -143,6 +146,7 @@ export interface SSEToolCallCompleteEvent {
   parent_agent_id?: string;
   sub_agent_id?: string;
   sub_agent_chat_id?: string;
+  task_id?: string;
   timestamp: string;
 }
 

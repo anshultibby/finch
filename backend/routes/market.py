@@ -456,18 +456,41 @@ async def get_batch_quote(symbols: str):
 # 9. General market news
 # ---------------------------------------------------------------------------
 
+# Major NSE constituents used to source India-specific headlines, since FMP's
+# general news feed is US-centric and doesn't filter by country.
+INDIA_NEWS_TICKERS = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
+    "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "KOTAKBANK.NS",
+    "LT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "ASIANPAINT.NS", "MARUTI.NS",
+]
+
+
 @router.get("/general-news")
-async def get_general_news(limit: int = 10):
-    """Return general stock market news."""
+async def get_general_news(limit: int = 10, market: str = "us"):
+    """Return general stock market news.
+
+    For India, FMP has no country-level general feed, so we query news for a
+    basket of major NSE tickers and merge the results.
+    """
     from skills.financial_modeling_prep.scripts.api import fmp
 
     try:
-        data = await asyncio.to_thread(fmp, f"/stock_news?limit={limit}")
+        if market == "india":
+            tickers = ",".join(INDIA_NEWS_TICKERS)
+            data = await asyncio.to_thread(fmp, f"/stock_news?tickers={tickers}&limit={limit}")
+        else:
+            data = await asyncio.to_thread(fmp, f"/stock_news?limit={limit}")
     except Exception:
         return []
 
     if not isinstance(data, list):
         return []
+
+    # FMP returns multi-ticker results grouped by ticker; sort newest-first so
+    # the merged India feed reads chronologically like the US feed.
+    if market == "india":
+        data.sort(key=lambda n: n.get("publishedDate") or "", reverse=True)
+        data = data[:limit]
 
     return [
         {

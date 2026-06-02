@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.config import Config
+from core.model_registry import get_pricing as _get_model_pricing, extract_cache_tokens
 from utils.logger import get_logger
 from utils.tracing import get_tracer, add_span_attributes, add_span_event, record_exception
 from .chat_logger import ChatLogger, get_chat_log_dir
@@ -25,41 +26,8 @@ logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
 
-# Pricing per million tokens (as of Dec 2024)
-# Format: {model_prefix: {"input": price, "output": price, "cache_read": price, "cache_write": price}}
-MODEL_PRICING = {
-    # Claude 4.6 models
-    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
-    "claude-opus-4-6": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
-    # Claude 4.5 models
-    "claude-sonnet-4-5": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
-    "claude-opus-4-5": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
-    # Claude 4 models
-    "claude-sonnet-4": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
-    "claude-opus-4": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
-    # Claude 3.5 models
-    "claude-3-5-sonnet": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
-    "claude-3-5-haiku": {"input": 0.80, "output": 4.0, "cache_read": 0.08, "cache_write": 1.0},
-    "claude-3-opus": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
-    # OpenAI models
-    "gpt-4o": {"input": 2.50, "output": 10.0, "cache_read": 1.25, "cache_write": 2.50},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cache_read": 0.075, "cache_write": 0.15},
-    "o1": {"input": 15.0, "output": 60.0, "cache_read": 7.50, "cache_write": 15.0},
-    "o3-mini": {"input": 1.10, "output": 4.40, "cache_read": 0.55, "cache_write": 1.10},
-    "gpt-5": {"input": 2.0, "output": 8.0, "cache_read": 1.0, "cache_write": 2.0},  # Estimated
-}
-
-
-def _get_model_pricing(model: str) -> Dict[str, float]:
-    """Get pricing for a model by matching prefix (strips provider prefix like 'anthropic/')."""
-    model_lower = model.lower()
-    if "/" in model_lower:
-        model_lower = model_lower.split("/", 1)[1]
-    for prefix, pricing in MODEL_PRICING.items():
-        if model_lower.startswith(prefix):
-            return pricing
-    # Default fallback pricing
-    return {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75}
+# Pricing now lives in the central model registry (core.model_registry).
+# `_get_model_pricing` is imported above as `get_pricing`.
 
 
 class UsageStats(BaseModel):
@@ -93,11 +61,12 @@ class UsageTracker(BaseModel):
         if not usage_info:
             return
         
+        cache_read, cache_creation = extract_cache_tokens(usage_info)
         self.llm_call_count += 1
         self.total_prompt_tokens += getattr(usage_info, 'prompt_tokens', 0)
         self.total_completion_tokens += getattr(usage_info, 'completion_tokens', 0)
-        self.total_cache_read_tokens += getattr(usage_info, 'cache_read_input_tokens', 0)
-        self.total_cache_creation_tokens += getattr(usage_info, 'cache_creation_input_tokens', 0)
+        self.total_cache_read_tokens += cache_read
+        self.total_cache_creation_tokens += cache_creation
     
     @property
     def uncached_input_tokens(self) -> int:
@@ -420,9 +389,8 @@ class LLMHandler:
         """Log token usage and cache statistics, and add to session tracker."""
         prompt_tokens = getattr(usage_info, 'prompt_tokens', 0)
         completion_tokens = getattr(usage_info, 'completion_tokens', 0)
-        cache_creation = getattr(usage_info, 'cache_creation_input_tokens', 0)
-        cache_read = getattr(usage_info, 'cache_read_input_tokens', 0)
-        
+        cache_read, cache_creation = extract_cache_tokens(usage_info)
+
         # Add to session usage tracker
         tracker = self._get_usage_tracker(model)
         tracker.add_usage(usage_info)
@@ -578,10 +546,9 @@ class LLMHandler:
             "total_tokens": getattr(usage_info, 'total_tokens', 0)
         }
         
-        # Add cache statistics (Claude)
-        cache_creation = getattr(usage_info, 'cache_creation_input_tokens', 0)
-        cache_read = getattr(usage_info, 'cache_read_input_tokens', 0)
-        
+        # Add cache statistics (Anthropic native or OpenAI-style cached_tokens)
+        cache_read, cache_creation = extract_cache_tokens(usage_info)
+
         if cache_creation > 0 or cache_read > 0:
             usage_data["cache"] = {
                 "creation_tokens": cache_creation,
