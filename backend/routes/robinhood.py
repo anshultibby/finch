@@ -29,6 +29,15 @@ class ConnectResponse(BaseModel):
     message: str | None = None
 
 
+class NativeExchangeRequest(BaseModel):
+    """Code obtained on-device by a native (macOS/iOS) app via the loopback flow."""
+    user_id: str
+    code: str
+    code_verifier: str
+    client_id: str
+    redirect_uri: str
+
+
 @router.post("/connect", response_model=ConnectResponse)
 async def connect(
     request: ConnectRequest,
@@ -63,6 +72,25 @@ async def callback(
         logger.error(f"Robinhood callback failed: {e}")
         status = "error"
     return RedirectResponse(url=f"{base}/portfolio?robinhood={status}")
+
+
+@router.post("/native/exchange")
+async def native_exchange(
+    request: NativeExchangeRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Complete a native-app (macOS/iOS) loopback connection: exchange the
+    on-device auth code for tokens and store them for this user."""
+    await verify_user_access(request.user_id, authenticated_user_id)
+    try:
+        await robinhood_auth.exchange_native_code(
+            request.user_id, request.code, request.code_verifier,
+            request.client_id, request.redirect_uri,
+        )
+        return {"success": True, "is_connected": True}
+    except Exception as e:
+        logger.error(f"Robinhood native exchange failed for {request.user_id}: {e}")
+        raise HTTPException(status_code=502, detail="Token exchange failed")
 
 
 @router.get("/status/{user_id}")

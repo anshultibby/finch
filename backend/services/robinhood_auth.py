@@ -126,6 +126,24 @@ async def begin_connect(user_id: str) -> str:
     return f"{settings.ROBINHOOD_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
 
 
+async def exchange_native_code(user_id: str, code: str, code_verifier: str,
+                               client_id: str, redirect_uri: str) -> None:
+    """Exchange an auth code obtained by a NATIVE app (macOS/iOS) on-device via a
+    loopback redirect, and persist the connection.
+
+    The native app does DCR + PKCE + the loopback consent locally (the only flow
+    Robinhood's agent client allows), then posts the resulting `code` here so the
+    backend holds the tokens server-side — same storage the web callback uses."""
+    token = await _token_request({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": code_verifier,
+    })
+    await _store_tokens(user_id, client_id, token)
+
+
 async def complete_callback(code: str, state: str) -> Optional[str]:
     """Exchange the auth code for tokens and persist the connection.
 

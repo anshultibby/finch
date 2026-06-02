@@ -13,6 +13,7 @@ import MoverCard from '@/components/market/MoverCard';
 import NewsCard from '@/components/market/NewsCard';
 import EmptyState from '@/components/ui/EmptyState';
 import MiniSparkline from '@/components/shared/MiniSparkline';
+import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -833,6 +834,9 @@ function PortfolioTab({ isConnected, portfolioData, accounts, performance, broke
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       showsVerticalScrollIndicator={false}
     >
+      {/* AI Trading Agent (Robinhood) */}
+      <RobinhoodAgentCard userId={userId} />
+
       {/* Summary Stats */}
       <View style={pStyles.statsGrid}>
         <View style={pStyles.statCard}>

@@ -3,8 +3,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { creditsApi, apiKeysApi } from '@/lib/api';
-import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2 } from 'lucide-react-native';
+import { creditsApi, apiKeysApi, robinhoodApi } from '@/lib/api';
+import { connectRobinhood } from '@/lib/robinhoodAuth';
+import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
@@ -21,13 +22,41 @@ export default function SettingsScreen() {
   const [credits, setCredits] = useState<number | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [rhConnected, setRhConnected] = useState(false);
+  const [rhBusy, setRhBusy] = useState(false);
 
   useEffect(() => {
     if (user) {
       creditsApi.getBalance(user.id).then(data => setCredits(data.credits)).catch(() => {});
       apiKeysApi.getKeys(user.id).then(data => setApiKeys(data.keys || [])).catch(() => {});
+      robinhoodApi.checkStatus(user.id).then(d => setRhConnected(d.is_connected)).catch(() => {});
     }
   }, [user]);
+
+  const handleConnectRobinhood = async () => {
+    if (!user) return;
+    if (rhConnected) {
+      Alert.alert('Disconnect Robinhood?', 'Your agent will no longer be able to trade.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Disconnect', style: 'destructive', onPress: async () => {
+          await robinhoodApi.disconnect(user.id).catch(() => {});
+          setRhConnected(false);
+        } },
+      ]);
+      return;
+    }
+    setRhBusy(true);
+    try {
+      await connectRobinhood(user.id);
+      setRhConnected(true);
+    } catch (e: any) {
+      Alert.alert('Connection failed', e?.message === 'timed_out'
+        ? 'Timed out waiting for approval. Make sure to approve in your Robinhood app.'
+        : 'Could not connect Robinhood. Please try again.');
+    } finally {
+      setRhBusy(false);
+    }
+  };
 
   const handleSignOut = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -111,6 +140,28 @@ export default function SettingsScreen() {
               </View>
             </View>
             <ChevronRight size={16} color="#d1d5db" />
+          </TouchableOpacity>
+        </View>
+
+        {/* AI Trading Agent (Robinhood) */}
+        <View style={styles.menuCard} className="mb-3">
+          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" onPress={handleConnectRobinhood} activeOpacity={0.7} disabled={rhBusy}>
+            <View className="flex-row items-center gap-3">
+              <View style={[styles.iconBox, { backgroundColor: '#ecfdf5' }]}>
+                <Sparkles size={16} color="#059669" />
+              </View>
+              <View>
+                <Text className="text-[13px] font-body-medium text-gray-900">AI Trading Agent</Text>
+                <Text className="text-[11px] font-body text-gray-500">
+                  {rhConnected ? 'Connected · Robinhood' : 'Connect Robinhood to enable trading'}
+                </Text>
+              </View>
+            </View>
+            {rhBusy
+              ? <ActivityIndicator size="small" color="#059669" />
+              : rhConnected
+                ? <Check size={16} color="#059669" />
+                : <ChevronRight size={16} color="#d1d5db" />}
           </TouchableOpacity>
         </View>
 

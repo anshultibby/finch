@@ -490,4 +490,24 @@ export const visualizationsApi = {
   },
 };
 
+// Robinhood agentic trading — native (on-device) loopback OAuth, then hand the
+// code to the backend to exchange + store. See lib/robinhoodAuth.ts for the flow.
+export const robinhoodApi = {
+  nativeExchange: async (
+    userId: string,
+    params: { code: string; code_verifier: string; client_id: string; redirect_uri: string },
+  ): Promise<{ success: boolean; is_connected: boolean }> => {
+    const response = await api.post('/robinhood/native/exchange', { user_id: userId, ...params });
+    return response.data;
+  },
+  checkStatus: async (userId: string): Promise<{ is_connected: boolean }> => {
+    const response = await api.get(`/robinhood/status/${userId}`);
+    return response.data;
+  },
+  disconnect: async (userId: string): Promise<{ success: boolean }> => {
+    const response = await api.delete(`/robinhood/disconnect/${userId}`);
+    return response.data;
+  },
+};
+
 export default api;
