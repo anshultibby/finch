@@ -289,19 +289,87 @@ async def mcp_call(user_id: str, tool: str, arguments: Optional[dict] = None) ->
     return _parse_mcp_result(result)
 
 
+def _f(v: Any) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _agentic_stats(user_id: str, account_number: str) -> dict:
+    """Compute the live 'agent at work' stats for the connected-account view:
+    today's P&L (positions × quotes), unrealized P&L, and recent activity."""
+    positions_raw = await mcp_call(user_id, "get_equity_positions", {"account_number": account_number})
+    positions = (positions_raw or {}).get("data", {}).get("positions", []) if isinstance(positions_raw, dict) else []
+    held = [p for p in positions if _f(p.get("quantity")) > 0]
+
+    # Quotes for held symbols → today's change + unrealized P&L.
+    quotes: dict = {}
+    if held:
+        q_raw = await mcp_call(user_id, "get_equity_quotes", {"symbols": [p["symbol"] for p in held]})
+        for r in (q_raw or {}).get("data", {}).get("results", []) if isinstance(q_raw, dict) else []:
+            q = r.get("quote", {})
+            if q.get("symbol"):
+                quotes[q["symbol"]] = q
+
+    today_amount = today_basis = unrealized = 0.0
+    for p in held:
+        q = quotes.get(p["symbol"])
+        if not q:
+            continue
+        qty = _f(p.get("quantity"))
+        last = _f(q.get("last_trade_price"))
+        prev = _f(q.get("adjusted_previous_close"))
+        today_amount += qty * (last - prev)
+        today_basis += qty * prev
+        unrealized += qty * (last - _f(p.get("average_buy_price")))
+
+    today = None
+    if today_basis > 0:
+        today = {"amount": round(today_amount, 2), "pct": round(today_amount / today_basis * 100, 2)}
+
+    # Recent activity from filled orders (newest first).
+    orders_raw = await mcp_call(user_id, "get_equity_orders", {"account_number": account_number, "state": "filled"})
+    orders = (orders_raw or {}).get("data", {}).get("orders", []) if isinstance(orders_raw, dict) else []
+    last_trade = None
+    if orders:
+        o = orders[0]
+        last_trade = {
+            "side": o.get("side"), "symbol": o.get("symbol"),
+            "quantity": o.get("quantity"), "price": o.get("average_price"),
+            "at": o.get("last_transaction_at") or o.get("created_at"),
+        }
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    trades_today = sum(1 for o in orders if str(o.get("created_at", "")).startswith(today_str))
+
+    return {
+        "today": today,
+        "unrealized_pl": round(unrealized, 2) if held else None,
+        "last_trade": last_trade,
+        "trades_today": trades_today,
+        "positions_count": len(held),
+    }
+
+
 async def get_connected_accounts(user_id: str) -> dict:
-    """Live snapshot for the UI: the agentic account(s) + buying power/balance."""
+    """Live snapshot for the UI: the agentic account + portfolio + agent stats."""
     accounts_raw = await mcp_call(user_id, "get_accounts")
     accounts = (accounts_raw or {}).get("data", {}).get("accounts", []) if isinstance(accounts_raw, dict) else []
 
-    # Highlight the agent-enabled account and attach its live portfolio.
+    # Highlight the agent-enabled account and attach its live portfolio + stats.
     agentic = next((a for a in accounts if a.get("agentic_allowed")), None)
     portfolio = None
+    stats = None
     if agentic:
+        acct = agentic["account_number"]
         try:
-            pf_raw = await mcp_call(user_id, "get_portfolio", {"account_number": agentic["account_number"]})
+            pf_raw = await mcp_call(user_id, "get_portfolio", {"account_number": acct})
             portfolio = (pf_raw or {}).get("data") if isinstance(pf_raw, dict) else None
         except Exception as e:
             logger.warning(f"Robinhood get_portfolio failed for {user_id}: {e}")
+        try:
+            stats = await _agentic_stats(user_id, acct)
+        except Exception as e:
+            logger.warning(f"Robinhood stats failed for {user_id}: {e}")
 
-    return {"accounts": accounts, "agentic_account": agentic, "portfolio": portfolio}
+    return {"accounts": accounts, "agentic_account": agentic, "portfolio": portfolio, "stats": stats}

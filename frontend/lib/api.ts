@@ -561,6 +561,14 @@ export interface RobinhoodAccount {
   agentic_allowed?: boolean;
 }
 
+export interface RobinhoodAgentStats {
+  today: { amount: number; pct: number } | null;
+  unrealized_pl: number | null;
+  last_trade: { side: string; symbol: string; quantity: string; price: string; at: string } | null;
+  trades_today: number;
+  positions_count: number;
+}
+
 export interface RobinhoodAccountsResponse {
   is_connected: boolean;
   accounts: RobinhoodAccount[];
@@ -570,6 +578,7 @@ export interface RobinhoodAccountsResponse {
     cash?: string;
     buying_power?: { buying_power?: string };
   } | null;
+  stats?: RobinhoodAgentStats | null;
 }
 
 export const robinhoodApi = {

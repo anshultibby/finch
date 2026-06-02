@@ -10,6 +10,21 @@ function fmtUsd(v?: string | null): string {
   return Number.isNaN(n) ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
 
+function fmtSigned(n: number): string {
+  const s = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Math.abs(n));
+  return `${n >= 0 ? '+' : '−'}${s}`;
+}
+
+function timeAgo(iso?: string): string {
+  if (!iso) return '';
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 // Our own ownable agent mark — the app's "AI" sparkle, not a borrowed brand glyph.
 const Sparkle = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -94,6 +109,9 @@ export default function RobinhoodAgentCard() {
   const connected = !!data?.is_connected;
   const agentic = data?.agentic_account ?? null;
   const pf = data?.portfolio ?? null;
+  const stats = data?.stats ?? null;
+  const today = stats?.today ?? null;
+  const lastTrade = stats?.last_trade ?? null;
 
   return (
     <div className="rounded-xl border border-gray-200 p-3.5">
@@ -122,14 +140,40 @@ export default function RobinhoodAgentCard() {
                 <div className="text-[11px] text-gray-400">Account value</div>
                 <div className="text-lg font-bold tabular-nums text-gray-900">{fmtUsd(pf?.total_value)}</div>
               </div>
-              <div className="text-right">
-                <div className="text-[11px] text-gray-400">Buying power</div>
-                <div className="text-sm font-semibold tabular-nums text-gray-700">{fmtUsd(pf?.buying_power?.buying_power)}</div>
-              </div>
+              {today ? (
+                <div className="text-right">
+                  <div className="text-[11px] text-gray-400">Today</div>
+                  <div className={`text-sm font-semibold tabular-nums ${today.amount >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {fmtSigned(today.amount)} <span className="font-normal">({today.pct >= 0 ? '+' : ''}{today.pct}%)</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-right">
+                  <div className="text-[11px] text-gray-400">Buying power</div>
+                  <div className="text-sm font-semibold tabular-nums text-gray-700">{fmtUsd(pf?.buying_power?.buying_power)}</div>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Activity */}
+          {lastTrade && (
+            <div className="mt-2 flex items-center gap-2 text-xs">
+              <span className={lastTrade.side === 'sell' ? 'text-red-500' : 'text-emerald-600'}>
+                {lastTrade.side === 'sell' ? '▼' : '▲'}
+              </span>
+              <span className="text-gray-600">
+                {lastTrade.side === 'sell' ? 'Sold' : 'Bought'} {Number(lastTrade.quantity).toLocaleString()} {lastTrade.symbol}
+              </span>
+              <span className="ml-auto text-gray-400">{timeAgo(lastTrade.at)}</span>
+            </div>
+          )}
+
           <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400">
-            <span>Agentic{agentic && <span className="ml-1">••{agentic.account_number.slice(-4)}</span>}</span>
+            <span>
+              {stats?.trades_today ? `${stats.trades_today} trade${stats.trades_today === 1 ? '' : 's'} today · ` : ''}
+              Agentic{agentic && <span className="ml-0.5">••{agentic.account_number.slice(-4)}</span>}
+            </span>
             <button onClick={handleDisconnect} disabled={busy} className="hover:text-red-500 disabled:opacity-50">Disconnect</button>
           </div>
         </div>
