@@ -52,3 +52,4 @@ python-multipart==0.0.22
 e2b-code-interpreter==2.4.1
 resend==2.29.0
 markdown==3.8
+sentry-sdk[fastapi]==2.20.0

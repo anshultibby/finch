@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from .runner import tool_runner
 from modules.agent.context import AgentContext
 from schemas.sse import SSEEvent, ToolsEndEvent
+from services.tool_monitoring import record_tool_outcome
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -99,6 +100,11 @@ class ToolExecutor:
         )
     """
     
+    # Heartbeat window between tool events before we check liveness (not a deadline).
+    QUEUE_HEARTBEAT_TIMEOUT = 120
+    # Overall ceiling for a single batch — safety net for a genuinely hung tool.
+    MAX_BATCH_WAIT = 1800
+
     def __init__(
         self,
         execution_mode: ExecutionMode = ExecutionMode.PARALLEL,
@@ -254,10 +260,13 @@ class ToolExecutor:
         # Convert ToolResponse to LLM content using tool's own formatting
         if hasattr(raw_result, 'to_llm_content'):
             llm_content = raw_result.to_llm_content()
+        elif isinstance(raw_result, dict):
+            # Fallback for dict results (legacy). Drop internal keys (e.g.
+            # _exc_reported) so monitoring metadata never reaches the LLM.
+            llm_content = json.dumps({k: v for k, v in raw_result.items() if not k.startswith("_")})
         else:
-            # Fallback for dict results (legacy)
-            llm_content = json.dumps(raw_result) if isinstance(raw_result, dict) else str(raw_result)
-        
+            llm_content = str(raw_result)
+
         # Extract success/error from ToolResponse
         if hasattr(raw_result, 'success'):
             success = raw_result.success
@@ -266,10 +275,20 @@ class ToolExecutor:
             # Fallback for dict results (legacy)
             success = raw_result.get("success", True) if isinstance(raw_result, dict) else True
             error = raw_result.get("error") if isinstance(raw_result, dict) and not success else None
-        
+
         end_time = asyncio.get_event_loop().time()
         duration = (end_time - start_time) * 1000
-        
+
+        record_tool_outcome(
+            tool_name=call.name,
+            success=success,
+            duration_ms=duration,
+            error=error,
+            chat_id=context.chat_id,
+            user_id=context.user_id,
+            exc_reported=isinstance(raw_result, dict) and raw_result.get("_exc_reported", False),
+        )
+
         return ToolExecutionResult(
             tool_call_id=call.id,
             tool_name=call.name,
@@ -280,12 +299,13 @@ class ToolExecutor:
             error=error,
             duration_ms=duration
         )
-    
+
     def _build_execution_result(
         self,
         call: ToolCallRequest,
         raw_result: Dict[str, Any],
-        duration_ms: float
+        duration_ms: float,
+        context: Optional[AgentContext] = None
     ) -> ToolExecutionResult:
         """Build ToolExecutionResult from raw result dict"""
         # Ensure we have a valid result
@@ -299,10 +319,13 @@ class ToolExecutor:
         # Convert ToolResponse to LLM content
         if hasattr(raw_result, 'to_llm_content'):
             llm_content = raw_result.to_llm_content()
+        elif isinstance(raw_result, dict):
+            # Fallback for dict results (legacy). Drop internal keys (e.g.
+            # _exc_reported) so monitoring metadata never reaches the LLM.
+            llm_content = json.dumps({k: v for k, v in raw_result.items() if not k.startswith("_")})
         else:
-            # Fallback for dict results (legacy)
-            llm_content = json.dumps(raw_result) if isinstance(raw_result, dict) else str(raw_result)
-        
+            llm_content = str(raw_result)
+
         # Extract success/error
         if hasattr(raw_result, 'success'):
             success = raw_result.success
@@ -311,7 +334,17 @@ class ToolExecutor:
             # Fallback for dict results (legacy)
             success = raw_result.get("success", True) if isinstance(raw_result, dict) else True
             error = raw_result.get("error") if isinstance(raw_result, dict) and not success else None
-        
+
+        record_tool_outcome(
+            tool_name=call.name,
+            success=success,
+            duration_ms=duration_ms,
+            error=error,
+            chat_id=context.chat_id if context else "",
+            user_id=context.user_id if context else "",
+            exc_reported=isinstance(raw_result, dict) and raw_result.get("_exc_reported", False),
+        )
+
         return ToolExecutionResult(
             tool_call_id=call.id,
             tool_name=call.name,
@@ -322,7 +355,7 @@ class ToolExecutor:
             error=error,
             duration_ms=duration_ms
         )
-    
+
     def _enrich_event_with_metadata(
         self, 
         event: SSEEvent, 
@@ -523,19 +556,35 @@ class ToolExecutor:
             
             # Start all tools concurrently
             tasks = [asyncio.create_task(execute_and_stream(call)) for call in tool_calls]
-            
-            # Stream events from queue as they arrive
-            # Use a timeout to prevent hanging forever if a tool never completes
-            QUEUE_TIMEOUT = 120  # 2 minutes - longer than any tool's internal timeout
+
+            # Stream events from queue as they arrive.
+            # QUEUE_TIMEOUT is a heartbeat window, not a deadline: if no event arrives
+            # within it we check whether tools are still alive. Long-running tools like
+            # `delegate` (which runs a full sub-agent loop) can go quiet for a while
+            # during a single LLM generation — killing them on the first quiet window
+            # is what broke delegation. We only force-fail when tools are truly stuck
+            # (no task still running) or the overall MAX_TOTAL_WAIT safety cap is hit.
+            QUEUE_TIMEOUT = self.QUEUE_HEARTBEAT_TIMEOUT  # heartbeat window between events
+            MAX_TOTAL_WAIT = self.MAX_BATCH_WAIT  # overall ceiling for the whole batch
+            batch_start = asyncio.get_event_loop().time()
             completed_count = 0
             while completed_count < len(tool_calls):
                 try:
                     item = await asyncio.wait_for(event_queue.get(), timeout=QUEUE_TIMEOUT)
                 except asyncio.TimeoutError:
-                    # A tool is taking too long - check which ones haven't completed
-                    logger.error(f"Tool execution queue timeout after {QUEUE_TIMEOUT}s. "
-                                f"Completed {completed_count}/{len(tool_calls)} tools.")
-                    # Create error results for any tools that didn't complete
+                    elapsed = asyncio.get_event_loop().time() - batch_start
+                    running = sum(1 for t in tasks if not t.done())
+                    # If tools are still running and we're under the overall cap, this is
+                    # a quiet stretch (e.g. a sub-agent mid-generation), not a hang. Wait more.
+                    if running > 0 and elapsed < MAX_TOTAL_WAIT:
+                        logger.info(
+                            f"No tool events for {QUEUE_TIMEOUT}s but {running} task(s) still "
+                            f"running ({elapsed:.0f}s elapsed); continuing to wait."
+                        )
+                        continue
+                    # Truly stuck (nothing running) or exceeded the overall ceiling — fail the rest.
+                    logger.error(f"Tool execution timeout after {elapsed:.0f}s. "
+                                f"Completed {completed_count}/{len(tool_calls)} tools, {running} still running.")
                     completed_tool_ids = {r.tool_call_id for r in results}
                     for call in tool_calls:
                         if call.id not in completed_tool_ids:
@@ -544,10 +593,11 @@ class ToolExecutor:
                                 call,
                                 {
                                     "success": False,
-                                    "error": f"Tool execution timed out after {QUEUE_TIMEOUT}s",
+                                    "error": f"Tool execution timed out after {elapsed:.0f}s",
                                     "message": f"Tool {call.name} did not complete within timeout"
                                 },
-                                QUEUE_TIMEOUT * 1000
+                                elapsed * 1000,
+                                context
                             ))
                     break  # Exit the while loop
                 
@@ -560,7 +610,7 @@ class ToolExecutor:
                 elif item[0] == "result":
                     # Tool completed - build result
                     call, final_result, duration = item[1], item[2], item[3]
-                    results.append(self._build_execution_result(call, final_result, duration))
+                    results.append(self._build_execution_result(call, final_result, duration, context))
                     completed_count += 1
             
             # Cancel any remaining tasks and wait for cleanup
@@ -605,7 +655,7 @@ class ToolExecutor:
                 duration = (end_time - start_time) * 1000
                 
                 # Build ToolExecutionResult
-                results.append(self._build_execution_result(call, final_result, duration))
+                results.append(self._build_execution_result(call, final_result, duration, context))
         
         logger.info(f"🌊 Tool execution complete: {event_count} SSE events streamed")
         
