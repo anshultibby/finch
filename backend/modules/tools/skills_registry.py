@@ -23,6 +23,7 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     # System keys — developer provides, shared across all users
     "FMP_API_KEY":            ("FMP",      "system"),
     "POLYGON_API_KEY":        ("POLYGON",  "system"),
+    "INDIAN_API_KEY":         ("INDIAN_API", "system"),
     "SERPER_API_KEY":         ("SERPER",   "system"),
     "ODDS_API_KEY":           ("ODDS",     "system"),
     "REDDIT_CLIENT_ID":       ("REDDIT",   "system"),
