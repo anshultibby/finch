@@ -204,8 +204,9 @@ export default function AuthGate({ children }: AuthGateProps) {
         </div>
 
         {/* Footer */}
-        <footer className="py-6 text-center text-xs text-gray-400">
+        <footer className="py-6 text-center text-xs text-gray-400 space-x-4">
           <a href="/privacy" className="hover:text-gray-600 transition-colors">Privacy Policy</a>
+          <a href="/contact" className="hover:text-gray-600 transition-colors">Contact Us</a>
         </footer>
       </div>
     );
