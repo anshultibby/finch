@@ -64,3 +64,9 @@ backend/chat_logs/
 
 # Playwright MCP browser-test artifacts
 .playwright-mcp/
+
+# Claude Code local config
+.claude/
+
+# EAS / mobile build artifacts
+frontend-mobile/build-*.tar.gz

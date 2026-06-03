@@ -157,6 +157,11 @@ class ChatLogger:
         self.conversation_file = log_dir / "conversation.json"
         self.messages_file = log_dir / "messages.jsonl"
         
+        # Model that is actually running this chat. Stamped as soon as it is
+        # resolved (before the first LLM call) so a stream that crashes early
+        # still records which model ran, instead of leaving model unknown.
+        self.model: Optional[str] = None
+
         # In-memory message buffer for building complete conversation
         self._messages: List[Dict[str, Any]] = []
         
@@ -178,6 +183,9 @@ class ChatLogger:
                     existing_data = json.load(f)
                     cache_summary = existing_data.get("cache_summary", {})
                     self.cache_history = cache_summary.get("history", [])
+                    # Carry forward a model already recorded by an earlier
+                    # handler for this chat (handlers share the same file).
+                    self.model = existing_data.get("model") or self.model
             except Exception as e:
                 logger.warning(f"Failed to load existing cache history: {e}")
                 self.cache_history = []
@@ -276,11 +284,12 @@ class ChatLogger:
                 "chat_id": self.chat_id,
                 "agent_type": self.agent_type,
                 "agent_id": self.agent_id,
+                "model": self.model,
                 "updated_at": datetime.now().isoformat(),
                 "messages": self._messages,
                 "message_count": len(self._messages)
             }
-            
+
             # Include cache summary if we have it
             if self.cache_history:
                 data["cache_summary"] = {"history": self.cache_history}
@@ -305,7 +314,13 @@ class ChatLogger:
         """Write the full conversation snapshot file with all metadata."""
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True)
-            
+
+            # Prefer a concretely-known model; keep self.model as the source of
+            # truth so quick snapshots written later stay consistent.
+            if model and model != "unknown":
+                self.model = model
+            model = self.model or model
+
             # Extract system prompt text
             system_content = None
             if isinstance(system_prompt, list):

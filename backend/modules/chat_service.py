@@ -136,6 +136,10 @@ class ChatService:
                 if Config.DEBUG_CHAT_LOGS:
                     llm_handler = LLMHandler(user_id=user_id, chat_id=chat_id, agent_type="agent")
                     if llm_handler.chat_logger:
+                        # Stamp the resolved model now, before the first LLM call,
+                        # so a stream that crashes early still records what ran.
+                        # effective_model is None when the default is used.
+                        llm_handler.chat_logger.model = effective_model or Config.AGENT_LLM_MODEL
                         llm_handler.chat_logger.add_message({
                             "role": "user",
                             "content": message

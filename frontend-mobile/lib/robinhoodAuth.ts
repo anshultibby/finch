@@ -15,10 +15,25 @@
  * This file is verified in design against a working desktop loopback prototype;
  * the in-app iOS listener still needs an on-device test.
  */
+import { Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
-import TcpSocket from 'react-native-tcp-socket';
 import { robinhoodApi } from './api';
+
+// react-native-tcp-socket has no web implementation — load it lazily so the
+// web bundle (React Native Web) doesn't break. The connect flow is native-only.
+let TcpSocket: any;
+function getTcpSocket(): any {
+  if (Platform.OS === 'web') {
+    throw new Error('Robinhood connect is only available in the native app');
+  }
+  if (!TcpSocket) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('react-native-tcp-socket');
+    TcpSocket = mod?.default ?? mod;
+  }
+  return TcpSocket;
+}
 
 const REGISTER_URL = 'https://agent.robinhood.com/oauth/trading/register';
 const AUTHORIZE_URL = 'https://robinhood.com/oauth';
@@ -52,7 +67,7 @@ async function makePkce(): Promise<{ verifier: string; challenge: string }> {
 /** Start a one-shot loopback listener and resolve with the OAuth query params. */
 function captureLoopbackCode(): Promise<{ code?: string; state?: string; error?: string }> {
   return new Promise((resolve, reject) => {
-    const server = TcpSocket.createServer((socket: any) => {
+    const server = getTcpSocket().createServer((socket: any) => {
       socket.on('data', (data: any) => {
         const req = data.toString();
         const match = req.match(/GET \/callback\?([^ ]*) /);

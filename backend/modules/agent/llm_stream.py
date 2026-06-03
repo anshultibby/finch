@@ -397,6 +397,30 @@ async def stream_llm_response(
                 last_chunk_type = "tool_call"
                 for tc in delta.tool_calls:
                     idx = tc.index
+                    # litellm occasionally emits a missing or negative `index`
+                    # on a streamed tool-call delta (observed on the first chunk,
+                    # crashing the whole stream with IndexError). A non-negative
+                    # `idx` is grown into below, but a None/negative value would
+                    # slip past the guard and raise IndexError on tool_calls[idx].
+                    # Normalize it: a delta that introduces a new call (carries an
+                    # id or function name) starts a fresh slot; otherwise it
+                    # continues the current one. Log the raw delta so a recurrence
+                    # can be diagnosed (and reported upstream) instead of guessed.
+                    if idx is None or idx < 0:
+                        fn = getattr(tc, "function", None)
+                        starts_new = bool(tc.id) or bool(fn and fn.name)
+                        logger.warning(
+                            f"⚠️ Malformed tool-call delta: index={idx!r} "
+                            f"id={getattr(tc, 'id', None)!r} "
+                            f"name={(fn.name if fn else None)!r} "
+                            f"has_args={bool(fn and fn.arguments)} "
+                            f"tool_calls_so_far={len(tool_calls)} "
+                            f"-> treating as {'new call' if starts_new or not tool_calls else 'continuation'}"
+                        )
+                        if starts_new or not tool_calls:
+                            idx = len(tool_calls)
+                        else:
+                            idx = len(tool_calls) - 1
                     while len(tool_calls) <= idx:
                         tool_calls.append({
                             "id": "",
