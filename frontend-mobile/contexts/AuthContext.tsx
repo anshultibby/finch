@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { makeRedirectUri } from 'expo-auth-session';
+import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import * as WebBrowser from 'expo-web-browser';
 import { registerForPushNotifications, setupNotificationListeners } from '@/lib/pushNotifications';
 
@@ -65,7 +66,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const redirectTo = makeRedirectUri();
+    // Explicit scheme + path so the value is deterministic and can be added to
+    // Supabase's "Redirect URLs" allowlist (Dashboard → Authentication → URL
+    // Configuration). If it isn't allowlisted, Supabase falls back to the Site
+    // URL (the web app) and the OAuth browser never returns to the app.
+    const redirectTo = makeRedirectUri({ scheme: 'finch', path: 'auth/callback' });
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo, skipBrowserRedirect: true },
@@ -77,13 +82,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
     if (result.type === 'success') {
-      const url = new URL(result.url);
-      const params = new URLSearchParams(url.hash.substring(1));
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
+      const { params, errorCode } = QueryParams.getQueryParams(result.url);
+      if (errorCode) throw new Error(errorCode);
 
-      if (accessToken && refreshToken) {
-        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      const { access_token, refresh_token, code } = params;
+
+      if (code) {
+        // PKCE flow (supabase-js v2 default): exchange the auth code for a session.
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) throw exchangeError;
+      } else if (access_token && refresh_token) {
+        // Implicit flow fallback.
+        await supabase.auth.setSession({ access_token, refresh_token });
       }
     }
   };
