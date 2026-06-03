@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { snaptradeApi } from '@/lib/api';
-import type { PortfolioResponse, PortfolioPerformance, Position, BrokerageAccount, Brokerage } from '@/lib/types';
+import type { PortfolioResponse, PortfolioPerformance, Position, BrokerageAccount, Brokerage, SnapTradeStatusResponse } from '@/lib/types';
 
 // ── Broker accent palette ──────────────────────────────────────────────────
 const BROKER_ACCENTS: Record<string, { bg: string; text: string; ring: string; dot: string }> = {
@@ -375,6 +375,7 @@ export default function PortfolioPage() {
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [reverify, setReverify] = useState<SnapTradeStatusResponse | null>(null);
 
   useEffect(() => {
     if (user?.id) {
@@ -387,15 +388,17 @@ export default function PortfolioPage() {
 
     setLoading(true);
     try {
-      const [portfolioData, performanceData, accountsResponse, brokeragesResponse] = await Promise.all([
+      const [portfolioData, performanceData, accountsResponse, brokeragesResponse, statusResponse] = await Promise.all([
         snaptradeApi.getPortfolio(user.id),
         snaptradeApi.getPortfolioPerformance(user.id),
         snaptradeApi.getAccounts(user.id),
         snaptradeApi.getBrokerages(),
+        snaptradeApi.checkStatus(user.id).catch(() => null),
       ]);
 
       setPortfolio(portfolioData);
       setPerformance(performanceData);
+      setReverify(statusResponse?.needs_reverify ? statusResponse : null);
 
       if (accountsResponse.success) {
         setAllAccounts(accountsResponse.accounts);
@@ -505,6 +508,34 @@ export default function PortfolioPage() {
     }).format(amount);
   };
 
+  // Caution banner shown when the brokerage connection was paused for inactivity.
+  // Reuses the existing connect flow to reconnect.
+  const reverifyBanner = reverify?.needs_reverify ? (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+      <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 text-amber-600">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.01M10.29 3.86 1.82 18a1.5 1.5 0 0 0 1.29 2.25h17.78A1.5 1.5 0 0 0 22.18 18L13.71 3.86a1.5 1.5 0 0 0-2.42 0Z" />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-amber-900">Brokerage connection paused</p>
+        <p className="text-xs text-amber-700 mt-0.5">
+          We paused your connection after a period of inactivity. Reconnect to refresh your live portfolio.
+          {reverify.last_portfolio_value != null && (
+            <> Last known value: <span className="font-semibold tabular-nums">{formatCurrency(reverify.last_portfolio_value)}</span>
+            {reverify.last_synced_at && <> as of {new Date(reverify.last_synced_at).toLocaleDateString()}</>}.</>
+          )}
+        </p>
+        <button
+          onClick={() => setShowConnectModal(true)}
+          className="mt-3 inline-flex items-center bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+        >
+          Reconnect
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   const formatPercent = (percent: number) => {
     const sign = percent >= 0 ? '+' : '';
     return `${sign}${percent.toFixed(2)}%`;
@@ -591,6 +622,7 @@ export default function PortfolioPage() {
 
           {/* CTA card */}
           <div className="finch-surface rounded-2xl p-10 text-center max-w-md w-full animate-card-in relative z-10">
+            {reverifyBanner && <div className="mb-6 text-left">{reverifyBanner}</div>}
             <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center text-3xl mx-auto mb-6">
               📊
             </div>
@@ -688,6 +720,9 @@ export default function PortfolioPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+
+        {/* ── Reconnect caution (connection paused for inactivity) ──────────── */}
+        {reverifyBanner}
 
         {/* ── Stat cards ────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

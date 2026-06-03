@@ -8,9 +8,38 @@ from core.database import Base
 import uuid
 
 
+class UserAccount(Base):
+    """
+    Per-user account record: credits/billing/plan, keyed by the Supabase auth
+    user id (auth.users.id, stored as text to match every sibling table).
+
+    Provisioned on signup by the `on_auth_user_created` trigger on auth.users,
+    and lazily by CreditsService._ensure_account() on any credit write.
+    Identity lives in Supabase's auth.users; this is the app-side account row.
+    """
+    __tablename__ = "user_accounts"
+
+    user_id = Column(String, primary_key=True, index=True)
+    plan = Column(String, nullable=False, default="free")  # free | pro | admin
+    stripe_customer_id = Column(String, nullable=True, index=True)
+    stripe_subscription_id = Column(String, nullable=True)
+    subscription_status = Column(String, nullable=True)
+    cancel_at_period_end = Column(Boolean, default=False, nullable=False)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    credits = Column(Integer, nullable=False, default=1_000)
+    total_credits_used = Column(Integer, nullable=False, default=0)
+    last_credit_refresh = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<UserAccount(user_id='{self.user_id}', plan='{self.plan}', credits={self.credits})>"
+
+
 class SnapTradeUser(Base):
     """
-    Stores SnapTrade user connections per user
+    Stores SnapTrade broker connections per user. Account/billing/credits now
+    live on UserAccount (migration 074).
     """
     __tablename__ = "snaptrade_users"
 
@@ -20,20 +49,16 @@ class SnapTradeUser(Base):
     connected_account_ids = Column(Text, nullable=True)
     is_connected = Column(Boolean, default=False, nullable=False)
     brokerage_name = Column(String, nullable=True)
-    plan = Column(String, nullable=False, default="free")  # free | pro | admin
-    stripe_customer_id = Column(String, nullable=True)
-    stripe_subscription_id = Column(String, nullable=True)
-    subscription_status = Column(String, nullable=True)
-    cancel_at_period_end = Column(Boolean, default=False, nullable=False)
-    current_period_end = Column(DateTime(timezone=True), nullable=True)
-    credits = Column(Integer, nullable=False, default=1_000)
-    total_credits_used = Column(Integer, nullable=False, default=0)
-    last_credit_refresh = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Stale-connection soft purge (migration 075). purged_at set => de-registered
+    # from SnapTrade to stop billing; user must reverify. Cached headline kept for UI.
+    purged_at = Column(DateTime(timezone=True), nullable=True)
+    last_portfolio_value = Column(Float, nullable=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     def __repr__(self):
-        return f"<SnapTradeUser(user_id='{self.user_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected}, credits={self.credits})>"
+        return f"<SnapTradeUser(user_id='{self.user_id}', snaptrade_user_id='{self.snaptrade_user_id}', is_connected={self.is_connected}, purged={self.purged_at is not None})>"
 
 
 class UserSettings(Base):

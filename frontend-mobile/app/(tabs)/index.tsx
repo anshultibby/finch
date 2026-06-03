@@ -5,6 +5,8 @@ import { useDrawer } from '@/contexts/DrawerContext';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback, useRef } from 'react';
 import { snaptradeApi, marketApi, watchlistApi, notificationsApi } from '@/lib/api';
+import type { SnapTradeStatusResponse } from '@/lib/types';
+import { AlertTriangle } from 'lucide-react-native';
 import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell } from 'lucide-react-native';
 import { formatCurrency, formatPct, COLORS, isIndianStock, currencySymbol } from '@/lib/constants';
 import FinchLogo from '@/components/FinchLogo';
@@ -80,6 +82,7 @@ export default function HomeScreen() {
   const [brokerages, setBrokerages] = useState<any[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  const [reverify, setReverify] = useState<SnapTradeStatusResponse | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -146,6 +149,7 @@ export default function HomeScreen() {
       ]);
       setBrokerages(brokerList.brokerages || []);
       setIsConnected(status.is_connected);
+      setReverify((status as SnapTradeStatusResponse).needs_reverify ? (status as SnapTradeStatusResponse) : null);
 
       if (status.is_connected) {
         const [portfolio, perf, accts] = await Promise.all([
@@ -387,6 +391,7 @@ export default function HomeScreen() {
           {activeTab === 'portfolio' && (
             <PortfolioTab
               isConnected={isConnected}
+              reverify={reverify}
               portfolioData={portfolioData}
               accounts={portfolioAccounts}
               performance={performance}
@@ -679,8 +684,9 @@ function WatchlistTab({ items, loading, refreshing, onRefresh, onStockPress, onR
 
 // ── Portfolio Tab (SnapTrade) ─────────────────────────────────────────────────
 
-function PortfolioTab({ isConnected, portfolioData, accounts, performance, brokerages, loading, refreshing, onRefresh, onStockPress, userId, onConnectionChange }: {
+function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performance, brokerages, loading, refreshing, onRefresh, onStockPress, userId, onConnectionChange }: {
   isConnected: boolean;
+  reverify?: SnapTradeStatusResponse | null;
   portfolioData: any;
   accounts: any[];
   performance: any;
@@ -746,9 +752,12 @@ function PortfolioTab({ isConnected, portfolioData, accounts, performance, broke
     return (
       <ScrollView
         className="flex-1"
-        contentContainerClassName="px-4 pt-8 pb-8"
+        contentContainerClassName="px-4 pt-6 pb-8"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       >
+        {/* AI Trading Agent shows regardless of brokerage connection */}
+        {!showBrokers && <RobinhoodAgentCard userId={userId} />}
+
         {showBrokers ? (
           <View>
             <View className="flex-row items-center justify-between mb-4">
@@ -788,10 +797,27 @@ function PortfolioTab({ isConnected, portfolioData, accounts, performance, broke
           </View>
         ) : (
           <View className="items-center pt-8">
+            {reverify?.needs_reverify && (
+              <View className="w-full mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex-row items-start gap-3">
+                <View className="w-9 h-9 rounded-lg bg-amber-100 items-center justify-center">
+                  <AlertTriangle size={18} color="#d97706" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-[14px] font-body-bold text-amber-900">Brokerage connection paused</Text>
+                  <Text className="text-[12px] font-body text-amber-700 mt-0.5">
+                    We paused your connection after a period of inactivity. Reconnect to refresh your live portfolio.
+                    {reverify.last_portfolio_value != null && (
+                      <Text className="font-body-medium"> Last known value: {formatCurrency(reverify.last_portfolio_value)}
+                        {reverify.last_synced_at ? ` as of ${new Date(reverify.last_synced_at).toLocaleDateString()}` : ''}.</Text>
+                    )}
+                  </Text>
+                </View>
+              </View>
+            )}
             <View style={pStyles.emptyIcon}>
               <Link size={28} color="#059669" />
             </View>
-            <Text style={pStyles.emptyTitle}>Connect your brokerage</Text>
+            <Text style={pStyles.emptyTitle}>{reverify?.needs_reverify ? 'Reconnect your brokerage' : 'Connect your brokerage'}</Text>
             <Text style={pStyles.emptyDesc}>
               Link your accounts to track your portfolio, holdings, and performance — all in one place.
             </Text>
@@ -804,7 +830,7 @@ function PortfolioTab({ isConnected, portfolioData, accounts, performance, broke
               {connecting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={pStyles.connectBtnText}>Connect Account</Text>
+                <Text style={pStyles.connectBtnText}>{reverify?.needs_reverify ? 'Reconnect' : 'Connect Account'}</Text>
               )}
             </TouchableOpacity>
             <Text style={pStyles.supportedBrokers}>Robinhood, Schwab, Fidelity, E*TRADE, and more</Text>

@@ -196,6 +196,12 @@ async def startup_event():
     asyncio.create_task(run_job_loop())
     logger.info("Started job scheduler")
 
+    # Start the stale SnapTrade connection reaper (de-registers dormant users
+    # to stop per-user connection fees; soft purge keeps cached portfolio).
+    from services.snaptrade_reaper import run_reaper_loop
+    asyncio.create_task(run_reaper_loop())
+    logger.info("Started SnapTrade stale-connection reaper")
+
     # Initialize Supabase Storage bucket (if configured)
     if storage_service.is_available():
         logger.info("Initializing Supabase Storage...")

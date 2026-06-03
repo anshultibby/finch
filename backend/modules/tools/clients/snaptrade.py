@@ -100,6 +100,9 @@ class SnapTradeTools:
                     db_user.is_connected = session.is_connected
                     db_user.connected_account_ids = ','.join(session.account_ids) if session.account_ids else None
                     db_user.last_activity = datetime.utcnow()
+                    if session.is_connected:
+                        # Reconnect after a stale-purge clears the reverify flag.
+                        db_user.purged_at = None
                     print(f"✅ Session saved successfully, is_connected={db_user.is_connected}", flush=True)
                 else:
                     # Create new
@@ -402,7 +405,57 @@ class SnapTradeTools:
             del self._sessions[user_id]
 
         return {"success": True, "message": "Portfolio reset successfully. You can now reconnect."}
-    
+
+    async def soft_purge_stale_user(self, user_id: str) -> Dict[str, Any]:
+        """
+        De-register a user from SnapTrade (stops the per-user connection fee) but
+        KEEP the local snaptrade_users row and cached portfolio, so the UI can show
+        a "reconnect to refresh" caution with their last-known value. Sets purged_at
+        and clears is_connected. Reconnecting clears purged_at (see _save_session).
+
+        Unlike reset_user(), this does NOT delete the local row or brokerage accounts.
+        """
+        from datetime import datetime, timezone
+
+        snaptrade_user_id = None
+        # Delete on SnapTrade's side (best-effort — still flag locally if it fails).
+        try:
+            session = await self._get_session(user_id)
+            snaptrade_user_id = session.snaptrade_user_id if session else None
+            if snaptrade_user_id:
+                self.client.authentication.delete_snap_trade_user(user_id=snaptrade_user_id)
+                print(f"✅ [reaper] de-registered SnapTrade user {snaptrade_user_id}", flush=True)
+        except Exception as e:
+            print(f"⚠️ [reaper] SnapTrade delete failed for {user_id} (continuing): {e}", flush=True)
+
+        now = datetime.now(timezone.utc)
+        last_value = None
+        async with get_db_session() as db:
+            # Capture the last-known portfolio headline for the caution banner.
+            snap = (await db.execute(
+                select(PortfolioSnapshot)
+                .where(PortfolioSnapshot.user_id == user_id)
+                .order_by(PortfolioSnapshot.snapshot_date.desc())
+                .limit(1)
+            )).scalars().first()
+            if snap and isinstance(snap.data, dict):
+                last_value = snap.data.get("total_value")
+
+            user = await snaptrade_crud.get_user_by_id_async(db, user_id)
+            if user:
+                prior_activity = user.last_activity  # before onupdate bumps it
+                user.is_connected = False
+                user.purged_at = now
+                if last_value is not None:
+                    user.last_portfolio_value = float(last_value)
+                user.last_synced_at = snap.created_at if snap else prior_activity
+
+        # Drop the in-memory session so has_active_connection() flips immediately.
+        if user_id in self._sessions:
+            del self._sessions[user_id]
+
+        return {"success": True, "snaptrade_user_id": snaptrade_user_id, "last_portfolio_value": last_value}
+
     async def get_connected_accounts(self, user_id: str) -> Dict[str, Any]:
         """
         Get list of user's connected brokerage accounts with details

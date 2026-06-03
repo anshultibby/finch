@@ -77,22 +77,22 @@ async def get_credit_balance(
     try:
         async with get_db_session() as db:
             from sqlalchemy import select
-            from models.user import SnapTradeUser
-            
+            from models.user import UserAccount
+
             result = await db.execute(
                 select(
-                    SnapTradeUser.credits,
-                    SnapTradeUser.total_credits_used,
-                    SnapTradeUser.plan,
-                    SnapTradeUser.subscription_status,
-                    SnapTradeUser.cancel_at_period_end,
-                    SnapTradeUser.current_period_end,
-                ).where(SnapTradeUser.user_id == user_id)
+                    UserAccount.credits,
+                    UserAccount.total_credits_used,
+                    UserAccount.plan,
+                    UserAccount.subscription_status,
+                    UserAccount.cancel_at_period_end,
+                    UserAccount.current_period_end,
+                ).where(UserAccount.user_id == user_id)
             )
             row = result.first()
 
             if not row:
-                # New users may not have a SnapTradeUser row yet (created lazily
+                # New users may not have a user_accounts row yet (created lazily
                 # on first credit operation). Return the free-tier default rather
                 # than 404 — a user should never see an error for their own balance.
                 from services.credits import DEFAULT_NEW_USER_CREDITS
@@ -371,10 +371,10 @@ async def cancel_subscription(
 
     async with get_db_session() as db:
         from sqlalchemy import select
-        from models.user import SnapTradeUser
+        from models.user import UserAccount
         result = await db.execute(
-            select(SnapTradeUser.stripe_subscription_id)
-            .where(SnapTradeUser.user_id == request.user_id)
+            select(UserAccount.stripe_subscription_id)
+            .where(UserAccount.user_id == request.user_id)
         )
         row = result.first()
         sub_id = row[0] if row else None
@@ -425,10 +425,10 @@ async def resubscribe(
 
     async with get_db_session() as db:
         from sqlalchemy import select
-        from models.user import SnapTradeUser
+        from models.user import UserAccount
         result = await db.execute(
-            select(SnapTradeUser.stripe_subscription_id, SnapTradeUser.subscription_status)
-            .where(SnapTradeUser.user_id == request.user_id)
+            select(UserAccount.stripe_subscription_id, UserAccount.subscription_status)
+            .where(UserAccount.user_id == request.user_id)
         )
         row = result.first()
         sub_id = row[0] if row else None

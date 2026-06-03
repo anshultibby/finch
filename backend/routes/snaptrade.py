@@ -95,10 +95,31 @@ async def check_connection_status(
     await verify_user_access(user_id, authenticated_user_id)
     is_connected = await snaptrade_tools.has_active_connection(user_id)
 
+    # Surface the soft-purge state so the frontend can show a "reconnect to
+    # refresh" caution with the last-known portfolio value.
+    needs_reverify = False
+    last_synced_at = None
+    last_portfolio_value = None
+    if not is_connected:
+        from core.database import get_db_session
+        from crud import snaptrade_user as snaptrade_crud
+        async with get_db_session() as db:
+            row = await snaptrade_crud.get_user_by_id_async(db, user_id)
+            if row and row.purged_at is not None:
+                needs_reverify = True
+                last_synced_at = row.last_synced_at.isoformat() if row.last_synced_at else None
+                last_portfolio_value = row.last_portfolio_value
+
     return SnapTradeStatusResponse(
         success=True,
-        message="Connected" if is_connected else "Not connected",
-        is_connected=is_connected
+        message=(
+            "Connected" if is_connected
+            else ("Reconnect to refresh" if needs_reverify else "Not connected")
+        ),
+        is_connected=is_connected,
+        needs_reverify=needs_reverify,
+        last_synced_at=last_synced_at,
+        last_portfolio_value=last_portfolio_value,
     )
 
 

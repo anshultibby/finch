@@ -7,7 +7,8 @@ Uses actual token usage from LLM calls with 20% premium on costs.
 from typing import Dict, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from models.user import SnapTradeUser, CreditTransaction
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from models.user import UserAccount, CreditTransaction
 from utils.logger import get_logger
 import uuid
 
@@ -168,9 +169,31 @@ def calculate_credits_for_llm_call(
 
 class CreditsService:
     """Service for managing user credits"""
-    
+
     @staticmethod
-    async def _apply_refresh(db: AsyncSession, user: SnapTradeUser) -> int:
+    async def _ensure_account(db: AsyncSession, user_id: str) -> None:
+        """
+        Make sure a user_accounts row exists for this user before a credit write.
+
+        Rows are normally created by the on_auth_user_created trigger, but this is
+        a belt-and-suspenders guard so credit writes can never silently no-op for a
+        user who has no row yet (e.g. trigger not installed locally, or a paid user
+        who never connected a broker). Idempotent: INSERT ... ON CONFLICT DO NOTHING.
+        """
+        stmt = (
+            pg_insert(UserAccount)
+            .values(
+                user_id=user_id,
+                plan="free",
+                credits=DEFAULT_NEW_USER_CREDITS,
+                total_credits_used=0,
+            )
+            .on_conflict_do_nothing(index_elements=["user_id"])
+        )
+        await db.execute(stmt)
+
+    @staticmethod
+    async def _apply_refresh(db: AsyncSession, user: UserAccount) -> int:
         """
         Compute and persist accrued daily refresh credits on-the-fly.
         Returns the updated balance.
@@ -208,8 +231,8 @@ class CreditsService:
 
         actual_added = new_balance - user.credits
         await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user.user_id)
+            update(UserAccount)
+            .where(UserAccount.user_id == user.user_id)
             .values(
                 credits=new_balance,
                 last_credit_refresh=now,
@@ -234,7 +257,7 @@ class CreditsService:
     @staticmethod
     async def get_user_credits(db: AsyncSession, user_id: str) -> Optional[int]:
         result = await db.execute(
-            select(SnapTradeUser).where(SnapTradeUser.user_id == user_id)
+            select(UserAccount).where(UserAccount.user_id == user_id)
         )
         user = result.scalar_one_or_none()
         if user is None:
@@ -295,21 +318,23 @@ class CreditsService:
         """
         from sqlalchemy import case
 
+        await CreditsService._ensure_account(db, user_id)
+
         # Atomic deduct: clamp to available balance to prevent negative credits
         # and avoid race conditions from concurrent chat turns
         actual_deduction_expr = case(
-            (SnapTradeUser.credits >= credits, credits),
-            else_=SnapTradeUser.credits,
+            (UserAccount.credits >= credits, credits),
+            else_=UserAccount.credits,
         )
         result = await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user_id)
+            update(UserAccount)
+            .where(UserAccount.user_id == user_id)
             .values(
-                credits=SnapTradeUser.credits - actual_deduction_expr,
-                total_credits_used=SnapTradeUser.total_credits_used + actual_deduction_expr,
+                credits=UserAccount.credits - actual_deduction_expr,
+                total_credits_used=UserAccount.total_credits_used + actual_deduction_expr,
             )
             .returning(
-                SnapTradeUser.credits,
+                UserAccount.credits,
                 actual_deduction_expr.label("deducted"),
             )
         )
@@ -374,11 +399,13 @@ class CreditsService:
         Returns:
             True if successful, False if user not found
         """
+        await CreditsService._ensure_account(db, user_id)
+
         result = await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user_id)
-            .values(credits=SnapTradeUser.credits + credits)
-            .returning(SnapTradeUser.credits)
+            update(UserAccount)
+            .where(UserAccount.user_id == user_id)
+            .values(credits=UserAccount.credits + credits)
+            .returning(UserAccount.credits)
         )
         row = result.first()
 
@@ -409,16 +436,17 @@ class CreditsService:
     @staticmethod
     async def get_stripe_customer_id(db: AsyncSession, user_id: str) -> Optional[str]:
         result = await db.execute(
-            select(SnapTradeUser.stripe_customer_id).where(SnapTradeUser.user_id == user_id)
+            select(UserAccount.stripe_customer_id).where(UserAccount.user_id == user_id)
         )
         row = result.first()
         return row[0] if row else None
 
     @staticmethod
     async def set_stripe_customer_id(db: AsyncSession, user_id: str, customer_id: str) -> bool:
+        await CreditsService._ensure_account(db, user_id)
         result = await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user_id)
+            update(UserAccount)
+            .where(UserAccount.user_id == user_id)
             .values(stripe_customer_id=customer_id)
         )
         return result.rowcount > 0
@@ -426,7 +454,7 @@ class CreditsService:
     @staticmethod
     async def get_user_id_by_stripe_customer(db: AsyncSession, customer_id: str) -> Optional[str]:
         result = await db.execute(
-            select(SnapTradeUser.user_id).where(SnapTradeUser.stripe_customer_id == customer_id)
+            select(UserAccount.user_id).where(UserAccount.stripe_customer_id == customer_id)
         )
         row = result.first()
         return row[0] if row else None
@@ -439,9 +467,10 @@ class CreditsService:
         values = {k: v for k, v in kwargs.items() if k in allowed}
         if not values:
             return False
+        await CreditsService._ensure_account(db, user_id)
         result = await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user_id)
+            update(UserAccount)
+            .where(UserAccount.user_id == user_id)
             .values(**values)
         )
         return result.rowcount > 0
@@ -449,8 +478,8 @@ class CreditsService:
     @staticmethod
     async def clear_subscription_info(db: AsyncSession, user_id: str) -> bool:
         result = await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user_id)
+            update(UserAccount)
+            .where(UserAccount.user_id == user_id)
             .values(
                 stripe_subscription_id=None,
                 subscription_status=None,
@@ -464,7 +493,7 @@ class CreditsService:
     async def get_user_plan(db: AsyncSession, user_id: str) -> str:
         """Return the user's plan string (free/pro/admin), defaulting to 'free'."""
         result = await db.execute(
-            select(SnapTradeUser.plan).where(SnapTradeUser.user_id == user_id)
+            select(UserAccount.plan).where(UserAccount.user_id == user_id)
         )
         row = result.first()
         return row[0] if row else "free"
@@ -473,9 +502,10 @@ class CreditsService:
     async def set_user_plan(db: AsyncSession, user_id: str, plan: str) -> bool:
         """Set a user's plan. Returns False if user not found."""
         from sqlalchemy import update
+        await CreditsService._ensure_account(db, user_id)
         result = await db.execute(
-            update(SnapTradeUser)
-            .where(SnapTradeUser.user_id == user_id)
+            update(UserAccount)
+            .where(UserAccount.user_id == user_id)
             .values(plan=plan)
         )
         return result.rowcount > 0

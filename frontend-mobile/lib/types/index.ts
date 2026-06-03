@@ -341,6 +341,11 @@ export interface SnapTradeStatusResponse {
   is_connected: boolean;
   account_count?: number;
   brokerages?: string[];
+  // Set when the connection was soft-purged for inactivity (de-registered from
+  // SnapTrade). Show a "reconnect to refresh" caution with the last-known value.
+  needs_reverify?: boolean;
+  last_synced_at?: string | null;
+  last_portfolio_value?: number | null;
 }
 
 export interface BrokerageAccount {

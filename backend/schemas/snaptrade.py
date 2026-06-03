@@ -31,6 +31,12 @@ class SnapTradeStatusResponse(BaseModel):
     is_connected: bool
     account_count: Optional[int] = None
     brokerages: Optional[List[str]] = None
+    # Set when the connection was soft-purged for inactivity (de-registered from
+    # SnapTrade to stop billing). The UI shows a "reconnect to refresh" caution
+    # and the last-known portfolio value below.
+    needs_reverify: bool = False
+    last_synced_at: Optional[str] = None
+    last_portfolio_value: Optional[float] = None
 
 
 # SnapTrade API Response Models (for parsing their responses)
