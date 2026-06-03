@@ -416,6 +416,7 @@ class SnapTradeTools:
         Unlike reset_user(), this does NOT delete the local row or brokerage accounts.
         """
         from datetime import datetime, timezone
+        from sqlalchemy import select
 
         snaptrade_user_id = None
         # Delete on SnapTrade's side (best-effort — still flag locally if it fails).
