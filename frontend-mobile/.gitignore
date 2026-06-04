@@ -49,3 +49,8 @@ playwright/.cache/
 # App Store Connect API key (.p8) — never commit
 *.p8
 AuthKey_*.p8
+
+# Build artifacts & local demo recordings
+*.ipa
+*.webm
+build-*.tar.gz

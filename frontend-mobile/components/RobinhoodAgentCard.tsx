@@ -66,12 +66,12 @@ export default function RobinhoodAgentCard({ userId }: { userId: string }) {
           <TouchableOpacity
             onPress={handlePress}
             disabled={busy}
-            className="mt-3 rounded-lg py-2 items-center"
-            style={{ backgroundColor: '#059669', opacity: busy ? 0.6 : 1 }}
+            className="mt-3 rounded-lg py-2.5 items-center border"
+            style={{ backgroundColor: '#fff', borderColor: '#a7f3d0', opacity: busy ? 0.6 : 1 }}
             activeOpacity={0.8}
           >
-            {busy ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text className="text-[12px] font-body-medium text-white">Enable trading</Text>}
+            {busy ? <ActivityIndicator size="small" color="#059669" />
+                  : <Text className="text-[13px] font-body-medium" style={{ color: '#059669' }}>Enable AI trading</Text>}
           </TouchableOpacity>
         </View>
       )}

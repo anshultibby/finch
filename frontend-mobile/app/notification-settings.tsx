@@ -45,7 +45,7 @@ export default function NotificationSettingsScreen() {
   }, [session, busy]);
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={[]}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={[]}>
       <ScrollView contentContainerClassName="px-4 pt-4 pb-8" showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionLabel}>PUSH</Text>
         <View style={styles.card} className="mb-2">

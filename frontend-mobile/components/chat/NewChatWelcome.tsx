@@ -60,8 +60,8 @@ export default function NewChatWelcome({ onSendMessage, disabled, models, model,
   return (
     <ScrollView className="flex-1" contentContainerClassName="px-4 py-6" keyboardShouldPersistTaps="handled">
       <View className="items-center mb-6">
-        <View className="w-12 h-12 rounded-2xl bg-gray-50 items-center justify-center mb-2.5">
-          <Sparkles size={22} color={COLORS.gray400} />
+        <View className="w-12 h-12 rounded-2xl bg-emerald-50 items-center justify-center mb-2.5">
+          <Sparkles size={22} color={COLORS.emerald} />
         </View>
         <Text className="text-xl font-body-bold text-gray-900">How can I help?</Text>
         <Text className="text-[13px] font-body text-gray-400 mt-1 text-center">
@@ -104,7 +104,7 @@ export default function NewChatWelcome({ onSendMessage, disabled, models, model,
           <TouchableOpacity
             onPress={handleSend}
             disabled={disabled || !hasContent}
-            style={[styles.sendBtn, { backgroundColor: hasContent ? '#111827' : '#e5e7eb' }]}
+            style={[styles.sendBtn, { backgroundColor: hasContent ? COLORS.emerald : '#e5e7eb' }]}
             activeOpacity={0.8}
           >
             <Send size={13} color={hasContent ? '#fff' : '#9ca3af'} />

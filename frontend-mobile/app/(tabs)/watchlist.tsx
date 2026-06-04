@@ -185,7 +185,7 @@ export default function WatchlistScreen() {
   const selectedList = lists.find(l => l.id === selectedListId);
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       <View className="px-5 pt-2 pb-3">
         <Text className="text-2xl font-body-bold text-gray-900 mb-3">Watchlist</Text>
 

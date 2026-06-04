@@ -1,10 +1,10 @@
-import { View, Text, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { creditsApi } from '@/lib/api';
-import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell } from 'lucide-react-native';
+import { creditsApi, accountApi } from '@/lib/api';
+import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
 
@@ -12,6 +12,7 @@ export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const [credits, setCredits] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -33,8 +34,34 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const handleDeleteAccount = () => {
+    const doDelete = async () => {
+      if (!user) return;
+      setDeleting(true);
+      try {
+        await accountApi.deleteAccount(user.id);
+        await signOut();
+      } catch {
+        setDeleting(false);
+        const msg = 'Could not delete your account. Please try again or email support@finchapp.ai.';
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert('Error', msg);
+      }
+    };
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    const message = 'This permanently deletes your Finch account and all associated data. This cannot be undone.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete your account?\n\n${message}`)) doDelete();
+      return;
+    }
+    Alert.alert('Delete account?', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete account', style: 'destructive', onPress: doDelete },
+    ]);
+  };
+
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       <ScrollView contentContainerClassName="pb-8">
         <View className="px-4 h-11 justify-center">
           <Text className="text-base font-body-bold text-gray-900">Profile</Text>
@@ -96,6 +123,21 @@ export default function ProfileScreen() {
         >
           <LogOut size={15} color="#ef4444" />
           <Text className="text-[13px] font-body-medium text-red-500">Sign Out</Text>
+        </TouchableOpacity>
+
+        {/* Delete Account (required for App Store) */}
+        <TouchableOpacity
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          className="mx-4 mt-3 py-3 flex-row items-center justify-center gap-2"
+          activeOpacity={0.7}
+        >
+          {deleting
+            ? <ActivityIndicator size="small" color="#9ca3af" />
+            : <Trash2 size={14} color="#9ca3af" />}
+          <Text className="text-[13px] font-body-medium text-gray-400">
+            {deleting ? 'Deleting…' : 'Delete account'}
+          </Text>
         </TouchableOpacity>
 
         <View className="items-center mt-8 gap-1.5">

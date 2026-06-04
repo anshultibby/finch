@@ -1,14 +1,14 @@
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, TextInput, FlatList, Alert, Platform, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, TextInput, FlatList, Alert, Platform, StyleSheet, KeyboardAvoidingView, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDrawer } from '@/contexts/DrawerContext';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { useState, useCallback, useRef } from 'react';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { snaptradeApi, marketApi, watchlistApi, notificationsApi } from '@/lib/api';
 import type { SnapTradeStatusResponse } from '@/lib/types';
 import { AlertTriangle } from 'lucide-react-native';
-import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell } from 'lucide-react-native';
-import { formatCurrency, formatPct, COLORS, isIndianStock, currencySymbol } from '@/lib/constants';
+import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell, Lock } from 'lucide-react-native';
+import { formatCurrency, formatPct, formatRelativeTime, COLORS, isIndianStock, currencySymbol } from '@/lib/constants';
 import FinchLogo from '@/components/FinchLogo';
 import SectionHeader from '@/components/ui/SectionHeader';
 import MoverCard from '@/components/market/MoverCard';
@@ -16,12 +16,16 @@ import NewsCard from '@/components/market/NewsCard';
 import EmptyState from '@/components/ui/EmptyState';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
+import AskBar from '@/components/chat/AskBar';
 import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 
 type MarketRegion = 'us' | 'india';
+
+// Two index cards per row: account for 16px side padding + 10px inter-card gap.
+const IDX_CARD_W = (Dimensions.get('window').width - 16 * 2 - 10) / 2;
 
 const MARKET_INDICES: Record<MarketRegion, { symbol: string; label: string }[]> = {
   us: [
@@ -50,7 +54,15 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { openDrawer } = useDrawer();
   const router = useRouter();
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<HomeTab>('markets');
+
+  // Let other surfaces (e.g. the sidebar nav) deep-link into a specific tab.
+  useEffect(() => {
+    if (tabParam && NAV_TABS.some(t => t.key === tabParam)) {
+      setActiveTab(tabParam as HomeTab);
+    }
+  }, [tabParam]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -66,6 +78,7 @@ export default function HomeScreen() {
   const [news, setNews] = useState<any[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [marketsRefreshing, setMarketsRefreshing] = useState(false);
+  const [marketsUpdatedAt, setMarketsUpdatedAt] = useState(() => new Date().toISOString());
 
   // Earnings state
   const [earnings, setEarnings] = useState<any[]>([]);
@@ -102,6 +115,7 @@ export default function HomeScreen() {
         batchQuotes.forEach((q: any) => { if (q?.symbol) quoteMap[q.symbol] = q; });
         setIndexQuotes(quoteMap);
       }
+      setMarketsUpdatedAt(new Date().toISOString());
     } catch {} finally {
       setMarketsLoading(false);
     }
@@ -246,7 +260,7 @@ export default function HomeScreen() {
   const actives = movers?.most_active?.slice(0, 8) || [];
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       {/* Header */}
       {searchActive ? (
         <View style={headerStyles.searchBar}>
@@ -338,7 +352,10 @@ export default function HomeScreen() {
       ) : searchActive ? (
         <TouchableOpacity style={{ flex: 1 }} onPress={clearSearch} activeOpacity={1} />
       ) : (
-        <>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           {/* Top Nav Tabs */}
           <View className="border-b border-gray-100 px-4">
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-5">
@@ -363,6 +380,7 @@ export default function HomeScreen() {
           </View>
 
           {/* Tab Content */}
+          <View style={{ flex: 1 }}>
           {activeTab === 'markets' && (
             <MarketsTab
               gainers={gainers} losers={losers} actives={actives} news={news}
@@ -371,6 +389,7 @@ export default function HomeScreen() {
               marketRegion={marketRegion}
               onRegionChange={(r) => { setMarketRegion(r); setMarketsLoading(true); }}
               indexQuotes={indexQuotes}
+              updatedAt={marketsUpdatedAt}
             />
           )}
           {activeTab === 'earnings' && (
@@ -404,7 +423,13 @@ export default function HomeScreen() {
               onConnectionChange={fetchPortfolio}
             />
           )}
-        </>
+          </View>
+
+          {/* Persistent contextual ask bar — fuses the dashboard with the AI chat */}
+          <AskBar
+            placeholder={activeTab === 'portfolio' ? 'Ask anything about your portfolio…' : 'Ask anything about the markets…'}
+          />
+        </KeyboardAvoidingView>
       )}
     </SafeAreaView>
   );
@@ -412,13 +437,14 @@ export default function HomeScreen() {
 
 // ── Markets Tab ──────────────────────────────────────────────────────────────
 
-function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRefresh, onStockPress, marketRegion, onRegionChange, indexQuotes }: {
+function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRefresh, onStockPress, marketRegion, onRegionChange, indexQuotes, updatedAt }: {
   gainers: any[]; losers: any[]; actives: any[]; news: any[];
   loading: boolean; refreshing: boolean; onRefresh: () => void;
   onStockPress: (symbol: string) => void;
   marketRegion: MarketRegion;
   onRegionChange: (r: MarketRegion) => void;
   indexQuotes: Record<string, any>;
+  updatedAt: string;
 }) {
   const [showRegionPicker, setShowRegionPicker] = useState(false);
 
@@ -437,6 +463,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
   }
 
   const indices = MARKET_INDICES[marketRegion];
+  const sentiment = marketSentiment(indices, indexQuotes);
 
   return (
     <ScrollView
@@ -444,7 +471,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       showsVerticalScrollIndicator={false}
     >
-      {/* Market Region Toggle */}
+      {/* Market Region Toggle + Sentiment */}
       <View className="px-4 mt-3 mb-3 flex-row items-center justify-between">
         <TouchableOpacity
           onPress={() => setShowRegionPicker(!showRegionPicker)}
@@ -455,6 +482,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
           <Text style={idxStyles.regionLabel}>{marketRegion === 'us' ? 'US Markets' : 'India Markets'}</Text>
           <ChevronDown size={14} color="#9ca3af" />
         </TouchableOpacity>
+        <SentimentChip s={sentiment} />
       </View>
 
       {showRegionPicker && (
@@ -477,28 +505,29 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
         </View>
       )}
 
-      {/* Index Cards */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} className="mb-5">
+      {/* Index Cards — 2-column grid */}
+      <View style={idxStyles.grid}>
         {indices.map(idx => {
           const q = indexQuotes[idx.symbol] || {};
+          const up = (q.changesPercentage ?? 0) >= 0;
           return (
-            <TouchableOpacity key={idx.symbol} onPress={() => onStockPress(idx.symbol)} style={idxStyles.card} activeOpacity={0.7}>
-              <Text style={idxStyles.cardLabel}>{idx.label}</Text>
-              <View className="flex-row items-end justify-between mt-1">
-                <View>
-                  <Text style={idxStyles.cardPrice}>{q.price ? formatCurrency(q.price, false, idx.symbol) : '—'}</Text>
-                  {q.changesPercentage != null && (
-                    <Text style={[idxStyles.cardChange, { color: q.changesPercentage >= 0 ? '#059669' : '#ef4444' }]}>
-                      {q.changesPercentage >= 0 ? '↗' : '↘'} {formatPct(q.changesPercentage)}
-                    </Text>
-                  )}
-                </View>
-                <MiniSparkline symbol={idx.symbol} width={50} height={22} days={7} />
+            <TouchableOpacity key={idx.symbol} onPress={() => onStockPress(idx.symbol)} style={idxStyles.gridCard} activeOpacity={0.7}>
+              <View className="flex-row items-center justify-between">
+                <Text style={idxStyles.cardLabel} numberOfLines={1}>{idx.label}</Text>
+                {q.changesPercentage != null && (
+                  <Text style={[idxStyles.cardChange, { color: up ? '#059669' : '#ef4444' }]}>
+                    {up ? '↗' : '↘'} {formatPct(q.changesPercentage)}
+                  </Text>
+                )}
+              </View>
+              <Text style={idxStyles.cardPrice}>{q.price ? formatCurrency(q.price, false, idx.symbol) : '—'}</Text>
+              <View style={idxStyles.cardSpark}>
+                <MiniSparkline symbol={idx.symbol} width={IDX_CARD_W - 28} height={30} days={7} />
               </View>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {gainers.length > 0 && (
         <View className="mt-4 mb-5">
@@ -555,15 +584,55 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
 
       {news.length > 0 && (
         <View className="px-4 mb-8">
-          <SectionHeader title="Market News" />
+          <View className="flex-row items-center justify-between mb-2.5">
+            <Text className="text-[13px] font-body-bold text-gray-900 uppercase tracking-wide">Market Summary</Text>
+            <Text className="text-[11px] font-body text-gray-400">Updated {formatRelativeTime(updatedAt)}</Text>
+          </View>
           <View className="gap-2.5">
             {news.slice(0, 6).map((item: any, i: number) => (
-              <NewsCard key={i} title={item.title} source={item.site || item.source || ''} date={item.publishedDate || item.date || ''} url={item.url} />
+              <NewsCard
+                key={i}
+                title={item.title}
+                source={item.site || item.source || ''}
+                date={item.publishedDate || item.date || ''}
+                url={item.url}
+                image={item.image}
+                symbol={item.symbol}
+                onSymbolPress={onStockPress}
+              />
             ))}
           </View>
         </View>
       )}
     </ScrollView>
+  );
+}
+
+// Market sentiment derived from index moves we already fetched (no extra call).
+// VIX is excluded — it inverts (up = fear) and would skew the read.
+function marketSentiment(indices: { symbol: string }[], indexQuotes: Record<string, any>) {
+  const vals = indices
+    .filter(i => !/VIX/i.test(i.symbol))
+    .map(i => indexQuotes[i.symbol]?.changesPercentage)
+    .filter((v): v is number => typeof v === 'number');
+  if (vals.length === 0) return null;
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  if (avg >= 0.25) return { label: 'Upbeat', color: '#059669', score: 3 };
+  if (avg <= -0.25) return { label: 'Cautious', color: '#ef4444', score: 1 };
+  return { label: 'Mixed', color: '#9ca3af', score: 2 };
+}
+
+function SentimentChip({ s }: { s: { label: string; color: string; score: number } | null }) {
+  if (!s) return null;
+  return (
+    <View style={idxStyles.sentiment}>
+      <View style={idxStyles.bars}>
+        {[6, 9, 12].map((h, i) => (
+          <View key={i} style={{ width: 3, height: h, borderRadius: 1.5, backgroundColor: i < s.score ? s.color : '#e5e7eb' }} />
+        ))}
+      </View>
+      <Text style={[idxStyles.sentimentText, { color: s.color }]}>{s.label} sentiment</Text>
+    </View>
   );
 }
 
@@ -752,12 +821,9 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
     return (
       <ScrollView
         className="flex-1"
-        contentContainerClassName="px-4 pt-6 pb-8"
+        contentContainerClassName="px-4 pt-5 pb-6"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       >
-        {/* AI Trading Agent shows regardless of brokerage connection */}
-        {!showBrokers && <RobinhoodAgentCard userId={userId} />}
-
         {showBrokers ? (
           <View>
             <View className="flex-row items-center justify-between mb-4">
@@ -796,9 +862,9 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
             </View>
           </View>
         ) : (
-          <View className="items-center pt-8">
+          <View>
             {reverify?.needs_reverify && (
-              <View className="w-full mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex-row items-start gap-3">
+              <View className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4 flex-row items-start gap-3">
                 <View className="w-9 h-9 rounded-lg bg-amber-100 items-center justify-center">
                   <AlertTriangle size={18} color="#d97706" />
                 </View>
@@ -814,26 +880,51 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
                 </View>
               </View>
             )}
-            <View style={pStyles.emptyIcon}>
-              <Link size={28} color="#059669" />
+
+            <Text style={pStyles.chooseHeader}>Set up your portfolio</Text>
+
+            {/* Option 1 — Connect a real brokerage (primary) */}
+            <View style={pStyles.optionCard}>
+              <View style={pStyles.optionIcon}>
+                <Link size={20} color="#059669" />
+              </View>
+              <Text style={pStyles.optionTitle}>{reverify?.needs_reverify ? 'Reconnect your brokerage' : 'Connect your brokerage'}</Text>
+              <Text style={pStyles.optionDesc}>
+                Securely sync your accounts to track holdings, performance, and trades — all in one place. Read-only.
+              </Text>
+              <View style={pStyles.brokerChips}>
+                {['Robinhood', 'Schwab', 'Fidelity', 'E*TRADE'].map(b => (
+                  <View key={b} style={pStyles.brokerChip}><Text style={pStyles.brokerChipText}>{b}</Text></View>
+                ))}
+                <View style={pStyles.brokerChip}><Text style={pStyles.brokerChipText}>+20 more</Text></View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowBrokers(true)}
+                style={pStyles.connectBtn}
+                activeOpacity={0.85}
+                disabled={connecting}
+              >
+                {connecting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={pStyles.connectBtnText}>{reverify?.needs_reverify ? 'Reconnect' : 'Connect account'}</Text>
+                )}
+              </TouchableOpacity>
             </View>
-            <Text style={pStyles.emptyTitle}>{reverify?.needs_reverify ? 'Reconnect your brokerage' : 'Connect your brokerage'}</Text>
-            <Text style={pStyles.emptyDesc}>
-              Link your accounts to track your portfolio, holdings, and performance — all in one place.
-            </Text>
-            <TouchableOpacity
-              onPress={() => setShowBrokers(true)}
-              style={pStyles.connectBtn}
-              activeOpacity={0.85}
-              disabled={connecting}
-            >
-              {connecting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={pStyles.connectBtnText}>{reverify?.needs_reverify ? 'Reconnect' : 'Connect Account'}</Text>
-              )}
-            </TouchableOpacity>
-            <Text style={pStyles.supportedBrokers}>Robinhood, Schwab, Fidelity, E*TRADE, and more</Text>
+
+            <View style={pStyles.optionDivider}>
+              <View style={pStyles.dividerLine} />
+              <Text style={pStyles.dividerText}>or</Text>
+              <View style={pStyles.dividerLine} />
+            </View>
+
+            {/* Option 2 — AI trading agent (distinct, secondary) */}
+            <RobinhoodAgentCard userId={userId} />
+
+            <View style={pStyles.trustRow}>
+              <Lock size={12} color="#9ca3af" />
+              <Text style={pStyles.trustText}>Bank-level encryption · Read-only access · Disconnect anytime</Text>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -1101,46 +1192,102 @@ const pStyles = StyleSheet.create({
     fontFamily: 'DMSans',
     color: '#9ca3af',
   },
-  emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+  chooseHeader: {
+    fontSize: 13,
+    fontFamily: 'DMSans-Bold',
+    color: '#111827',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+    marginLeft: 2,
+  },
+  optionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  optionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#ecfdf5',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
-  emptyTitle: {
-    fontSize: 20,
+  optionTitle: {
+    fontSize: 17,
     fontFamily: 'DMSans-Bold',
     color: '#111827',
-    marginBottom: 8,
   },
-  emptyDesc: {
-    fontSize: 14,
+  optionDesc: {
+    fontSize: 13,
     fontFamily: 'DMSans',
-    color: '#9ca3af',
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 16,
-    marginBottom: 24,
+    color: '#6b7280',
+    lineHeight: 19,
+    marginTop: 5,
+  },
+  brokerChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 14,
+    marginBottom: 16,
+  },
+  brokerChip: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    backgroundColor: '#fafafa',
+  },
+  brokerChipText: {
+    fontSize: 11,
+    fontFamily: 'DMSans-Medium',
+    color: '#6b7280',
   },
   connectBtn: {
     backgroundColor: '#059669',
-    paddingHorizontal: 28,
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 12,
-    marginBottom: 12,
+    alignItems: 'center',
+    alignSelf: 'stretch',
   },
   connectBtnText: {
     fontSize: 15,
     fontFamily: 'DMSans-Medium',
     color: '#fff',
   },
-  supportedBrokers: {
+  optionDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginVertical: 14,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#ececeb',
+  },
+  dividerText: {
     fontSize: 12,
+    fontFamily: 'DMSans-Medium',
+    color: '#9ca3af',
+  },
+  trustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 18,
+  },
+  trustText: {
+    fontSize: 11,
     fontFamily: 'DMSans',
-    color: '#d1d5db',
+    color: '#9ca3af',
   },
   brokerOverlay: {
     marginTop: 20,
@@ -1249,9 +1396,35 @@ const idxStyles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 1,
   },
-  cardLabel: { fontSize: 11, fontFamily: 'DMSans-Bold', color: '#9ca3af', letterSpacing: 0.3 },
-  cardPrice: { fontSize: 16, fontFamily: 'DMSans-Bold', color: '#111827' },
-  cardChange: { fontSize: 11, fontFamily: 'DMSans-Medium', marginTop: 2 },
+  cardLabel: { fontSize: 11, fontFamily: 'DMSans-Bold', color: '#9ca3af', letterSpacing: 0.3, flexShrink: 1 },
+  cardPrice: { fontSize: 18, fontFamily: 'DMSans-Bold', color: '#111827', marginTop: 4 },
+  cardChange: { fontSize: 11, fontFamily: 'DMSans-Medium' },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    gap: 10,
+    marginBottom: 20,
+  },
+  gridCard: {
+    width: IDX_CARD_W,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  cardSpark: { marginTop: 6, alignItems: 'flex-start' },
+  sentiment: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 12 },
+  sentimentText: { fontSize: 12, fontFamily: 'DMSans-Medium' },
 });
 
 const headerStyles = StyleSheet.create({

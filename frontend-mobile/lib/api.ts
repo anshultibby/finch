@@ -464,6 +464,14 @@ export const creditsApi = {
   },
 };
 
+export const accountApi = {
+  // Permanently delete the user's account (App Store Guideline 5.1.1(v)).
+  deleteAccount: async (userId: string) => {
+    const response = await api.delete(`/account/${userId}`);
+    return response.data;
+  },
+};
+
 export const notificationsApi = {
   getNotifications: async (limit = 50, unreadOnly = false) => {
     const response = await api.get('/push/notifications', { params: { limit, unread_only: unreadOnly } });

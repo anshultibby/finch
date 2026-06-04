@@ -17,6 +17,7 @@ from .push import router as push_router
 from .analysis import router as analysis_router
 from .visualizations import router as visualizations_router
 from .bot_store import router as bot_store_router
+from .account import router as account_router
 
 __all__ = [
     "chat_router",
@@ -36,5 +37,6 @@ __all__ = [
     "analysis_router",
     "visualizations_router",
     "bot_store_router",
+    "account_router",
 ]
 

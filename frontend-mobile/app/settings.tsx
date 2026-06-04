@@ -89,7 +89,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={[]}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={[]}>
       <ScrollView contentContainerClassName="px-4 pb-8">
         {/* Profile */}
         <View style={styles.card} className="mb-3">

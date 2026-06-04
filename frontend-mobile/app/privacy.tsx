@@ -42,7 +42,7 @@ export default function PrivacyScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={[]}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={[]}>
       <ScrollView contentContainerClassName="px-4 pt-4 pb-8" showsVerticalScrollIndicator={false}>
         {/* Account */}
         <Text style={styles.sectionLabel}>ACCOUNT</Text>

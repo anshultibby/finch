@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, StyleSheet, Platform, Alert } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, StyleSheet, Platform, Alert, KeyboardAvoidingView } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
 import { marketApi, chatApi, watchlistApi, analysisApi } from '@/lib/api';
@@ -8,6 +8,8 @@ import { COLORS, formatCurrency, formatPct, formatVolume, currencySymbol } from 
 import * as Haptics from 'expo-haptics';
 import SectionHeader from '@/components/ui/SectionHeader';
 import NewsCard from '@/components/market/NewsCard';
+import PriceChart from '@/components/shared/PriceChart';
+import AskBar from '@/components/chat/AskBar';
 import PriceChange from '@/components/ui/PriceChange';
 import { CountUp } from '@/components/ui/CountUp';
 import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
@@ -96,11 +98,26 @@ export default function StockDetailScreen() {
   };
 
   return (
-    <>
-      <Stack.Screen options={{ headerTitle: symbol, headerStyle: { backgroundColor: '#ffffff' } }} />
+    <View style={{ flex: 1, backgroundColor: '#fafaf9' }}>
+      <Stack.Screen
+        options={{
+          headerTitle: symbol,
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerRight: () => (
+            <TouchableOpacity testID="watchlist-toggle" onPress={toggleWatchlist} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.7}>
+              <Star size={20} color={inWatchlist ? '#f59e0b' : '#9ca3af'} fill={inWatchlist ? '#f59e0b' : 'none'} />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
+      >
       <ScrollView
-        className="flex-1 bg-white"
-        contentContainerClassName="pb-8"
+        className="flex-1 bg-[#fafaf9]"
+        contentContainerClassName="pb-6"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
         showsVerticalScrollIndicator={false}
       >
@@ -136,25 +153,11 @@ export default function StockDetailScreen() {
               )}
             </View>
 
-            {/* Action Buttons */}
-            <View className="flex-row gap-2 px-4 mb-4">
-              <TouchableOpacity
-                onPress={chatAboutStock}
-                style={[s.actionBtn, { backgroundColor: '#111827' }]}
-                activeOpacity={0.8}
-              >
-                <MessageSquare size={15} color="#fff" />
-                <Text style={s.actionBtnText}>Ask Finch AI</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                testID="watchlist-toggle"
-                onPress={toggleWatchlist}
-                style={[s.watchlistBtn, inWatchlist && { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}
-                activeOpacity={0.8}
-              >
-                <Star size={17} color={inWatchlist ? '#f59e0b' : '#d1d5db'} fill={inWatchlist ? '#f59e0b' : 'none'} />
-              </TouchableOpacity>
+            {/* Price Chart */}
+            <View className="mb-4">
+              <PriceChart symbol={symbol} />
             </View>
+
 
             {/* Tab Bar */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} className="border-b border-gray-100 mb-4" contentContainerStyle={{ paddingHorizontal: 16, gap: 20 }}>
@@ -206,7 +209,13 @@ export default function StockDetailScreen() {
           </View>
         )}
       </ScrollView>
-    </>
+
+      {/* Persistent contextual ask bar */}
+      {!loading && quote && (
+        <AskBar placeholder={`Ask anything about ${symbol}…`} prefix={`Regarding ${symbol}: `} />
+      )}
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 

@@ -16,7 +16,8 @@ import ModelPicker from '@/components/chat/ModelPicker';
 import { COLORS } from '@/lib/constants';
 
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, seed } = useLocalSearchParams<{ id: string; seed?: string }>();
+  const seededRef = useRef(false);
   const { user } = useAuth();
   const { openDrawer } = useDrawer();
   const router = useRouter();
@@ -85,10 +86,19 @@ export default function ChatScreen() {
     sendMessage(text, undefined, selectedModel);
   }, [isStreaming, sendMessage, selectedModel]);
 
-  const showWelcome = !loadingHistory && messages.length === 0 && !isStreaming;
+  // Auto-send a seed question handed off from a docked AskBar (markets / stock).
+  useEffect(() => {
+    if (loadingHistory || seededRef.current || isStreaming) return;
+    if (seed && messages.length === 0) {
+      seededRef.current = true;
+      handleWelcomeSend(String(seed));
+    }
+  }, [loadingHistory, seed, messages.length, isStreaming, handleWelcomeSend]);
+
+  const showWelcome = !loadingHistory && messages.length === 0 && !isStreaming && !seed;
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       {/* Header */}
       <View style={chatStyles.header}>
         <TouchableOpacity onPress={openDrawer} style={chatStyles.iconBtn} activeOpacity={0.7}>

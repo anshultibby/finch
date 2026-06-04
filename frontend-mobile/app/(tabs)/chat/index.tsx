@@ -21,7 +21,7 @@ export default function ChatIndexScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={openDrawer} style={styles.iconBtn} activeOpacity={0.7}>
           <Menu size={22} color="#111827" />
