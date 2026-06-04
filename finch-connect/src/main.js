@@ -22,7 +22,9 @@ async function signIn() {
   setStatus("Starting sign-in…");
   try {
     session = await invoke("sign_in_finch");
-    $("signin-sub").textContent = `Signed in as ${session.email} ✓`;
+    const sub = $("signin-sub");
+    sub.textContent = `Signed in as ${session.email} ✓`;
+    sub.classList.remove("hidden");
     $("signin").textContent = "Signed in ✓";
     $("connect-card").classList.remove("disabled");
     $("connect").disabled = false;

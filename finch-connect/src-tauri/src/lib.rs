@@ -40,6 +40,39 @@ const FINCH_REDIRECT: &str = "http://127.0.0.1:8765/finch-callback";
 const RH_REDIRECT: &str = "http://127.0.0.1:8765/robinhood-callback";
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(180);
 
+/// Branded page shown in the user's browser after they approve, so the redirect
+/// doesn't dump a blank/raw screen. Matches Finch's look (DM Sans, emerald, logo).
+const DONE_PAGE: &str = r##"<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{height:100%;margin:0}
+  body{font-family:'DM Sans',-apple-system,system-ui,sans-serif;color:#111827;
+    display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(900px 460px at 50% -10%,#d1fae5 0%,rgba(209,250,229,0) 60%),linear-gradient(180deg,#f0fdf9 0%,#fff 45%)}
+  .card{background:#fff;border:1px solid #e8eaed;border-radius:22px;padding:40px 44px;text-align:center;
+    box-shadow:0 12px 40px rgba(16,24,40,.10);max-width:380px}
+  .logo{filter:drop-shadow(0 6px 14px rgba(16,185,129,.35));border-radius:11px}
+  .check{width:52px;height:52px;border-radius:50%;background:#ecfdf5;display:flex;align-items:center;
+    justify-content:center;margin:18px auto 14px}
+  h1{font-size:21px;font-weight:700;letter-spacing:-.5px;margin:0 0 6px}
+  p{color:#6b7280;font-size:14.5px;margin:0}
+</style></head>
+<body><div class="card">
+  <svg class="logo" width="44" height="44" viewBox="0 0 36 36" fill="none">
+    <rect width="36" height="36" rx="9" fill="#10b981"/>
+    <rect x="8" y="8" width="5" height="20" rx="1.5" fill="#fff"/>
+    <rect x="15" y="8" width="5" height="12" rx="1.5" fill="#fff"/>
+    <rect x="22" y="14" width="5" height="6" rx="1.5" fill="#fff"/>
+  </svg>
+  <div class="check">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+  </div>
+  <h1>You're approved</h1>
+  <p>Return to <b>Finch Connect</b> — you can close this tab.</p>
+</div></body></html>"##;
+
 #[derive(Clone, Serialize)]
 struct Progress {
     event: String,
@@ -122,12 +155,11 @@ fn wait_for_redirect(listener: TcpListener) -> Result<HashMap<String, String>, S
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
                 let first_line = req.lines().next().unwrap_or("");
-                let _ = stream.write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n\
-                      <html><body style=\"font-family:-apple-system,system-ui;text-align:center;padding-top:64px;color:#111\">\
-                      <h2 style=\"color:#059669\">Approved \xE2\x9C\x93</h2>\
-                      <p>You can close this tab and return to Finch Connect.</p></body></html>",
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n{}",
+                    DONE_PAGE
                 );
+                let _ = stream.write_all(resp.as_bytes());
                 let query = first_line
                     .split_whitespace()
                     .nth(1)

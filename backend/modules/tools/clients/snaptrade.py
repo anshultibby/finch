@@ -417,6 +417,7 @@ class SnapTradeTools:
         """
         from datetime import datetime, timezone
         from sqlalchemy import select
+        from models.brokerage import PortfolioSnapshot
 
         snaptrade_user_id = None
         # Delete on SnapTrade's side (best-effort — still flag locally if it fails).

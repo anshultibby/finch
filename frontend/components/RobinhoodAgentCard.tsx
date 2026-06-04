@@ -4,6 +4,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { robinhoodApi, snaptradeApi, type RobinhoodAccountsResponse } from '@/lib/api';
 
+// Where the Finch Connect desktop app is hosted. Point this at your release/download
+// (e.g. a GitHub Releases page or a /downloads/.dmg URL) once the build is hosted.
+const FINCH_CONNECT_DOWNLOAD_URL = 'https://github.com/anshultibby/finch/releases/latest';
+
 function fmtUsd(v?: string | null): string {
   if (v == null) return '—';
   const n = Number(v);
@@ -176,13 +180,24 @@ export default function RobinhoodAgentCard() {
               </li>
             ))}
           </ul>
-          {/* Robinhood only allows connecting from a native (on-device) app, so
-              web users are pointed to the Finch mobile app rather than a flow
-              that can't complete in the browser. */}
-          <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2.5 text-center">
-            <div className="text-xs font-medium text-gray-700">Connect in the Finch app</div>
-            <div className="mt-0.5 text-[11px] text-gray-400">Robinhood requires connecting on your device</div>
-          </div>
+          {/* Robinhood only allows agent approval from a loopback app on the user's
+              own device (desktop consent + 127.0.0.1 redirect), so we point users to
+              the Finch Connect desktop app rather than a browser flow that can't
+              complete. See /finch-connect. */}
+          <a
+            href={FINCH_CONNECT_DOWNLOAD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-emerald-500 to-emerald-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+            </svg>
+            Download Finch Connect
+          </a>
+          <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-400">
+            🔒 Robinhood only allows trading approval from an app on your device. Download Finch Connect, sign in, and click Connect — takes a minute.
+          </p>
         </div>
       )}
     </div>

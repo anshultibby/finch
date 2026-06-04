@@ -10,60 +10,61 @@
   <body>
     <main class="app">
       <header class="head">
-        <div class="logo">🐦</div>
+        <svg class="brand" width="40" height="40" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+          <rect width="36" height="36" rx="9" fill="#10b981" />
+          <rect x="8" y="8" width="5" height="20" rx="1.5" fill="white" />
+          <rect x="15" y="8" width="5" height="12" rx="1.5" fill="white" />
+          <rect x="22" y="14" width="5" height="6" rx="1.5" fill="white" />
+        </svg>
         <div>
           <h1>Finch Connect</h1>
-          <p class="sub">Link your Robinhood Agentic account to Finch — securely, on this device.</p>
+          <p class="sub">Link your Robinhood account in two steps.</p>
         </div>
       </header>
 
-      <section class="trust">
-        <h2>Why this is safe</h2>
-        <ul class="why">
-          <li><b>You approve on the real sites.</b> Sign-in happens on Google, and Robinhood access is granted on <b>robinhood.com</b> — this app never sees your passwords or 2FA.</li>
-          <li><b>Everything stays on your machine.</b> A tiny listener on <code>127.0.0.1:8765</code> catches the redirects locally, accepts one response, then closes.</li>
-          <li><b>No tokens on this computer.</b> Robinhood tokens are exchanged and stored by <i>your</i> Finch backend — nothing is written to disk here.</li>
-          <li><b>Open source.</b> Every server contacted is a named constant in <code>src-tauri/src/lib.rs</code> — made to be read.</li>
-        </ul>
+      <!-- Step 1 -->
+      <section class="card" id="signin-card">
+        <div class="card-top"><span class="num">1</span><h3>Sign in to Finch</h3></div>
+        <p class="card-sub hidden" id="signin-sub"></p>
+        <button id="signin" class="gbtn">
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 010-9.18l-7.98-6.19a24.01 24.01 0 000 21.56l7.98-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          <span>Continue with Google</span>
+        </button>
       </section>
 
-      <!-- Step 1: sign in -->
-      <section class="step-card" id="signin-card">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          <h3>Sign in to Finch</h3>
-          <p id="signin-sub">So we can link Robinhood to your account.</p>
-          <button id="signin" class="primary">Continue with Google</button>
-        </div>
-      </section>
-
-      <!-- Step 2: connect -->
-      <section class="step-card disabled" id="connect-card">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <h3>Connect Robinhood</h3>
-          <p>Opens Robinhood's consent page. You approve there; we never touch your credentials.</p>
-          <button id="connect" class="primary" disabled>Connect Robinhood</button>
-        </div>
+      <!-- Step 2 -->
+      <section class="card disabled" id="connect-card">
+        <div class="card-top"><span class="num">2</span><h3>Connect Robinhood</h3></div>
+        <p class="card-sub">Approve on Robinhood. Takes a few seconds.</p>
+        <button id="connect" class="primary" disabled>Connect Robinhood</button>
       </section>
 
       <section class="progress hidden" id="progress">
+        <div class="spinner"></div>
         <p class="status" id="status"></p>
         <div class="urlbox hidden" id="urlbox">
-          <span>Opening (verify this is robinhood.com):</span>
+          <span>Opening on robinhood.com:</span>
           <code id="authurl"></code>
         </div>
       </section>
 
       <section class="result hidden" id="result"></section>
 
-      <details class="advanced">
-        <summary>Advanced</summary>
-        <label>
-          <span>Finch backend URL</span>
-          <input id="backend" type="text" value="https://finch-production-8434.up.railway.app" />
-        </label>
-      </details>
+      <footer class="foot">
+        <p class="why">🔒 Robinhood only allows trading approval from an app on your device — so it happens here. Finch never sees your password.</p>
+        <span>Runs on your device · nothing saved here</span>
+        <details>
+          <summary>Advanced</summary>
+          <label>Finch backend
+            <input id="backend" type="text" value="https://finch-production-8434.up.railway.app" />
+          </label>
+        </details>
+      </footer>
     </main>
   </body>
 </html>
