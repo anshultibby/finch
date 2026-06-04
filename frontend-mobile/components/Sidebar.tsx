@@ -149,7 +149,7 @@ export default function Sidebar() {
 
         {/* Account footer */}
         <View style={styles.footer}>
-          <TouchableOpacity style={styles.profileRow} onPress={() => go('/(tabs)/profile')} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.profileRow} onPress={() => go('/settings')} activeOpacity={0.7}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{initial}</Text>
             </View>

@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { creditsApi, apiKeysApi, robinhoodApi } from '@/lib/api';
+import { creditsApi, apiKeysApi, robinhoodApi, accountApi } from '@/lib/api';
 import { connectRobinhood } from '@/lib/robinhoodAuth';
 import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
@@ -24,6 +24,7 @@ export default function SettingsScreen() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [rhConnected, setRhConnected] = useState(false);
   const [rhBusy, setRhBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -67,6 +68,32 @@ export default function SettingsScreen() {
     Alert.alert('Sign Out', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: signOut },
+    ]);
+  };
+
+  const handleDeleteAccount = () => {
+    const doDelete = async () => {
+      if (!user) return;
+      setDeleting(true);
+      try {
+        await accountApi.deleteAccount(user.id);
+        await signOut();
+      } catch {
+        setDeleting(false);
+        const msg = 'Could not delete your account. Please try again or email support@finchapp.ai.';
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert('Error', msg);
+      }
+    };
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    const message = 'This permanently deletes your Finch account and all associated data. This cannot be undone.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete your account?\n\n${message}`)) doDelete();
+      return;
+    }
+    Alert.alert('Delete account?', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete account', style: 'destructive', onPress: doDelete },
     ]);
   };
 
@@ -200,6 +227,21 @@ export default function SettingsScreen() {
         >
           <LogOut size={15} color="#ef4444" />
           <Text className="text-[13px] font-body-medium text-red-500">Sign Out</Text>
+        </TouchableOpacity>
+
+        {/* Delete Account (required for App Store) */}
+        <TouchableOpacity
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          className="mt-3 py-3 flex-row items-center justify-center gap-2"
+          activeOpacity={0.7}
+        >
+          {deleting
+            ? <ActivityIndicator size="small" color="#9ca3af" />
+            : <Trash2 size={14} color="#9ca3af" />}
+          <Text className="text-[13px] font-body-medium text-gray-400">
+            {deleting ? 'Deleting…' : 'Delete account'}
+          </Text>
         </TouchableOpacity>
 
         <View className="items-center mt-8 gap-1.5">

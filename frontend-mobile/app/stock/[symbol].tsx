@@ -865,17 +865,19 @@ function AnalysisTab({ analyst, analysis, quote, onChat }: {
         </View>
       )}
 
-      {/* Ask AI CTA */}
-      <View style={s.aiCta}>
-        <TrendingUp size={20} color="#059669" />
-        <View className="flex-1 ml-3">
-          <Text style={s.aiCtaTitle}>Want deeper analysis?</Text>
-          <Text style={s.aiCtaDesc}>Ask Finch AI about this stock's fundamentals, risks, and outlook.</Text>
+      {/* Empty state — when there are no grades and no notes, point to the
+          docked "Ask anything about {symbol}" bar instead of a redundant CTA. */}
+      {!(analyst?.grades?.length > 0) && analysis.length === 0 && (
+        <View className="items-center pt-12 pb-6">
+          <View style={s.analysisEmptyIcon}>
+            <TrendingUp size={22} color="#9ca3af" />
+          </View>
+          <Text style={s.analysisEmptyTitle}>No analyst grades or AI notes yet</Text>
+          <Text style={s.analysisEmptyDesc}>
+            Ask Finch AI below for a deep-dive on this stock's fundamentals, risks, and outlook.
+          </Text>
         </View>
-        <TouchableOpacity onPress={onChat} style={s.aiCtaBtn} activeOpacity={0.8}>
-          <Text style={s.aiCtaBtnText}>Ask AI</Text>
-        </TouchableOpacity>
-      </View>
+      )}
     </View>
   );
 }
@@ -961,4 +963,13 @@ const s = StyleSheet.create({
   aiCtaDesc: { fontSize: 12, fontFamily: 'DMSans', color: '#6b7280', lineHeight: 17, marginTop: 2 },
   aiCtaBtn: { backgroundColor: '#059669', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   aiCtaBtnText: { fontSize: 12, fontFamily: 'DMSans-Medium', color: '#fff' },
+  analysisEmptyIcon: {
+    width: 48, height: 48, borderRadius: 24, backgroundColor: '#f3f4f6',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+  },
+  analysisEmptyTitle: { fontSize: 15, fontFamily: 'DMSans-Bold', color: '#111827' },
+  analysisEmptyDesc: {
+    fontSize: 13, fontFamily: 'DMSans', color: '#9ca3af', textAlign: 'center',
+    lineHeight: 18, marginTop: 4, paddingHorizontal: 24,
+  },
 });
