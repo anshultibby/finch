@@ -310,6 +310,8 @@ export interface UserChatsResponse {
     created_at: string;
     updated_at: string;
     last_message?: string;
+    is_public?: boolean;
+    share_token?: string | null;
   }>;
 }
 

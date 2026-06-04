@@ -254,6 +254,78 @@ async def truncate_chat(
     return {"deleted": deleted}
 
 
+class RenameChatRequest(BaseModel):
+    title: Optional[str] = None
+    icon: Optional[str] = None
+
+
+@router.get("/shared/{share_token}")
+async def get_shared_chat(share_token: str):
+    """Public, read-only view of a shared chat. No auth required."""
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat_by_share_token(db, share_token)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found or not shared")
+        chat_id = chat.chat_id
+        meta = {
+            "title": chat.title,
+            "icon": chat.icon,
+            "created_at": chat.created_at.isoformat() if chat.created_at else None,
+        }
+    try:
+        display_data = await chat_service.get_chat_history_for_display(chat_id, limit=500)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return {**meta, **display_data}
+
+
+@router.patch("/{chat_id}")
+async def rename_chat(
+    chat_id: str,
+    body: RenameChatRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Rename a chat (title and/or icon)."""
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
+        title = body.title if body.title is not None else chat.title
+        updated = await chat_async.update_chat_title(db, chat_id, title, body.icon)
+    return {"chat_id": chat_id, "title": updated.title, "icon": updated.icon}
+
+
+@router.delete("/{chat_id}")
+async def delete_chat(
+    chat_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Delete a chat and all of its messages."""
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
+        deleted = await chat_async.delete_chat(db, chat_id)
+    return {"deleted": deleted}
+
+
+@router.post("/{chat_id}/share")
+async def toggle_chat_share(
+    chat_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Toggle public sharing for a chat. Returns the share_token when enabled."""
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
+        updated = await chat_async.set_chat_share(db, chat_id, not chat.is_public)
+    return {"is_public": updated.is_public, "share_token": updated.share_token}
+
+
 @router.delete("/sandbox/{user_id}")
 async def reset_user_sandbox(
     user_id: str,

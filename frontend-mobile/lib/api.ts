@@ -276,6 +276,21 @@ export const chatApi = {
     return response.data;
   },
 
+  renameChat: async (chatId: string, title: string): Promise<{ chat_id: string; title: string; icon: string | null }> => {
+    const response = await api.patch(`/chat/${chatId}`, { title });
+    return response.data;
+  },
+
+  deleteChat: async (chatId: string): Promise<{ deleted: boolean }> => {
+    const response = await api.delete(`/chat/${chatId}`);
+    return response.data;
+  },
+
+  shareChat: async (chatId: string): Promise<{ is_public: boolean; share_token: string | null }> => {
+    const response = await api.post(`/chat/${chatId}/share`);
+    return response.data;
+  },
+
   requestEmailNotification: async (chatId: string): Promise<void> => {
     await api.post(`/chat/${chatId}/notify-email`);
   },

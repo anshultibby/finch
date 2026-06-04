@@ -24,6 +24,8 @@ class Chat(Base):
     is_processing = Column(Boolean, default=False, nullable=False, index=True)
     processing_started_at = Column(DateTime(timezone=True), nullable=True)
     notify_email = Column(String, nullable=True)
+    is_public = Column(Boolean, server_default="false", nullable=False)  # public read-only share
+    share_token = Column(String(32), nullable=True, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

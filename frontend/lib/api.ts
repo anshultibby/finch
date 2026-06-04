@@ -11,6 +11,7 @@ export * from './types';
 import type {
   ChatHistory,
   UserChatsResponse,
+  SharedChat,
   ModelOption,
   GenerateTitleResponse,
   Resource,
@@ -420,6 +421,28 @@ export const chatApi = {
   truncateChat: async (chatId: string, fromUserIndex: number): Promise<{ deleted: number }> => {
     const response = await api.post(`/chat/${chatId}/truncate`, { from_user_index: fromUserIndex });
     return response.data;
+  },
+
+  renameChat: async (chatId: string, title: string): Promise<{ chat_id: string; title: string; icon: string | null }> => {
+    const response = await api.patch(`/chat/${chatId}`, { title });
+    return response.data;
+  },
+
+  deleteChat: async (chatId: string): Promise<{ deleted: boolean }> => {
+    const response = await api.delete(`/chat/${chatId}`);
+    return response.data;
+  },
+
+  shareChat: async (chatId: string): Promise<{ is_public: boolean; share_token: string | null }> => {
+    const response = await api.post(`/chat/${chatId}/share`);
+    return response.data;
+  },
+
+  // Public, no-auth fetch of a shared chat snapshot (used by the share page).
+  getSharedChat: async (token: string): Promise<SharedChat> => {
+    const response = await fetch(`${API_BASE_URL}/chat/shared/${token}`);
+    if (!response.ok) throw new Error('Shared chat not found');
+    return response.json();
   },
 
   requestEmailNotification: async (chatId: string): Promise<void> => {

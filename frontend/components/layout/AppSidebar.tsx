@@ -3,6 +3,7 @@
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useRef } from 'react';
 import { chatApi } from '@/lib/api';
 import ProfileDropdown from '../ProfileDropdown';
+import ChatItemMenu from '@/components/chat/ChatItemMenu';
 import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
 import { useCredits } from '@/contexts/CreditsContext';
@@ -17,6 +18,8 @@ interface Chat {
   icon: string | null;
   created_at: string;
   updated_at: string;
+  is_public?: boolean;
+  share_token?: string | null;
 }
 
 interface AppSidebarProps {
@@ -190,6 +193,20 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     });
   }, []);
 
+  const handleRenamed = useCallback((chatId: string, title: string) => {
+    setChats(prev => prev.map(c => c.chat_id === chatId ? { ...c, title } : c));
+  }, []);
+
+  const handleDeleted = useCallback((chatId: string) => {
+    setChats(prev => prev.filter(c => c.chat_id !== chatId));
+    // If the active chat was deleted, start a fresh chat so the view isn't stale.
+    if (chatId === currentChatId) onNewChat();
+  }, [currentChatId, onNewChat]);
+
+  const handleShareChange = useCallback((chatId: string, isPublic: boolean, shareToken: string | null) => {
+    setChats(prev => prev.map(c => c.chat_id === chatId ? { ...c, is_public: isPublic, share_token: shareToken } : c));
+  }, []);
+
   useImperativeHandle(ref, () => ({ updateChatTitle }), [updateChatTitle]);
 
   useEffect(() => { loadChats(searchQuery); }, [loadChats, refreshTrigger]);
@@ -359,18 +376,31 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                       const isActive = chat.chat_id === currentChatId && currentView.type === 'chat';
                       const isChatStreaming = chat.chat_id === currentChatId && isStreamingChat;
                       return (
-                        <button key={chat.chat_id} onClick={() => onSelectChat(chat.chat_id)}
-                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                        <div key={chat.chat_id}
+                          className={`group relative flex items-center gap-1 rounded-lg text-sm transition-colors ${
                             isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                           }`}>
-                          {isChatStreaming && (
-                            <span className="relative flex-shrink-0 w-2 h-2">
-                              <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
-                              <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
-                            </span>
-                          )}
-                          <span className="truncate flex-1">{chat.title || 'New Chat'}</span>
-                        </button>
+                          <button onClick={() => onSelectChat(chat.chat_id)}
+                            className="flex items-center gap-2.5 pl-2 pr-1 py-1.5 flex-1 min-w-0 text-left">
+                            {isChatStreaming && (
+                              <span className="relative flex-shrink-0 w-2 h-2">
+                                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                                <span className="relative block w-2 h-2 rounded-full bg-emerald-500" />
+                              </span>
+                            )}
+                            <span className="truncate flex-1">{chat.title || 'New Chat'}</span>
+                          </button>
+                          <ChatItemMenu
+                            chatId={chat.chat_id}
+                            title={chat.title}
+                            isPublic={chat.is_public}
+                            shareToken={chat.share_token}
+                            onRenamed={handleRenamed}
+                            onDeleted={handleDeleted}
+                            onShareChange={handleShareChange}
+                            buttonClassName={`mr-1 ${isActive ? '' : 'opacity-0 group-hover:opacity-100'}`}
+                          />
+                        </div>
                       );
                     })}
                     {isLoadingMore && (

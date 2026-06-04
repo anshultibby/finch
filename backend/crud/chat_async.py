@@ -124,7 +124,9 @@ async def get_user_chats_with_preview(
             "model": chat.model,
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat(),
-            "last_message": last_message
+            "last_message": last_message,
+            "is_public": chat.is_public,
+            "share_token": chat.share_token,
         })
     
     return chats_list
@@ -168,21 +170,51 @@ async def update_chat_title(db: AsyncSession, chat_id: str, title: str, icon: Op
 
 async def delete_chat(db: AsyncSession, chat_id: str) -> bool:
     """Delete a chat and all its messages"""
-    # Delete messages first
-    await db.execute(
-        select(ChatMessage).where(ChatMessage.chat_id == chat_id)
-    )
-    
-    # Delete chat
+    from sqlalchemy import delete as sa_delete
+
     result = await db.execute(
         select(Chat).where(Chat.chat_id == chat_id)
     )
     chat = result.scalar_one_or_none()
-    if chat:
-        await db.delete(chat)
-        await db.commit()
-        return True
-    return False
+    if not chat:
+        return False
+
+    # Delete messages first (no FK cascade on chat_messages.chat_id)
+    await db.execute(sa_delete(ChatMessage).where(ChatMessage.chat_id == chat_id))
+    await db.delete(chat)
+    await db.commit()
+    return True
+
+
+async def set_chat_share(db: AsyncSession, chat_id: str, enabled: bool) -> Optional[Chat]:
+    """Enable or disable public sharing for a chat.
+
+    When enabling, lazily mints a share_token if one doesn't exist yet.
+    When disabling, clears is_public (the token is kept null).
+    """
+    import secrets
+
+    chat = await get_chat(db, chat_id)
+    if not chat:
+        return None
+    if enabled:
+        chat.is_public = True
+        if not chat.share_token:
+            chat.share_token = secrets.token_urlsafe(16)
+    else:
+        chat.is_public = False
+        chat.share_token = None
+    await db.commit()
+    await db.refresh(chat)
+    return chat
+
+
+async def get_chat_by_share_token(db: AsyncSession, share_token: str) -> Optional[Chat]:
+    """Get a publicly-shared chat by its share token (only if still public)."""
+    result = await db.execute(
+        select(Chat).where(Chat.share_token == share_token, Chat.is_public == True)  # noqa: E712
+    )
+    return result.scalar_one_or_none()
 
 
 # ChatMessage operations

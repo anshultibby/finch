@@ -332,8 +332,27 @@ export interface UserChatsResponse {
     created_at: string;
     updated_at: string;
     last_message?: string;
+    is_public?: boolean;
+    share_token?: string | null;
   }>;
   has_more?: boolean;
+}
+
+/** A read-only shared chat snapshot (from public GET /chat/shared/{token}). */
+export interface SharedChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string | null;
+  tool_calls?: Array<{ tool_name: string; statusMessage?: string }> | null;
+}
+
+export interface SharedChat {
+  title: string | null;
+  icon: string | null;
+  created_at: string | null;
+  messages: SharedChatMessage[];
+  has_more: boolean;
+  oldest_sequence: number | null;
 }
 
 /** A selectable LLM model for the chat model picker (from GET /chat/models). */
