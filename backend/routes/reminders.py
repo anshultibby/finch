@@ -49,22 +49,3 @@ async def list_reminders(
     result = await db.execute(select(TLHReminder).where(TLHReminder.user_id == user_id).order_by(TLHReminder.remind_at))
     reminders = result.scalars().all()
     return {"reminders": [{"id": str(r.id), "symbol_sold": r.symbol_sold, "symbol_bought": r.symbol_bought, "remind_at": r.remind_at.isoformat(), "sent": r.sent} for r in reminders]}
-
-
-# ── Alpaca waitlist ──────────────────────────────────────────────────────────
-
-alpaca_router = APIRouter(prefix="/waitlist", tags=["waitlist"])
-
-class WaitlistRequest(BaseModel):
-    email: str
-
-@alpaca_router.post("/alpaca")
-async def join_alpaca_waitlist(req: WaitlistRequest, db: AsyncSession = Depends(get_async_db)):
-    from models.user import AlpacaWaitlist
-    from sqlalchemy import select
-    # Idempotent — ignore duplicate emails
-    existing = await db.execute(select(AlpacaWaitlist).where(AlpacaWaitlist.email == req.email))
-    if not existing.scalar_one_or_none():
-        db.add(AlpacaWaitlist(email=req.email))
-        await db.commit()
-    return {"success": True}

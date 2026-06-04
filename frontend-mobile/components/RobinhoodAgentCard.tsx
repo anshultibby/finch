@@ -1,5 +1,6 @@
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Sparkles } from 'lucide-react-native';
 import { robinhoodApi } from '@/lib/api';
 import { connectRobinhood } from '@/lib/robinhoodAuth';
@@ -9,6 +10,7 @@ import { connectRobinhood } from '@/lib/robinhoodAuth';
  * Connect runs the on-device loopback OAuth (see lib/robinhoodAuth.ts).
  */
 export default function RobinhoodAgentCard({ userId }: { userId: string }) {
+  const router = useRouter();
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -42,17 +44,22 @@ export default function RobinhoodAgentCard({ userId }: { userId: string }) {
 
   return (
     <View className="rounded-2xl border border-gray-200 p-4 mb-3">
-      <View className="flex-row items-center gap-2.5">
+      <TouchableOpacity
+        className="flex-row items-center gap-2.5"
+        activeOpacity={connected ? 0.7 : 1}
+        disabled={!connected}
+        onPress={() => router.setParams({ tab: 'agent' })}
+      >
         <View className="h-8 w-8 rounded-lg items-center justify-center" style={{ backgroundColor: '#10b981' }}>
           <Sparkles size={16} color="#ffffff" />
         </View>
         <View className="flex-1">
           <Text className="text-[13px] font-body-medium text-gray-900">AI Trading Agent</Text>
           {connected
-            ? <Text className="text-[11px] font-body" style={{ color: '#059669' }}>● Active</Text>
+            ? <Text className="text-[11px] font-body" style={{ color: '#059669' }}>● Active · tap to view</Text>
             : <Text className="text-[11px] font-body text-gray-400">Powered by Robinhood</Text>}
         </View>
-      </View>
+      </TouchableOpacity>
 
       {connected ? (
         <TouchableOpacity onPress={handlePress} className="mt-3" activeOpacity={0.7}>

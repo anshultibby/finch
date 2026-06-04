@@ -7,6 +7,7 @@ import { alpacaBrokerApi, marketApi, snaptradeApi, watchlistApi } from '@/lib/ap
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
+import AgentTabView from './AgentTabView';
 import ChatInput from '@/components/chat/ChatInput';
 import EmptyState from '@/components/ui/EmptyState';
 import CountUp from '@/components/ui/CountUp';
@@ -96,6 +97,7 @@ const NAV_TABS: { key: HomeTab; label: string }[] = [
   { key: 'earnings', label: 'Earnings' },
   { key: 'watchlist', label: 'Watchlist' },
   { key: 'portfolio', label: 'Portfolio' },
+  { key: 'agent', label: 'Agent' },
 ];
 
 function TopNavBar({ market, onMarketChange, activeTab, onTabChange }: {
@@ -1619,6 +1621,10 @@ export default function HomePage() {
               />
             )}
 
+            {activeTab === 'agent' && (
+              <AgentTabView userId={user!.id} onStockClick={openStock} />
+            )}
+
             <div className="flex-grow" />
 
             {/* ── Bottom Chat Bar ──────────────────────────────────────── */}
@@ -1648,7 +1654,7 @@ export default function HomePage() {
 
             {/* Robinhood agentic trading account */}
             <div className="px-5 pb-5">
-              <RobinhoodAgentCard />
+              <RobinhoodAgentCard onView={() => setActiveTab('agent')} />
             </div>
 
             {/* Watchlist — hide when watchlist tab is active to avoid duplication */}

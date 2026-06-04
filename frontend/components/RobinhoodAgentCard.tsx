@@ -52,7 +52,7 @@ function PoweredBy({ logo }: { logo: string | null }) {
 }
 
 /** A trading agent that places real orders — powered by Robinhood's agentic MCP. */
-export default function RobinhoodAgentCard() {
+export default function RobinhoodAgentCard({ onView }: { onView?: () => void } = {}) {
   const { user } = useAuth();
   const [data, setData] = useState<RobinhoodAccountsResponse | null>(null);
   const [logo, setLogo] = useState<string | null>(null);
@@ -107,7 +107,10 @@ export default function RobinhoodAgentCard() {
   const lastTrade = stats?.last_trade ?? null;
 
   return (
-    <div className="rounded-xl border border-gray-200 p-3.5">
+    <div
+      onClick={connected && onView ? onView : undefined}
+      className={`rounded-xl border border-gray-200 p-3.5${connected && onView ? ' cursor-pointer transition hover:border-emerald-200 hover:shadow-sm' : ''}`}
+    >
       {/* Header: own sparkle mark + powered-by Robinhood */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 text-white">
@@ -127,25 +130,39 @@ export default function RobinhoodAgentCard() {
         <div className="mt-3 h-12 animate-pulse rounded-lg bg-gray-100" />
       ) : connected ? (
         <div className="mt-3">
-          <div className="rounded-lg bg-gray-50 p-3">
+          <div className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-3.5">
             <div className="flex items-end justify-between">
               <div>
-                <div className="text-[11px] text-gray-400">Account value</div>
-                <div className="text-lg font-bold tabular-nums text-gray-900">{fmtUsd(pf?.total_value)}</div>
+                <div className="text-[11px] font-medium text-gray-400">Account value</div>
+                <div className="text-2xl font-bold tabular-nums tracking-tight text-gray-900">{fmtUsd(pf?.total_value)}</div>
               </div>
               {today ? (
                 <div className="text-right">
-                  <div className="text-[11px] text-gray-400">Today</div>
+                  <div className="text-[11px] font-medium text-gray-400">Today</div>
                   <div className={`text-sm font-semibold tabular-nums ${today.amount >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {fmtSigned(today.amount)} <span className="font-normal">({today.pct >= 0 ? '+' : ''}{today.pct}%)</span>
                   </div>
                 </div>
               ) : (
                 <div className="text-right">
-                  <div className="text-[11px] text-gray-400">Buying power</div>
+                  <div className="text-[11px] font-medium text-gray-400">Buying power</div>
                   <div className="text-sm font-semibold tabular-nums text-gray-700">{fmtUsd(pf?.buying_power?.buying_power)}</div>
                 </div>
               )}
+            </div>
+            {/* secondary metrics row */}
+            <div className="mt-3 flex items-center gap-4 border-t border-emerald-100/70 pt-2.5 text-[11px]">
+              {stats?.positions_count != null && (
+                <span className="text-gray-500">
+                  <span className="font-semibold text-gray-700">{stats.positions_count}</span> position{stats.positions_count === 1 ? '' : 's'}
+                </span>
+              )}
+              {stats?.unrealized_pl != null && (
+                <span className="text-gray-500">
+                  Unrealized <span className={`font-semibold tabular-nums ${stats.unrealized_pl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtSigned(stats.unrealized_pl)}</span>
+                </span>
+              )}
+              <span className="ml-auto font-medium text-gray-400">Buying power {fmtUsd(pf?.buying_power?.buying_power)}</span>
             </div>
           </div>
 
@@ -167,7 +184,7 @@ export default function RobinhoodAgentCard() {
               {stats?.trades_today ? `${stats.trades_today} trade${stats.trades_today === 1 ? '' : 's'} today · ` : ''}
               Agentic{agentic && <span className="ml-0.5">••{agentic.account_number.slice(-4)}</span>}
             </span>
-            <button onClick={handleDisconnect} disabled={busy} className="hover:text-red-500 disabled:opacity-50">Disconnect</button>
+            <button onClick={(e) => { e.stopPropagation(); handleDisconnect(); }} disabled={busy} className="hover:text-red-500 disabled:opacity-50">Disconnect</button>
           </div>
         </div>
       ) : (

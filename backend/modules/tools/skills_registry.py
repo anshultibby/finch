@@ -30,8 +30,6 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     "REDDIT_CLIENT_SECRET":   ("REDDIT",   "system"),
     "SNAPTRADE_CLIENT_ID":    ("SNAPTRADE","system"),
     "SNAPTRADE_CONSUMER_KEY": ("SNAPTRADE","system"),
-    "ALPACA_API_KEY":         ("ALPACA",   "system"),
-    "ALPACA_SECRET_KEY":      ("ALPACA",   "system"),
     "OPENAI_API_KEY":         ("OPENAI",   "system"),
     "ORATS_API_KEY":          ("ORATS",    "system"),
     "GEMINI_API_KEY":         ("GEMINI",   "system"),

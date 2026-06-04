@@ -16,6 +16,7 @@ import NewsCard from '@/components/market/NewsCard';
 import EmptyState from '@/components/ui/EmptyState';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
+import AgentTabView from '@/components/AgentTabView';
 import AskBar from '@/components/chat/AskBar';
 import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -41,13 +42,14 @@ const MARKET_INDICES: Record<MarketRegion, { symbol: string; label: string }[]> 
   ],
 };
 
-type HomeTab = 'markets' | 'earnings' | 'watchlist' | 'portfolio';
+type HomeTab = 'markets' | 'earnings' | 'watchlist' | 'portfolio' | 'agent';
 
 const NAV_TABS: { key: HomeTab; label: string }[] = [
   { key: 'markets', label: 'Markets' },
   { key: 'earnings', label: 'Earnings' },
   { key: 'watchlist', label: 'Watchlist' },
   { key: 'portfolio', label: 'Portfolio' },
+  { key: 'agent', label: 'Agent' },
 ];
 
 export default function HomeScreen() {
@@ -422,6 +424,9 @@ export default function HomeScreen() {
               userId={user?.id || ''}
               onConnectionChange={fetchPortfolio}
             />
+          )}
+          {activeTab === 'agent' && (
+            <AgentTabView userId={user?.id || ''} />
           )}
           </View>
 

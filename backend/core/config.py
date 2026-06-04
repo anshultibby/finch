@@ -110,26 +110,6 @@ class Settings(BaseSettings):
         default=None,
         description="The Odds API key for live sports odds data"
     )
-    ALPACA_API_KEY: Optional[str] = Field(
-        default=None,
-        description="Alpaca API key for paper/live trading"
-    )
-    ALPACA_SECRET_KEY: Optional[str] = Field(
-        default=None,
-        description="Alpaca secret key"
-    )
-    ALPACA_BROKER_CLIENT_ID: Optional[str] = Field(
-        default=None,
-        description="Alpaca Broker API client ID for programmatic account creation"
-    )
-    ALPACA_BROKER_CLIENT_SECRET: Optional[str] = Field(
-        default=None,
-        description="Alpaca Broker API client secret"
-    )
-    ALPACA_BROKER_SANDBOX: bool = Field(
-        default=True,
-        description="Use Alpaca Broker sandbox environment"
-    )
     E2B_API_KEY: Optional[str] = Field(
         default=None,
         description="E2B API key for sandboxed code execution"

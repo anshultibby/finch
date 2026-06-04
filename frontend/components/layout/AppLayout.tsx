@@ -11,9 +11,6 @@ import ChatDrawer from '@/components/chat/ChatDrawer';
 import { ChatModeProvider } from '@/contexts/ChatModeContext';
 import TickerLogo from '@/components/ui/TickerLogo';
 import StockPage from '@/components/stock/StockPage';
-import OrdersPage from '@/components/orders/OrdersPage';
-import PortfolioPanel from '@/components/PortfolioPanel';
-import SwapsPanel, { type StoredSwap } from '@/components/SwapsPanel';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
 import VisualizationsPanel from '@/components/VisualizationsPanel';
@@ -21,7 +18,6 @@ import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
 import JobsPanel from '@/components/JobsPanel';
 import CreditsModal from '@/components/CreditsModal';
 import { marketApi } from '@/lib/api';
-import type { SwapData } from '@/lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Top Bar — breadcrumbs + search
@@ -31,9 +27,6 @@ function viewLabel(view: View): string {
   switch (view.type) {
     case 'home': return 'Dashboard';
     case 'stock': return view.symbol;
-    case 'portfolio': return 'Portfolio';
-    case 'orders': return 'Orders';
-    case 'swaps': return 'Swaps';
     case 'chat': return 'Chat';
     case 'visualizations': return 'Visualizations';
     case 'memory-store': return 'Memory Store';
@@ -238,25 +231,6 @@ function TopBar() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Swap persistence
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SWAPS_STORAGE_KEY = 'finch_swap_opportunities';
-
-function loadStoredSwaps(userId: string): StoredSwap[] {
-  try {
-    const raw = localStorage.getItem(`${SWAPS_STORAGE_KEY}_${userId}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-
-function saveStoredSwaps(userId: string, swaps: StoredSwap[]) {
-  try {
-    localStorage.setItem(`${SWAPS_STORAGE_KEY}_${userId}`, JSON.stringify(swaps.slice(-50)));
-  } catch { /* ignore */ }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Inner layout (uses navigation context)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -314,8 +288,6 @@ function AppLayoutInner() {
   const {
     currentView,
     navigateTo,
-    chatDrawerOpen,
-    setChatDrawerOpen,
     currentChatId,
     setCurrentChatId,
     startNewChat,
@@ -325,61 +297,8 @@ function AppLayoutInner() {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [activeChatIsLoading, setActiveChatIsLoading] = useState(false);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
-  const [storedSwaps, setStoredSwaps] = useState<StoredSwap[]>([]);
 
   const sidebarRef = useRef<AppSidebarRef>(null);
-
-  // Load persisted swaps
-  useEffect(() => {
-    if (user?.id) setStoredSwaps(loadStoredSwaps(user.id));
-  }, [user?.id]);
-
-  const pendingSwapCount = storedSwaps.filter(s => s.status === 'pending').length;
-
-  const handleSwapsReceived = useCallback((chatId: string, swaps: SwapData[]) => {
-    if (!user?.id) return;
-    setStoredSwaps(prev => {
-      const next = [...prev];
-      for (const swap of swaps) {
-        const existingIdx = next.findIndex(s => s.sell_symbol === swap.sell_symbol && s.status !== 'dismissed');
-        if (existingIdx >= 0) {
-          next[existingIdx] = { ...next[existingIdx], ...swap, id: next[existingIdx].id, chatId, receivedAt: new Date().toISOString(), status: next[existingIdx].status };
-        } else {
-          const id = `${swap.sell_symbol}-${swap.buy_symbol}-${Date.now()}`;
-          next.push({ ...swap, id, chatId, receivedAt: new Date().toISOString(), status: 'pending' });
-        }
-      }
-      saveStoredSwaps(user.id, next);
-      return next;
-    });
-  }, [user?.id]);
-
-  const updateSwapStatus = useCallback((swap: StoredSwap, status: StoredSwap['status']) => {
-    if (!user?.id) return;
-    setStoredSwaps(prev => {
-      const next = prev.map(s => s.id === swap.id ? { ...s, status } : s);
-      saveStoredSwaps(user.id, next);
-      return next;
-    });
-  }, [user?.id]);
-
-  const handleApprove = useCallback((swap: StoredSwap) => updateSwapStatus(swap, 'approved'), [updateSwapStatus]);
-  const handleReject = useCallback((swap: StoredSwap) => updateSwapStatus(swap, 'rejected'), [updateSwapStatus]);
-  const handleDismiss = useCallback((swap: StoredSwap) => updateSwapStatus(swap, 'dismissed'), [updateSwapStatus]);
-
-  const handleSelectCandidate = useCallback((swap: StoredSwap, buySymbol: string) => {
-    if (!user?.id) return;
-    setStoredSwaps(prev => {
-      const next = prev.map(s => s.id === swap.id ? { ...s, selected_buy_symbol: buySymbol } : s);
-      saveStoredSwaps(user.id, next);
-      return next;
-    });
-  }, [user?.id]);
-
-  const handleChatAboutSwap = useCallback((_message: string) => {
-    setCurrentChatId(null);
-    setChatDrawerOpen(true);
-  }, [setChatDrawerOpen]);
 
   if (!user) return null;
 
@@ -390,22 +309,6 @@ function AppLayoutInner() {
         return <HomePage />;
       case 'stock':
         return <StockPage symbol={currentView.symbol} initialTab={currentView.tab} />;
-      case 'portfolio':
-        return <PortfolioPanel />;
-      case 'orders':
-        return <OrdersPage />;
-      case 'swaps':
-        return (
-          <SwapsPanel
-            swaps={storedSwaps.filter(s => s.status !== 'dismissed')}
-            userId={user.id}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            onDismiss={handleDismiss}
-            onChatAboutSwap={handleChatAboutSwap}
-            onSelectCandidate={handleSelectCandidate}
-          />
-        );
       case 'visualizations':
         return <VisualizationsPanel vizId={currentView.vizId} />;
       case 'memory-store':
@@ -454,7 +357,6 @@ function AppLayoutInner() {
               onCreatingChatChange={setIsCreatingChat}
               onLoadingChange={setActiveChatIsLoading}
               onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
-              onSwapsReceived={handleSwapsReceived}
             />
           </div>
 
@@ -466,7 +368,6 @@ function AppLayoutInner() {
             onCreatingChatChange={setIsCreatingChat}
             onLoadingChange={setActiveChatIsLoading}
             onHistoryRefresh={() => setChatHistoryRefresh(p => p + 1)}
-            onSwapsReceived={handleSwapsReceived}
           />
         </ChatModeProvider>
       </div>

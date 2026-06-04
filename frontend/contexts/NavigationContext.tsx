@@ -9,9 +9,6 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 export type View =
   | { type: 'home' }
   | { type: 'stock'; symbol: string; tab?: string }
-  | { type: 'portfolio' }
-  | { type: 'orders' }
-  | { type: 'swaps' }
   | { type: 'chat' }
   | { type: 'visualizations'; vizId?: string }
   | { type: 'memory-store' }
@@ -22,7 +19,7 @@ export type View =
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Market = 'us' | 'india';
-export type HomeTab = 'markets' | 'earnings' | 'watchlist' | 'portfolio';
+export type HomeTab = 'markets' | 'earnings' | 'watchlist' | 'portfolio' | 'agent';
 
 interface NavigationContextType {
   currentView: View;

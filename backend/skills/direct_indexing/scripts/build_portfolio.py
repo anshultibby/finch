@@ -33,7 +33,7 @@ def build_direct_index(
                         Set True for simulations and backtests — eliminates rounding
                         cash drag and keeps the direct index tracking within < 0.1% of
                         the ETF. Set False for live trading (most brokers require whole
-                        shares; Alpaca supports fractional for most US stocks).
+                        shares; some brokers support fractional for most US stocks).
         min_weight_pct: Skip constituents whose ETF weight is below this threshold.
                         Default 0.05% — eliminates micro-positions that would require
                         fractional shares or result in $0 allocated. The skipped weight

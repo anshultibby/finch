@@ -373,6 +373,77 @@ async def _agentic_stats(user_id: str, account_number: str) -> dict:
     }
 
 
+async def get_agentic_portfolio(user_id: str) -> dict:
+    """Full agentic-account view for the Agent tab: holdings (with live market value
+    and unrealized P&L) + recent filled orders. Built from the same Robinhood MCP."""
+    accounts_raw = await mcp_call(user_id, "get_accounts")
+    accounts = (accounts_raw or {}).get("data", {}).get("accounts", []) if isinstance(accounts_raw, dict) else []
+    agentic = next((a for a in accounts if a.get("agentic_allowed")), None)
+    if not agentic:
+        return {"agentic_account": None, "total_value": None, "buying_power": None, "holdings": [], "orders": []}
+    acct = agentic["account_number"]
+
+    total_value = buying_power = None
+    try:
+        pf = (await mcp_call(user_id, "get_portfolio", {"account_number": acct}) or {}).get("data") or {}
+        total_value = pf.get("total_value") or pf.get("market_value")
+        bp = pf.get("buying_power")
+        buying_power = bp.get("buying_power") if isinstance(bp, dict) else bp
+    except Exception as e:
+        logger.warning(f"Robinhood get_portfolio failed for {user_id}: {e}")
+
+    positions_raw = await mcp_call(user_id, "get_equity_positions", {"account_number": acct})
+    positions = (positions_raw or {}).get("data", {}).get("positions", []) if isinstance(positions_raw, dict) else []
+    held = [p for p in positions if _f(p.get("quantity")) > 0]
+
+    quotes: dict = {}
+    if held:
+        q_raw = await mcp_call(user_id, "get_equity_quotes", {"symbols": [p["symbol"] for p in held]})
+        for r in (q_raw or {}).get("data", {}).get("results", []) if isinstance(q_raw, dict) else []:
+            q = r.get("quote", {})
+            if q.get("symbol"):
+                quotes[q["symbol"]] = q
+
+    holdings = []
+    for p in held:
+        sym = p.get("symbol")
+        q = quotes.get(sym, {})
+        qty = _f(p.get("quantity"))
+        avg = _f(p.get("average_buy_price"))
+        last = _f(q.get("last_trade_price"))
+        prev = _f(q.get("adjusted_previous_close"))
+        holdings.append({
+            "symbol": sym,
+            "quantity": qty,
+            "average_buy_price": round(avg, 2),
+            "last_price": round(last, 2),
+            "market_value": round(qty * last, 2),
+            "unrealized_pl": round(qty * (last - avg), 2),
+            "unrealized_pct": round((last - avg) / avg * 100, 2) if avg > 0 else 0.0,
+            "today_pct": round((last - prev) / prev * 100, 2) if prev > 0 else 0.0,
+        })
+    holdings.sort(key=lambda h: h["market_value"], reverse=True)
+
+    orders_raw = await mcp_call(user_id, "get_equity_orders", {"account_number": acct, "state": "filled"})
+    orders_list = (orders_raw or {}).get("data", {}).get("orders", []) if isinstance(orders_raw, dict) else []
+    orders = [{
+        "side": o.get("side"),
+        "symbol": o.get("symbol"),
+        "quantity": o.get("quantity"),
+        "price": o.get("average_price"),
+        "at": o.get("last_transaction_at") or o.get("created_at"),
+        "state": o.get("state"),
+    } for o in orders_list[:25]]
+
+    return {
+        "agentic_account": agentic,
+        "total_value": total_value,
+        "buying_power": buying_power,
+        "holdings": holdings,
+        "orders": orders,
+    }
+
+
 async def get_connected_accounts(user_id: str) -> dict:
     """Live snapshot for the UI: the agentic account + portfolio + agent stats."""
     accounts_raw = await mcp_call(user_id, "get_accounts")

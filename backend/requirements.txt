@@ -44,7 +44,6 @@ seaborn==0.13.2
 slowapi==0.1.9
 snaptrade-python-sdk==11.0.193
 stripe==15.0.1
-alpaca-py==0.43.2
 mcp==1.18.0
 sqlalchemy==2.0.49
 supabase==2.16.0

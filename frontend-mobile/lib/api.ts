@@ -516,6 +516,32 @@ export const robinhoodApi = {
     const response = await api.delete(`/robinhood/disconnect/${userId}`);
     return response.data;
   },
+  getPortfolio: async (userId: string): Promise<RobinhoodPortfolioResponse> => {
+    const response = await api.get(`/robinhood/portfolio/${userId}`);
+    return response.data;
+  },
 };
+
+export interface RobinhoodHolding {
+  symbol: string;
+  quantity: number;
+  average_buy_price: number;
+  last_price: number;
+  market_value: number;
+  unrealized_pl: number;
+  unrealized_pct: number;
+  today_pct: number;
+}
+export interface RobinhoodOrder {
+  side: string; symbol: string; quantity: string; price: string; at: string; state: string;
+}
+export interface RobinhoodPortfolioResponse {
+  is_connected: boolean;
+  agentic_account: { account_number: string } | null;
+  total_value: string | null;
+  buying_power: string | null;
+  holdings: RobinhoodHolding[];
+  orders: RobinhoodOrder[];
+}
 
 export default api;

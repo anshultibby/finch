@@ -120,6 +120,24 @@ async def accounts(
         raise HTTPException(status_code=502, detail="Failed to load Robinhood account")
 
 
+@router.get("/portfolio/{user_id}")
+async def portfolio(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Full agentic-account portfolio for the Agent tab: holdings + recent orders."""
+    await verify_user_access(user_id, authenticated_user_id)
+    if not await robinhood_auth.is_connected(user_id):
+        return {"is_connected": False, "agentic_account": None, "total_value": None,
+                "buying_power": None, "holdings": [], "orders": []}
+    try:
+        data = await robinhood_auth.get_agentic_portfolio(user_id)
+        return {"is_connected": True, **data}
+    except Exception as e:
+        logger.error(f"Robinhood portfolio fetch failed for {user_id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to load Robinhood portfolio")
+
+
 @router.delete("/disconnect/{user_id}")
 async def disconnect(
     user_id: str,
