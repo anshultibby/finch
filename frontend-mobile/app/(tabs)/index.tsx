@@ -49,7 +49,7 @@ const NAV_TABS: { key: HomeTab; label: string }[] = [
   { key: 'earnings', label: 'Earnings' },
   { key: 'watchlist', label: 'Watchlist' },
   { key: 'portfolio', label: 'Portfolio' },
-  { key: 'agent', label: 'Agent' },
+  { key: 'agent', label: 'Trading Agent' },
 ];
 
 export default function HomeScreen() {

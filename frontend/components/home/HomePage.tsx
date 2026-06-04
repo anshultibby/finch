@@ -97,7 +97,7 @@ const NAV_TABS: { key: HomeTab; label: string }[] = [
   { key: 'earnings', label: 'Earnings' },
   { key: 'watchlist', label: 'Watchlist' },
   { key: 'portfolio', label: 'Portfolio' },
-  { key: 'agent', label: 'Agent' },
+  { key: 'agent', label: 'Trading Agent' },
 ];
 
 function TopNavBar({ market, onMarketChange, activeTab, onTabChange }: {
@@ -106,11 +106,11 @@ function TopNavBar({ market, onMarketChange, activeTab, onTabChange }: {
 }) {
   return (
     <div className="shrink-0 border-b border-gray-100 bg-white px-5">
-      <div className="flex items-center gap-6 h-11">
-        <MarketDropdown market={market} onChange={onMarketChange} />
+      <div className="flex items-center gap-6 h-11 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="shrink-0"><MarketDropdown market={market} onChange={onMarketChange} /></div>
         {NAV_TABS.map(tab => (
           <button key={tab.key} onClick={() => onTabChange(tab.key)}
-            className={`relative h-full flex items-center text-sm font-medium transition-colors ${
+            className={`relative h-full flex shrink-0 items-center whitespace-nowrap text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'text-gray-900'
                 : 'text-gray-400 hover:text-gray-600'

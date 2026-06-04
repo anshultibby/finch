@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, alpacaBrokerApi, watchlistApi, analysisApi } from '@/lib/api';
+import { marketApi, snaptradeApi, watchlistApi, analysisApi } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,7 +11,7 @@ import TickerLogo from '@/components/ui/TickerLogo';
 import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
 import ChatInput from '@/components/chat/ChatInput';
-import type { AlpacaBrokerPosition } from '@/lib/types';
+import type { Position } from '@/lib/types';
 import { formatCurrency as fmt, formatCurrencyCompact as fmtB } from '@/lib/currency';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -22,79 +22,6 @@ function fmtN(n: number) {
   return n.toLocaleString();
 }
 function pct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; }
-
-// ─── Trade Panel (inline on desktop, modal on mobile) ────────────────────────
-
-function TradePanel({ symbol, price, userId, onSuccess }: {
-  symbol: string; price: number; userId: string; onSuccess: () => void;
-}) {
-  const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const [qty, setQty] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
-  const est = parseFloat(qty || '0') * price;
-
-  const submit = async () => {
-    if (!qty || parseFloat(qty) <= 0) { setError('Enter shares'); return; }
-    setLoading(true); setError('');
-    try {
-      await alpacaBrokerApi.placeOrder(userId, { symbol, side, qty: parseFloat(qty), order_type: 'market', time_in_force: 'day' });
-      setDone(true);
-      setTimeout(() => { setDone(false); setQty(''); onSuccess(); }, 1500);
-    } catch (e: any) { setError(e?.response?.data?.detail || 'Order failed'); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-      {/* Buy / Sell tabs */}
-      <div className="flex border-b border-gray-100">
-        {(['buy', 'sell'] as const).map(s => (
-          <button key={s} onClick={() => setSide(s)}
-            className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
-              side === s
-                ? s === 'buy' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-red-500 border-b-2 border-red-500'
-                : 'text-gray-400'
-            }`}>
-            {s === 'buy' ? `Buy ${symbol}` : `Sell ${symbol}`}
-          </button>
-        ))}
-      </div>
-
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-500">Order type</span>
-          <span className="text-sm font-medium text-gray-900">Market</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-500">Shares</span>
-          <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="0"
-            min="0" step="1"
-            className="w-20 text-right text-sm font-medium border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-300 tabular-nums" />
-        </div>
-        <div className="flex items-center justify-between pt-1 border-t border-gray-100">
-          <span className="text-sm text-emerald-600 font-medium">Market price</span>
-          <span className="text-sm font-bold text-gray-900 tabular-nums">{fmt(price, symbol)}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-500">Estimated {side === 'buy' ? 'cost' : 'credit'}</span>
-          <span className="text-sm font-bold text-gray-900 tabular-nums">{fmt(est, symbol)}</span>
-        </div>
-
-        {error && <div className="text-xs text-red-500 font-medium">{error}</div>}
-
-        <button onClick={submit} disabled={loading || done}
-          className={`w-full py-2.5 text-sm font-bold text-white rounded-xl transition-all disabled:opacity-50 ${
-            done ? 'bg-emerald-500' : ''
-          }`}
-          style={!done ? { background: side === 'buy' ? '#059669' : '#dc2626' } : {}}>
-          {done ? 'Order placed!' : loading ? 'Placing...' : 'Trade now'}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Stat cell ───────────────────────────────────────────────────────────────
 
@@ -787,12 +714,10 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
   const [newsLoadingMore, setNewsLoadingMore] = useState(false);
   const [newsExhausted, setNewsExhausted] = useState(false);
   const [peers, setPeers] = useState<any[]>([]);
-  const [position, setPosition] = useState<AlpacaBrokerPosition | null>(null);
+  const [position, setPosition] = useState<Position | null>(null);
   const [loading, setLoading] = useState(true);
   const [watchlisted, setWatchlisted] = useState(false);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
-  const [hasAccount, setHasAccount] = useState(false);
-  const [showMobileTrade, setShowMobileTrade] = useState(false);
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [periodPct, setPeriodPct] = useState<number | null>(null);
   const [chartDays, setChartDays] = useState(1);
@@ -837,17 +762,13 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
     });
 
     if (user) {
-      alpacaBrokerApi.getPortfolio(user.id).catch(() => null).then(portfolio => {
-        if (portfolio?.positions) {
-          const pos = portfolio.positions.find((x: any) => x.symbol === symbol);
-          if (pos) setPosition(pos);
-        }
+      snaptradeApi.getPortfolio(user.id).catch(() => null).then(portfolio => {
+        const positions = portfolio?.accounts?.flatMap(a => a.positions) || [];
+        const pos = positions.find((x) => x.symbol === symbol);
+        if (pos) setPosition(pos);
       });
       watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })).then(wl => {
         if (wl?.symbols) setWatchlisted(wl.symbols.some((s: any) => s.symbol === symbol));
-      });
-      alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })).then((status: any) => {
-        setHasAccount(status?.exists && status?.status === 'ACTIVE');
       });
     }
   }, [symbol, user]);
@@ -1004,20 +925,10 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
               />
             </div>
 
-            {/* Mobile trade buttons */}
+            {/* Mobile action */}
             <div className="lg:hidden px-4 py-3 flex gap-2">
-              <button onClick={() => setShowMobileTrade(true)}
-                className="flex-1 py-3 text-sm font-bold text-white rounded-xl"
-                style={{ background: '#059669' }}>
-                Buy
-              </button>
-              <button onClick={() => setShowMobileTrade(true)}
-                className="flex-1 py-3 text-sm font-bold text-white rounded-xl"
-                style={{ background: '#dc2626' }}>
-                Sell
-              </button>
               <button onClick={() => openChatAbout(symbol)}
-                className="px-4 py-3 text-sm font-bold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors">
+                className="flex-1 py-3 text-sm font-bold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors">
                 Ask AI
               </button>
             </div>
@@ -1034,19 +945,23 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                   <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Your Position</div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-lg font-bold text-gray-900 tabular-nums">{fmt(parseFloat(position.market_value || '0'), symbol)}</div>
+                      <div className="text-lg font-bold text-gray-900 tabular-nums">{fmt(position.value || 0, symbol)}</div>
                       <div className="text-xs text-gray-400">
-                        {parseFloat(position.qty || '0')} shares @ {fmt(parseFloat(position.avg_entry_price || '0'), symbol)}
+                        {position.quantity} shares @ {fmt(position.average_purchase_price || 0, symbol)}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className={`text-sm font-bold tabular-nums ${parseFloat(position.unrealized_pl || '0') >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {parseFloat(position.unrealized_pl || '0') >= 0 ? '+' : ''}{fmt(parseFloat(position.unrealized_pl || '0'), symbol)}
+                    {position.gain_loss != null && (
+                      <div className="text-right">
+                        <div className={`text-sm font-bold tabular-nums ${position.gain_loss >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {position.gain_loss >= 0 ? '+' : ''}{fmt(position.gain_loss, symbol)}
+                        </div>
+                        {position.gain_loss_percent != null && (
+                          <div className={`text-xs tabular-nums ${position.gain_loss_percent >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {pct(position.gain_loss_percent)}
+                          </div>
+                        )}
                       </div>
-                      <div className={`text-xs tabular-nums ${parseFloat(position.unrealized_plpc || '0') >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {pct(parseFloat(position.unrealized_plpc || '0') * 100)}
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1373,7 +1288,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
               ...(profile && { sector: profile.sector, industry: profile.industry, marketCap: profile.mktCap }),
               ...(analyst?.grades && { analystConsensus: analyst.grades.consensus, analystCount: analyst.grades.total }),
               ...(analyst?.consensus && { priceTarget: analyst.consensus.targetConsensus }),
-              ...(position && { userPosition: { shares: parseFloat(position.qty || '0'), avgCost: parseFloat(position.avg_entry_price || '0'), unrealizedPL: parseFloat(position.unrealized_pl || '0') } }),
+              ...(position && { userPosition: { shares: position.quantity, avgCost: position.average_purchase_price || 0, unrealizedPL: position.gain_loss || 0 } }),
             })}
             placeholder={`Ask about ${symbol}...`}
           />
@@ -1509,24 +1424,8 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
           </div>
         )}
 
-        {/* Trade panel (if account exists) */}
-        {user && hasAccount && (
-          <div className="p-5">
-            <TradePanel symbol={symbol} price={price} userId={user.id} onSuccess={fetchData} />
-          </div>
-        )}
       </aside>
       </div>
-
-      {/* Mobile trade modal */}
-      {showMobileTrade && user && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={() => setShowMobileTrade(false)}>
-          <div className="w-full max-w-md bg-white rounded-t-2xl shadow-2xl p-4 pb-8 safe-area-bottom" onClick={e => e.stopPropagation()}>
-            <div className="w-8 h-1 bg-gray-300 rounded-full mx-auto mb-3" />
-            <TradePanel symbol={symbol} price={price} userId={user.id} onSuccess={() => { setShowMobileTrade(false); fetchData(); }} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
