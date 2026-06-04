@@ -4,9 +4,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { robinhoodApi, snaptradeApi, type RobinhoodAccountsResponse } from '@/lib/api';
 
-// Where the Finch Connect desktop app is hosted. Point this at your release/download
-// (e.g. a GitHub Releases page or a /downloads/.dmg URL) once the build is hosted.
-const FINCH_CONNECT_DOWNLOAD_URL = 'https://github.com/anshultibby/finch/releases/latest';
+// Direct download of the latest signed Finch Connect build (stable asset name, so
+// this link survives version bumps). Downloads the .dmg instead of opening a page.
+const FINCH_CONNECT_DOWNLOAD_URL = 'https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS-arm64.dmg';
 
 function fmtUsd(v?: string | null): string {
   if (v == null) return '—';
