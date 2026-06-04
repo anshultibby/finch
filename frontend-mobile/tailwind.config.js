@@ -16,7 +16,6 @@ module.exports = {
         },
         platform: {
           kalshi: '#7c3aed',
-          alpaca: '#059669',
           research: '#2563eb',
         },
       },

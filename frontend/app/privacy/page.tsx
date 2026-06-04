@@ -53,7 +53,7 @@ export default function PrivacyPolicy() {
             <ul className="list-disc pl-5 space-y-1 mt-2">
               <li>Google (authentication)</li>
               <li>Supabase (database and file storage)</li>
-              <li>Brokerage providers you connect (e.g., Alpaca, SnapTrade)</li>
+              <li>Brokerage providers you connect (e.g., SnapTrade)</li>
               <li>Market data providers</li>
             </ul>
           </section>

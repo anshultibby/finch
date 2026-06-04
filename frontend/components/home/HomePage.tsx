@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { alpacaBrokerApi, marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
+import { marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
@@ -14,7 +14,7 @@ import CountUp from '@/components/ui/CountUp';
 import TickerLogo from '@/components/ui/TickerLogo';
 import { Wallet } from 'lucide-react';
 import { SnapTradeReact } from 'snaptrade-react';
-import type { AlpacaPortfolioResponse, Brokerage, PortfolioResponse } from '@/lib/types';
+import type { Brokerage, PortfolioResponse } from '@/lib/types';
 import { formatCurrency as fmt } from '@/lib/currency';
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; }
 function num(v: string | null | undefined): number { return parseFloat(v || '0') || 0; }
@@ -542,10 +542,9 @@ function accountTypeIcon(type: string) {
   );
 }
 
-function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfolio, equity, onConnect, onDisconnect, onViewPortfolio, onSelectAccount, selectedAccountId }: {
+function AccountsSidebar({ hasBrokerage, externalPortfolio, onConnect, onDisconnect, onViewPortfolio, onSelectAccount, selectedAccountId }: {
   hasBrokerage: boolean; externalPortfolio: PortfolioResponse | null;
-  hasAccount: boolean; portfolio: AlpacaPortfolioResponse | null;
-  equity: number; onConnect: () => void; onDisconnect: (accountId: string, accountName: string) => void; onViewPortfolio: () => void;
+  onConnect: () => void; onDisconnect: (accountId: string, accountName: string) => void; onViewPortfolio: () => void;
   onSelectAccount: (id: string) => void; selectedAccountId?: string | null;
 }) {
   const [expandedInstitutions, setExpandedInstitutions] = useState<Set<string>>(new Set());
@@ -558,7 +557,7 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, hasAccount, portfoli
     });
   };
 
-  if (!hasBrokerage && !hasAccount) {
+  if (!hasBrokerage) {
     return (
       <div className="p-5 border-b border-gray-100">
         <h2 className="text-sm font-semibold text-gray-900 mb-3">Connect your accounts</h2>
@@ -1015,8 +1014,7 @@ function AccountDropdown({ accounts, selectedAccountId, accountCount, onSelect }
   );
 }
 
-function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockClick, selectedAccountId, onClearAccount, onSelectAccount, onConnect }: {
-  portfolio: AlpacaPortfolioResponse | null;
+function PortfolioTabView({ externalPortfolio, hasBrokerage, onStockClick, selectedAccountId, onClearAccount, onSelectAccount, onConnect }: {
   externalPortfolio: PortfolioResponse | null;
   hasBrokerage: boolean;
   onStockClick: (s: string) => void;
@@ -1029,39 +1027,23 @@ function PortfolioTabView({ portfolio, externalPortfolio, hasBrokerage, onStockC
     ? externalPortfolio?.accounts?.find(a => a.id === selectedAccountId)
     : null;
 
-  const positions = selectedAccount
+  const allPositions = selectedAccount
     ? selectedAccount.positions
     : externalPortfolio?.accounts?.flatMap(a => a.positions) || [];
-  const alpacaPositions = selectedAccount ? [] : (portfolio?.positions || []);
-  const allPositions = [...positions, ...alpacaPositions.map(p => ({
-    symbol: p.symbol,
-    quantity: num(p.qty),
-    price: num(p.current_price),
-    value: num(p.market_value),
-    average_purchase_price: num(p.avg_entry_price),
-    total_cost: num(p.cost_basis),
-    gain_loss: num(p.unrealized_pl),
-    gain_loss_percent: num(p.unrealized_plpc) * 100,
-  }))];
 
   const totalValue = selectedAccount
     ? selectedAccount.total_value
-    : (externalPortfolio?.total_value || 0) + num(portfolio?.account?.equity);
+    : (externalPortfolio?.total_value || 0);
   const totalCost = allPositions.reduce((sum, p) => sum + (p.total_cost || p.value), 0);
   const totalGainLoss = allPositions.reduce((sum, p) => sum + (p.gain_loss || 0), 0);
   const totalGainLossPct = totalCost > 0 ? (totalGainLoss / totalCost) * 100 : 0;
   const upCount = allPositions.filter(p => (p.gain_loss || 0) >= 0).length;
   const downCount = allPositions.length - upCount;
 
-  const equity = num(portfolio?.account?.equity);
-  const cash = num(portfolio?.account?.cash);
-  const buyingPower = num(portfolio?.account?.buying_power);
-  const longValue = num(portfolio?.account?.long_market_value);
-
-  const accountCount = (externalPortfolio?.account_count || 0) + (portfolio ? 1 : 0);
+  const accountCount = externalPortfolio?.account_count || 0;
   const headerLabel = selectedAccount ? selectedAccount.name : 'Net Worth';
 
-  if (!hasBrokerage && !portfolio) {
+  if (!hasBrokerage) {
     return (
       <EmptyState
         icon={Wallet}
@@ -1361,9 +1343,7 @@ export default function HomePage() {
   const [movers, setMovers] = useState<{ gainers: any[]; losers: any[] }>({ gainers: [], losers: [] });
   const [news, setNews] = useState<any[]>([]);
   const [watchlist, setWatchlist] = useState<any[]>([]);
-  const [portfolio, setPortfolio] = useState<AlpacaPortfolioResponse | null>(null);
   const [externalPortfolio, setExternalPortfolio] = useState<PortfolioResponse | null>(null);
-  const [hasAccount, setHasAccount] = useState<boolean | null>(null);
   const [hasBrokerage, setHasBrokerage] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -1383,20 +1363,14 @@ export default function HomePage() {
       marketApi.getBatchQuotes(allSymbols).catch(() => []),
       marketApi.getMovers().catch(() => ({ gainers: [], losers: [] })),
       watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })),
-      alpacaBrokerApi.getAccountStatus(user.id).catch(() => ({ exists: false })),
       snaptradeApi.checkStatus(user.id).catch(() => ({ is_connected: false })),
-    ]).then(([quotes, m, wl, status, brokerage]) => {
+    ]).then(([quotes, m, wl, brokerage]) => {
       const quoteMap: Record<string, any> = {};
       if (Array.isArray(quotes)) quotes.forEach((q: any) => { quoteMap[q.symbol] = q; });
       setIndexQuotes(quoteMap);
       setMovers({ gainers: m.gainers || [], losers: m.losers || [] });
       setWatchlist(wl.symbols || []);
 
-      const s = status as any;
-      setHasAccount(s.exists && s.status === 'ACTIVE');
-      if (s.exists && s.status === 'ACTIVE') {
-        alpacaBrokerApi.getPortfolio(user.id).then(setPortfolio).catch(() => {});
-      }
       const brokerageConnected = Boolean((brokerage as any)?.is_connected);
       setHasBrokerage(brokerageConnected);
       if (brokerageConnected) {
@@ -1540,11 +1514,6 @@ export default function HomePage() {
     );
   }
 
-  const equity = num(portfolio?.account?.equity);
-  const lastEquity = num(portfolio?.account?.last_equity);
-  const dayChange = equity - lastEquity;
-  const dayChangePct = lastEquity > 0 ? (dayChange / lastEquity) * 100 : 0;
-
   return (
     <div className="flex flex-col h-full bg-white">
       {/* ── Top Nav Bar ─────────────────────────────────────────────── */}
@@ -1610,7 +1579,6 @@ export default function HomePage() {
 
             {activeTab === 'portfolio' && (
               <PortfolioTabView
-                portfolio={portfolio}
                 externalPortfolio={externalPortfolio}
                 hasBrokerage={hasBrokerage}
                 onStockClick={openStock}
@@ -1642,9 +1610,6 @@ export default function HomePage() {
             <AccountsSidebar
               hasBrokerage={hasBrokerage}
               externalPortfolio={externalPortfolio}
-              hasAccount={!!hasAccount}
-              portfolio={portfolio}
-              equity={equity}
               onConnect={openConnectModal}
               onDisconnect={handleDisconnectAccount}
               onViewPortfolio={() => { setSelectedAccountId(null); setActiveTab('portfolio'); }}

@@ -887,76 +887,8 @@ function ReminderModal({ swap, onClose, userId }: { swap: SwapData; onClose: () 
   );
 }
 
-function WaitlistModal({ onClose }: { onClose: () => void }) {
-  const [email, setEmail] = React.useState('');
-  const [submitted, setSubmitted] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-
-  const handleSubmit = async () => {
-    if (!email.trim()) return;
-    setLoading(true);
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/waitlist/alpaca`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      setSubmitted(true);
-    } catch (e) {
-      setSubmitted(true); // show success even on error
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-        {submitted ? (
-          <div className="text-center py-4">
-            <div className="text-2xl mb-3">🎉</div>
-            <div className="font-semibold text-gray-900 mb-1">You're on the list</div>
-            <div className="text-sm text-gray-500">We'll let you know when Alpaca auto-execution launches.</div>
-            <button onClick={onClose} className="mt-4 text-sm text-gray-400 hover:text-gray-600">Close</button>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="font-semibold text-gray-900">Alpaca Auto-Execution</div>
-              <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full uppercase tracking-wide">Beta</span>
-            </div>
-            <div className="text-sm text-gray-500 mb-4">
-              We're building direct integration with Alpaca to execute these swaps automatically. Join the waitlist and we'll notify you when it's ready.
-            </div>
-            <input
-              type="email"
-              placeholder="your@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:border-gray-400"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Cancel</button>
-              <button
-                onClick={handleSubmit}
-                disabled={!email.trim() || loading}
-                className="flex-1 py-2.5 text-sm text-white bg-gray-900 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-colors"
-              >
-                {loading ? 'Joining…' : 'Join waitlist'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function SwapCard({ swap, index, userId }: { swap: SwapData; index: number; userId: string }) {
   const [showReminder, setShowReminder] = React.useState(false);
-  const [showWaitlist, setShowWaitlist] = React.useState(false);
 
   return (
     <>
@@ -997,17 +929,9 @@ function SwapCard({ swap, index, userId }: { swap: SwapData; index: number; user
             </svg>
             61-day reminder
           </button>
-          <button
-            onClick={() => setShowWaitlist(true)}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            Execute via Alpaca
-            <span className="text-[9px] bg-white/20 px-1.5 py-0.5 rounded font-semibold">BETA</span>
-          </button>
         </div>
       </div>
       {showReminder && <ReminderModal swap={swap} onClose={() => setShowReminder(false)} userId={userId} />}
-      {showWaitlist && <WaitlistModal onClose={() => setShowWaitlist(false)} />}
     </>
   );
 }
