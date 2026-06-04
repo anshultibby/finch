@@ -122,6 +122,7 @@ async def begin_connect(user_id: str) -> str:
         "code_challenge_method": "S256",
         "scope": settings.ROBINHOOD_OAUTH_SCOPE,
         "state": state,
+        "resource": settings.ROBINHOOD_MCP_URL,  # RFC 8707 — required by Robinhood's MCP OAuth
     }
     return f"{settings.ROBINHOOD_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
 
@@ -168,6 +169,9 @@ async def complete_callback(code: str, state: str) -> Optional[str]:
 
 async def _token_request(form: dict) -> dict:
     """POST to the OAuth token endpoint and return the parsed token response."""
+    # RFC 8707 resource indicator — Robinhood's MCP OAuth requires it on every token
+    # request (authorization_code AND refresh_token), bound to the MCP server URL.
+    form.setdefault("resource", settings.ROBINHOOD_MCP_URL)
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(
             settings.ROBINHOOD_OAUTH_TOKEN_URL,

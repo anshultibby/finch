@@ -12,8 +12,12 @@
  *     npx expo install expo-crypto expo-web-browser
  *     npm install react-native-tcp-socket   # then rebuild the dev client
  *
- * This file is verified in design against a working desktop loopback prototype;
- * the in-app iOS listener still needs an on-device test.
+ * ⚠️ KNOWN LIMITATION — does NOT work on mobile. Verified on-device: the loopback
+ * listener binds fine, but Robinhood's agent CONSENT page only renders in a desktop
+ * browser (the in-app/mobile-web consent 404s — Robinhood gates onboarding to
+ * desktop). So this mobile path cannot complete. The working path is the desktop
+ * Tauri app in `/finch-connect`; on mobile, connect Robinhood via SnapTrade instead.
+ * Kept here for reference and in case Robinhood later supports mobile consent.
  */
 import { Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
@@ -37,6 +41,9 @@ function getTcpSocket(): any {
 
 const REGISTER_URL = 'https://agent.robinhood.com/oauth/trading/register';
 const AUTHORIZE_URL = 'https://robinhood.com/oauth';
+// RFC 8707 resource indicator — REQUIRED by Robinhood's MCP OAuth. Without it the
+// authorize page errors ("something went wrong" / 404). Must match the MCP server URL.
+const RESOURCE = 'https://agent.robinhood.com/mcp/trading';
 const SCOPE = 'internal';
 const PORT = 8765;
 const REDIRECT_URI = `http://127.0.0.1:${PORT}/callback`;
@@ -127,12 +134,14 @@ export async function connectRobinhood(userId: string): Promise<void> {
     code_challenge_method: 'S256',
     scope: SCOPE,
     state,
+    resource: RESOURCE,
   });
 
   const codePromise = captureLoopbackCode();
+  const authorizeUrl = `${AUTHORIZE_URL}?${params.toString()}`;
   // Open consent; user logs in, taps Allow, approves on their RH app. The
   // redirect to 127.0.0.1 is caught by codePromise above.
-  WebBrowser.openBrowserAsync(`${AUTHORIZE_URL}?${params.toString()}`).catch(() => {});
+  WebBrowser.openBrowserAsync(authorizeUrl).catch(() => {});
 
   const result = await codePromise;
   WebBrowser.dismissBrowser().catch(() => {});
@@ -146,4 +155,5 @@ export async function connectRobinhood(userId: string): Promise<void> {
     client_id: clientId,
     redirect_uri: REDIRECT_URI,
   });
+  console.log('[RH] exchange complete ✓');
 }

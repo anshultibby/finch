@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Finch Connect</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="head">
+        <div class="logo">🐦</div>
+        <div>
+          <h1>Finch Connect</h1>
+          <p class="sub">Link your Robinhood Agentic account to Finch — securely, on this device.</p>
+        </div>
+      </header>
+
+      <section class="trust">
+        <h2>Why this is safe</h2>
+        <ul class="why">
+          <li><b>You approve on the real sites.</b> Sign-in happens on Google, and Robinhood access is granted on <b>robinhood.com</b> — this app never sees your passwords or 2FA.</li>
+          <li><b>Everything stays on your machine.</b> A tiny listener on <code>127.0.0.1:8765</code> catches the redirects locally, accepts one response, then closes.</li>
+          <li><b>No tokens on this computer.</b> Robinhood tokens are exchanged and stored by <i>your</i> Finch backend — nothing is written to disk here.</li>
+          <li><b>Open source.</b> Every server contacted is a named constant in <code>src-tauri/src/lib.rs</code> — made to be read.</li>
+        </ul>
+      </section>
+
+      <!-- Step 1: sign in -->
+      <section class="step-card" id="signin-card">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Sign in to Finch</h3>
+          <p id="signin-sub">So we can link Robinhood to your account.</p>
+          <button id="signin" class="primary">Continue with Google</button>
+        </div>
+      </section>
+
+      <!-- Step 2: connect -->
+      <section class="step-card disabled" id="connect-card">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Connect Robinhood</h3>
+          <p>Opens Robinhood's consent page. You approve there; we never touch your credentials.</p>
+          <button id="connect" class="primary" disabled>Connect Robinhood</button>
+        </div>
+      </section>
+
+      <section class="progress hidden" id="progress">
+        <p class="status" id="status"></p>
+        <div class="urlbox hidden" id="urlbox">
+          <span>Opening (verify this is robinhood.com):</span>
+          <code id="authurl"></code>
+        </div>
+      </section>
+
+      <section class="result hidden" id="result"></section>
+
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <label>
+          <span>Finch backend URL</span>
+          <input id="backend" type="text" value="https://finch-production-8434.up.railway.app" />
+        </label>
+      </details>
+    </main>
+  </body>
+</html>
