@@ -16,6 +16,20 @@ function setStatus(msg) {
   $("status").textContent = msg;
 }
 
+// Flip step 2 into a "connected" state (used after a successful connect, or when
+// we detect on sign-in that this account is already linked).
+function markConnected() {
+  const card = $("connect-card");
+  card.classList.remove("disabled");
+  card.classList.add("connected");
+  const sub = card.querySelector(".card-sub");
+  if (sub) sub.textContent = "Robinhood is linked — your agent can trade in your Agentic account.";
+  const btn = $("connect");
+  btn.textContent = "Connected ✓";
+  btn.disabled = true;
+  $("progress").classList.add("hidden");
+}
+
 async function signIn() {
   $("result").classList.add("hidden");
   $("signin").disabled = true;
@@ -30,6 +44,16 @@ async function signIn() {
     $("connect").disabled = false;
     $("status").textContent = "";
     $("progress").classList.add("hidden");
+
+    // If this account already linked Robinhood, reflect it instead of re-prompting.
+    try {
+      const already = await invoke("check_robinhood", {
+        backendUrl: $("backend").value.trim(),
+        finchToken: session.access_token,
+        userId: session.user_id,
+      });
+      if (already) markConnected();
+    } catch { /* status is best-effort */ }
   } catch (err) {
     $("signin").disabled = false;
     const msg = String(err);
@@ -54,7 +78,9 @@ async function connect() {
       finchToken: session.access_token,
       userId: session.user_id,
     });
+    markConnected();
     showResult(true, "Robinhood connected ✓", "Your agent can now trade in your Agentic account. You can close this app.");
+    $("connect").disabled = true; // stays connected
   } catch (err) {
     const msg = String(err);
     showResult(
@@ -64,8 +90,7 @@ async function connect() {
         ? "Timed out waiting for approval. Click Connect to try again."
         : msg
     );
-  } finally {
-    $("connect").disabled = false;
+    $("connect").disabled = false; // allow retry
   }
 }
 

@@ -6,6 +6,13 @@
   "build": {
     "frontendDist": "../src"
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["finch-connect"]
+      }
+    }
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [

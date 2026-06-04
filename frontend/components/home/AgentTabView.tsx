@@ -66,6 +66,9 @@ export default function AgentTabView({ userId, onStockClick }: {
           className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-105">
           Download Finch Connect
         </a>
+        <button onClick={() => { window.location.href = 'finch-connect://open'; }} className="mt-2 block w-full text-[11px] text-gray-400 hover:text-emerald-600 transition-colors">
+          Already installed? Open Finch Connect →
+        </button>
         <p className="mt-2 text-[11px] text-gray-400">🔒 Robinhood only allows trading approval from an app on your device.</p>
       </div>
     );

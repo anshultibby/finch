@@ -94,6 +94,10 @@ h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -0.6px; }
 .primary:hover { filter: brightness(1.04); box-shadow: 0 8px 22px rgba(16, 185, 129, 0.34); }
 .primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
+/* Step 2 once Robinhood is linked */
+.card.connected { border-color: #a7f3d0; background: linear-gradient(to bottom right, #ecfdf5, #ffffff); }
+.card.connected .primary:disabled { opacity: 1; background: #ecfdf5; color: var(--green-dark); box-shadow: none; cursor: default; }
+
 .progress {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   margin-top: 22px; text-align: center;

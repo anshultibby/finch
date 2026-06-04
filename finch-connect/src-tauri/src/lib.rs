@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 // --- Finch's Supabase project (anon key is a public, publishable key) ----------
 const SUPABASE_URL: &str = "https://iokwxwcvxhfqgiglfdbi.supabase.co";
@@ -345,11 +345,43 @@ async fn connect_robinhood(
     .map_err(|e| format!("internal error: {e}"))?
 }
 
+/// Is this user's Robinhood already connected? Lets the UI reflect a prior connect.
+#[tauri::command]
+async fn check_robinhood(backend_url: String, finch_token: String, user_id: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let url = format!("{}/robinhood/status/{}", backend_url.trim_end_matches('/'), user_id);
+        let resp = reqwest::blocking::Client::new()
+            .get(&url)
+            .bearer_auth(&finch_token)
+            .send()
+            .map_err(|e| format!("status check failed: {e}"))?;
+        let json: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
+        Ok(json.get("is_connected").and_then(|v| v.as_bool()).unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("internal error: {e}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![sign_in_finch, connect_robinhood])
+        .plugin(tauri_plugin_deep_link::init())
+        .setup(|app| {
+            // A finch-connect:// link (from the Finch web app) just brings this app
+            // to the front — no auth data is passed through the URL.
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |_event| {
+                if let Some(win) = handle.get_webview_window("main") {
+                    let _ = win.unminimize();
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![sign_in_finch, connect_robinhood, check_robinhood])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

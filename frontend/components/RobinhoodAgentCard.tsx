@@ -212,6 +212,12 @@ export default function RobinhoodAgentCard({ onView }: { onView?: () => void } =
             </svg>
             Download Finch Connect
           </a>
+          <button
+            onClick={(e) => { e.stopPropagation(); window.location.href = 'finch-connect://open'; }}
+            className="mt-1.5 w-full text-center text-[11px] text-gray-400 hover:text-emerald-600 transition-colors"
+          >
+            Already installed? Open Finch Connect →
+          </button>
           <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-400">
             🔒 Robinhood only allows trading approval from an app on your device. Download Finch Connect, sign in, and click Connect — takes a minute.
           </p>
