@@ -4,6 +4,7 @@ All FMP calls are synchronous, so we use asyncio.to_thread() to avoid blocking t
 FMP responses are cached at the fmp() call layer (see scripts/api.py).
 """
 import asyncio
+import re
 from fastapi import APIRouter, HTTPException, Query
 from datetime import date, timedelta, datetime, time as dtime, timezone
 from zoneinfo import ZoneInfo
@@ -303,7 +304,12 @@ async def get_stock_news(symbol: str, limit: int = 10):
     if not isinstance(data, list):
         data = []
 
-    if not data:
+    # For Indian tickers we never fall back to the (US-centric) general feed —
+    # showing unrelated US headlines on an Indian stock reads as a bug. Better
+    # to show nothing than the wrong stock's news.
+    is_indian = bool(re.match(r'^[A-Za-z0-9&-]+\.(NS|BO)$', symbol, re.IGNORECASE))
+
+    if not data and not is_indian:
         try:
             data = await asyncio.to_thread(fmp, f"/stock_news?limit={limit}")
         except Exception:
@@ -331,7 +337,7 @@ async def get_stock_peers_endpoint(symbol: str, limit: int = 6):
     if not isinstance(peers, list):
         return []
 
-    return [
+    cleaned = [
         {
             "symbol": p.get("symbol"),
             "name": p.get("companyName"),
@@ -340,7 +346,26 @@ async def get_stock_peers_endpoint(symbol: str, limit: int = 6):
         }
         for p in peers
         if isinstance(p, dict) and p.get("symbol")
-    ][:limit]
+    ]
+
+    # In Indian markets we only ever surface NSE (.NS) tickers. FMP frequently
+    # returns both the NSE and BSE (.BO) listing of the same company, so drop
+    # .BO entries and dedupe by the base ticker.
+    if re.match(r'^[A-Za-z0-9&-]+\.(NS|BO)$', symbol, re.IGNORECASE):
+        seen: set[str] = set()
+        nse_only = []
+        for p in cleaned:
+            sym = p["symbol"] or ""
+            if not sym.upper().endswith(".NS"):
+                continue
+            base = sym.rsplit(".", 1)[0].upper()
+            if base in seen:
+                continue
+            seen.add(base)
+            nse_only.append(p)
+        cleaned = nse_only
+
+    return cleaned[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -391,9 +416,9 @@ async def get_earnings_calendar_endpoint(
     if not isinstance(data, list):
         return []
 
-    import re
     if market == "india":
-        ticker_re = re.compile(r'^[A-Z0-9]+\.(NS|BO)$')
+        # India markets only ever show NSE (.NS) listings.
+        ticker_re = re.compile(r'^[A-Z0-9&-]+\.NS$')
     else:
         ticker_re = re.compile(r'^[A-Z]{1,4}(-[A-Z])?$')
 

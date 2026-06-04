@@ -15,7 +15,7 @@ import TickerLogo from '@/components/ui/TickerLogo';
 import { Wallet } from 'lucide-react';
 import { SnapTradeReact } from 'snaptrade-react';
 import type { Brokerage, PortfolioResponse } from '@/lib/types';
-import { formatCurrency as fmt } from '@/lib/currency';
+import { formatCurrency as fmt, formatCurrencyCompact as fmtB, formatDate, isIndianTicker } from '@/lib/currency';
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; }
 function num(v: string | null | undefined): number { return parseFloat(v || '0') || 0; }
 
@@ -294,7 +294,7 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
               }`}>
               <div className="text-xs text-gray-400 font-medium">{dayNames[i]}</div>
               <div className={`text-lg font-bold mt-0.5 ${isToday(d) ? 'text-gray-900' : 'text-gray-700'}`}>
-                {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {formatDate(d, { month: 'short', day: 'numeric' }, market === 'india')}
               </div>
               <div className="text-xs text-gray-400 mt-1">
                 {count > 0 ? `${count} Calls` : 'No Calls'}
@@ -314,7 +314,7 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
             {activeDayEarnings.map((e, i) => {
               const q = quotes[e.symbol];
               const mcap = q?.marketCap;
-              const mcapStr = mcap ? (mcap >= 1e12 ? `${(mcap/1e12).toFixed(1)}T` : mcap >= 1e9 ? `${(mcap/1e9).toFixed(1)}B` : mcap >= 1e6 ? `${(mcap/1e6).toFixed(0)}M` : '') : '';
+              const mcapStr = mcap ? (market === 'india' ? fmtB(mcap, e.symbol) : (mcap >= 1e12 ? `${(mcap/1e12).toFixed(1)}T` : mcap >= 1e9 ? `${(mcap/1e9).toFixed(1)}B` : mcap >= 1e6 ? `${(mcap/1e6).toFixed(0)}M` : '')) : '';
               const chg = q?.changePercent;
               return (
                 <button key={i} onClick={() => onStockClick(e.symbol)}
@@ -1194,7 +1194,7 @@ function MarketSummarySection({ news, onStockClick }: { news: any[]; onStockClic
               )}
               <span>{n.site}</span>
               {n.publishedDate && (
-                <span>{new Date(n.publishedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                <span>{formatDate(n.publishedDate, { month: 'short', day: 'numeric' }, isIndianTicker(n.symbol))}</span>
               )}
             </div>
           </a>

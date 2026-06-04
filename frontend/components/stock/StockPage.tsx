@@ -12,7 +12,7 @@ import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
 import ChatInput from '@/components/chat/ChatInput';
 import type { Position } from '@/lib/types';
-import { formatCurrency as fmt, formatCurrencyCompact as fmtB } from '@/lib/currency';
+import { formatCurrency as fmt, formatCurrencyCompact as fmtB, getCurrency, isIndianTicker, formatDate } from '@/lib/currency';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtN(n: number) {
@@ -266,7 +266,7 @@ const STATEMENT_ROWS: Record<FinancialStatement, FRow[]> = {
 
 type DisplayUnit = 'auto' | 'thousands' | 'millions' | 'billions';
 
-function fmtCell(value: any, format?: 'c' | 'p' | 'r' | 'n', unit?: DisplayUnit): string {
+function fmtCell(value: any, format?: 'c' | 'p' | 'r' | 'n', unit?: DisplayUnit, india = false): string {
   if (value == null || value === '') return '-';
   const n = typeof value === 'number' ? value : parseFloat(value);
   if (isNaN(n)) return '-';
@@ -280,6 +280,16 @@ function fmtCell(value: any, format?: 'c' | 'p' | 'r' | 'n', unit?: DisplayUnit)
   }
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '';
+  // Indian financials are conventionally quoted in crore (1e7) / lakh (1e5).
+  if (india) {
+    if (abs >= 1e7) {
+      const cr = abs / 1e7;
+      if (cr >= 1e5) return `${sign}${(cr / 1e5).toFixed(1)} Lakh Cr`;
+      return `${sign}${cr.toFixed(1)} Cr`;
+    }
+    if (abs >= 1e5) return `${sign}${(abs / 1e5).toFixed(1)} L`;
+    return `${sign}${abs.toFixed(0)}`;
+  }
   if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(1)}B`;
   if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(0)}M`;
   if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(0)}K`;
@@ -561,9 +571,8 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
               <tr className="border-b border-gray-200">
                 <th className="text-left py-2.5 px-2 sm:px-4 text-xs font-medium text-gray-400 sm:sticky sm:left-0 bg-white w-[80px] sm:min-w-[180px]" />
                 {columns.map((col, i) => {
-                  const d = col.date ? new Date(col.date) : null;
-                  const label = d
-                    ? d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
+                  const label = col.date
+                    ? formatDate(col.date, { month: 'numeric', day: 'numeric', year: 'numeric' }, isIndianTicker(symbol))
                     : '';
                   return (
                     <th key={i} className="text-right py-2.5 px-2 sm:px-4 text-xs font-medium text-gray-400 whitespace-nowrap">
@@ -635,7 +644,7 @@ function FinancialsTab({ symbol, statement, setStatement, period, setPeriod }: {
                       }`}>
                         <CitationCell
                           value={col[row.key]}
-                          displayValue={fmtCell(col[row.key], row.fmt, row.fmt === 'c' ? unit : undefined)}
+                          displayValue={fmtCell(col[row.key], row.fmt, row.fmt === 'c' ? unit : undefined, isIndianTicker(symbol))}
                           col={col}
                           row={{ label: row.label, fmt: row.fmt, key: row.key }}
                           section={FINANCIAL_STATEMENTS.find(s => s.key === statement)?.label || statement}
@@ -1087,7 +1096,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                             <div className="flex items-center gap-2 shrink-0 ml-2">
                               {note.created_at && (
                                 <span className="text-[11px] text-gray-400">
-                                  {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {formatDate(note.created_at, { month: 'short', day: 'numeric', year: 'numeric' }, isIndianTicker(symbol))}
                                 </span>
                               )}
                               {note.chat_id && (
@@ -1214,7 +1223,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                                 )}
                               </td>
                               <td className="py-2.5 px-3 text-right text-gray-500 tabular-nums whitespace-nowrap">
-                                {g.date ? new Date(g.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }) : ''}
+                                {g.date ? formatDate(g.date, { month: 'numeric', day: 'numeric', year: 'numeric' }, isIndianTicker(symbol)) : ''}
                               </td>
                             </tr>
                           );
@@ -1399,14 +1408,15 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
               {earningsHistory.slice(-6).map((e, i) => {
                 const beat = e.eps != null && e.epsEstimated != null && e.eps > e.epsEstimated;
                 const miss = e.eps != null && e.epsEstimated != null && e.eps < e.epsEstimated;
-                const quarter = e.date ? new Date(e.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) : '';
+                const quarter = e.date ? formatDate(e.date, { month: 'short', year: '2-digit' }, isIndianTicker(symbol)) : '';
+                const cur = getCurrency(symbol).symbol;
                 return (
                   <div key={i} className="flex items-center justify-between text-xs">
                     <span className="text-gray-500 w-16">{quarter}</span>
                     <div className="flex items-center gap-3 flex-1 justify-end">
-                      <span className="text-gray-400">Est: ${e.epsEstimated?.toFixed(2) ?? '--'}</span>
+                      <span className="text-gray-400">Est: {cur}{e.epsEstimated?.toFixed(2) ?? '--'}</span>
                       <span className={`font-bold ${beat ? 'text-emerald-600' : miss ? 'text-red-500' : 'text-gray-600'}`}>
-                        ${e.eps?.toFixed(2) ?? '--'}
+                        {cur}{e.eps?.toFixed(2) ?? '--'}
                       </span>
                       {beat && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
                       {miss && <span className="w-2 h-2 rounded-full bg-red-400" />}

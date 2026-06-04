@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { marketApi } from '@/lib/api';
-import { formatCurrencyCompact as fmtB, getCurrency } from '@/lib/currency';
+import { formatCurrencyCompact as fmtB, getCurrency, isIndianTicker, formatDate } from '@/lib/currency';
 
 type EarningsSubTab = 'overview' | 'transcript' | 'documents';
 
@@ -22,22 +22,33 @@ interface EarningsQuarter {
   revSurprisePct: number | null;
 }
 
-function deriveFiscalLabel(fiscalDateEnding: string | null, date: string): { label: string; year: number; q: number } {
+function deriveFiscalLabel(fiscalDateEnding: string | null, date: string, india: boolean): { label: string; year: number; q: number } {
   const fde = fiscalDateEnding || date;
   const d = new Date(fde);
   const month = d.getMonth() + 1;
-  const year = d.getFullYear();
+  const calYear = d.getFullYear();
+
+  if (india) {
+    // Indian fiscal year runs Apr–Mar; Q1 = Apr–Jun. FY is named by its ending
+    // calendar year (a quarter ending Jun 2024 → Q1 FY25).
+    let q: number;
+    let fy: number;
+    if (month >= 4) { q = Math.floor((month - 4) / 3) + 1; fy = calYear + 1; }
+    else { q = 4; fy = calYear; }
+    return { label: `Q${q} FY${String(fy).slice(-2)}`, year: fy, q };
+  }
+
   let q: number;
   if (month <= 3) q = 1;
   else if (month <= 6) q = 2;
   else if (month <= 9) q = 3;
   else q = 4;
-  return { label: `Q${q} ${year}`, year, q };
+  return { label: `Q${q} ${calYear}`, year: calYear, q };
 }
 
-function processQuarters(history: any[]): EarningsQuarter[] {
+function processQuarters(history: any[], india: boolean): EarningsQuarter[] {
   return history.map(e => {
-    const { label, year, q } = deriveFiscalLabel(e.fiscalDateEnding, e.date);
+    const { label, year, q } = deriveFiscalLabel(e.fiscalDateEnding, e.date, india);
     const isUpcoming = e.eps == null;
     const epsSurprisePct = e.eps != null && e.epsEstimated != null && e.epsEstimated !== 0
       ? ((e.eps - e.epsEstimated) / Math.abs(e.epsEstimated)) * 100
@@ -111,10 +122,9 @@ function QuarterPills({ quarters, selectedIdx, onSelect }: {
 // ── Quarter Detail Card ──────────────────────────────────────────────────────
 
 function QuarterDetail({ q, symbol, onListen }: { q: EarningsQuarter; symbol: string; onListen?: () => void }) {
-  const reportDate = new Date(q.date);
-  const dateStr = reportDate.toLocaleDateString('en-US', {
+  const dateStr = formatDate(q.date, {
     weekday: 'short', year: 'numeric', month: 'long', day: 'numeric',
-  });
+  }, isIndianTicker(symbol));
   const timeStr = q.time === 'bmo' ? 'Before Market Open' : q.time === 'amc' ? 'After Market Close' : '';
 
   return (
@@ -571,9 +581,9 @@ function EarningsDocuments({ symbol, quarter }: { symbol: string; quarter: Earni
     <div className="rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-100">
       {relevantFilings.map((f, i) => {
         const info = FILING_LABELS[f.type] || { label: f.type, tag: 'Filing' };
-        const filingDate = new Date(f.fillingDate).toLocaleDateString('en-US', {
+        const filingDate = formatDate(f.fillingDate, {
           year: 'numeric', month: 'long', day: 'numeric',
-        });
+        }, isIndianTicker(symbol));
         return (
           <div key={i} className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors">
             <div>
@@ -604,7 +614,7 @@ export default function EarningsTab({ symbol, earningsHistory }: { symbol: strin
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [subTab, setSubTab] = useState<EarningsSubTab>('overview');
 
-  const quarters = useMemo(() => processQuarters(earningsHistory), [earningsHistory]);
+  const quarters = useMemo(() => processQuarters(earningsHistory, isIndianTicker(symbol)), [earningsHistory, symbol]);
 
   useEffect(() => {
     setSelectedIdx(0);
