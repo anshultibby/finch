@@ -18,7 +18,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("UPDATE trading_bots SET platform = 'research' WHERE platform = 'alpaca'")
+    # Reassign any 'alpaca' platform references to the generic 'research' platform
+    # before the Alpaca tables go away. trading_bots stores platform in its config
+    # JSONB; bot_positions and trade_logs use a platform column.
+    op.execute(
+        "UPDATE trading_bots SET config = jsonb_set(config, '{platform}', '\"research\"') "
+        "WHERE config->>'platform' = 'alpaca'"
+    )
+    op.execute("UPDATE bot_positions SET platform = 'research' WHERE platform = 'alpaca'")
+    op.execute("UPDATE trade_logs SET platform = 'research' WHERE platform = 'alpaca'")
 
     op.drop_index("ix_alpaca_broker_accounts_user_id", table_name="alpaca_broker_accounts")
     op.drop_table("alpaca_broker_accounts")
