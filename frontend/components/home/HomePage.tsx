@@ -106,21 +106,26 @@ function TopNavBar({ market, onMarketChange, activeTab, onTabChange }: {
 }) {
   return (
     <div className="shrink-0 border-b border-gray-100 bg-white px-5">
-      <div className="flex items-center gap-6 h-11 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Market dropdown sits OUTSIDE the scrollable row — overflow-x-auto also
+          clips overflow-y, which would hide the dropdown's open menu. Only the
+          tabs scroll horizontally. */}
+      <div className="flex items-center gap-6 h-11">
         <div className="shrink-0"><MarketDropdown market={market} onChange={onMarketChange} /></div>
-        {NAV_TABS.map(tab => (
-          <button key={tab.key} onClick={() => onTabChange(tab.key)}
-            className={`relative h-full flex shrink-0 items-center whitespace-nowrap text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? 'text-gray-900'
-                : 'text-gray-400 hover:text-gray-600'
-            }`}>
-            {tab.label}
-            {activeTab === tab.key && (
-              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-gray-900 rounded-full" />
-            )}
-          </button>
-        ))}
+        <div className="flex items-center gap-6 h-full min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {NAV_TABS.map(tab => (
+            <button key={tab.key} onClick={() => onTabChange(tab.key)}
+              className={`relative h-full flex shrink-0 items-center whitespace-nowrap text-sm font-medium transition-colors ${
+                activeTab === tab.key
+                  ? 'text-gray-900'
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}>
+              {tab.label}
+              {activeTab === tab.key && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-gray-900 rounded-full" />
+              )}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
