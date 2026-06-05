@@ -203,11 +203,17 @@ async def get_chat_history_display(
             raise HTTPException(status_code=404, detail="Chat not found")
         await verify_user_access(chat.user_id, authenticated_user_id)
         chat_model = chat.model
+        chat_title = chat.title
+        chat_is_public = chat.is_public
+        chat_share_token = chat.share_token
     try:
         display_data = await chat_service.get_chat_history_for_display(chat_id, limit=limit, before_sequence=before_sequence)
         return {
             "chat_id": chat_id,
             "model": chat_model,
+            "title": chat_title,
+            "is_public": chat_is_public,
+            "share_token": chat_share_token,
             **display_data
         }
     except ValueError:

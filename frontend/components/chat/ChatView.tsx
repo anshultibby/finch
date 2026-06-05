@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
+import ChatHeaderActions from './ChatHeaderActions';
 import NewChatWelcome from './NewChatWelcome';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
@@ -135,6 +136,11 @@ export default function ChatView({
   // model / backend default (we only send an override once the user picks).
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
+
+  // Active chat metadata for the header toolbar (share button + options menu)
+  const [chatTitle, setChatTitle] = useState<string | null>(null);
+  const [chatIsPublic, setChatIsPublic] = useState(false);
+  const [chatShareToken, setChatShareToken] = useState<string | null>(null);
 
 
   // Sub-agent peek panel
@@ -303,6 +309,14 @@ export default function ChatView({
     chatApi.getModels().then(setModels).catch(() => {});
   }, []);
 
+  // Reset header metadata when the active chat changes; the history load
+  // (below) repopulates it for chats fetched from the backend.
+  useEffect(() => {
+    setChatTitle(null);
+    setChatIsPublic(false);
+    setChatShareToken(null);
+  }, [currentChatId]);
+
   // Load chat history when switching chats
   useEffect(() => {
     const load = async () => {
@@ -335,6 +349,9 @@ export default function ChatView({
 
         // Restore the chat's stored model into the picker (undefined = default)
         setSelectedModel((displayData as any).model || undefined);
+        setChatTitle(displayData.title ?? null);
+        setChatIsPublic(displayData.is_public ?? false);
+        setChatShareToken(displayData.share_token ?? null);
         setHasMoreMessages(displayData.has_more);
         setOldestSequence(displayData.oldest_sequence);
         updateChatState(currentChatId, { messages: loadedMessages }, syncDisplay);
@@ -705,6 +722,30 @@ export default function ChatView({
         } : undefined}
       >
         <ChatModeBanner />
+
+        {/* Chat header toolbar — share + options for the active conversation */}
+        {currentChatId && !isNewChat && !botId && messages.length > 0 && (
+          <div className="flex items-center justify-end px-3 sm:px-4 py-1.5 border-b border-gray-100">
+            <ChatHeaderActions
+              chatId={currentChatId}
+              title={chatTitle}
+              isPublic={chatIsPublic}
+              shareToken={chatShareToken}
+              onRenamed={(title) => {
+                setChatTitle(title);
+                sidebarRef?.current?.updateChatTitle(currentChatId, title, '');
+              }}
+              onShareChange={(isPublic, shareToken) => {
+                setChatIsPublic(isPublic);
+                setChatShareToken(shareToken);
+              }}
+              onDeleted={() => {
+                handleNewChat();
+                onHistoryRefresh?.();
+              }}
+            />
+          </div>
+        )}
 
         {/* Email notification banner — appears during long streams */}
         {isLoading && streamStartTime && !emailRequested && !emailDismissed && currentChatId && (Date.now() - streamStartTime) > 15000 && (

@@ -370,6 +370,9 @@ export const chatApi = {
 
   getChatHistoryForDisplay: async (chatId: string, options?: { limit?: number; before_sequence?: number }): Promise<{
     chat_id: string;
+    title?: string | null;
+    is_public?: boolean;
+    share_token?: string | null;
     has_more: boolean;
     oldest_sequence: number | null;
     messages: Array<{
