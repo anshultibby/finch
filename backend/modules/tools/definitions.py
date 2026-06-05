@@ -79,9 +79,14 @@ def estimate_time(
     description=EXECUTE_CODE_DESC,
     category="code"
 )
-async def bash(*, cmd: str, truncate: bool = True, context: AgentContext):
-    """Run a bash command in the persistent sandbox."""
-    params = code_execution.BashParams(cmd=cmd, truncate=truncate)
+async def bash(*, command: str, truncate: bool = True, context: AgentContext):
+    """Run a bash command in the persistent sandbox.
+
+    Args:
+        command: The bash command to run, e.g. "python3 chat_files/analysis.py".
+        truncate: Whether to truncate long output (default true).
+    """
+    params = code_execution.BashParams(cmd=command, truncate=truncate)
     async for item in code_execution.bash_impl(params, context):
         yield item
 

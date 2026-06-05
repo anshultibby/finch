@@ -116,7 +116,18 @@ class BaseAgent:
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse tool arguments for {func_name}: {args_str}")
                 func_args = {}
-            
+
+            # Diagnostic for the intermittent "missing required argument" bug: the
+            # tool_call is saved to history with full, valid args yet reaches the
+            # handler empty. Log the exact (id, raw args_str, parsed) at the
+            # execution boundary so a rerun shows whether args are already empty
+            # here (accumulation/stream issue) vs lost further downstream.
+            if args_str and not func_args:
+                logger.warning(
+                    f"🩺 Tool '{func_name}' (id={tc.get('id')!r}) has non-empty args_str "
+                    f"but parsed to empty dict. raw={args_str!r}"
+                )
+
             tool_call_requests.append(
                 ToolCallRequest(
                     id=tc["id"],

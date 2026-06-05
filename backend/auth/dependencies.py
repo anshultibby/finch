@@ -33,60 +33,38 @@ def _get_jwks():
     return _jwks_cache
 
 
-async def get_current_user_id(
-    authorization: Optional[str] = Header(None, description="Bearer token from Supabase Auth")
-) -> str:
-    """
-    Verify Supabase JWT token and extract user ID.
-    
-    The frontend sends: Authorization: Bearer <supabase_jwt_token>
-    This function verifies the token and returns the user_id.
-    
-    Args:
-        authorization: Authorization header with Bearer token
-        
-    Returns:
-        Validated user ID string
-        
-    Raises:
-        HTTPException: If token is missing, invalid, or expired
-    """
-    # Check authorization header exists
+async def _verify_bearer(authorization: Optional[str]) -> dict:
+    """Verify a Supabase Bearer JWT (signature, audience, expiry) and return its
+    decoded payload. Shared by get_current_user_id / get_current_user_email."""
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header"
+            detail="Missing Authorization header",
         )
-    
-    # Extract token from "Bearer <token>"
+
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization format. Use: Bearer <token>"
+            detail="Invalid authorization format. Use: Bearer <token>",
         )
-    
+
     token = parts[1]
-    
+
     try:
-        # Get key ID from token header
         header = jwt.get_unverified_header(token)
         kid = header.get("kid")
-        
         if not kid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing key ID"
+                detail="Invalid token: missing key ID",
             )
-        
-        # Fetch JWKS and find matching key
+
         jwks = _get_jwks()
         signing_key = None
         key_algorithm = None
-        
         for key in jwks.get("keys", []):
             if key.get("kid") == kid:
-                # Determine the key type and use the appropriate algorithm
                 kty = key.get("kty")
                 if kty == "RSA":
                     signing_key = RSAAlgorithm.from_jwk(key)
@@ -98,51 +76,65 @@ async def get_current_user_id(
                     logger.warning(f"Unsupported key type: {kty}")
                     continue
                 break
-        
+
         if not signing_key:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: unknown key"
+                detail="Invalid token: unknown key",
             )
-        
-        # Verify and decode token
-        # Use the algorithm that matches the key type
+
         algorithms = [key_algorithm] if key_algorithm else ["RS256", "ES256"]
         payload = jwt.decode(
             token,
             signing_key,
             algorithms=algorithms,
             audience="authenticated",
-            options={"verify_exp": True}
+            options={"verify_exp": True},
         )
-        
-        # Extract user ID
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing user ID"
-            )
-        
-        return user_id
-        
+        return payload
+
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired"
+            detail="Token expired",
         )
     except requests.RequestException as e:
         logger.error(f"Failed to fetch JWKS: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication service unavailable"
+            detail="Authentication service unavailable",
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"Token verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
+            detail="Invalid token",
         )
+
+
+async def get_current_user_id(
+    authorization: Optional[str] = Header(None, description="Bearer token from Supabase Auth")
+) -> str:
+    """Verify the Supabase JWT and return the user ID (the `sub` claim)."""
+    payload = await _verify_bearer(authorization)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing user ID",
+        )
+    return user_id
+
+
+async def get_current_user_email(
+    authorization: Optional[str] = Header(None, description="Bearer token from Supabase Auth")
+) -> Optional[str]:
+    """Verify the Supabase JWT and return the user's email (`email` claim), or None
+    if the token carries no email."""
+    payload = await _verify_bearer(authorization)
+    return payload.get("email")
 
 
 async def verify_user_access(

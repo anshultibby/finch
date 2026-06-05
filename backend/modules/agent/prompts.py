@@ -35,7 +35,7 @@ Name what consensus gets wrong and show the data that proves it.
 <sandbox>
 You have a dedicated Linux VM (sandbox) per user. Use `write_chat_file` to write code and `bash` to run it.
 
-**Default pattern:** `write_chat_file(filename="analysis.py", file_content="...")` then `bash(cmd="python3 chat_files/analysis.py")`.
+**Default pattern:** `write_chat_file(filename="analysis.py", file_content="...")` then `bash(command="python3 chat_files/analysis.py")`.
 Do NOT use bash heredocs to write code. To edit existing files, use `replace_in_chat_file` instead of rewriting.
 
 **Prefer single scripts** for one-off tasks. Only split into multiple files when you're building reusable helpers worth saving to memory with `memory_write(durable=True)`.

@@ -156,3 +156,30 @@ cancel_job("<id>")                       # cancel
 ```
 
 Write the `message` as a **self-contained instruction** — it runs fresh with no prior chat context. Include everything needed. Limits per user: **5 recurring + 10 one-off**; if a limit is hit you'll get an error — tell the user and offer to cancel one.
+
+## Trade Approval (one-click email)
+
+When an automation wants to place a **real** trade but shouldn't trade unattended,
+stage it for the user to approve from an email. The user clicks **Approve** and the
+backend places the order — you never place it directly.
+
+```python
+from skills.finch_api.scripts import request_trade_approval
+
+# After reviewing the order (see the robinhood skill's review_order):
+res = request_trade_approval(
+    account_number=acct,
+    order_params={"symbol": "AAPL", "side": "buy", "type": "market", "dollar_amount": "100.00"},
+    summary="BUY $100 of AAPL (market) — est. ~0.45 sh @ $221.30",
+    ttl_minutes=60,
+)
+# {"token": "...", "status": "pending", "expires_at": "...", "email_sent": true}
+```
+
+- `order_params` mirrors the Robinhood order args **without** `account_number`
+  (pass that separately): `symbol`, `side`, `type`, `quantity`|`dollar_amount`,
+  `limit_price`, …
+- The link **expires** (default 60 min, 5–1440) — if it lapses, no trade is placed.
+- This is the **default path for automated trading**: review → email for approval.
+  Only place orders directly (in the robinhood skill) when the user has explicitly
+  opted into unattended execution for that automation.

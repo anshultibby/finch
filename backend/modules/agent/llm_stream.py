@@ -421,6 +421,31 @@ async def stream_llm_response(
                             idx = len(tool_calls)
                         else:
                             idx = len(tool_calls) - 1
+
+                    # Phantom-delta guard. litellm/Anthropic intermittently emits a
+                    # spurious tool-call delta on a pure-text completion chunk: a valid
+                    # index but no id AND no name (and no args). A real Anthropic tool_use
+                    # always opens its first delta with both an id and a name, so a delta
+                    # that would START a brand-new slot yet carries neither is never a real
+                    # call. Materializing it created an empty-name slot that (a) flipped the
+                    # turn from "final text" to "tool turn", (b) executed as `Unknown tool: `,
+                    # and (c) got stripped from history as an orphan — re-sending identical
+                    # input and looping forever. Skip it instead of creating the slot.
+                    # NOTE: continuation deltas (streamed args) legitimately have no id/name
+                    # but point at an EXISTING slot (idx < len), so only guard new slots.
+                    fn = getattr(tc, "function", None)
+                    is_new_slot = idx >= len(tool_calls)
+                    has_identity = bool(tc.id) or bool(fn and fn.name)
+                    if is_new_slot and not has_identity:
+                        logger.warning(
+                            f"⚠️ Dropping phantom tool-call delta (no id/name on new slot): "
+                            f"index={tc.index!r} id={getattr(tc, 'id', None)!r} "
+                            f"name={(fn.name if fn else None)!r} "
+                            f"has_args={bool(fn and fn.arguments)} "
+                            f"tool_calls_so_far={len(tool_calls)}"
+                        )
+                        continue
+
                     while len(tool_calls) <= idx:
                         tool_calls.append({
                             "id": "",
@@ -459,6 +484,23 @@ async def stream_llm_response(
         logger.error(f"Traceback: {traceback_module.format_exc()}")
         raise
     
+    # Final safety net: drop any accumulated slot whose name never filled in.
+    # The phantom-delta guard above stops the common case (empty new-slot delta),
+    # but a slot could still end up nameless if a delta carried an id without a
+    # name. A nameless tool_call can only ever resolve to `Unknown tool: ` and
+    # would re-trigger the infinite-loop pathology, so discard it here rather than
+    # let it reach the agent loop.
+    named_tool_calls = []
+    for tc in tool_calls:
+        if (tc.get("function", {}).get("name") or "").strip():
+            named_tool_calls.append(tc)
+        else:
+            logger.warning(
+                f"⚠️ Discarding nameless tool-call slot before emit: "
+                f"id={tc.get('id')!r} args_len={len(tc.get('function', {}).get('arguments', ''))}"
+            )
+    tool_calls = named_tool_calls
+
     # Validate tool calls before emitting - fix any malformed JSON arguments
     # This prevents litellm from failing when sending these back to Anthropic
     validated_tool_calls = validate_and_fix_tool_calls(tool_calls)

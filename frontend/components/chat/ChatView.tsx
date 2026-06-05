@@ -723,9 +723,10 @@ export default function ChatView({
       >
         <ChatModeBanner />
 
-        {/* Chat header toolbar — share + options for the active conversation */}
+        {/* Chat header toolbar — share + options for the active conversation.
+            Floated top-right so it doesn't take a row and push the chat down. */}
         {currentChatId && !isNewChat && !botId && messages.length > 0 && (
-          <div className="flex items-center justify-end px-3 sm:px-4 py-1.5 border-b border-gray-100">
+          <div className="absolute top-1.5 right-3 sm:right-4 z-20 flex items-center justify-end">
             <ChatHeaderActions
               chatId={currentChatId}
               title={chatTitle}
@@ -747,14 +748,15 @@ export default function ChatView({
           </div>
         )}
 
-        {/* Email notification banner — appears during long streams */}
+        {/* Email notification toast — appears during long streams. Centered
+            compact pill so it stays clear of the floated top-right Share toolbar. */}
         {isLoading && streamStartTime && !emailRequested && !emailDismissed && currentChatId && (Date.now() - streamStartTime) > 15000 && (
-          <div className="mx-4 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200/60 bg-emerald-50/80 px-3 py-1.5">
+          <div className="mt-3 flex justify-center px-4 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2.5 rounded-full border border-emerald-200 bg-emerald-50/90 backdrop-blur-sm pl-3.5 pr-1.5 py-1 shadow-sm">
               <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              <p className="flex-1 text-xs text-gray-600">
+              <p className="text-xs text-gray-700 whitespace-nowrap">
                 Still working — get an email when it's done?
               </p>
               <button
@@ -764,15 +766,16 @@ export default function ChatView({
                   chatApi.requestEmailNotification(currentChatId).catch(() => {});
                   setTimeout(() => setEmailRequested(false), 3000);
                 }}
-                className="flex-shrink-0 text-xs font-medium text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1 transition-colors"
+                className="flex-shrink-0 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-full px-3 py-1 transition-colors"
               >
                 Email me
               </button>
               <button
                 onClick={() => setEmailDismissed(true)}
-                className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors p-0.5"
+                aria-label="Dismiss"
+                className="flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-emerald-100/60 rounded-full transition-colors p-1"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -780,12 +783,12 @@ export default function ChatView({
           </div>
         )}
         {isLoading && emailRequested && (
-          <div className="mx-4 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200/60 bg-emerald-50/80 px-3 py-1.5">
-              <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <div className="mt-3 flex justify-center px-4 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/90 backdrop-blur-sm px-3.5 py-1.5 shadow-sm">
+              <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path d="M5 13l4 4L19 7" />
               </svg>
-              <p className="text-xs text-emerald-700">We'll email you when this is ready.</p>
+              <p className="text-xs font-medium text-emerald-700 whitespace-nowrap">We'll email you when this is ready.</p>
             </div>
           </div>
         )}

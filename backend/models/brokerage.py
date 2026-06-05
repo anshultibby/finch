@@ -205,3 +205,33 @@ class Visualization(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'filename', name='uq_viz_user_filename'),
     )
+
+
+class PendingTrade(Base):
+    """A trade staged by an automation, awaiting one-click email approval.
+
+    Standalone (NOT bot-coupled): an automation reviews an order, stages it here,
+    and emails the user an Approve/Reject link. Clicking Approve has the backend
+    place the order via the Robinhood agentic MCP. The token in the link is the
+    capability — anyone with it can approve, so links expire (expires_at).
+    """
+    __tablename__ = "pending_trades"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    token = Column(String(64), nullable=False, unique=True, index=True)
+    broker = Column(String, nullable=False, server_default="robinhood")
+    account_number = Column(String, nullable=False)
+    # MCP order args: symbol, side, type, quantity|dollar_amount, limit_price, ...
+    order_params = Column(JSONB, nullable=False)
+    summary = Column(Text, nullable=True)  # human-readable preview (email + approve page)
+    status = Column(String, nullable=False, server_default="pending", index=True)
+    # status: pending | approved | rejected | expired | failed
+    order_response = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<PendingTrade(token='{self.token}', status='{self.status}', user='{self.user_id}')>"

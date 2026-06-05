@@ -1,6 +1,6 @@
 ---
 name: robinhood
-description: Trade the user's real Robinhood account via Robinhood's official agentic-trading MCP. Read accounts/positions/quotes and place, review, or cancel live equity orders. Only works once the user has connected Robinhood from the Portfolio screen.
+description: Trade the user's real Robinhood account via Robinhood's official agentic-trading MCP. Check connection status, read the portfolio (value, buying power, positions), place/review/cancel live equity orders, and build scheduled trading automations that email the user a one-click approval link. Only works once the user has connected Robinhood from the Portfolio screen.
 metadata:
   emoji: "🪶"
   category: trading
@@ -23,6 +23,35 @@ Live trades use real money. Trading is only permitted on the user's isolated
 **agentic account** (`agentic_allowed: true`); other accounts are rejected by
 Robinhood. Always `review_order` and show the user the estimate before
 `place_order`, unless they've explicitly said to skip review.
+
+## Connection status (always check first)
+
+Before any read or trade, confirm the user is connected and grab the tradable
+agentic account. This never raises for a missing connection — it returns a
+`reason` to relay.
+
+```python
+from skills.robinhood.scripts.trading import connection_status
+
+st = connection_status()
+# {"connected": True, "agentic_account": "abc123", "accounts": [...], "reason": "Connected."}
+if not st["connected"]:
+    # Tell the user st["reason"] (e.g. "connect Robinhood from the Portfolio screen") and stop.
+    ...
+acct = st["agentic_account"]   # only the agentic_allowed account can trade
+```
+
+## Portfolio snapshot
+
+One call for account value, buying power, and open positions (resolves the
+agentic account automatically):
+
+```python
+from skills.robinhood.scripts.trading import portfolio_snapshot
+
+snap = portfolio_snapshot()
+# {"connected": True, "agentic_account": "...", "portfolio": {...}, "positions": {...}}
+```
 
 ## Read account state
 
@@ -70,6 +99,70 @@ Any MCP tool can be called directly by name:
 from skills.robinhood.scripts._client import call
 call("get_portfolio", account_number=acct)
 ```
+
+## Building trading automations
+
+A trading automation = a **scheduled job** (from the `finch_api` skill) whose
+`message` is a self-contained instruction to run a strategy. When the job fires,
+the backend runs that message as the user with full tools — including this skill.
+
+**Safety rule (default): review → email for approval, never trade unattended.**
+The automation evaluates its rule, `review_order`s the candidate, then calls
+`request_trade_approval(...)` so the user gets a one-click Approve link by email.
+The backend places the order only if the user clicks Approve. Only place orders
+directly with `place_order` inside a job when the user has *explicitly* opted into
+unattended trading for that automation (and even then, keep a dollar cap).
+
+### Pattern: a recurring strategy run
+
+```python
+from skills.finch_api.scripts import schedule_job
+
+schedule_job(
+    name="Mean-reversion check — watchlist",
+    recurrence="weekdays",
+    run_at="2026-06-05T13:45:00Z",   # 9:45 ET, after the open
+    message=(
+        "Run my mean-reversion strategy on Robinhood. Steps:\n"
+        "1. connection_status(); if not connected, stop.\n"
+        "2. For AAPL, MSFT, NVDA: get_quotes; if a name is >5% below its 5-day "
+        "   average, it's a candidate.\n"
+        "3. For each candidate: review_order (buy $200, market), then "
+        "   request_trade_approval(...) so I approve by email. Cap total at $600.\n"
+        "4. If nothing qualifies, do nothing (no email)."
+    ),
+)
+```
+
+### Self-chaining (one-offs that schedule the next run)
+
+Jobs don't have to be recurring — a one-off job can schedule the next one at the
+end of its run, so the model controls the cadence (e.g. tighten to every 15 min
+near a catalyst, back off otherwise):
+
+```python
+# ...inside an automation's message instruction:
+# "After acting, schedule_job(in_minutes=15, message=<this same instruction>) "
+# "only if the market is still open; otherwise schedule for the next open."
+```
+
+### Persist the strategy
+
+Keep the thesis, signals, and risk rules in durable memory (`memory_write(durable=True)`
+→ MEMORY.md) and have each run read them first, so the strategy evolves without
+re-stating it in every job message.
+
+### Heavier research
+
+For multi-step screening before trading, spin up a sub-agent with `create_agent`
+to research candidates, then hand the shortlist to the review→approve loop.
+
+### Notes
+
+- Equities only (Robinhood agentic beta); options/crypto/futures are "coming soon".
+- Every placed trade also fires a Robinhood push notification; the user can
+  disconnect the agent in one tap from the app.
+- Job limits: **5 recurring + 10 one-off** per user (see the finch_api skill).
 
 ## Key notes
 

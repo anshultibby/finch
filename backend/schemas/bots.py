@@ -245,38 +245,3 @@ class WakeupResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class TradeLogResponse(BaseModel):
-    """A single trade log entry — every buy/sell attempted by any bot."""
-    id: str
-    bot_id: str
-    bot_name: Optional[str] = None
-    bot_icon: Optional[str] = None
-    execution_id: Optional[str] = None
-    position_id: Optional[str] = None
-
-    action: str           # "buy" or "sell"
-    market: str
-    market_title: Optional[str] = None
-    platform: str
-    side: Optional[str] = None
-    price: Optional[float] = None
-    quantity: Optional[int] = None
-    cost_usd: Optional[float] = None
-    realized_pnl_usd: Optional[float] = None
-
-    status: str           # executed, dry_run, failed, pending_approval, approved, rejected, expired
-    approval_method: Optional[str] = None
-    approved_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-
-    reason: Optional[str] = None
-    approval_token: Optional[str] = None
-
-    error: Optional[str] = None
-
-    created_at: datetime
-
-    class Config:
-        from_attributes = True

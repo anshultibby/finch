@@ -178,3 +178,26 @@ def update_job(job_id, message=None, run_at=None, recurrence=None,
 def cancel_job(job_id):
     """Cancel a scheduled job by id."""
     return _request("DELETE", f"/jobs/{job_id}")
+
+
+# ── Trade approval (one-click email) ─────────────────────────────────────────
+
+def request_trade_approval(account_number, order_params, summary=None, ttl_minutes=60):
+    """Stage a trade and email the user a one-click Approve/Reject link.
+
+    Use this when an automation wants to place a real order but should NOT trade
+    unattended: review the order first (review_order), then call this with the
+    same order_params. The backend emails the user; if they click Approve, the
+    backend places the order via the Robinhood MCP (you don't place it yourself).
+
+    order_params mirrors the Robinhood order args (NO account_number — pass that
+    separately): symbol, side, type, quantity|dollar_amount, limit_price, ...
+    summary: a human-readable one-liner shown in the email (defaults to a basic
+    one built from order_params). ttl_minutes: link lifetime, 5..1440 (default 60).
+
+    Returns {token, status, expires_at, email_sent, summary}.
+    """
+    body = {"account_number": account_number, "order_params": order_params,
+            "summary": summary, "ttl_minutes": ttl_minutes}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", "/trades/request-approval", body=body)

@@ -668,7 +668,7 @@ async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
             lines = stdout.split("\n")
             head = "\n".join(lines[:15])
             tail = "\n".join(lines[-10:])
-            stdout_out = f"{head}\n\n... [{line_count} total lines — truncated. To see full output use: bash(cmd='cat {spill_path}', truncate=false)] ...\n\n{tail}"
+            stdout_out = f"{head}\n\n... [{line_count} total lines — truncated. To see full output use: bash(command='cat {spill_path}', truncate=false)] ...\n\n{tail}"
             spill_notes.append(f"Full stdout ({line_count} lines) saved to {spill_path}. Use truncate=false to read it.")
             await _cleanup_old_spill_files(sbx, "_output")
         except Exception as e:
@@ -682,7 +682,7 @@ async def _maybe_spill_to_file(sbx, stdout: str, stderr: str) -> tuple:
             line_count = stderr.count("\n") + 1
             lines = stderr.split("\n")
             tail = "\n".join(lines[-20:])
-            stderr_out = f"... [{line_count} total lines — truncated. To see full output use: bash(cmd='cat {spill_path}', truncate=false)] ...\n\n{tail}"
+            stderr_out = f"... [{line_count} total lines — truncated. To see full output use: bash(command='cat {spill_path}', truncate=false)] ...\n\n{tail}"
             spill_notes.append(f"Full stderr ({line_count} lines) saved to {spill_path}. Use truncate=false to read it.")
             await _cleanup_old_spill_files(sbx, "_stderr")
         except Exception as e:

@@ -40,7 +40,7 @@ svg.selectAll('rect').data(data).enter().append('rect')
 with open('chat_files/visualizations/prices.js', 'w') as f:
     f.write(js)
 """)
-bash(cmd="python3 chat_files/build_viz.py")
+bash(command="python3 chat_files/build_viz.py")
 ```
 
 Reference in reply:

@@ -81,3 +81,60 @@ def place_order(account_number: str, symbol: str, side: str, type: str,
 def cancel_order(account_number: str, order_id: str) -> Any:
     """Cancel an open equity order by id."""
     return call("cancel_equity_order", account_number=account_number, order_id=order_id)
+
+
+# ---- connection & portfolio helpers ---------------------------------------
+
+def connection_status() -> dict:
+    """Whether Robinhood is connected, plus the tradable agentic account.
+
+    Never raises for a missing connection — returns connected=False with a
+    `reason` you can relay to the user. Call this FIRST in any trading flow.
+
+    Returns {connected, agentic_account, accounts, reason}.
+    """
+    import os
+    if not os.environ.get("ROBINHOOD_MCP_TOKEN"):
+        return {
+            "connected": False, "agentic_account": None, "accounts": [],
+            "reason": "Robinhood isn't connected. Ask the user to connect it from "
+                      "the Portfolio screen — don't guess or use another broker.",
+        }
+    try:
+        data = get_accounts()
+    except Exception as e:
+        return {
+            "connected": False, "agentic_account": None, "accounts": [],
+            "reason": f"Token present but the Robinhood call failed: {e}",
+        }
+    accounts = (data or {}).get("data", {}).get("accounts", []) if isinstance(data, dict) else []
+    agentic = next((a["account_number"] for a in accounts if a.get("agentic_allowed")), None)
+    return {
+        "connected": True,
+        "agentic_account": agentic,
+        "accounts": accounts,
+        "reason": "Connected." if agentic else
+                  "Connected, but no agentic-enabled account was found — only an "
+                  "agentic account can trade. Ask the user to enable one in Robinhood.",
+    }
+
+
+def portfolio_snapshot(account_number: Optional[str] = None) -> dict:
+    """One-call snapshot: agentic account value + buying power + open positions.
+
+    Resolves the agentic account automatically when account_number is omitted.
+    Returns {connected, agentic_account, portfolio, positions} or, if not
+    connected/eligible, {connected, reason}.
+    """
+    status = connection_status()
+    if not status["connected"]:
+        return {"connected": False, "reason": status["reason"]}
+    acct = account_number or status["agentic_account"]
+    if not acct:
+        return {"connected": True, "agentic_account": None, "reason": status["reason"]}
+    return {
+        "connected": True,
+        "agentic_account": acct,
+        "portfolio": get_portfolio(acct),
+        "positions": get_positions(acct),
+    }

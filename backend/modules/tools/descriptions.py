@@ -87,7 +87,7 @@ EXECUTE_CODE_DESC = _EXECUTE_CODE_BASE + generate_skills_description() + _EXECUT
 
 WRITE_CHAT_FILE_DESC = """Write a file to the persistent sandbox filesystem. This is the PRIMARY way to write code.
 
-**Use this instead of bash heredocs.** Write your code here, then run it with `bash(cmd="python3 filename.py")`.
+**Use this instead of bash heredocs.** Write your code here, then run it with `bash(command="python3 filename.py")`.
 This keeps code out of bash tool args, making iteration and debugging much easier.
 
 **CRITICAL: Write CONCISE code without verbose comments. NO explanatory comments unless complex logic requires it.**

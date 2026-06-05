@@ -1,5 +1,5 @@
 """
-Trading bot ORM models: TradingBot, BotFile, BotExecution, BotPosition, TradeLog
+Trading bot ORM models: TradingBot, BotFile, BotExecution, BotPosition
 """
 from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -30,7 +30,6 @@ class TradingBot(Base):
     files = relationship("BotFile", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
     executions = relationship("BotExecution", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
     positions = relationship("BotPosition", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
-    trade_logs = relationship("TradeLog", back_populates="bot", cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
         return f"<TradingBot(id='{self.id}', name='{self.name}', enabled={self.enabled})>"
@@ -110,43 +109,3 @@ class BotPosition(Base):
 
     def __repr__(self):
         return f"<BotPosition(id='{self.id}', bot='{self.bot_id}', market='{self.market}', status='{self.status}')>"
-
-
-class TradeLog(Base):
-    """
-    Audit log of every trade order attempted by a bot.
-    """
-    __tablename__ = "trade_logs"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    bot_id = Column(String, ForeignKey("trading_bots.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(String, nullable=False, index=True)
-    execution_id = Column(UUID(as_uuid=True), nullable=True)
-    position_id = Column(UUID(as_uuid=True), nullable=True)
-    action = Column(String, nullable=False)
-    market = Column(String, nullable=False)
-    market_title = Column(String, nullable=True)
-    platform = Column(String, nullable=False, default="kalshi")
-    side = Column(String, nullable=True)
-    price = Column(Float, nullable=True)
-    quantity = Column(Integer, nullable=True)
-    cost_usd = Column(Float, nullable=True)
-    realized_pnl_usd = Column(Float, nullable=True)
-    status = Column(String, nullable=False, default="executed", index=True)
-    approval_token = Column(String, nullable=True, index=True)
-    approval_method = Column(String, nullable=True)
-    approved_at = Column(DateTime(timezone=True), nullable=True)
-    expires_at = Column(DateTime(timezone=True), nullable=True)
-    order_response = Column(JSONB, nullable=True)
-    error = Column(Text, nullable=True)
-    dry_run = Column(Boolean, nullable=False, default=False)
-    reason = Column(Text, nullable=True)
-    pending_params = Column(JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
-
-    bot = relationship("TradingBot", back_populates="trade_logs")
-
-    def __repr__(self):
-        return f"<TradeLog(id='{self.id}', bot='{self.bot_id}', action='{self.action}', market='{self.market}', status='{self.status}')>"
-
-
