@@ -6,7 +6,7 @@ import { robinhoodApi, snaptradeApi, type RobinhoodAccountsResponse } from '@/li
 
 // Direct download of the latest signed Finch Connect build (stable asset name, so
 // this link survives version bumps). Downloads the .dmg instead of opening a page.
-const FINCH_CONNECT_DOWNLOAD_URL = 'https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS-arm64.dmg';
+const FINCH_CONNECT_DOWNLOAD_URL = 'https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS.dmg';
 
 function fmtUsd(v?: string | null): string {
   if (v == null) return '—';

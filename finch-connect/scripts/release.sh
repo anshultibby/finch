@@ -28,14 +28,14 @@ fi
 
 source "$HOME/.cargo/env" 2>/dev/null || true
 
-echo "▶ Building (sign + notarize + staple — Apple's notary service adds a few min)…"
-npm run tauri build
+echo "▶ Building universal (Intel + Apple Silicon), sign + notarize + staple — adds a few min…"
+npm run tauri build -- --target universal-apple-darwin
 
 VER="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-DMG="$(ls -t src-tauri/target/release/bundle/dmg/*.dmg | head -1)"
-# STABLE asset name (no version) so the in-app direct-download link survives releases:
-#   https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS-arm64.dmg
-CLEAN="/tmp/Finch-Connect-macOS-arm64.dmg"
+DMG="$(ls -t src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)"
+# STABLE, arch-neutral asset name so the in-app direct-download link survives releases:
+#   https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS.dmg
+CLEAN="/tmp/Finch-Connect-macOS.dmg"
 cp "$DMG" "$CLEAN"
 
 # Verify the notarization ticket is stapled (Gatekeeper-clean).

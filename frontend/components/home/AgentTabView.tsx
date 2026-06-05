@@ -62,7 +62,7 @@ export default function AgentTabView({ userId, onStockClick }: {
         </div>
         <h2 className="text-base font-semibold text-gray-900">Your AI Trading Agent</h2>
         <p className="mx-auto mt-1.5 max-w-xs text-sm text-gray-500">Connect a Robinhood Agentic account to let Finch trade on your behalf — in its own account, with your limits.</p>
-        <a href="https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS-arm64.dmg"
+        <a href="https://github.com/anshultibby/finch/releases/latest/download/Finch-Connect-macOS.dmg"
           className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-105">
           Download Finch Connect
         </a>
