@@ -180,7 +180,37 @@ class SnapTradeTools:
                     continue
         
         return parsed_positions
-    
+
+    async def _get_cash_for_account(self, user_id: str, user_secret: str, account_id: str) -> float:
+        """Get the account's cash balance from SnapTrade.
+
+        Cash is NEGATIVE on a margin account (the margin debit / borrowed amount),
+        so net equity = sum(position values) + cash. We read it from the dedicated
+        get_user_account_balance endpoint because list_user_accounts' balance.total
+        is frequently null/stale and can't be relied on for net-of-margin value.
+        """
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.account_information.get_user_account_balance(
+                user_id=user_id,
+                user_secret=user_secret,
+                account_id=account_id
+            )
+        )
+        data = response.body if hasattr(response, 'body') else response
+        balances = data if isinstance(data, list) else [data]
+        cash = 0.0
+        for b in balances:
+            try:
+                if isinstance(b, dict):
+                    cash += float(b.get("cash", 0) or 0)
+                else:
+                    cash += float(getattr(b, "cash", 0) or 0)
+            except (ValueError, TypeError):
+                continue
+        return cash
+
     async def _handle_user_already_exists(self, user_id: str) -> Dict[str, Any]:
         """Handle the case where a SnapTrade user already exists"""
         print(f"⚠️ User already exists in SnapTrade, trying to delete and recreate...", flush=True)
@@ -869,11 +899,23 @@ class SnapTradeTools:
                     else:
                         status = 'error'
                 
-                # Use SnapTrade account balance as total_value — it reflects
-                # net equity (positions minus margin debt), which is the real value.
-                account_balance = account_model.get_balance()
+                # Net equity = positions + cash, where cash is NEGATIVE on a margin
+                # account (the margin debit). We compute this explicitly rather than
+                # trusting list_user_accounts' balance.total — that field is often
+                # null/stale, and the previous fallback to a bare positions sum
+                # silently dropped margin debt (inflating margin accounts).
                 positions_sum = sum(pos.value for pos in positions_list)
-                total_value = account_balance if account_balance > 0 else positions_sum
+                cash = 0.0
+                try:
+                    cash = await self._get_cash_for_account(
+                        user_id, session.snaptrade_user_secret, account_id
+                    )
+                except Exception as e:
+                    print(f"⚠️ Cash/balance fetch failed for {account_id}: {str(e)[:80]}", flush=True)
+                    # Fall back to list_user_accounts balance if available, else gross positions.
+                    account_balance = account_model.get_balance()
+                    cash = (account_balance - positions_sum) if account_balance > 0 else 0.0
+                total_value = positions_sum + cash
 
                 accounts_list.append(account_model.to_account(
                     positions=positions_list,
