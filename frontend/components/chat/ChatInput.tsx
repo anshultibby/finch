@@ -1,7 +1,6 @@
 import React, { useState, useEffect, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
 import type { ImageAttachment, FileAttachment, ModelOption } from '@/lib/types';
 import { chatFilesApi } from '@/lib/api';
-import ModelPicker from './ModelPicker';
 
 interface ChatInputProps {
   onSendMessage?: (message: string, images?: ImageAttachment[], skills?: string[], files?: FileAttachment[]) => void;
@@ -219,9 +218,6 @@ export default function ChatInput({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
-        )}
-        {!simple && models && models.length > 0 && onModelChange && (
-          <ModelPicker models={models} value={model} onChange={onModelChange} disabled={disabled} />
         )}
         <textarea
           ref={textareaRef}

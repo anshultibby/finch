@@ -12,7 +12,6 @@ import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
 import StreamingView from '@/components/chat/StreamingView';
 import NewChatWelcome from '@/components/chat/NewChatWelcome';
-import ModelPicker from '@/components/chat/ModelPicker';
 import { COLORS } from '@/lib/constants';
 
 // Public share links open the web app (mobile has no in-app shared route).
@@ -276,11 +275,6 @@ export default function ChatScreen() {
                 ) : null
               }
             />
-            {models.length > 0 && (
-              <View className="px-3 pt-1">
-                <ModelPicker models={models} value={selectedModel} onChange={setSelectedModel} disabled={isStreaming} />
-              </View>
-            )}
             <ChatInput onSend={handleSend} onStop={stopStream} isStreaming={isStreaming} />
           </>
         )}

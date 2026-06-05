@@ -5,7 +5,6 @@ import * as Haptics from 'expo-haptics';
 import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
 import { COLORS } from '@/lib/constants';
 import type { ModelOption } from '@/lib/types';
-import ModelPicker from './ModelPicker';
 
 const QUICK_ACTIONS = [
   {
@@ -98,9 +97,7 @@ export default function NewChatWelcome({ onSendMessage, disabled, models, model,
           editable={!disabled}
         />
         <View className="flex-row items-center justify-between px-3 py-2 border-t border-gray-100">
-          {models && models.length > 0 && onModelChange ? (
-            <ModelPicker models={models} value={model} onChange={onModelChange} disabled={disabled} />
-          ) : <View />}
+          <View />
           <TouchableOpacity
             onPress={handleSend}
             disabled={disabled || !hasContent}
