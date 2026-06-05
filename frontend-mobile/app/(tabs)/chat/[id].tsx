@@ -6,7 +6,7 @@ import { useDrawer } from '@/contexts/DrawerContext';
 import { useChatStream } from '@/hooks/useChatStream';
 import { chatApi } from '@/lib/api';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Menu, SquarePen, Share2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react-native';
+import { Menu, Share2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react-native';
 import type { ImageAttachment, ModelOption } from '@/lib/types';
 import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -194,10 +194,6 @@ export default function ChatScreen() {
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={chatStyles.menuOverlay} onPress={() => setMenuOpen(false)}>
           <View style={chatStyles.menuCard}>
-            <TouchableOpacity style={chatStyles.menuRow} onPress={() => { setMenuOpen(false); createNewChat(); }} activeOpacity={0.6}>
-              <SquarePen size={18} color={COLORS.gray700} />
-              <Text style={chatStyles.menuText}>New chat</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={chatStyles.menuRow} onPress={handleShare} activeOpacity={0.6}>
               <Share2 size={18} color={COLORS.gray700} />
               <Text style={chatStyles.menuText}>Share</Text>
