@@ -229,7 +229,7 @@ export default function ChatInput({
           disabled={disabled}
           rows={1}
           className="flex-1 resize-none bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none disabled:cursor-not-allowed text-sm leading-[1.4] px-1 py-1"
-          style={{ minHeight: '36px', maxHeight: simple ? '120px' : '200px' }}
+          style={{ minHeight: '28px', maxHeight: simple ? '120px' : '200px' }}
           onInput={(e) => {
             const t = e.target as HTMLTextAreaElement;
             t.style.height = 'auto';
