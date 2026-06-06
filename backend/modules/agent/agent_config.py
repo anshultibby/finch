@@ -17,12 +17,15 @@ async def _get_sandbox_file_listing(user_id: str) -> str:
         entries = await entry.sbx.files.list("/home/user/store", depth=2)
         if not entries:
             return ""
-        lines = ["store/"]
+        # Show absolute paths — read_chat_file resolves bare `store/...` under the
+        # chat-files dir (404), so the agent must use /home/user/store/... here.
+        lines = ["/home/user/store/ (read with these absolute paths):"]
         for e in entries:
-            name = e.name if hasattr(e, "name") else str(e)
-            if hasattr(e, "type") and e.type == "dir":
-                name += "/"
-            lines.append(f"  {name}")
+            # Prefer the entry's full path; fall back to building it from the name.
+            path = getattr(e, "path", None) or f"/home/user/store/{getattr(e, 'name', str(e))}"
+            if getattr(e, "type", None) == "dir":
+                path += "/"
+            lines.append(f"  {path}")
         return "\n".join(lines)
     except Exception as e:
         logger.debug(f"Could not list sandbox files (non-fatal): {e}")

@@ -172,8 +172,14 @@ class Settings(BaseSettings):
     # Chat Configuration
     # =========================================================================
     CHAT_HISTORY_LIMIT: int = Field(
-        default=50,
-        description="Max messages to send to LLM for context"
+        default=500,
+        description=(
+            "Max messages loaded into LLM context. This is a coarse backstop only — "
+            "actual context size is managed by the token-aware session pruner "
+            "(CONTEXT_* settings) and compaction (COMPACTION_*). Kept high so that "
+            "tool-heavy chats (many tool results per turn) don't prematurely drop "
+            "conversational history that still fits comfortably in the window."
+        )
     )
 
     # =========================================================================
