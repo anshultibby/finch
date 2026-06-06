@@ -101,9 +101,13 @@ def calculate_cost_usd(
         Cost in USD
     """
     pricing = _get_model_pricing(model)
-    
-    uncached_input = max(0, prompt_tokens - cache_read_tokens)
-    
+
+    # prompt_tokens (litellm) is the TOTAL input = cache_read + cache_creation + new_input.
+    # Subtract BOTH cache buckets so each token is billed exactly once: new input at the
+    # input rate, cache reads at the read rate, cache writes at the write rate. Subtracting
+    # only cache_read here double-charges cache_creation (input rate + write rate).
+    uncached_input = max(0, prompt_tokens - cache_read_tokens - cache_creation_tokens)
+
     # Calculate costs (pricing is per million tokens)
     input_cost = (uncached_input / 1_000_000) * pricing["input"]
     cache_read_cost = (cache_read_tokens / 1_000_000) * pricing["cache_read"]
@@ -222,14 +226,21 @@ class CreditsService:
         if accrued <= 0:
             return user.credits
 
-        new_balance = user.credits + accrued
+        # The cap bounds how much the FREE daily refresh adds, never the balance itself.
+        # A user above the cap from a top-up, purchase, or admin grant keeps every credit —
+        # refresh just adds nothing until they spend back down below the cap. (Clamping the
+        # balance here would silently destroy purchased credits, which is the bug that ate
+        # ~19k credits from this account in a single refresh.)
         if cap is not None:
-            new_balance = min(new_balance, cap)
+            headroom = max(0, cap - user.credits)
+            actual_added = min(accrued, headroom)
+        else:
+            actual_added = accrued
 
-        if new_balance == user.credits:
+        if actual_added <= 0:
             return user.credits
 
-        actual_added = new_balance - user.credits
+        new_balance = user.credits + actual_added
         await db.execute(
             update(UserAccount)
             .where(UserAccount.user_id == user.user_id)

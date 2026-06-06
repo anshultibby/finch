@@ -87,9 +87,12 @@ class UsageTracker(BaseModel):
         """
         pricing = _get_model_pricing(self.model)
         
-        # Calculate costs (pricing is per million tokens)
-        uncached_input = self.uncached_input_tokens
-        
+        # Calculate costs (pricing is per million tokens).
+        # total_prompt_tokens includes cache reads AND cache creation, so subtract both
+        # to get genuinely-new input — otherwise cache_creation is billed at input rate
+        # here AND at cache_write rate below (matches the billing fix in services/credits.py).
+        uncached_input = max(0, self.total_prompt_tokens - self.total_cache_read_tokens - self.total_cache_creation_tokens)
+
         input_cost = (uncached_input / 1_000_000) * pricing["input"]
         cache_read_cost = (self.total_cache_read_tokens / 1_000_000) * pricing["cache_read"]
         cache_write_cost = (self.total_cache_creation_tokens / 1_000_000) * pricing["cache_write"]
