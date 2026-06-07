@@ -25,14 +25,34 @@ export default function SettingsScreen() {
   const [rhConnected, setRhConnected] = useState(false);
   const [rhBusy, setRhBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(true);
+  const [prefsBusy, setPrefsBusy] = useState(false);
 
   useEffect(() => {
     if (user) {
       creditsApi.getBalance(user.id).then(data => setCredits(data.credits)).catch(() => {});
       apiKeysApi.getKeys(user.id).then(data => setApiKeys(data.keys || [])).catch(() => {});
       robinhoodApi.checkStatus(user.id).then(d => setRhConnected(d.is_connected)).catch(() => {});
+      accountApi.getPreferences(user.id).then(p => setRequireApproval(p.require_trade_approval)).catch(() => {});
     }
   }, [user]);
+
+  const handleToggleApproval = async (value: boolean) => {
+    if (!user || prefsBusy) return;
+    const previous = requireApproval;
+    setRequireApproval(value); // optimistic
+    setPrefsBusy(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const updated = await accountApi.updatePreferences(user.id, { require_trade_approval: value });
+      setRequireApproval(updated.require_trade_approval);
+    } catch {
+      setRequireApproval(previous); // revert
+      Alert.alert('Could not save', 'Please try again.');
+    } finally {
+      setPrefsBusy(false);
+    }
+  };
 
   const handleConnectRobinhood = async () => {
     if (!user) return;
@@ -190,6 +210,30 @@ export default function SettingsScreen() {
                 ? <Check size={16} color="#059669" />
                 : <ChevronRight size={16} color="#d1d5db" />}
           </TouchableOpacity>
+
+          {/* Require approval for every trade */}
+          <View className="p-3.5 flex-row items-center justify-between border-t border-gray-100">
+            <View className="flex-row items-center gap-3 flex-1 pr-3">
+              <View style={[styles.iconBox, { backgroundColor: '#ecfdf5' }]}>
+                <Shield size={16} color="#059669" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[13px] font-body-medium text-gray-900">Approve every trade</Text>
+                <Text className="text-[11px] font-body text-gray-500">
+                  {requireApproval
+                    ? 'Finch asks before placing any order'
+                    : 'Unattended — Finch can trade without asking'}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={requireApproval}
+              onValueChange={handleToggleApproval}
+              disabled={prefsBusy}
+              trackColor={{ false: '#d6d3d1', true: '#059669' }}
+              thumbColor="#ffffff"
+            />
+          </View>
         </View>
 
         {/* Notifications */}
