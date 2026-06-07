@@ -697,6 +697,25 @@ export const resourcesApi = {
 // API Keys API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface UserPreferences {
+  require_trade_approval: boolean;
+}
+
+export const accountApi = {
+  getPreferences: async (userId: string): Promise<UserPreferences> => {
+    const response = await api.get<UserPreferences>(`/account/${userId}/preferences`);
+    return response.data;
+  },
+
+  updatePreferences: async (
+    userId: string,
+    updates: Partial<UserPreferences>
+  ): Promise<UserPreferences> => {
+    const response = await api.patch<UserPreferences>(`/account/${userId}/preferences`, updates);
+    return response.data;
+  },
+};
+
 export const apiKeysApi = {
   getApiKeys: async (userId: string): Promise<ApiKeysResponse> => {
     const response = await api.get<ApiKeysResponse>(`/api-keys/${userId}`);

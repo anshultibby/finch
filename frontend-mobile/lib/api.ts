@@ -479,11 +479,28 @@ export const creditsApi = {
   },
 };
 
+export interface UserPreferences {
+  require_trade_approval: boolean;
+}
+
 export const accountApi = {
   // Permanently delete the user's account (App Store Guideline 5.1.1(v)).
   deleteAccount: async (userId: string) => {
     const response = await api.delete(`/account/${userId}`);
     return response.data;
+  },
+
+  getPreferences: async (userId: string): Promise<UserPreferences> => {
+    const response = await api.get(`/account/${userId}/preferences`);
+    return response.data as UserPreferences;
+  },
+
+  updatePreferences: async (
+    userId: string,
+    updates: Partial<UserPreferences>
+  ): Promise<UserPreferences> => {
+    const response = await api.patch(`/account/${userId}/preferences`, updates);
+    return response.data as UserPreferences;
   },
 };
 

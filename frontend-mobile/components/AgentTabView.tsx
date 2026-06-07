@@ -1,8 +1,8 @@
 import { View, Text, Pressable, ActivityIndicator, ScrollView, Linking } from 'react-native';
-import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Sparkles } from 'lucide-react-native';
 import { robinhoodApi, type RobinhoodPortfolioResponse } from '@/lib/api';
+import { useCachedResource } from '@/hooks/useCachedResource';
 
 function usd(v?: string | number | null): string {
   if (v == null) return '—';
@@ -25,27 +25,23 @@ function timeAgo(iso?: string): string {
 
 export default function AgentTabView({ userId }: { userId: string }) {
   const router = useRouter();
-  const [data, setData] = useState<RobinhoodPortfolioResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setData(await robinhoodApi.getPortfolio(userId)); setError(false); }
-    catch { setError(true); }
-    finally { setLoading(false); }
-  }, [userId]);
+  // Cached so returning to the Agent tab shows the last portfolio instantly and
+  // only revalidates in the background, instead of re-fetching from a spinner.
+  const { data, error, isLoading, refresh } = useCachedResource<RobinhoodPortfolioResponse>(
+    userId ? `rh-portfolio:${userId}` : null,
+    () => robinhoodApi.getPortfolio(userId),
+    { ttl: 30_000 },
+  );
 
-  useEffect(() => { load(); }, [load]);
-
-  if (loading) {
+  if (isLoading) {
     return <View className="py-16 items-center"><ActivityIndicator color="#10b981" /></View>;
   }
-  if (error) {
+  if (error && !data) {
     return (
       <View className="py-12 items-center">
         <Text className="text-sm text-red-500">Couldn’t load the agent portfolio.</Text>
-        <Pressable onPress={load} className="mt-2"><Text className="text-sm text-emerald-600 underline">Retry</Text></Pressable>
+        <Pressable onPress={() => refresh()} className="mt-2"><Text className="text-sm text-emerald-600 underline">Retry</Text></Pressable>
       </View>
     );
   }

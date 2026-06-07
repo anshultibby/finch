@@ -9,11 +9,38 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.database import get_db_session
 from core.config import Config
 from auth.dependencies import get_current_user_id, verify_user_access
+from schemas.preferences import UserPreferences, UpdatePreferencesRequest
+from crud import user_preferences as prefs_crud
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/account", tags=["account"])
+
+
+@router.get("/{user_id}/preferences", response_model=UserPreferences)
+async def get_preferences(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Return the user's preferences (defaults applied)."""
+    await verify_user_access(user_id, authenticated_user_id)
+    async with get_db_session() as db:
+        return await prefs_crud.get_user_preferences(db, user_id)
+
+
+@router.patch("/{user_id}/preferences", response_model=UserPreferences)
+async def update_preferences(
+    user_id: str,
+    body: UpdatePreferencesRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Update one or more preferences (only provided fields change)."""
+    await verify_user_access(user_id, authenticated_user_id)
+    async with get_db_session() as db:
+        return await prefs_crud.update_user_preferences(
+            db, user_id, body.model_dump(exclude_none=True)
+        )
 
 
 @router.delete("/{user_id}")

@@ -129,7 +129,7 @@ async def portfolio(
     await verify_user_access(user_id, authenticated_user_id)
     if not await robinhood_auth.is_connected(user_id):
         return {"is_connected": False, "agentic_account": None, "total_value": None,
-                "buying_power": None, "holdings": [], "orders": []}
+                "buying_power": None, "cash": None, "holdings": [], "orders": []}
     try:
         data = await robinhood_auth.get_agentic_portfolio(user_id)
         return {"is_connected": True, **data}

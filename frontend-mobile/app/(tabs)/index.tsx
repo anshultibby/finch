@@ -5,6 +5,7 @@ import { useDrawer } from '@/contexts/DrawerContext';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { snaptradeApi, marketApi, watchlistApi, notificationsApi } from '@/lib/api';
+import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import type { SnapTradeStatusResponse } from '@/lib/types';
 import { AlertTriangle } from 'lucide-react-native';
 import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell, Lock } from 'lucide-react-native';
@@ -182,13 +183,21 @@ export default function HomeScreen() {
     }
   }, [user]);
 
+  // Refetch on focus only when a source is stale — previously every focus
+  // refetched all four endpoints, even when returning from a quick stock peek.
+  // Markets is keyed by region so toggling US/India still refetches immediately.
   useFocusEffect(useCallback(() => {
-    fetchMarkets();
-    fetchEarnings();
-    fetchWatchlist();
-    fetchPortfolio();
+    const TTL = 60_000;
+    const marketsKey = `home-markets:${marketRegion}`;
+    if (!isCacheFresh(marketsKey, TTL)) fetchMarkets().then(() => touchCache(marketsKey));
+    if (!isCacheFresh('home-earnings', TTL)) fetchEarnings().then(() => touchCache('home-earnings'));
+    // User-dependent: only mark fresh once we actually have a user to fetch for.
+    if (user) {
+      if (!isCacheFresh('home-watchlist', TTL)) fetchWatchlist().then(() => touchCache('home-watchlist'));
+      if (!isCacheFresh('home-portfolio', TTL)) fetchPortfolio().then(() => touchCache('home-portfolio'));
+    }
     notificationsApi.getUnreadCount().then(d => setUnreadCount(d.unread_count || 0)).catch(() => {});
-  }, [fetchMarkets, fetchEarnings, fetchWatchlist, fetchPortfolio]));
+  }, [user, marketRegion, fetchMarkets, fetchEarnings, fetchWatchlist, fetchPortfolio]));
 
   const onRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

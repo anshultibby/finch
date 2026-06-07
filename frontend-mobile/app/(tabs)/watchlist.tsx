@@ -2,8 +2,9 @@ import { View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { watchlistApi, marketApi } from '@/lib/api';
+import { useCachedResource, mutateCache, isCacheFresh } from '@/hooks/useCachedResource';
 import { Star, Trash2, ChevronDown, Plus, X } from 'lucide-react-native';
 import { COLORS, formatCurrency, formatPct } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
@@ -27,94 +28,76 @@ interface WatchlistListInfo {
 export default function WatchlistScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const [lists, setLists] = useState<WatchlistListInfo[]>([]);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const [items, setItems] = useState<WatchlistItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showListPicker, setShowListPicker] = useState(false);
   const [showNewList, setShowNewList] = useState(false);
   const [newListName, setNewListName] = useState('');
 
-  const fetchLists = useCallback(async () => {
-    if (!user) return;
+  // Turn a list's raw symbols into display items (hydrating quotes when needed).
+  const fetchItemsData = useCallback(async (listId: string): Promise<WatchlistItem[]> => {
+    if (!user) return [];
+    const data = await watchlistApi.getWatchlist(user.id, listId);
+    const rawItems: any[] = data.symbols || data.watchlist || [];
+    if (rawItems.length > 0 && typeof rawItems[0] === 'object') {
+      return rawItems.map((item: any) => ({
+        symbol: item.symbol,
+        price: item.price,
+        change_pct: item.changesPercentage ?? item.change_pct,
+        name: item.name,
+        source: item.source,
+      }));
+    }
+    const symbols: string[] = rawItems.map((s: any) => typeof s === 'string' ? s : s.symbol);
+    if (symbols.length === 0) return [];
     try {
-      const data = await watchlistApi.getLists(user.id);
-      const fetched: WatchlistListInfo[] = data.lists || [];
-      setLists(fetched);
-      return fetched;
+      const quotes = await marketApi.getBatchQuotes(symbols);
+      const quoteMap = new Map((quotes.quotes || quotes || []).map((q: any) => [q.symbol, q]));
+      return symbols.map(s => {
+        const q = quoteMap.get(s) as any;
+        return { symbol: s, price: q?.price, change_pct: q?.changesPercentage ?? q?.change_pct, name: q?.name };
+      });
     } catch {
-      setLists([]);
-      return [];
+      return symbols.map(s => ({ symbol: s }));
     }
   }, [user]);
 
-  const fetchItems = useCallback(async (listId: string) => {
-    if (!user) return;
-    try {
-      const data = await watchlistApi.getWatchlist(user.id, listId);
-      const rawItems: any[] = data.symbols || data.watchlist || [];
+  // Cached lists + items so returning to this tab is instant; the spinner now
+  // shows only on the first load instead of on every focus.
+  const listsKey = user ? `wl-lists:${user.id}` : null;
+  const { data: lists = [], isLoading: listsLoading, refresh: refreshLists } = useCachedResource<WatchlistListInfo[]>(
+    listsKey,
+    () => watchlistApi.getLists(user!.id).then(d => d.lists || []),
+    { ttl: 60_000 },
+  );
 
-      if (rawItems.length > 0 && typeof rawItems[0] === 'object') {
-        setItems(rawItems.map((item: any) => ({
-          symbol: item.symbol,
-          price: item.price,
-          change_pct: item.changesPercentage ?? item.change_pct,
-          name: item.name,
-          source: item.source,
-        })));
-      } else {
-        const symbols: string[] = rawItems.map((s: any) => typeof s === 'string' ? s : s.symbol);
-        if (symbols.length > 0) {
-          try {
-            const quotes = await marketApi.getBatchQuotes(symbols);
-            const quoteMap = new Map(
-              (quotes.quotes || quotes || []).map((q: any) => [q.symbol, q])
-            );
-            setItems(symbols.map(s => {
-              const q = quoteMap.get(s) as any;
-              return {
-                symbol: s,
-                price: q?.price,
-                change_pct: q?.changesPercentage ?? q?.change_pct,
-                name: q?.name,
-              };
-            }));
-          } catch {
-            setItems(symbols.map(s => ({ symbol: s })));
-          }
-        } else {
-          setItems([]);
-        }
-      }
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
+  const itemsKey = user && selectedListId ? `wl-items:${user.id}:${selectedListId}` : null;
+  const { data: items = [], isLoading: itemsLoading, refresh: refreshItems, mutate: mutateItems } = useCachedResource<WatchlistItem[]>(
+    itemsKey,
+    () => fetchItemsData(selectedListId!),
+    { ttl: 60_000 },
+  );
+
+  const loading = listsLoading || (!!selectedListId && itemsLoading);
+
+  // Default to the first list (or keep the current one if it still exists).
+  useEffect(() => {
+    if (lists.length && (!selectedListId || !lists.some(l => l.id === selectedListId))) {
+      setSelectedListId(lists[0].id);
     }
-  }, [user]);
+  }, [lists, selectedListId]);
 
+  // On refocus, revalidate only stale data — cached data stays on screen.
   useFocusEffect(useCallback(() => {
-    setLoading(true);
-    fetchLists().then(fetched => {
-      if (fetched && fetched.length > 0) {
-        const listId = selectedListId && fetched.some(l => l.id === selectedListId)
-          ? selectedListId
-          : fetched[0].id;
-        setSelectedListId(listId);
-        fetchItems(listId);
-      } else {
-        setLoading(false);
-      }
-    });
-  }, [fetchLists]));
+    if (listsKey && !isCacheFresh(listsKey, 60_000)) refreshLists();
+    if (itemsKey && !isCacheFresh(itemsKey, 60_000)) refreshItems();
+  }, [listsKey, itemsKey, refreshLists, refreshItems]));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    const fetched = await fetchLists();
-    if (selectedListId) await fetchItems(selectedListId);
+    await Promise.all([refreshLists(), selectedListId ? refreshItems() : Promise.resolve()]);
     setRefreshing(false);
-  }, [fetchLists, fetchItems, selectedListId]);
+  }, [refreshLists, refreshItems, selectedListId]);
 
   const removeSymbol = (symbol: string) => {
     if (!user) return;
@@ -127,8 +110,8 @@ export default function WatchlistScreen() {
         onPress: async () => {
           try {
             await watchlistApi.removeSymbol(user.id, symbol, selectedListId || undefined);
-            setItems(prev => prev.filter(i => i.symbol !== symbol));
-            fetchLists();
+            mutateItems(items.filter(i => i.symbol !== symbol));
+            refreshLists();
           } catch {}
         },
       },
@@ -138,8 +121,6 @@ export default function WatchlistScreen() {
   const handleSelectList = (listId: string) => {
     setSelectedListId(listId);
     setShowListPicker(false);
-    setLoading(true);
-    fetchItems(listId);
   };
 
   const handleCreateList = async () => {
@@ -147,9 +128,9 @@ export default function WatchlistScreen() {
     try {
       const data = await watchlistApi.createList(user.id, newListName.trim());
       if (data.list) {
-        setLists(prev => [...prev, data.list]);
+        if (listsKey) mutateCache(listsKey, [...lists, data.list]);
+        mutateCache(`wl-items:${user.id}:${data.list.id}`, []);
         setSelectedListId(data.list.id);
-        setItems([]);
       }
       setNewListName('');
       setShowNewList(false);
@@ -169,12 +150,9 @@ export default function WatchlistScreen() {
           try {
             await watchlistApi.deleteList(user.id, list.id);
             const remaining = lists.filter(l => l.id !== list.id);
-            setLists(remaining);
+            if (listsKey) mutateCache(listsKey, remaining);
             if (selectedListId === list.id) {
-              const next = remaining[0];
-              setSelectedListId(next?.id || null);
-              if (next) fetchItems(next.id);
-              else setItems([]);
+              setSelectedListId(remaining[0]?.id || null);
             }
           } catch {}
         },

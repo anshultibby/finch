@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, Modal, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, Modal, StyleSheet, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';

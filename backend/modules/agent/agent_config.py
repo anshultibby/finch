@@ -32,6 +32,41 @@ async def _get_sandbox_file_listing(user_id: str) -> str:
         return ""
 
 
+async def _get_trade_execution_directive(user_id: str) -> str:
+    """
+    Per-session trade-execution instruction derived from the user's HITL setting.
+    Enforcement is prompt-driven: the agent reads this and chooses place_order vs
+    request_trade_approval. Defaults to requiring approval if anything fails.
+    """
+    require_approval = True
+    try:
+        from core.database import get_db_session
+        from crud.user_preferences import get_user_preferences
+        async with get_db_session() as db:
+            prefs = await get_user_preferences(db, user_id)
+            require_approval = bool(prefs.get("require_trade_approval", True))
+    except Exception as e:
+        logger.debug(f"Could not load trade-approval preference (defaulting to required): {e}")
+
+    if require_approval:
+        return (
+            "<trade_execution>\n"
+            "Per-trade approval is REQUIRED (the user's setting). Never call place_order "
+            "directly. Build the risk-defined order, review_order it, then route it through "
+            "request_trade_approval (in an automation) or show the user for a one-click "
+            "confirm. No order reaches the market without the user approving it.\n"
+            "</trade_execution>"
+        )
+    return (
+        "<trade_execution>\n"
+        "The user has DISABLED per-trade approval (unattended trading is ON). You MAY call "
+        "place_order directly once you've built and review_order'd a risk-defined trade — no "
+        "approval email needed. Still respect the day_trading RiskBudget (1% risk/trade, daily "
+        "loss limit) and any dollar cap, and only ever trade the isolated agentic account.\n"
+        "</trade_execution>"
+    )
+
+
 async def create_agent(context, user_id: str = None, skill_ids: list[str] = None, model: str = None):
     """Create an agent with the base system prompt.
 
@@ -52,6 +87,8 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
     file_listing = await _get_sandbox_file_listing(context.user_id)
     if file_listing:
         dynamic_parts.append(f"<sandbox_files>\nFiles currently in your workspace:\n{file_listing}\n</sandbox_files>")
+
+    dynamic_parts.append(await _get_trade_execution_directive(context.user_id))
 
     dynamic_context = "\n\n".join(dynamic_parts) if dynamic_parts else None
 

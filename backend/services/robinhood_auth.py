@@ -383,12 +383,13 @@ async def get_agentic_portfolio(user_id: str) -> dict:
         return {"agentic_account": None, "total_value": None, "buying_power": None, "holdings": [], "orders": []}
     acct = agentic["account_number"]
 
-    total_value = buying_power = None
+    total_value = buying_power = cash = None
     try:
         pf = (await mcp_call(user_id, "get_portfolio", {"account_number": acct}) or {}).get("data") or {}
         total_value = pf.get("total_value") or pf.get("market_value")
         bp = pf.get("buying_power")
         buying_power = bp.get("buying_power") if isinstance(bp, dict) else bp
+        cash = pf.get("cash")
     except Exception as e:
         logger.warning(f"Robinhood get_portfolio failed for {user_id}: {e}")
 
@@ -433,12 +434,16 @@ async def get_agentic_portfolio(user_id: str) -> dict:
         "price": o.get("average_price"),
         "at": o.get("last_transaction_at") or o.get("created_at"),
         "state": o.get("state"),
-    } for o in orders_list[:25]]
+    } for o in orders_list[:200]]
+    # The Agent tab reconstructs an equity curve from this fill history, so we keep
+    # a deep slice (not just the few most-recent) — enough to reach the account's
+    # start for a typical agent account.
 
     return {
         "agentic_account": agentic,
         "total_value": total_value,
         "buying_power": buying_power,
+        "cash": cash,
         "holdings": holdings,
         "orders": orders,
     }

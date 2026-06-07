@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
+import { useCachedResource, mutateCache } from '@/hooks/useCachedResource';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
@@ -206,8 +207,6 @@ function WatchlistItem({ item, onClick }: { item: any; onClick: () => void }) {
 
 function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) => void; market: Market }) {
   const [weekOffset, setWeekOffset] = useState(0);
-  const [earnings, setEarnings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [quotes, setQuotes] = useState<Record<string, any>>({});
 
   const today = new Date();
@@ -222,16 +221,17 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
 
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  useEffect(() => {
-    setLoading(true);
-    setQuotes({});
-    const fromDate = days[0].toISOString().split('T')[0];
-    const toDate = days[6].toISOString().split('T')[0];
-    marketApi.getEarnings(fromDate, toDate, market)
-      .then(data => setEarnings(Array.isArray(data) ? data : []))
-      .catch(() => setEarnings([]))
-      .finally(() => setLoading(false));
-  }, [weekOffset, market]);
+  const fromDate = days[0].toISOString().split('T')[0];
+  const toDate = days[6].toISOString().split('T')[0];
+
+  // Cached per week+market so re-opening the tab (or paging back to a week) is
+  // instant. Earnings dates rarely move, so a 5-minute freshness window is fine.
+  const { data: earningsData, isLoading: loading } = useCachedResource<any[]>(
+    `earnings:${market}:${fromDate}:${toDate}`,
+    () => marketApi.getEarnings(fromDate, toDate, market).then(d => (Array.isArray(d) ? d : [])),
+    { ttl: 5 * 60_000 },
+  );
+  const earnings = earningsData ?? [];
 
   const earningsByDate: Record<string, any[]> = {};
   earnings.forEach(e => {
@@ -684,9 +684,8 @@ function AccountsSidebar({ hasBrokerage, externalPortfolio, onConnect, onDisconn
 function WatchlistTabView({ userId, onStockClick }: {
   userId: string; onStockClick: (s: string) => void;
 }) {
-  const [lists, setLists] = useState<{ id: string; name: string; list_type: string; item_count: number }[]>([]);
+  type WlList = { id: string; name: string; list_type: string; item_count: number };
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const [watchlist, setWatchlist] = useState<any[]>([]);
   const [addSymbol, setAddSymbol] = useState('');
   const [adding, setAdding] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -698,22 +697,26 @@ function WatchlistTabView({ userId, onStockClick }: {
   const searchRef = useRef<HTMLDivElement>(null);
   const listDropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    watchlistApi.getLists(userId).then(data => {
-      const fetched = data.lists || [];
-      setLists(fetched);
-      if (fetched.length > 0) setSelectedListId(fetched[0].id);
-    }).catch(() => {});
-  }, [userId]);
+  // Lists + items are cached so returning to the Watchlist tab renders instantly;
+  // mutations below write through the cache to stay correct without a refetch.
+  const listsKey = `wl-lists:${userId}`;
+  const { data: lists = [], refresh: refreshLists } = useCachedResource<WlList[]>(
+    listsKey,
+    () => watchlistApi.getLists(userId).then(d => d.lists || []),
+    { ttl: 60_000 },
+  );
 
-  useEffect(() => {
-    if (!selectedListId) return;
-    watchlistApi.getWatchlist(userId, selectedListId).then(data => {
-      setWatchlist(data.symbols || []);
-    }).catch(() => setWatchlist([]));
-  }, [userId, selectedListId]);
+  const itemsKey = selectedListId ? `wl-items:${userId}:${selectedListId}` : null;
+  const { data: watchlist = [], mutate: mutateItems } = useCachedResource<any[]>(
+    itemsKey,
+    () => watchlistApi.getWatchlist(userId, selectedListId!).then(d => d.symbols || []),
+    { ttl: 60_000 },
+  );
 
-  const refreshLists = () => watchlistApi.getLists(userId).then(data => setLists(data.lists || [])).catch(() => {});
+  // Default to the first list once lists load.
+  useEffect(() => {
+    if (lists.length && !selectedListId) setSelectedListId(lists[0].id);
+  }, [lists, selectedListId]);
 
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setSearchResults([]); setShowSearch(false); return; }
@@ -736,7 +739,7 @@ function WatchlistTabView({ userId, onStockClick }: {
     try {
       await watchlistApi.addSymbol(userId, symbol.toUpperCase(), selectedListId);
       const data = await watchlistApi.getWatchlist(userId, selectedListId);
-      setWatchlist(data.symbols || []);
+      mutateItems(data.symbols || []);
       setAddSymbol('');
       setShowSearch(false);
       refreshLists();
@@ -745,14 +748,14 @@ function WatchlistTabView({ userId, onStockClick }: {
   };
 
   const handleRemove = async (symbol: string) => {
-    setWatchlist(prev => prev.filter(w => w.symbol !== symbol));
+    mutateItems(watchlist.filter(w => w.symbol !== symbol)); // optimistic
     try {
       await watchlistApi.removeSymbol(userId, symbol, selectedListId || undefined);
       refreshLists();
     } catch {
       if (selectedListId) {
         const data = await watchlistApi.getWatchlist(userId, selectedListId);
-        setWatchlist(data.symbols || []);
+        mutateItems(data.symbols || []);
       }
     }
   };
@@ -762,7 +765,7 @@ function WatchlistTabView({ userId, onStockClick }: {
     try {
       const data = await watchlistApi.createList(userId, newListName.trim());
       if (data.list) {
-        setLists(prev => [...prev, data.list]);
+        mutateCache(listsKey, [...lists, data.list]);
         setSelectedListId(data.list.id);
       }
       setNewListName('');
@@ -774,7 +777,7 @@ function WatchlistTabView({ userId, onStockClick }: {
   const handleDeleteList = async (listId: string) => {
     try {
       await watchlistApi.deleteList(userId, listId);
-      setLists(prev => prev.filter(l => l.id !== listId));
+      mutateCache(listsKey, lists.filter(l => l.id !== listId));
       if (selectedListId === listId) {
         const remaining = lists.filter(l => l.id !== listId);
         setSelectedListId(remaining[0]?.id || null);
