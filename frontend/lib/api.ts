@@ -632,6 +632,7 @@ export interface RobinhoodPortfolioResponse {
   agentic_account: RobinhoodAccount | null;
   total_value: string | null;
   buying_power: string | null;
+  cash: string | null;
   holdings: RobinhoodHolding[];
   orders: RobinhoodOrder[];
 }

@@ -96,12 +96,13 @@ export default function AgentTabView({ userId, onStockClick }: {
       .catch(() => {});
   }, []);
 
-  const buyingPower = Number(data?.buying_power ?? 0) || 0;
+  // Prefer true settled cash; fall back to buying power if the broker omits it.
+  const baseCash = Number(data?.cash ?? data?.buying_power ?? 0) || 0;
 
   const curve: SeriesPoint[] = useMemo(() => {
     if (!holdings.length && !orders.length) return [];
-    return buildEquityCurve({ holdings, orders, buyingPower, pricesBySymbol: prices });
-  }, [holdings, orders, buyingPower, prices]);
+    return buildEquityCurve({ holdings, orders, cash: baseCash, pricesBySymbol: prices });
+  }, [holdings, orders, baseCash, prices]);
 
   const markers = useMemo(() => ordersToMarkers(orders), [orders]);
   const stats = useMemo(() => reconstructRealizedStats(orders), [orders]);
@@ -208,6 +209,9 @@ export default function AgentTabView({ userId, onStockClick }: {
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 pt-3 text-xs">
           <span className="text-gray-500">
             Unrealized <span className={`font-semibold tabular-nums ${pos(totalUnrealized)}`}>{signed(totalUnrealized)}</span>
+          </span>
+          <span className="text-gray-500">
+            Cash <span className="font-semibold tabular-nums text-gray-700">{usd(data.cash)}</span>
           </span>
           <span className="text-gray-500">
             Buying power <span className="font-semibold tabular-nums text-gray-700">{usd(data.buying_power)}</span>

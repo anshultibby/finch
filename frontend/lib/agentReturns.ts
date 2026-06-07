@@ -85,7 +85,7 @@ function nearestIdx(series: RawPoint[], targetMs: number): number {
 interface CurveInput {
   holdings: RobinhoodHolding[];
   orders: RobinhoodOrder[];
-  buyingPower: number;
+  cash: number; // current settled cash — base for the cash-over-time model
   pricesBySymbol: Record<string, RawPoint[]>;
 }
 
@@ -99,7 +99,7 @@ interface CurveInput {
 export function buildEquityCurve({
   holdings,
   orders,
-  buyingPower,
+  cash: currentCash,
   pricesBySymbol,
 }: CurveInput): SeriesPoint[] {
   const heldQty = new Map<string, number>();
@@ -181,7 +181,7 @@ export function buildEquityCurve({
     const tMs = ms(date);
     // qtyHeld(sym, t) = currentQty − Σ buys after t + Σ sells after t (clamp ≥ 0)
     const qty = new Map<string, number>(symbols.map((s) => [s, heldQty.get(s) ?? 0]));
-    let cash = buyingPower;
+    let cash = currentCash;
     for (const e of events) {
       if (e.t <= tMs) break; // events are newest-first; rest are at/before t
       if (e.buy) {
