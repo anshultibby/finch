@@ -8,7 +8,6 @@ import { MessageSquare } from 'lucide-react-native';
 
 const EXAMPLE_PROMPTS = [
   'Is NVDA overvalued right now?',
-  'Find tax-loss harvesting opportunities',
   'Build me a momentum strategy',
   'Compare AAPL vs MSFT fundamentals',
   'What biotech catalysts are coming up?',

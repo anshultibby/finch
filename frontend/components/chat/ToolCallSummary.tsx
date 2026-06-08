@@ -48,7 +48,6 @@ function getActiveToolLabel(toolName: string): string {
     'get_brokerage_status': 'Checking brokerage',
     'get_fmp_data': 'Fetching market data',
     'build_custom_etf': 'Building ETF',
-    'present_swaps': 'Preparing results',
     'connect_brokerage': 'Connecting brokerage',
     'delegate': 'Delegating to sub-agent',
   };

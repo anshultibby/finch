@@ -1,17 +1,6 @@
 // Shared prompt templates for AI quick-actions across the app.
 // Used by HomePage action cards and NewChatWelcome quick-actions.
 
-export const TLH_PROMPT = `Run a comprehensive tax-loss harvesting analysis on my portfolio.
-
-1. Pull my current holdings from my connected brokerage and compute unrealized gains/losses for each position from cost basis.
-2. Identify positions sitting at unrealized losses worth harvesting. State the loss threshold you used and why.
-3. For each candidate, propose 1–2 replacement securities that preserve similar market and sector exposure without triggering a wash sale (different CUSIP, similar but not substantially identical).
-4. Check for wash-sale risk from purchases in the last 30 days, including dividend reinvestments and partial fills.
-5. Estimate total tax savings. Assume long-term capital gains for positions held >1 year and short-term otherwise. Ask me my marginal rates if you need them.
-6. Present results as actionable swap proposals I can approve or reject one by one.
-
-Be precise about dollar amounts and lot-level detail where it matters.`;
-
 export const PORTFOLIO_REVIEW_PROMPT = `Give me a comprehensive review of my portfolio.
 
 1. Pull my current holdings from my connected brokerage. Summarize total value, cash position, number of positions, and overall unrealized P&L.

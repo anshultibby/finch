@@ -1,19 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { DollarSign, PieChart, Search, Send, Sparkles } from 'lucide-react-native';
+import { PieChart, Search, Send, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { TLH_PROMPT, PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
+import { PORTFOLIO_REVIEW_PROMPT, RESEARCH_STOCK_PROMPT } from '@/lib/aiPrompts';
 import { COLORS } from '@/lib/constants';
 import type { ModelOption } from '@/lib/types';
 
 const QUICK_ACTIONS = [
-  {
-    label: 'Tax-loss harvesting',
-    description: 'Find tax savings in your portfolio',
-    prompt: TLH_PROMPT,
-    icon: <DollarSign size={16} color={COLORS.emerald} />,
-    bg: '#ecfdf5',
-  },
   {
     label: 'Portfolio review',
     description: 'Comprehensive analysis of holdings',

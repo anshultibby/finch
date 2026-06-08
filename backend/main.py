@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from core.config import Config
 from core.rate_limit import limiter
-from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, reminders_router, market_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router, account_router, trades_router
+from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, market_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router, account_router, trades_router
 from routes.analytics import router as analytics_router
 from routes.jobs import router as jobs_router
 from utils.logger import configure_logging, get_logger
@@ -26,8 +26,8 @@ from modules.tools import definitions  # noqa: F401 - imported for side effects 
 from modules.tools.implementations import delegate  # noqa: F401 - imported for side effects (tool registration)
 
 app = FastAPI(
-    title="Finch Tax Loss Harvesting API",
-    description="AI-powered tax loss harvesting",
+    title="Finch API",
+    description="AI financial partner — research, portfolio analysis, and trade automations",
     version="4.0.0"
 )
 
@@ -123,7 +123,6 @@ app.include_router(analytics_router)
 app.include_router(chat_files_router)
 app.include_router(api_keys_router)
 app.include_router(credits_router)
-app.include_router(reminders_router)
 app.include_router(market_router)
 app.include_router(watchlist_router)
 app.include_router(push_router)
@@ -185,11 +184,6 @@ async def startup_event():
     _pool_monitor_task = asyncio.create_task(monitor_connection_pool())
     logger.info("Started connection pool monitoring")
 
-    # Start TLH reminder email loop
-    from services.reminder_scheduler import run_reminder_loop
-    asyncio.create_task(run_reminder_loop())
-    logger.info("Started TLH reminder scheduler")
-
     # Start the scheduled-job waker (file-backed jobs)
     from services.job_scheduler import run_job_loop
     asyncio.create_task(run_job_loop())
@@ -230,7 +224,7 @@ async def shutdown_event():
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "Finch Tax Loss Harvesting API", "status": "running"}
+    return {"message": "Finch API", "status": "running"}
 
 
 @app.get("/health")

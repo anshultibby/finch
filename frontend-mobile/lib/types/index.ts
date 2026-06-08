@@ -6,32 +6,11 @@
 // Core Chat Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface SubstituteCandidate {
-  symbol: string;
-  correlation: number;
-  quality: string; // 'STRONG' | 'GOOD' | 'WEAK' | 'POOR' | ''
-  reason: string;
-  is_sector_peer: boolean;
-}
-
-export interface SwapData {
-  sell_symbol: string;
-  sell_qty: number;
-  sell_loss: number;
-  sell_loss_pct: number;
-  buy_symbol: string;
-  buy_reason: string;
-  estimated_savings: number;
-  correlation: number;
-  substitute_candidates?: SubstituteCandidate[];
-}
-
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   toolCalls?: ToolCallStatus[];
-  swap_data?: SwapData[];
 }
 
 export interface ImageAttachment {
@@ -139,7 +118,6 @@ export interface SSEToolCallCompleteEvent {
   code_output?: CodeOutput;
   search_results?: SearchResults;
   scraped_content?: ScrapedContent;
-  swap_data?: SwapData[];
   agent_id: string;
   parent_agent_id?: string;
   sub_agent_id?: string;

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import ToolCallSummary from './ToolCallSummary';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import { getAuthHeader } from '@/lib/api';
-import type { ToolCallStatus, SwapData } from '@/lib/types';
+import type { ToolCallStatus } from '@/lib/types';
 import type { TimeEstimate } from '@/hooks/useChatStream';
 
 export interface MessageAction {
@@ -20,7 +20,6 @@ interface ChatMessageProps {
   content: string;
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
-  swap_data?: SwapData[];
   chatId?: string;
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
@@ -810,150 +809,6 @@ const parseFileReferences = (
   return parts.length > 0 ? parts : [content];
 };
 
-function ReminderModal({ swap, onClose, userId }: { swap: SwapData; onClose: () => void; userId: string }) {
-  const [email, setEmail] = React.useState('');
-  const [submitted, setSubmitted] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-
-  const handleSubmit = async () => {
-    if (!email.trim()) return;
-    setLoading(true);
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/reminders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          email: email.trim(),
-          symbol_sold: swap.sell_symbol,
-          symbol_bought: swap.buy_symbol,
-          loss_amount: Math.abs(swap.sell_loss),
-          sale_date: today,
-        }),
-      });
-      setSubmitted(true);
-    } catch (e) {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const remindDate = new Date();
-  remindDate.setDate(remindDate.getDate() + 61);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-        {submitted ? (
-          <div className="text-center py-4">
-            <div className="text-2xl mb-3">✓</div>
-            <div className="font-semibold text-gray-900 mb-1">Reminder set</div>
-            <div className="text-sm text-gray-500">
-              We'll email you on {remindDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} when you can safely repurchase {swap.sell_symbol}.
-            </div>
-            <button onClick={onClose} className="mt-4 text-sm text-gray-400 hover:text-gray-600">Close</button>
-          </div>
-        ) : (
-          <>
-            <div className="font-semibold text-gray-900 mb-1">Set 61-day repurchase reminder</div>
-            <div className="text-sm text-gray-500 mb-4">
-              We'll email you on <strong>{remindDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong> when the wash sale window clears for <strong>{swap.sell_symbol}</strong>.
-            </div>
-            <input
-              type="email"
-              placeholder="your@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:border-gray-400"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button onClick={onClose} className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Cancel</button>
-              <button
-                onClick={handleSubmit}
-                disabled={!email.trim() || loading}
-                className="flex-1 py-2.5 text-sm text-white bg-gray-900 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-colors"
-              >
-                {loading ? 'Saving…' : 'Set reminder'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SwapCard({ swap, index, userId }: { swap: SwapData; index: number; userId: string }) {
-  const [showReminder, setShowReminder] = React.useState(false);
-
-  return (
-    <>
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 hover:border-gray-300 transition-colors">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded">#{index + 1}</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-sm text-red-600">{swap.sell_symbol}</span>
-              <span className="text-gray-400">→</span>
-              <span className="font-medium text-sm text-emerald-600">{swap.buy_symbol}</span>
-            </div>
-          </div>
-          <span className="text-xs text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 rounded-full">
-            Save ~${swap.estimated_savings.toLocaleString()}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-3 mb-3 text-xs">
-          <div className="bg-red-50/60 rounded-lg px-3 py-2">
-            <div className="text-gray-500 mb-0.5">Sell</div>
-            <div className="text-red-600 font-medium">{swap.sell_qty} shares · ${Math.abs(swap.sell_loss).toLocaleString()} loss</div>
-            <div className="text-gray-400 mt-0.5">{swap.sell_loss_pct.toFixed(1)}%</div>
-          </div>
-          <div className="bg-emerald-50/60 rounded-lg px-3 py-2">
-            <div className="text-gray-500 mb-0.5">Buy</div>
-            <div className="text-emerald-700 font-medium">{swap.buy_symbol}</div>
-            <div className="text-gray-400 mt-0.5 truncate">{swap.buy_reason}</div>
-          </div>
-        </div>
-        <div className="text-[11px] text-gray-400 mb-2">Correlation: {(swap.correlation * 100).toFixed(0)}%</div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowReminder(true)}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            61-day reminder
-          </button>
-        </div>
-      </div>
-      {showReminder && <ReminderModal swap={swap} onClose={() => setShowReminder(false)} userId={userId} />}
-    </>
-  );
-}
-
-function SwapCards({ swaps, userId }: { swaps: SwapData[]; userId: string }) {
-  const totalSavings = swaps.reduce((sum, s) => sum + s.estimated_savings, 0);
-  return (
-    <div className="space-y-3 my-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        {swaps.map((swap, i) => (
-          <SwapCard key={`${swap.sell_symbol}-${swap.buy_symbol}`} swap={swap} index={i} userId={userId} />
-        ))}
-      </div>
-      {swaps.length > 1 && (
-        <div className="px-1 text-sm text-gray-600 font-medium">
-          Total estimated savings: <span className="text-emerald-600">${totalSavings.toLocaleString()}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function FeedbackModal({ type, onSubmit, onClose }: {
   type: 'like' | 'dislike';
   onSubmit: (comment: string) => void;
@@ -1046,7 +901,7 @@ function MessageActions({ actions, alwaysVisible, onFeedback, feedbackGiven, set
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, swap_data, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -1223,9 +1078,6 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, swap
             )
           )}
           <CitationReferences citations={citations} />
-          {swap_data && swap_data.length > 0 && (
-            <SwapCards swaps={swap_data} userId={userId || ''} />
-          )}
           {toolCalls && toolCalls.length > 0 && (
             <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
           )}
