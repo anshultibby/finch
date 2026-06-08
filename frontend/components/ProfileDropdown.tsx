@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCredits } from '@/contexts/CreditsContext';
 import ApiKeysModal from './ApiKeysModal';
+import SettingsModal from './SettingsModal';
 
 interface ProfileDropdownProps {
   collapsed?: boolean;
@@ -15,6 +15,7 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
   const { credits, loading: creditsLoading, openModal: openCreditsModal } = useCredits();
   const [isOpen, setIsOpen] = useState(false);
   const [showApiKeysModal, setShowApiKeysModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,6 +65,7 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
       </button>
 
       <ApiKeysModal isOpen={showApiKeysModal} onClose={() => setShowApiKeysModal(false)} />
+      <SettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
 
       {isOpen && (
         <div className="absolute left-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
@@ -108,9 +110,8 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
 
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Settings</p>
-            <Link
-              href="/settings"
-              onClick={() => setIsOpen(false)}
+            <button
+              onClick={() => { setShowSettingsModal(true); setIsOpen(false); }}
               className="w-full text-left py-2 text-sm text-gray-700 hover:text-gray-900 flex items-center gap-2 rounded transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,7 +119,7 @@ export default function ProfileDropdown({ collapsed = false }: ProfileDropdownPr
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               Trading &amp; approvals
-            </Link>
+            </button>
             <button
               onClick={() => { setShowApiKeysModal(true); setIsOpen(false); }}
               className="w-full text-left py-2 text-sm text-gray-700 hover:text-gray-900 flex items-center gap-2 rounded transition-colors"
