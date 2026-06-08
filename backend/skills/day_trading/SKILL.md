@@ -12,37 +12,116 @@ metadata:
 
 # Day Trading Skill
 
-A disciplined, **evidence-first** approach to short-term trading. Everything here
-is grounded in published research or professional consensus — citations inline —
-not blog folklore. The skill ships callable helpers (`indicators.py`, `setups.py`,
-`risk.py`) and is designed to **run as automations** (scheduled jobs that scan →
-build a risk-defined trade → email the user for one-click approval).
+You are an operator, not a commentator. When the user wants to day trade, **act**:
+check where things stand, manage what's open, hunt for the next setup. Don't deliver
+moralizing lectures or repeat disclaimers — the discipline lives in the *rules and
+risk limits below*, applied mechanically, not in warnings.
 
 ```python
 from skills.day_trading.scripts.indicators import vwap, atr, rsi, relative_volume, opening_range
 from skills.day_trading.scripts.setups import orb_signal, stocks_in_play, vwap_signal, connors_rsi2_signal
 from skills.day_trading.scripts.risk import position_size, plan_trade, RiskBudget
+from skills.day_trading.scripts.journal import session_state, log_trade, open_positions
 ```
 
-## Read this first — the honest base rate
+## The operating loop — run this every session/automation
 
-Lead with this whenever a user asks you to day trade. It is not a disclaimer, it
-shapes the whole approach:
+Three steps, in order, every time. This is the whole job.
 
-- **<1% of day traders earn persistent profits net of fees;** 80%+ lose
-  (Barber, Lee, Liu & Odean, *Do Individual Day Traders Make Money? Evidence from
-  Taiwan*). In Brazil, **97% of those who persisted 300+ days lost money**
-  (Chague, De-Losso & Giovannetti). The most-active US traders underperformed the
-  market by **~6.5 percentage points/year** (Barber & Odean 2000).
-- **The edge that survives is structural, not predictive:** a *positive-expectancy
-  setup* + *asymmetric risk/reward* + *iron risk limits*. Most losers have an
-  occasionally-right setup and no risk control.
-- **Costs and discipline kill more accounts than bad picks.** Commissions, spread,
-  slippage, and tilt are the real adversaries.
+**1. STATUS — where are we right now?** Never strategize blind.
+   - `session_state()` — open positions, realized P&L, recent trades, AND the tail of
+     your notebook (your own last thoughts + standing "next steps").
+   - `connection_status()` + `portfolio_snapshot()` (robinhood) — live account value,
+     buying power, actual positions, open orders.
+   - Market clock — is it open? which window (open / lunch / power hour)?
+   - Reconcile: does the journal match the broker? Flag drift. Act on your prior next-steps.
 
-So: trade **only** documented setups, **only** with defined risk, **size small**,
-and **prefer automations** that enforce the rules mechanically over discretionary
-clicking.
+**2. MANAGE — handle open trades before opening new ones.** For each open position:
+   - At/through **target** → take it (or scale out at 1:1 and trail the rest to EOD).
+   - At/through **stop**, or thesis broken (e.g. lost VWAP) → **cut it now**, no averaging down.
+   - Near the close and it's an intraday setup (ORB/VWAP) → **flatten** (no overnight risk).
+   - Log every exit with `log_trade(..., status="closed", pnl=...)`.
+
+**3. HUNT — find the next idea** (only if the RiskBudget still allows trades):
+   - Build today's stocks-in-play, run the setups, rank, size with `plan_trade()`,
+     route through review→approve. Details under "The verifiable setups" below.
+
+State the base rate **once, briefly, if the user is new to this** ("most day traders
+lose; our edge is documented setups + strict risk, sized small") — then move on. Do
+not re-litigate it every turn.
+
+## STATUS — pull the current picture first
+
+```python
+from skills.day_trading.scripts.journal import session_state
+from skills.robinhood.scripts.trading import connection_status, portfolio_snapshot
+
+st = session_state()        # {'open_positions': {...}, 'realized_pnl': .., 'recent': [...]}
+conn = connection_status()  # {'connected': True, 'agentic_account': '...'}
+snap = portfolio_snapshot() if conn["connected"] else None  # live value, buying power, positions
+# Reconcile journal vs broker; report: account value, P&L today, what's open, market window.
+```
+
+Open every interactive session and every automation run with this. "Where are we?"
+is always answerable — never guess.
+
+## MANAGE — exits before entries
+
+Managing open trades is where money is kept. Do this **before** hunting new ideas.
+
+For each open position (`open_positions()` + live quotes from `get_quotes`):
+- **Winner at/through target:** take it — or scale half at **1:1** and move the stop to
+  **breakeven**, trailing the rest to the close. (Scaling to breakeven is the single
+  most cited fix for giving back winners.)
+- **Loser at/through stop, or thesis invalidated** (lost VWAP / broke the OR back): **cut
+  it immediately.** Never average down a loser.
+- **Intraday setup near the close** (ORB/VWAP have no overnight edge): **flatten.**
+- Every exit: `review_order` the close, place/approve it, then
+  `log_trade(symbol, side, status="closed", pnl=<realized>, note="why")`.
+
+```python
+from skills.day_trading.scripts.journal import open_positions, log_trade
+from skills.robinhood.scripts.trading import get_quotes, review_order
+
+for sym, pos in open_positions().items():
+    q = get_quotes([sym]); last = ...  # current price
+    if last >= pos["target"]:   ...    # take profit / scale + trail
+    elif last <= pos["stop"]:   ...    # cut the loss now
+    # else: hold; update note if the plan changed
+```
+
+## Continuity — your memory across sessions
+
+Automations are stateless; these files in the persistent store
+(`/home/user/store/day_trading/`) are how you remember. Unlike chat_files (per-chat),
+the store persists, so every run inherits the full history.
+
+Three files, three jobs:
+
+1. **`trades.jsonl` — the ledger** (structured). Append at every decision with
+   `log_trade(symbol, side, status, setup=, entry=, stop=, target=, shares=, pnl=, note=)`.
+   Statuses: `planned → approved → filled → closed` (also `rejected`/`skipped`). An open
+   position = a `filled` with no later `closed`.
+
+2. **`notebook.md` — the diary** (free-form thoughts). At the **end of every session**,
+   write what you did and what to do next:
+   ```python
+   from skills.day_trading.scripts.journal import append_note
+   append_note(
+       did="ORB long MU @82.1, scaled half at 1:1, trailed to EOD (+$143). NVDA still open.",
+       next_steps="Tomorrow: watch MU continuation; NVDA stop 119, target 124. Skip lunch chop.",
+       ts=datetime.now().isoformat(),
+   )
+   ```
+   `next_steps` is the standing message to your future self — `session_state()` reads
+   the notebook tail back at STATUS, so the next run literally picks up your last thought.
+
+3. **`strategy.md` — the rules** (evolving). Keep the setups, watchlist, and lessons here
+   via `memory_write(durable=True)`; refine it when something works or fails.
+
+This is what makes the agent feel continuous: it opens, reads its journal + notebook +
+strategy, sees the open MU position and yesterday's "watch for continuation" note, and
+acts on it instead of starting from zero.
 
 ## The verifiable setups
 
@@ -166,6 +245,15 @@ email. The automation *is* the discipline.
 Only `place_order` directly inside a job if the user has explicitly opted into
 unattended trading for that automation, and always keep a dollar cap.
 
+**Canonical imports (use these exact paths — don't go hunting):**
+```python
+from skills.day_trading.scripts.journal import session_state, log_trade, open_positions
+from skills.day_trading.scripts.setups import stocks_in_play, orb_signal
+from skills.day_trading.scripts.risk import plan_trade, RiskBudget
+from skills.robinhood.scripts.trading import connection_status, portfolio_snapshot, review_order, get_quotes
+from skills.finch_api.scripts import request_trade_approval   # ← approval lives in finch_api, NOT robinhood
+```
+
 ### Pattern A — the morning ORB scanner (fires once, after the opening range)
 
 ```python
@@ -176,17 +264,17 @@ schedule_job(
     recurrence="weekdays",
     run_at="2026-06-05T13:36:00Z",   # 09:36 ET — just after the 5-min OR completes
     message=(
-        "Run my Opening Range Breakout automation. Read /home/user/store/strategy.md "
-        "for my rules first. Then:\n"
-        "1. connection_status(); if not connected, stop.\n"
-        "2. Build today's 'stocks in play': for my watchlist, pull first-5-min volume "
-        "   vs the prior-14-day average (polygon_io), keep RVOL>1, price>$5, ATR>0.5, "
-        "   rank top 5 with stocks_in_play().\n"
-        "3. For each, orb_signal(get_today_bars(sym,'1min'), atr_bars=daily). "
-        "   If signal fires, plan_trade(equity, entry, stop, side, risk_pct=0.01, rr=10).\n"
-        "4. Enforce RiskBudget: 1% risk/trade, skip if today's loss limit is hit.\n"
-        "5. review_order the best 1-2 candidates, then request_trade_approval(...) so I "
-        "   approve by email. If nothing qualifies, do nothing (no email)."
+        "Run my Opening Range Breakout automation. Use the day_trading skill's canonical "
+        "imports. Steps:\n"
+        "1. STATUS: session_state() + connection_status() + portfolio_snapshot(). Read "
+        "   /home/user/store/day_trading/strategy.md for my rules. If not connected, stop.\n"
+        "2. MANAGE first: for each open_positions(), check live quote vs its target/stop — "
+        "   take profit, cut losers, or hold; log_trade(status='closed', pnl=..) on any exit.\n"
+        "3. HUNT (only if RiskBudget allows): build stocks_in_play (RVOL>1, price>$5, "
+        "   ATR>0.5, top 5), run orb_signal on each, plan_trade(risk_pct=0.01, rr=10).\n"
+        "4. For the best 1-2: review_order, then request_trade_approval(...) so I approve "
+        "   by email; log_trade(status='planned'/'approved', ...). Nothing qualifies → do nothing.\n"
+        "5. END: append_note(did=..., next_steps=...) so my next run picks up where this left off."
     ),
 )
 ```
@@ -237,14 +325,23 @@ Each automation run should **read the rules, act, then append what happened**
   none place orders.
 - **`risk.py`** — `position_size`, `plan_trade` (full risk-defined plan with target),
   `RiskBudget` (daily-loss / consecutive-loss / trade-count circuit breaker).
+- **`journal.py`** — `session_state()` (read first; includes notebook tail), `log_trade(...)`
+  (append every decision), `open_positions()`, `realized_pnl()`, `append_note(did, next_steps)`
+  / `read_notebook()` (the diary). Persists to the memory store for continuity across runs.
 
 ## Hard rules (never violate)
 
-1. **No setup, no trade.** If `signal is None`, do nothing.
-2. **Every trade is risk-defined before entry** — entry, stop, size, target known.
-3. **Respect the RiskBudget.** Daily loss limit or 3 losses in a row → stop.
-4. **Default to review→approve.** Unattended trading only on explicit opt-in + cap.
-5. **State the base rate honestly** when the user asks to "make money day trading."
+1. **Run the loop: STATUS → MANAGE → HUNT.** Always know where you are before acting;
+   manage open trades before opening new ones.
+2. **No setup, no trade.** If `signal is None`, do nothing.
+3. **Every trade is risk-defined before entry** — entry, stop, size, target known.
+4. **Respect the RiskBudget.** Daily loss limit or 3 losses in a row → stop for the day.
+5. **Cut losers at the stop; never average down.** Take/scale winners; flatten intraday
+   setups before the close.
+6. **Journal every decision** so the next run inherits the picture.
+7. **Follow the `<trade_execution>` setting** (review→approve vs direct placement).
+8. **Be concise and action-oriented.** State the base rate once if the user is new, then
+   strategize — no repeated moralizing or lectures.
 
 ## Sources
 
