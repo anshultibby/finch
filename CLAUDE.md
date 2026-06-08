@@ -17,6 +17,17 @@ Example entry in `SKILL_ENV_KEYS`:
 
 Use `"system"` for keys shared across all users (from `.env`). Use `"user"` for per-user keys stored in the DB.
 
+## Adding / turning on a skill
+
+A skill is a folder `backend/skills/<name>/` with a `SKILL.md` (frontmatter: `name`, `description`, `metadata`). It's auto-discovered — no registration. It syncs to the sandbox by content hash (no backend restart needed).
+
+How it surfaces to the agent:
+- **Always:** its one-line `description` appears in the all-skills list (in the `execute_code`/`bash` tool description).
+- **`auto_on: true`** in `metadata` → also always in the system prompt's `<available_skills>` block. Omit it → the skill is only active when the user selects it for the chat.
+- The full `SKILL.md` is **never** inlined; the agent reads it on demand. So put real usage detail in `SKILL.md` and keep `description` tight.
+
+So: to make a new skill always available, set `auto_on: true`.
+
 ## Keeping Web & Mobile in Sync
 
 The project has two frontends that must stay in parity:
