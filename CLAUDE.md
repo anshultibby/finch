@@ -17,6 +17,16 @@ Example entry in `SKILL_ENV_KEYS`:
 
 Use `"system"` for keys shared across all users (from `.env`). Use `"user"` for per-user keys stored in the DB.
 
+## Where env values & secrets live (NOT committed)
+
+All real values are in gitignored files / EAS — never hardcode them in tracked code.
+
+**Mobile app production env (`EXPO_PUBLIC_*`):** source of truth for builds is **EAS env vars**, environment `production` (`cd frontend-mobile && eas env:list --environment production`). A local mirror lives in gitignored **`frontend-mobile/.env.production`**. `frontend-mobile/.env` holds the local-dev values (API URL = `localhost`).
+- These must be set on EAS or the production build ships with an empty `EXPO_PUBLIC_SUPABASE_URL`, and `createClient('')` throws at module load → **crash on launch** (this caused the v1.0(20) App Store rejection).
+- Production backend: `https://finch-production-8434.up.railway.app` (Railway).
+
+**App Store reviewer / E2E test account:** credentials are `E2E_EMAIL` / `E2E_PASSWORD` in gitignored **`frontend/.env.local`**, **`backend/.env`**, and **`frontend-mobile/.env`**. `tests/auth.setup.ts` (web + mobile) reads them from env and throws if unset — no hardcoded fallback. When filling `frontend-mobile/APP_STORE_REVIEW.md` for a submission, paste the values from there; don't commit them.
+
 ## Adding / turning on a skill
 
 A skill is a folder `backend/skills/<name>/` with a `SKILL.md` (frontmatter: `name`, `description`, `metadata`). It's auto-discovered — no registration. It syncs to the sandbox by content hash (no backend restart needed).

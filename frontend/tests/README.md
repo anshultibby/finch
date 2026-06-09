@@ -23,11 +23,12 @@ signs in once and saves the session to `.auth/user.json` for the `app` project.
 |-------|-----------|-------|
 | `frontend/.env.local` | `E2E_EMAIL` / `E2E_PASSWORD` (+ `TEST_EMAIL` / `TEST_PASSWORD`) | Read by `auth.setup.ts`; gitignored |
 | `backend/.env` | same | Mirrored for backend/manual use; gitignored |
-| `auth.setup.ts` defaults | `appstore.review@finchapp.ai` / `FinchApp` | Used if the env vars are unset |
+| `frontend-mobile/.env` | same | For mobile Playwright; gitignored |
 
-Shared review/test account: **`appstore.review@finchapp.ai`** / **`FinchApp`**.
-Override per-run with `E2E_EMAIL` / `E2E_PASSWORD`. To log in manually, open
-`localhost:3000` and enter these in the email/password gate.
+The shared review/test account credentials are **not committed** — they live in
+the gitignored env files above as `E2E_EMAIL` / `E2E_PASSWORD`. `auth.setup.ts`
+throws if they're unset. To log in manually, open `localhost:3000` and enter
+those values in the email/password gate.
 
 ## Layout
 

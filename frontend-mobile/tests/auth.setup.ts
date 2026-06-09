@@ -4,9 +4,15 @@ import path from 'path';
 
 const AUTH_FILE = path.join(__dirname, '.auth/user.json');
 
-// Shared App Store review / test account. Override via env.
-const EMAIL = process.env.E2E_EMAIL || 'appstore.review@finchapp.ai';
-const PASSWORD = process.env.E2E_PASSWORD || 'FinchApp';
+// Shared App Store review / test account — credentials are NOT committed.
+// Set E2E_EMAIL / E2E_PASSWORD in a gitignored env file (frontend-mobile/.env).
+const EMAIL = process.env.E2E_EMAIL;
+const PASSWORD = process.env.E2E_PASSWORD;
+if (!EMAIL || !PASSWORD) {
+  throw new Error(
+    'Set E2E_EMAIL and E2E_PASSWORD (see frontend-mobile/.env) to run auth setup.'
+  );
+}
 
 /**
  * Logs in via Supabase email/password and persists the session so the

@@ -3,8 +3,11 @@
 Paste these into App Store Connect → App Review Information.
 
 ## Demo account (Sign-In required: Yes)
-- **Username:** `appstore.review@finchapp.ai`
-- **Password:** `FinchApp`
+Credentials are **not committed**. Fill these in when pasting into App Store
+Connect — they live in the gitignored env files as `E2E_EMAIL` / `E2E_PASSWORD`
+(`frontend/.env.local`, `backend/.env`, `frontend-mobile/.env`).
+- **Username:** `<E2E_EMAIL>`
+- **Password:** `<E2E_PASSWORD>`
 
 ## What to Test (this build)
 - **NEW: In-app account deletion** — Profile → **Delete account** (below Sign Out).
