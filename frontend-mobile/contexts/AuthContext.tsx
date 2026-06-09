@@ -27,11 +27,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pushRegistered = useRef(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+      })
+      .catch((e) => {
+        // A rejected getSession (e.g. keychain/SecureStore failure or a
+        // corrupted persisted session) must NOT leave the app stuck on the
+        // loading spinner. Treat it as "no session" and let the UI proceed.
+        console.error('getSession failed:', e);
+        setSession(null);
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
 
     const {
       data: { subscription },
