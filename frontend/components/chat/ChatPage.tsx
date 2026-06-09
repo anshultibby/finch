@@ -4,14 +4,12 @@ import React from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import ChatView from './ChatView';
 import type { AppSidebarRef } from '@/components/layout/AppSidebar';
-import type { SwapData } from '@/lib/types';
 
 interface ChatPageProps {
   sidebarRef: React.RefObject<AppSidebarRef>;
   onCreatingChatChange: (v: boolean) => void;
   onLoadingChange: (v: boolean) => void;
   onHistoryRefresh: () => void;
-  onSwapsReceived?: (chatId: string, swaps: SwapData[]) => void;
 }
 
 export default function ChatPage({
@@ -19,7 +17,6 @@ export default function ChatPage({
   onCreatingChatChange,
   onLoadingChange,
   onHistoryRefresh,
-  onSwapsReceived,
 }: ChatPageProps) {
   const { currentChatId, setCurrentChatId, chatContext } = useNavigation();
 
@@ -32,7 +29,6 @@ export default function ChatPage({
           onCreatingChatChange={onCreatingChatChange}
           onLoadingChange={onLoadingChange}
           onHistoryRefresh={onHistoryRefresh}
-          onSwapsReceived={onSwapsReceived}
           sidebarRef={sidebarRef}
           prefillMessage={chatContext?.prefill}
           prefillLabel={chatContext?.prefillLabel}

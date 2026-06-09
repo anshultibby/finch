@@ -6,32 +6,11 @@
 // Core Chat Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface SubstituteCandidate {
-  symbol: string;
-  correlation: number;
-  quality: string; // 'STRONG' | 'GOOD' | 'WEAK' | 'POOR' | ''
-  reason: string;
-  is_sector_peer: boolean;
-}
-
-export interface SwapData {
-  sell_symbol: string;
-  sell_qty: number;
-  sell_loss: number;
-  sell_loss_pct: number;
-  buy_symbol: string;
-  buy_reason: string;
-  estimated_savings: number;
-  correlation: number;
-  substitute_candidates?: SubstituteCandidate[];
-}
-
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   toolCalls?: ToolCallStatus[];
-  swap_data?: SwapData[];
 }
 
 export interface ImageAttachment {
@@ -141,7 +120,6 @@ export interface SSEToolCallCompleteEvent {
   code_output?: CodeOutput;
   search_results?: SearchResults;
   scraped_content?: ScrapedContent;
-  swap_data?: SwapData[];
   agent_id: string;
   parent_agent_id?: string;
   sub_agent_id?: string;
@@ -493,195 +471,6 @@ export interface TestApiKeyResponse {
   success: boolean;
   message: string;
   balance?: number;
-}
-
-// ============================================================================
-// Shared Trading Types
-// ============================================================================
-
-export interface RiskLimits {
-  max_order_usd?: number;
-  max_daily_usd?: number;
-  allowed_services?: string[];
-}
-
-export interface CapitalConfig {
-  amount_usd?: number;
-  balance_usd?: number;
-  total?: number;
-  per_trade?: number;
-  max_positions?: number;
-}
-
-export type ExitConfigType =
-  | 'event_resolution'
-  | 'time_based'
-  | 'profit_target'
-  | 'stop_loss'
-  | 'indefinite'
-  | 'composite';
-
-export interface ExitConfig {
-  type: ExitConfigType;
-  hold_days?: number;
-  profit_target_pct?: number;
-  stop_loss_pct?: number;
-  resolve_on_event?: boolean;
-}
-
-// ============================================================================
-// Trading Bots
-// ============================================================================
-
-export interface BotStats {
-  total_runs?: number;
-  successful_runs?: number;
-  failed_runs?: number;
-  last_run_at?: string;
-  last_run_status?: string;
-  last_run_summary?: string;
-  total_spent_usd?: number;
-  total_profit_usd?: number;
-  open_unrealized_pnl?: number;
-  paper_profit_usd?: number;
-  paper_unrealized_pnl?: number;
-}
-
-/** Bot position — matches backend BotPositionResponse */
-export interface BotPosition {
-  id: string;
-  bot_id: string;
-  market: string;
-  platform: string;
-  side: string;
-  entry_price: number;
-  entry_time: string;
-  quantity: number;
-  cost_usd: number;
-  status: 'open' | 'closed';
-  exit_config: ExitConfig;
-  entered_via?: string;
-  closed_via?: string;
-  closed_at?: string;
-  exit_price?: number;
-  realized_pnl_usd?: number;
-  close_reason?: string;
-  current_price?: number;
-  unrealized_pnl_usd?: number;
-  last_priced_at?: string;
-  price_history: Array<{ t: string; price: number }>;
-  market_title?: string;
-  event_ticker?: string;
-  monitor_note?: string;
-  paper?: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Bot list item — returned by GET /bots */
-export interface Bot {
-  id: string;
-  name: string;
-  icon?: string;
-  platform: string;
-  enabled: boolean;
-  schedule_description?: string;
-  total_runs: number;
-  last_run_at?: string;
-  last_run_status?: string;
-  last_run_summary?: string;
-  open_positions_count: number;
-  total_profit_usd: number;
-  open_unrealized_pnl: number;
-  capital_balance?: number;
-  starting_capital?: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Bot detail — returned by GET /bots/{id} */
-export interface BotDetail extends Bot {
-  mandate?: string;
-  schedule?: string;
-  risk_limits?: RiskLimits;
-  capital?: CapitalConfig;
-  model?: string;
-  directory?: string;
-  stats?: BotStats;
-  files?: Array<{ filename: string; content: string; file_type: string; updated_at?: string }>;
-  positions?: BotPosition[];
-  closed_positions?: BotPosition[];
-}
-
-export interface BotExecution {
-  id: string;
-  bot_id: string;
-  status: 'running' | 'success' | 'failed';
-  started_at: string;
-  completed_at?: string;
-  trigger: string;
-  summary?: string;
-  error?: string;
-  actions_count?: number;
-  duration_ms?: number;
-  logs?: string[];
-  actions?: Array<{
-    type: string;
-    timestamp: string;
-    dry_run: boolean;
-    details: any;
-  }>;
-}
-
-export interface BotChat {
-  chat_id: string;
-  title?: string;
-  icon?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface BotWakeup {
-  id: string;
-  bot_id: string;
-  trigger_at: string;
-  trigger_type: string;
-  reason: string;
-  context: Record<string, any>;
-  status: string;
-  chat_id?: string;
-  triggered_at?: string;
-  recurrence?: string;
-  message?: string;
-  created_at: string;
-}
-
-/** Trade log entry — every buy/sell attempted by any bot */
-export interface TradeLog {
-  id: string;
-  bot_id: string;
-  bot_name?: string;
-  bot_icon?: string;
-  execution_id?: string;
-  position_id?: string;
-  action: 'buy' | 'sell';
-  market: string;
-  market_title?: string;
-  platform: string;
-  side?: string;
-  price?: number;
-  quantity?: number;
-  cost_usd?: number;
-  realized_pnl_usd?: number;
-  status: 'executed' | 'dry_run' | 'failed' | 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'resting' | 'partial';
-  approval_method?: string;
-  approved_at?: string;
-  expires_at?: string;
-  reason?: string;
-  approval_token?: string;
-  error?: string;
-  dry_run: boolean;
-  created_at: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -45,10 +45,10 @@ async def get_chat(db: AsyncSession, chat_id: str) -> Optional[Chat]:
 
 
 async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> List[Chat]:
-    """Get all non-bot chats for a user, ordered by most recently active"""
+    """Get all top-level chats for a user, ordered by most recently active"""
     result = await db.execute(
         select(Chat)
-        .where(Chat.user_id == user_id, Chat.bot_id.is_(None), Chat.parent_chat_id.is_(None))
+        .where(Chat.user_id == user_id, Chat.parent_chat_id.is_(None))
         .order_by(Chat.updated_at.desc())
         .limit(limit)
     )
@@ -69,7 +69,7 @@ async def get_user_chats_with_preview(
 
     query = (
         select(Chat)
-        .where(Chat.user_id == user_id, Chat.bot_id.is_(None), Chat.parent_chat_id.is_(None))
+        .where(Chat.user_id == user_id, Chat.parent_chat_id.is_(None))
     )
     if search:
         query = query.where(Chat.title.ilike(f"%{search}%"))

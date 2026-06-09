@@ -1,6 +1,5 @@
 """
-Chat Files Routes — Files served from the bot's sandbox root directory when available,
-otherwise from /home/user/chat_files/.
+Chat Files Routes — Files served from the user's sandbox directory.
 """
 import shlex
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
@@ -62,23 +61,7 @@ async def _get_chat_info(chat_id: str, db: AsyncSession) -> tuple:
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    files_dir = FALLBACK_FILES_DIR
-
-    # If chat belongs to a bot, use the bot's root directory
-    if chat.bot_id:
-        try:
-            from models.bot import TradingBot
-            bot_result = await db.execute(
-                sa_select(TradingBot).where(TradingBot.id == chat.bot_id)
-            )
-            bot = bot_result.scalar_one_or_none()
-            if bot:
-                bot_dir = bot.directory or f"bots/{str(bot.id)[:8]}"
-                files_dir = f"/home/user/{bot_dir}"
-        except Exception as e:
-            logger.warning(f"Could not resolve bot directory for chat {chat_id}: {e}")
-
-    return chat.user_id, files_dir
+    return chat.user_id, FALLBACK_FILES_DIR
 
 
 @router.get("/{chat_id}", response_model=List[ChatFileResponse])
@@ -87,7 +70,7 @@ async def get_chat_files(
     db: AsyncSession = Depends(get_async_db),
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
-    """List all files in the bot's root directory on the sandbox."""
+    """List all files in the user's sandbox directory."""
     user_id, files_dir = await _get_chat_info(chat_id, db)
     await verify_user_access(user_id, authenticated_user_id)
 

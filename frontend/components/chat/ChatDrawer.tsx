@@ -4,7 +4,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import ChatView from './ChatView';
 import type { AppSidebarRef } from '@/components/layout/AppSidebar';
-import type { SwapData } from '@/lib/types';
 
 interface ChatDrawerProps {
   sidebarRef: React.RefObject<AppSidebarRef>;
@@ -13,7 +12,6 @@ interface ChatDrawerProps {
   onCreatingChatChange: (v: boolean) => void;
   onLoadingChange: (v: boolean) => void;
   onHistoryRefresh: () => void;
-  onSwapsReceived?: (chatId: string, swaps: SwapData[]) => void;
 }
 
 export default function ChatDrawer({
@@ -23,7 +21,6 @@ export default function ChatDrawer({
   onCreatingChatChange,
   onLoadingChange,
   onHistoryRefresh,
-  onSwapsReceived,
 }: ChatDrawerProps) {
   const { chatDrawerOpen, setChatDrawerOpen, chatContext } = useNavigation();
   const [prefill, setPrefill] = useState<string | undefined>();
@@ -96,7 +93,6 @@ export default function ChatDrawer({
             onCreatingChatChange={onCreatingChatChange}
             onLoadingChange={onLoadingChange}
             onHistoryRefresh={onHistoryRefresh}
-            onSwapsReceived={onSwapsReceived}
             sidebarRef={sidebarRef}
             prefillMessage={prefill}
             prefillLabel={prefillLabel}

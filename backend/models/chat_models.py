@@ -18,7 +18,6 @@ class Chat(Base):
     user_id = Column(String, nullable=False, index=True)
     title = Column(String, nullable=True)
     icon = Column(String(10), nullable=True)
-    bot_id = Column(String, nullable=True, index=True)
     parent_chat_id = Column(String, nullable=True, index=True)
     model = Column(String, nullable=True)  # Per-chat LLM model override (litellm id); null = default
     is_processing = Column(Boolean, default=False, nullable=False, index=True)

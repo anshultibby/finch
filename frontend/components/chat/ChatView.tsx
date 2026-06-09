@@ -34,7 +34,6 @@ interface ChatViewProps {
   onCreatingChatChange?: (creating: boolean) => void;
   onLoadingChange?: (loading: boolean) => void;
   onHistoryRefresh?: () => void;
-  onSwapsReceived?: (chatId: string, swaps: import('@/lib/types').SwapData[]) => void;
   sidebarRef?: React.RefObject<AppSidebarRef>;
   prefillMessage?: string;
   prefillLabel?: string;
@@ -94,7 +93,6 @@ export default function ChatView({
   onCreatingChatChange,
   onLoadingChange,
   onHistoryRefresh,
-  onSwapsReceived,
   sidebarRef,
   prefillMessage,
   prefillLabel,
@@ -245,7 +243,6 @@ export default function ChatView({
         sidebarRef?.current?.updateChatTitle(chatId, title, icon);
       },
       onHistoryRefresh: () => onHistoryRefresh?.(),
-      onSwapsReceived,
     });
 
   // Keep the hook's internal ref in sync when we switch chats
@@ -860,7 +857,6 @@ export default function ChatView({
                       role={msg.role}
                       content={msg.content}
                       toolCalls={msg.toolCalls}
-                      swap_data={msg.swap_data}
                       chatId={currentChatId || undefined}
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
