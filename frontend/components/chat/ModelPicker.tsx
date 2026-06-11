@@ -28,6 +28,8 @@ export default function ModelPicker({ models, value, onChange, disabled }: Model
   if (!models || models.length === 0) return null;
 
   const selected = models.find(m => m.id === value) ?? models[0];
+  // claude.ai-style short label: "Opus 4.8" rather than "Claude Opus 4.8"
+  const shortLabel = (selected?.label ?? 'Model').replace(/^Claude\s+/, '');
 
   return (
     <div ref={ref} className="relative flex-shrink-0">
@@ -35,17 +37,17 @@ export default function ModelPicker({ models, value, onChange, disabled }: Model
         type="button"
         disabled={disabled}
         onClick={() => setOpen(o => !o)}
-        title="Choose model"
-        className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+        title={selected?.label ?? 'Choose model'}
+        className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[13px] text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors"
       >
-        <span className="max-w-[120px] truncate">{selected?.label ?? 'Model'}</span>
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <span className="max-w-[140px] truncate">{shortLabel}</span>
+        <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-1 z-20 min-w-[200px] rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+        <div className="absolute bottom-full right-0 mb-1 z-20 min-w-[200px] rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
           {models.map(m => {
             const active = m.id === selected?.id;
             return (

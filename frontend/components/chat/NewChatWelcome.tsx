@@ -4,6 +4,7 @@ import React, { useState, KeyboardEvent, useRef, useEffect, DragEvent } from 're
 import { TrendingUp, Scale, Landmark, Trophy, Search, LineChart, Plus, X, FileText, Loader2 } from 'lucide-react';
 import type { ModelOption, ImageAttachment, FileAttachment } from '@/lib/types';
 import { chatFilesApi } from '@/lib/api';
+import ModelPicker from './ModelPicker';
 
 interface NewChatWelcomeProps {
   onSendMessage: (message: string, images?: ImageAttachment[], skills?: string[], files?: FileAttachment[]) => void;
@@ -208,15 +209,20 @@ export default function NewChatWelcome({ onSendMessage, disabled = false, prefil
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            <button
-              onClick={handleSubmit}
-              disabled={!canSend}
-              className="p-2 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-full transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-1.5">
+              {models && models.length > 0 && onModelChange && (
+                <ModelPicker models={models} value={model} onChange={onModelChange} disabled={disabled} />
+              )}
+              <button
+                onClick={handleSubmit}
+                disabled={!canSend}
+                className="p-2 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-full transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, KeyboardEvent, useRef, DragEvent, ClipboardEvent } from 'react';
 import type { ImageAttachment, FileAttachment, ModelOption } from '@/lib/types';
 import { chatFilesApi } from '@/lib/api';
+import ModelPicker from './ModelPicker';
 
 interface ChatInputProps {
   onSendMessage?: (message: string, images?: ImageAttachment[], skills?: string[], files?: FileAttachment[]) => void;
@@ -236,6 +237,9 @@ export default function ChatInput({
             t.style.height = Math.min(t.scrollHeight, simple ? 120 : 200) + 'px';
           }}
         />
+        {!simple && models && models.length > 0 && onModelChange && (
+          <ModelPicker models={models} value={model} onChange={onModelChange} disabled={disabled} />
+        )}
         {isStreaming && !simple ? (
           <button
             onClick={onStop}
