@@ -82,6 +82,22 @@ class ModelSpec:
 
 # Ordered most-specific → least-specific. `resolve()` returns the first match.
 MODEL_SPECS: List[ModelSpec] = [
+    # ---------------------------------------------------- Anthropic Claude Fable
+    # Must precede the general Claude spec: Fable 5 rejects budget_tokens-style
+    # thinking (400) and is priced at $10/$50. Thinking is always on; an explicit
+    # {"type": "adaptive"} + output_config.effort is the accepted configuration.
+    # New tokenizer: ~30% more tokens than Opus-tier for the same content.
+    ModelSpec(
+        prefixes=("anthropic/claude-fable", "claude-fable"),
+        provider="anthropic",
+        api_key_setting="ANTHROPIC_API_KEY",
+        caching="anthropic",
+        stream_usage=True,
+        defaults={"caching": True, "max_tokens": 32000},
+        reasoning_style="anthropic_adaptive",
+        default_effort="medium",
+        pricing={"input": 10.0, "output": 50.0, "cache_read": 1.00, "cache_write": 12.50},
+    ),
     # ----------------------------------------------------- Anthropic Claude Opus
     # More specific than the general Claude spec below (different pricing), so it
     # must come first. Opus 4.5+ is priced at the lower $5/$25 tier.
@@ -191,6 +207,7 @@ _FALLBACK_SPEC = ModelSpec(
 # LiteLLM model string stored on the chat row; `label` is shown in the picker.
 SELECTABLE_MODELS: List[Dict[str, str]] = [
     {"id": "anthropic/claude-opus-4-8", "label": "Claude Opus 4.8", "provider": "Anthropic"},
+    {"id": "anthropic/claude-fable-5", "label": "Claude Fable 5", "provider": "Anthropic"},
     {"id": "anthropic/claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "Anthropic"},
     {"id": "zai/glm-5.1", "label": "GLM-5.1", "provider": "Z.ai"},
     {"id": "gemini/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "provider": "Google"},
