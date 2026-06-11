@@ -1,104 +1,62 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { MessageSquare } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { chatApi } from '@/lib/api';
+import { cache } from 'react';
+import type { Metadata } from 'next';
+import SharedChatView from './SharedChatView';
 import type { SharedChat } from '@/lib/types';
 
-export default function SharedChatPage() {
-  const { token } = useParams<{ token: string }>();
-  const [chat, setChat] = useState<SharedChat | null>(null);
-  const [error, setError] = useState<string | null>(null);
+// Server component: fetching here (instead of in the client) lets us emit real
+// OG/Twitter meta tags, so shared links unfurl with the chat title in
+// WhatsApp/iMessage/Twitter instead of the generic site card.
 
-  useEffect(() => {
-    if (!token) return;
-    chatApi
-      .getSharedChat(token)
-      .then(setChat)
-      .catch(() => setError('This chat is not available or has been unshared.'));
-  }, [token]);
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[#fafaf9] flex items-center justify-center">
-        <div className="text-center">
-          <div className="p-4 rounded-2xl bg-gray-100 inline-block mb-4">
-            <MessageSquare className="w-8 h-8 text-gray-400" />
-          </div>
-          <p className="text-gray-500 text-sm">{error}</p>
-        </div>
-      </div>
-    );
+const getSharedChat = cache(async (token: string): Promise<SharedChat | null> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/chat/shared/${encodeURIComponent(token)}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
+});
 
-  return (
-    <div className="min-h-screen bg-[#fafaf9] flex flex-col">
-      {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2.5 bg-white border-b border-gray-200">
-        <div className="p-1.5 rounded-lg bg-emerald-50">
-          <MessageSquare className="w-4 h-4 text-emerald-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-gray-900 truncate">
-            {chat ? `${chat.icon ? chat.icon + ' ' : ''}${chat.title || 'Shared chat'}` : 'Loading…'}
-          </h1>
-          <span className="text-[10px] text-gray-400 font-medium">Read-only shared conversation</span>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-gray-400">Shared from Finch</span>
-          <a
-            href="https://finchapp.ai"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors"
-          >
-            Try Finch
-          </a>
-        </div>
-      </div>
+export async function generateMetadata(
+  { params }: { params: Promise<{ token: string }> }
+): Promise<Metadata> {
+  const { token } = await params;
+  const chat = await getSharedChat(token);
+  if (!chat) {
+    return { title: 'Shared analysis — Finch', robots: { index: false } };
+  }
+  const title = chat.title || 'Shared analysis';
+  const firstUserMessage = chat.messages.find((m) => m.role === 'user')?.content?.trim();
+  const description = (firstUserMessage || 'AI market and portfolio analysis, made with Finch.')
+    .replace(/\s+/g, ' ')
+    .slice(0, 160);
+  return {
+    title: `${title} — Finch`,
+    description,
+    openGraph: {
+      title,
+      description,
+      siteName: 'Finch',
+      type: 'article',
+      images: ['/logo.png'],
+    },
+    twitter: {
+      card: 'summary',
+      title,
+      description,
+      images: ['/logo.png'],
+    },
+  };
+}
 
-      {/* Messages */}
-      <div className="flex-1 w-full max-w-3xl mx-auto px-4 py-6 space-y-4">
-        {!chat && !error && (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-5 h-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-          </div>
-        )}
-        {chat?.messages.map((m, i) =>
-          m.role === 'user' ? (
-            <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] bg-emerald-600 text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
-                {m.content}
-              </div>
-            </div>
-          ) : (
-            <div key={i} className="flex justify-start">
-              <div className="max-w-[90%] bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 text-sm text-gray-800 shadow-sm">
-                {m.tool_calls && m.tool_calls.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {m.tool_calls.map((tc, j) => (
-                      <span key={j} className="text-[10px] font-medium text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">
-                        {tc.tool_name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {m.content && (
-                  <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        )}
-        {chat && chat.messages.length === 0 && (
-          <p className="text-center text-sm text-gray-400 py-16">This conversation is empty.</p>
-        )}
-      </div>
-    </div>
-  );
+export default async function SharedChatPage(
+  { params }: { params: Promise<{ token: string }> }
+) {
+  const { token } = await params;
+  const chat = await getSharedChat(token);
+  return <SharedChatView chat={chat} token={token} />;
 }
