@@ -201,3 +201,20 @@ def request_trade_approval(account_number, order_params, summary=None, ttl_minut
             "summary": summary, "ttl_minutes": ttl_minutes}
     body = {k: v for k, v in body.items() if v is not None}
     return _request("POST", "/trades/request-approval", body=body)
+
+
+# ── Morning brief delivery ───────────────────────────────────────────────────
+
+def send_morning_brief(subject, markdown, chat_id=None):
+    """Deliver the user's morning brief by email + push notification.
+
+    Use this from the morning-brief automation after composing the brief.
+    subject: email subject / push title, e.g. "Finch brief: NVDA +4% pre-market".
+    markdown: the full brief body (rendered to styled HTML for email).
+    chat_id: optional — links the email CTA to that chat in the app.
+
+    Returns {"email": bool, "push": bool} indicating what was delivered.
+    """
+    body = {"subject": subject, "markdown": markdown, "chat_id": chat_id}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", "/brief/send", body=body)

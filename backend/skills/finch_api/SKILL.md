@@ -183,3 +183,22 @@ res = request_trade_approval(
 - This is the **default path for automated trading**: review → email for approval.
   Only place orders directly (in the robinhood skill) when the user has explicitly
   opted into unattended execution for that automation.
+
+## Morning Brief Delivery
+
+The daily morning-brief automation (system job `morning_brief`) composes a short
+markdown digest of the user's holdings + watchlist and delivers it with:
+
+```python
+from skills.finch_api.scripts import send_morning_brief
+
+send_morning_brief(
+    subject="Finch brief: NVDA +4% pre-market",
+    markdown="## Your stocks\n- **NVDA** +4% pre-market on ...",
+)
+# {"email": true, "push": true}
+```
+
+The backend emails the rendered brief (Resend) and sends a push notification.
+Only use this from the morning-brief automation — for ad-hoc chat results the
+normal chat-completion notification already covers delivery.
