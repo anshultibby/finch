@@ -83,6 +83,85 @@ def cancel_order(account_number: str, order_id: str) -> Any:
     return call("cancel_equity_order", account_number=account_number, order_id=order_id)
 
 
+# ---- options ---------------------------------------------------------------
+# Single-leg only (long calls/puts, covered calls, cash-secured puts) — the MCP
+# does NOT support multi-leg spreads, even on option_level_3 accounts. The
+# account must be agentic_allowed=True AND option_level_2/option_level_3
+# (see connection_status()["options_enabled"]).
+
+def get_option_chains(underlying_symbol: str) -> dict:
+    """Chains for an underlying: expiration dates + chain ids (equity or index,
+    e.g. 'AAPL', 'SPX')."""
+    return call("get_option_chains", underlying_symbol=underlying_symbol)
+
+
+def find_option_instruments(chain_symbol: str, expiration_date: Optional[str] = None,
+                            strike_price: Optional[str] = None,
+                            type: Optional[str] = None) -> dict:
+    """Contracts for an underlying, narrowed by expiry (YYYY-MM-DD), strike
+    (e.g. '150.0000'), and type ('call'/'put'). The returned `id` (UUID) is the
+    option_id used everywhere else."""
+    return call("get_option_instruments", chain_symbol=chain_symbol,
+                expiration_dates=expiration_date, strike_price=strike_price,
+                type=type, tradability="tradable")
+
+
+def get_option_quotes(instrument_ids: list[str]) -> dict:
+    """Live quotes (+ prior close) for up to ~20 option instrument UUIDs."""
+    return call("get_option_quotes", instrument_ids=instrument_ids)
+
+
+def get_option_positions(account_number: str, nonzero: bool = True) -> dict:
+    """Open option positions (nonzero=True is the 'what do I hold' case)."""
+    return call("get_option_positions", account_number=account_number, nonzero=nonzero)
+
+
+def get_option_orders(account_number: str, state: Optional[str] = None) -> dict:
+    """Option orders, newest first."""
+    return call("get_option_orders", account_number=account_number, state=state)
+
+
+def review_option_order(account_number: str, option_id: str, side: str,
+                        position_effect: str, quantity: str,
+                        type: str = "limit", price: Optional[str] = None,
+                        stop_price: Optional[str] = None,
+                        chain_symbol: Optional[str] = None,
+                        underlying_type: Optional[str] = None,
+                        time_in_force: Optional[str] = None) -> dict:
+    """Simulate a SINGLE-LEG option order — quote, fees, collateral, alerts.
+    Always call before place_option_order and surface order_checks verbatim.
+    side='buy'/'sell'; position_effect='open'/'close' (close a long → sell).
+    Pass chain_symbol + underlying_type ('equity'/'index') to get fees/collateral."""
+    return call("review_option_order", account_number=account_number,
+                legs=[{"option_id": option_id, "side": side,
+                       "position_effect": position_effect}],
+                quantity=quantity, type=type, price=price, stop_price=stop_price,
+                chain_symbol=chain_symbol, underlying_type=underlying_type,
+                time_in_force=time_in_force)
+
+
+def place_option_order(account_number: str, option_id: str, side: str,
+                       position_effect: str, quantity: str,
+                       type: str = "limit", price: Optional[str] = None,
+                       stop_price: Optional[str] = None,
+                       ref_id: Optional[str] = None,
+                       time_in_force: Optional[str] = None) -> dict:
+    """Place a REAL single-leg option order. price per contract for
+    limit/stop_limit; stop_market is sell-to-close only (stop below the ask),
+    market/stop_market are GFD + regular hours only. Pass a fresh uuid4 hex as
+    ref_id and reuse the SAME ref_id when retrying a transport failure."""
+    return call("place_option_order", account_number=account_number,
+                legs=[{"option_id": option_id, "side": side,
+                       "position_effect": position_effect}],
+                quantity=quantity, type=type, price=price, stop_price=stop_price,
+                ref_id=ref_id, time_in_force=time_in_force)
+
+
+def cancel_option_order(account_number: str, order_id: str) -> Any:
+    """Cancel an open option order by id."""
+    return call("cancel_option_order", account_number=account_number, order_id=order_id)
+
+
 # ---- connection & portfolio helpers ---------------------------------------
 
 def connection_status() -> dict:
@@ -108,10 +187,14 @@ def connection_status() -> dict:
             "reason": f"Token present but the Robinhood call failed: {e}",
         }
     accounts = (data or {}).get("data", {}).get("accounts", []) if isinstance(data, dict) else []
-    agentic = next((a["account_number"] for a in accounts if a.get("agentic_allowed")), None)
+    agentic_acct = next((a for a in accounts if a.get("agentic_allowed")), None)
+    agentic = agentic_acct["account_number"] if agentic_acct else None
+    options_enabled = bool(agentic_acct and agentic_acct.get("option_level")
+                           in ("option_level_2", "option_level_3"))
     return {
         "connected": True,
         "agentic_account": agentic,
+        "options_enabled": options_enabled,  # single-leg options trading allowed
         "accounts": accounts,
         "reason": "Connected." if agentic else
                   "Connected, but no agentic-enabled account was found — only an "

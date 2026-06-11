@@ -923,6 +923,7 @@ export interface ScheduledJob {
   last_error: string | null;
   last_run_credits: number;
   credits_spent: number;
+  system_key: string | null;  // set on Finch-provisioned built-in automations
 }
 
 export interface CreateJobInput {

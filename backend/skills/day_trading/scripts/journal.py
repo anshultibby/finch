@@ -1,66 +1,77 @@
 """
-Trade journal — persistent continuity for the day-trading agent.
+Trade journal — the agent's persistent state across stateless runs.
 
-Day-trade automations are stateless: each run is a fresh agent. The journal is
-how the agent remembers what it did last time. It lives in the persistent memory
-store (NOT chat_files, which are per-chat), so every session/automation reads the
-same history and can answer "where are we right now?" and "what have I learned?".
+Lives in the persistent store (NOT chat_files), so every session and automation
+reads the same history:
 
-Layout (under the persistent store):
-    /home/user/store/day_trading/trades.jsonl   — append-only structured trade events
-    /home/user/store/day_trading/notebook.md    — the agent's running thoughts:
-                                                   what it did + what to do next
+    /home/user/store/day_trading/trades.jsonl   — append-only event ledger
+    /home/user/store/day_trading/plan.md        — TODAY's plan (written nightly)
+    /home/user/store/day_trading/notebook.md    — running diary + next_steps
     /home/user/store/day_trading/strategy.md    — the evolving rules (free-form)
 
-Two complementary memories:
-- trades.jsonl is the *ledger* (machine-readable: what was traded, P&L, open positions).
-- notebook.md is the *diary* (human-readable: reasoning, observations, and a standing
-  "next steps" the agent leaves for its future self).
+Events are linked by trade_id so one trade's lifecycle is unambiguous:
 
-Read both at session start with session_state(); append after every session so the
-next run inherits the full picture.
+    planned → submitted → filled → closed
+                        ↘ rejected | cancelled | expired | skipped
+
+A position is OPEN iff its trade_id has a `filled` with no terminal event after
+it. Rejecting a NEW plan on a symbol you already hold no longer touches the
+held position (events on different trade_ids never interact).
+
+This module is also the source of truth for the risk circuit breaker —
+risk.RiskBudget.from_journal() rebuilds today's losses/trade count from here,
+which is what makes the daily loss limit survive across automation runs.
 """
 import os
 import json
+import uuid
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-# Overridable for tests; defaults to the persistent memory store in the sandbox.
+from .clock import now_et
+
 JOURNAL_DIR = os.environ.get("DAY_TRADING_JOURNAL_DIR", "/home/user/store/day_trading")
 TRADES_PATH = os.path.join(JOURNAL_DIR, "trades.jsonl")
 NOTEBOOK_PATH = os.path.join(JOURNAL_DIR, "notebook.md")
+PLAN_PATH = os.path.join(JOURNAL_DIR, "plan.md")
 
-# status lifecycle: planned -> approved -> filled -> closed   (or rejected/skipped)
-OPEN_STATUSES = {"approved", "filled"}
-CLOSED_STATUSES = {"closed", "rejected", "skipped"}
+TERMINAL = {"closed", "rejected", "cancelled", "expired", "skipped"}
 
 
 def _ensure_dir() -> None:
     os.makedirs(JOURNAL_DIR, exist_ok=True)
 
 
-def log_trade(symbol: str, side: str, status: str, setup: str = "",
-              entry: Optional[float] = None, stop: Optional[float] = None,
-              target: Optional[float] = None, shares: Optional[float] = None,
-              pnl: Optional[float] = None, note: str = "",
-              ts: Optional[str] = None, **extra: Any) -> Dict[str, Any]:
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def log_trade(symbol: str, side: str, status: str, trade_id: Optional[str] = None,
+              setup: str = "", entry: Optional[float] = None,
+              stop: Optional[float] = None, target: Optional[float] = None,
+              shares: Optional[float] = None, pnl: Optional[float] = None,
+              note: str = "", **extra: Any) -> Dict[str, Any]:
     """
-    Append one trade event to the journal. Call it at every decision point:
-    when you plan, get approval, fill, and close a trade.
+    Append one event. A NEW trade (status='planned') may omit trade_id — one is
+    generated and returned; every LATER event for that trade MUST pass it back:
 
-        log_trade("MU", "long", "filled", setup="orb", entry=82.1, stop=81.5,
-                  target=88.1, shares=120, note="RVOL 3.1, broke 5-min high")
-        log_trade("MU", "long", "closed", pnl=143.20, note="hit 1:1, trailed to EOD")
+        t = log_trade("MU", "long", "planned", setup="orb", entry=82.1, stop=81.7,
+                      target=86.1, shares=120, note="RVOL 3.1, earnings beat + raise")
+        log_trade("MU", "long", "filled", trade_id=t["trade_id"])
+        log_trade("MU", "long", "closed", trade_id=t["trade_id"], pnl=143.2,
+                  note="scaled at 1:1, flattened 15:45")
 
-    `ts` defaults to the caller's clock if omitted (pass datetime.now().isoformat()
-    from the sandbox). Returns the stored record.
+    Timestamps are stamped automatically (UTC) with the ET date alongside.
     """
     _ensure_dir()
+    symbol = symbol.upper()
+    if trade_id is None:
+        trade_id = f"{symbol}-{now_et().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
     record = {
-        "ts": ts,
-        "symbol": symbol.upper(),
-        "side": side,
-        "status": status,
-        "setup": setup,
+        "ts": _now_iso(),
+        "date_et": now_et().date().isoformat(),
+        "trade_id": trade_id,
+        "symbol": symbol, "side": side, "status": status, "setup": setup,
         "entry": entry, "stop": stop, "target": target,
         "shares": shares, "pnl": pnl, "note": note,
         **extra,
@@ -71,7 +82,7 @@ def log_trade(symbol: str, side: str, status: str, setup: str = "",
 
 
 def read_trades(limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    """All journal events oldest-first (optionally just the last `limit`)."""
+    """All events oldest-first (optionally just the last `limit`)."""
     if not os.path.exists(TRADES_PATH):
         return []
     rows = []
@@ -86,80 +97,181 @@ def read_trades(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     return rows[-limit:] if limit else rows
 
 
+def _lifecycles() -> Dict[str, List[Dict[str, Any]]]:
+    """Events grouped by trade_id (legacy rows without one group per symbol)."""
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for r in read_trades():
+        key = r.get("trade_id") or f"legacy-{r.get('symbol', '?')}"
+        groups.setdefault(key, []).append(r)
+    return groups
+
+
+def _merged(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """One view of a trade: later non-null fields override earlier ones."""
+    out: Dict[str, Any] = {}
+    for e in events:
+        out.update({k: v for k, v in e.items() if v is not None and v != ""})
+    return out
+
+
 def open_positions() -> Dict[str, Dict[str, Any]]:
     """
-    Current open positions, by symbol — the latest entry event that hasn't been
-    followed by a close. This is "what am I holding right now?".
+    Trades that are filled and not yet terminal, keyed by trade_id. Each value
+    is the merged lifecycle (so entry/stop/target from `planned` survive into
+    the `filled` view). "What am I holding — and what's the plan for it?"
     """
-    state: Dict[str, Dict[str, Any]] = {}
-    for r in read_trades():
-        sym = r.get("symbol")
-        if not sym:
-            continue
-        if r.get("status") in OPEN_STATUSES:
-            state[sym] = r
-        elif r.get("status") in CLOSED_STATUSES:
-            state.pop(sym, None)
-    return state
+    out = {}
+    for tid, events in _lifecycles().items():
+        statuses = [e.get("status") for e in events]
+        if "filled" in statuses and not (set(statuses) & TERMINAL):
+            out[tid] = _merged(events)
+    return out
 
 
-def realized_pnl(since_ts: Optional[str] = None) -> float:
-    """Sum of realized P&L from closed trades (optionally only ts >= since_ts)."""
+def pending_orders() -> Dict[str, Dict[str, Any]]:
+    """Planned/submitted trades with no fill and no terminal event — resting
+    entry orders or approvals still in flight. Reconcile these against the
+    broker's get_orders() every run; mark stale ones cancelled/expired."""
+    out = {}
+    for tid, events in _lifecycles().items():
+        statuses = [e.get("status") for e in events]
+        if "filled" not in statuses and not (set(statuses) & TERMINAL):
+            out[tid] = _merged(events)
+    return out
+
+
+def realized_pnl(date_et: Optional[str] = None) -> float:
+    """Realized P&L from closed trades — for ONE ET day if given (use
+    session()['date']; the risk circuit breaker wants today's, not all-time)."""
     total = 0.0
     for r in read_trades():
         if r.get("status") == "closed" and r.get("pnl") is not None:
-            if since_ts and (r.get("ts") or "") < since_ts:
+            if date_et and r.get("date_et") != date_et:
                 continue
             total += float(r["pnl"])
     return round(total, 2)
 
 
+def today_summary(date_et: str) -> Dict[str, Any]:
+    """Today's closed trades in order — feeds RiskBudget.from_journal()."""
+    closed = [r for r in read_trades()
+              if r.get("status") == "closed" and r.get("date_et") == date_et]
+    pnls = [float(r["pnl"]) for r in closed if r.get("pnl") is not None]
+    consec = 0
+    for p in reversed(pnls):
+        if p < 0:
+            consec += 1
+        else:
+            break
+    return {"closed_trades": len(closed), "realized_pnl": round(sum(pnls), 2),
+            "consecutive_losses": consec, "pnls": pnls}
+
+
+def day_trades_past_5_sessions(today_et: str) -> int:
+    """Round trips (fill + close, same ET day) over the last 5 distinct journal
+    days — the PDT counter. Under $25k equity, ≤3 are allowed."""
+    by_tid = _lifecycles()
+    days = sorted({r.get("date_et") for r in read_trades() if r.get("date_et")})[-5:]
+    n = 0
+    for events in by_tid.values():
+        dates = {e.get("date_et") for e in events if e.get("status") in ("filled", "closed")}
+        statuses = {e.get("status") for e in events}
+        if "filled" in statuses and "closed" in statuses and len(dates) == 1 \
+                and dates and next(iter(dates)) in days:
+            n += 1
+    return n
+
+
+def setup_stats() -> Dict[str, Dict[str, Any]]:
+    """
+    Per-setup scorecard from the agent's own history — the review loop's input.
+    {"orb": {"n": 12, "wins": 3, "win_rate": 0.25, "total_pnl": 312.5,
+             "avg_pnl": 26.0, "by_phase": {"opening": 9, "lunch": 3}}, ...}
+    A setup that's negative after ~20 trades is a setup to retire (write that
+    in strategy.md).
+    """
+    stats: Dict[str, Dict[str, Any]] = {}
+    for tid, events in _lifecycles().items():
+        m = _merged(events)
+        if m.get("status") != "closed" or m.get("pnl") is None:
+            continue
+        s = stats.setdefault(m.get("setup") or "unknown",
+                             {"n": 0, "wins": 0, "total_pnl": 0.0, "by_phase": {}})
+        pnl = float(m["pnl"])
+        s["n"] += 1
+        s["wins"] += 1 if pnl > 0 else 0
+        s["total_pnl"] = round(s["total_pnl"] + pnl, 2)
+        phase = m.get("phase")
+        if phase:
+            s["by_phase"][phase] = s["by_phase"].get(phase, 0) + 1
+    for s in stats.values():
+        s["win_rate"] = round(s["wins"] / s["n"], 2) if s["n"] else None
+        s["avg_pnl"] = round(s["total_pnl"] / s["n"], 2) if s["n"] else None
+    return stats
+
+
+# ── plan & notebook ──────────────────────────────────────────────────────────
+
+def write_plan(content: str, date_et: Optional[str] = None) -> str:
+    """Overwrite plan.md with the plan for `date_et` (the nightly PLAN run's
+    output: watchlist with catalyst notes, risk budget, focus/avoid list)."""
+    _ensure_dir()
+    date_et = date_et or now_et().date().isoformat()
+    body = f"# Plan for {date_et}\n\n{content.strip()}\n"
+    with open(PLAN_PATH, "w") as f:
+        f.write(body)
+    return body
+
+
+def read_plan() -> Dict[str, str]:
+    """{'date': 'YYYY-MM-DD', 'content': ...}. ALWAYS check date — a stale plan
+    (date != today) means the nightly run failed; trade reduced or not at all."""
+    if not os.path.exists(PLAN_PATH):
+        return {"date": "", "content": ""}
+    with open(PLAN_PATH) as f:
+        text = f.read()
+    first, _, rest = text.partition("\n")
+    date = first.replace("# Plan for", "").strip() if first.startswith("# Plan for") else ""
+    return {"date": date, "content": rest.strip()}
+
+
 def read_notebook() -> str:
-    """The agent's running diary (markdown): what it did + what to do next."""
     if not os.path.exists(NOTEBOOK_PATH):
         return ""
     with open(NOTEBOOK_PATH) as f:
         return f.read()
 
 
-def append_note(did: str, next_steps: str = "", ts: Optional[str] = None) -> str:
-    """
-    Append a dated entry to the notebook. Call at the END of a session.
-
-        append_note(
-            did="Took ORB long on MU at 82.1, scaled half at 1:1, trailed to EOD (+$143).",
-            next_steps="Watch MU for a continuation tomorrow; NVDA still open, stop 119.",
-            ts=datetime.now().isoformat(),
-        )
-
-    `next_steps` is the standing message to the agent's future self — STATUS reads it
-    back next session. Returns the entry that was written.
-    """
+def append_note(did: str, next_steps: str = "") -> str:
+    """End-of-run diary entry. `next_steps` is the standing message to your
+    future self — session_state() reads the tail back at the next run's start."""
     _ensure_dir()
-    header = f"## {ts}" if ts else "## (session)"
-    entry = f"\n{header}\n\n**Did:** {did}\n"
+    entry = f"\n## {now_et().isoformat()}\n\n**Did:** {did}\n"
     if next_steps:
         entry += f"\n**Next:** {next_steps}\n"
     new_file = not os.path.exists(NOTEBOOK_PATH)
     with open(NOTEBOOK_PATH, "a") as f:
         if new_file:
-            f.write("# Day Trading Notebook\n_Running log of what I did and what to do next._\n")
+            f.write("# Day Trading Notebook\n_Running log: what I did, what to do next._\n")
         f.write(entry)
     return entry
 
 
-def session_state(since_ts: Optional[str] = None, notebook_chars: int = 1500) -> Dict[str, Any]:
+def session_state(notebook_chars: int = 1500) -> Dict[str, Any]:
     """
-    One-call snapshot for the start of a session: open positions, realized P&L,
-    trade count, the last few events, AND the tail of the notebook (the agent's own
-    recent thoughts + standing next-steps). Read this FIRST every run.
+    One-call situational awareness — read this FIRST every run: today's session
+    window, open positions + pending orders (with their plans), TODAY's realized
+    P&L and loss streak, today's plan, and the notebook tail.
     """
-    trades = read_trades()
-    notebook = read_notebook()
+    from .clock import session
+    sess = session()
+    today = sess["date"]
     return {
+        "session": sess,
         "open_positions": open_positions(),
-        "realized_pnl": realized_pnl(since_ts),
-        "total_events": len(trades),
-        "recent": trades[-5:],
-        "notebook_tail": notebook[-notebook_chars:] if notebook else "",
+        "pending_orders": pending_orders(),
+        "today": today_summary(today),
+        "day_trades_past_5_sessions": day_trades_past_5_sessions(today),
+        "plan": read_plan(),
+        "notebook_tail": read_notebook()[-notebook_chars:],
     }

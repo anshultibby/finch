@@ -98,6 +98,10 @@ class Settings(BaseSettings):
         default=None,
         description="Serper API key for Google search"
     )
+    FRED_API_KEY: Optional[str] = Field(
+        default=None,
+        description="St. Louis Fed FRED API key for macro data & release calendar"
+    )
     REDDIT_CLIENT_ID: Optional[str] = Field(
         default=None,
         description="Reddit app client ID for sentiment data"

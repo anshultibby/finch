@@ -1,182 +1,175 @@
 """
-Trade setups — the research-backed signals, composed from indicators.py.
+Trade setups — research-backed signals as pure functions.
 
-Each function takes data (OHLCV bars and/or scalar inputs) and returns a plain
-dict describing whether a setup is present and the levels to trade it. They make
-NO network calls and place NO orders — fetch bars with the polygon_io skill, pass
-them in, and route any resulting trade through the robinhood review→approve loop.
+Each takes bars/prices and returns a dict with a `state` and exact levels. They
+make NO network calls and place NO orders. Bars must be RTH-only (use
+data.rth_today_bars / refine_candidates — polygon includes premarket otherwise).
 
-See SKILL.md for the citation behind each setup and its known win rate / payoff.
+ORB states are the contract with the execution layer:
+    forming   — opening range not complete; do nothing yet
+    armed     — range set, no breakout yet → place a resting STOP order at the
+                boundary and let the broker do the watching
+    triggered — breakout printed and price is still within chase range → a
+                marketable entry is acceptable
+    missed    — breakout printed but price ran beyond the chase guard; entering
+                now destroys the asymmetry that makes the edge work. Skip.
+
+See SKILL.md for citations and win-rate/payoff profiles.
 """
 from typing import List, Dict, Optional, Literal
-from .indicators import (
-    opening_range, vwap, atr, rsi, sma, relative_volume,
-)
+from .indicators import opening_range, vwap, vwap_series, rsi, sma
 
 
-def orb_signal(bars: List[Dict], or_minutes: int = 5,
-               atr_bars: Optional[List[Dict]] = None,
-               stop_atr_mult: float = 0.10) -> dict:
+def orb_signal(bars: List[Dict], atr14: Optional[float] = None,
+               or_minutes: int = 5, stop_atr_mult: float = 0.10,
+               max_chase_r: float = 0.5,
+               long_only: bool = True) -> dict:
     """
-    5-minute Opening Range Breakout (Zarattini, Barbon & Aziz 2024).
+    5-minute Opening Range Breakout on stocks-in-play (Zarattini, Barbon & Aziz
+    2024: Sharpe ≈ 2.4, ~17% win rate, winners dwarf losers).
 
-    Direction is set by the first bar: if it closed up, only longs (break of the
-    OR high); if down, only shorts (break of the OR low). Enter on a STOP order at
-    the OR boundary. Stop = a fraction of the 14-day ATR beyond entry (default
-    0.10x); exit the rest at the close (EOD time stop). Asymmetric by design:
-    ~17% win rate but large winners → Sharpe ~2.4 on stocks-in-play.
+    Direction = the FULL opening-range candle (open of first bar vs close of the
+    last bar inside the window) — not the first 1-min bar. Entry is a stop order
+    at the OR boundary; stop is stop_atr_mult×ATR(14) beyond entry (fallback:
+    opposite side of the range); exit at the close (10R target optional).
 
-    Args:
-        bars: today's 1- or 5-min bars from the 09:30 open onward
-        or_minutes: opening range length (5 is the tested optimum)
-        atr_bars: daily bars for ATR(14); if None, stop falls back to the opposite
-                  end of the opening range
-        stop_atr_mult: ATR fraction for the stop distance
+    max_chase_r: if the breakout already printed, only allow entry while price
+    is within this many R of the entry level — past that, return "missed".
+    long_only=True because Robinhood cannot short; short breakouts come back
+    as state="short_blocked" so the caller knows the setup existed.
+
+    Bars must be today's RTH 1-min bars.
     """
+    if not bars:
+        return {"setup": "orb", "state": "forming", "signal": None, "reason": "no bars"}
     rng = opening_range(bars, or_minutes)
-    if not rng:
-        return {"setup": "orb", "signal": None, "reason": "no opening range yet"}
-    or_high, or_low = rng
-    first = bars[0]
-    direction = "long" if float(first["close"]) >= float(first["open"]) else "short"
-
-    # Has price broken the range after the opening window?
-    window_end_ts = int(bars[0]["timestamp"]) + or_minutes * 60 * 1000
-    post = [b for b in bars if int(b["timestamp"]) >= window_end_ts]
-    if not post:
-        return {"setup": "orb", "signal": None, "or_high": or_high, "or_low": or_low,
+    window_end = int(bars[0]["timestamp"]) + or_minutes * 60 * 1000
+    in_window = [b for b in bars if int(b["timestamp"]) < window_end]
+    post = [b for b in bars if int(b["timestamp"]) >= window_end]
+    if not rng or not in_window or not post:
+        return {"setup": "orb", "state": "forming", "signal": None,
                 "reason": "opening range still forming"}
+    or_high, or_low = rng
+    # Direction from the whole opening-range candle:
+    direction = ("long" if float(in_window[-1]["close"]) >= float(in_window[0]["open"])
+                 else "short")
     last = float(post[-1]["close"])
 
-    a = atr(atr_bars, 14) if atr_bars else None
     if direction == "long":
-        triggered = any(float(b["high"]) > or_high for b in post)
-        entry = or_high
-        stop = (entry - stop_atr_mult * a) if a else or_low
+        entry, opp = or_high, or_low
+        stop = entry - stop_atr_mult * atr14 if atr14 else opp
+        broke = any(float(b["high"]) > or_high for b in post)
+        chase_ok = last <= entry + max_chase_r * abs(entry - stop)
     else:
-        triggered = any(float(b["low"]) < or_low for b in post)
-        entry = or_low
-        stop = (entry + stop_atr_mult * a) if a else or_high
+        entry, opp = or_low, or_high
+        stop = entry + stop_atr_mult * atr14 if atr14 else opp
+        broke = any(float(b["low"]) < or_low for b in post)
+        chase_ok = last >= entry - max_chase_r * abs(entry - stop)
+
+    if direction == "short" and long_only:
+        state = "short_blocked"
+    elif not broke:
+        state = "armed"
+    elif chase_ok:
+        state = "triggered"
+    else:
+        state = "missed"
 
     return {
         "setup": "orb",
-        "signal": direction if triggered else None,
+        "state": state,
+        "signal": direction if state in ("armed", "triggered") else None,
         "direction": direction,
-        "entry": round(entry, 4),
-        "stop": round(stop, 4),
-        "or_high": round(or_high, 4),
-        "or_low": round(or_low, 4),
-        "last": round(last, 4),
-        "atr14": round(a, 4) if a else None,
-        "reason": (f"{direction} breakout confirmed" if triggered
-                   else "no breakout of the opening range yet"),
+        "entry": round(entry, 4), "stop": round(stop, 4),
+        "or_high": round(or_high, 4), "or_low": round(or_low, 4),
+        "last": round(last, 4), "atr14": round(atr14, 4) if atr14 else None,
+        "reason": {
+            "armed": f"{direction} bias — rest a stop entry at {round(entry, 4)}",
+            "triggered": f"{direction} breakout printed, still within {max_chase_r}R of entry",
+            "missed": "breakout ran past the chase guard — entering now flips the asymmetry",
+            "short_blocked": "short setup, but the broker can't short — skip",
+        }[state],
     }
 
 
-def stocks_in_play(candidates: List[Dict], top_n: int = 20,
-                   min_price: float = 5.0, min_atr: float = 0.50,
-                   min_rvol: float = 1.0) -> List[Dict]:
+def vwap_state(bars: List[Dict], touch_atr_frac: float = 0.15,
+               atr14: Optional[float] = None, lookback: int = 6) -> dict:
     """
-    Rank the day's "stocks in play" — the universe filter that makes ORB work.
+    VWAP regime + pullback trigger, kept honest by separating the two:
 
-    Pass a list of dicts, one per liquid symbol, already populated from market
-    data (e.g. polygon_io):
+      bias    — which side of VWAP price is on. True ~half the day; NOT an entry.
+      trigger — an actual pullback-reclaim: within `lookback` bars price touched
+                VWAP (within touch_atr_frac×ATR, or 0.1% without ATR), held it,
+                and the latest bar closed back in the bias direction on volume
+                above the pullback bars' average.
 
-        {"symbol": "NVDA", "price": 120.0, "atr14": 3.2,
-         "open_volume": 5_000_000, "prior_open_volumes": [..14 values..]}
-
-    Keeps names with price > min_price, ATR > min_atr, and relative volume >
-    min_rvol, then returns the top_n by relative volume (descending). RVOL is
-    today's opening volume vs the prior-14-day average opening volume.
+    Long entry = trigger with bias "long"; stop below the pullback low (never ON
+    VWAP — wicks). Best in the first hour. Bars must be RTH-only.
     """
-    ranked = []
-    for c in candidates:
-        rvol = relative_volume(c.get("open_volume", 0), c.get("prior_open_volumes", []))
-        if rvol is None:
-            continue
-        if c.get("price", 0) <= min_price:
-            continue
-        if c.get("atr14", 0) <= min_atr:
-            continue
-        if rvol <= min_rvol:
-            continue
-        ranked.append({**c, "rvol": round(rvol, 2)})
-    ranked.sort(key=lambda x: x["rvol"], reverse=True)
-    return ranked[:top_n]
-
-
-def vwap_signal(bars: List[Dict], trend_bias: Optional[Literal["long", "short"]] = None) -> dict:
-    """
-    VWAP reclaim / pullback (institutional benchmark, ~60-70% of US volume).
-
-    Long bias: price is above VWAP (uptrend). The low-risk entry is a pullback
-    toward VWAP that holds, with the stop just below the pullback low (NOT on
-    VWAP — wicks knock you out). Short bias is the mirror. Best in the first hour;
-    requires volume on the move (confirm with relative_volume / rising volume).
-
-    Returns the current relationship to VWAP and a candidate stop level. Pass
-    `trend_bias` to only act with the higher-timeframe trend.
-    """
+    if len(bars) < lookback + 2:
+        return {"setup": "vwap", "bias": None, "trigger": False, "signal": None,
+                "reason": "not enough bars"}
     v = vwap(bars)
-    if v is None or len(bars) < 3:
-        return {"setup": "vwap", "signal": None, "reason": "not enough bars"}
+    vs = vwap_series(bars)
     last = float(bars[-1]["close"])
-    above = last > v
-    recent_low = min(float(b["low"]) for b in bars[-3:])
-    recent_high = max(float(b["high"]) for b in bars[-3:])
+    bias = "long" if last > v else "short"
+    tol = (touch_atr_frac * atr14) if atr14 else last * 0.001
 
-    signal = None
-    reason = "no clean VWAP setup"
-    if above and trend_bias in (None, "long"):
-        signal = "long"
-        reason = "price holding above VWAP — buy pullbacks that hold the line"
-        stop = recent_low
-    elif (not above) and trend_bias in (None, "short"):
-        signal = "short"
-        reason = "price below VWAP — short rallies that fail into the line"
-        stop = recent_high
-    else:
-        stop = recent_low if above else recent_high
+    recent = bars[-lookback:]
+    touched = held = False
+    pull_low, pull_high = float("inf"), float("-inf")
+    for b, w in zip(recent, vs[-lookback:]):
+        lo, hi = float(b["low"]), float(b["high"])
+        pull_low, pull_high = min(pull_low, lo), max(pull_high, hi)
+        if bias == "long":
+            if lo <= w + tol:
+                touched = True
+            held = float(b["close"]) > w - tol
+        else:
+            if hi >= w - tol:
+                touched = True
+            held = float(b["close"]) < w + tol
+    pull_vol = sum(float(b["volume"]) for b in recent[:-1]) / max(len(recent) - 1, 1)
+    last_bar = recent[-1]
+    vol_ok = float(last_bar["volume"]) > pull_vol
+    closed_with_bias = (float(last_bar["close"]) > float(last_bar["open"])) == (bias == "long")
+    trigger = touched and held and vol_ok and closed_with_bias
 
+    stop = pull_low if bias == "long" else pull_high
     return {
         "setup": "vwap",
-        "signal": signal,
-        "vwap": round(v, 4),
-        "last": round(last, 4),
-        "above_vwap": above,
-        "entry": round(last, 4),
-        "stop": round(stop, 4),
-        "reason": reason,
+        "bias": bias,
+        "trigger": trigger,
+        "signal": bias if trigger else None,
+        "vwap": round(v, 4), "last": round(last, 4),
+        "entry": round(last, 4), "stop": round(stop, 4),
+        "reason": ("pullback touched VWAP, held, and reclaimed on volume" if trigger
+                   else f"bias {bias}, but no completed pullback-reclaim — bias alone is NOT a setup"),
     }
 
 
 def connors_rsi2_signal(daily_closes: List[float]) -> dict:
     """
-    Connors RSI(2) mean reversion — a *swing* edge (1-5 day hold), not intraday,
-    but the most reproducible short-term long signal (win rate >75% on indices in
-    Connors & Alvarez's backtests). Best on broad ETFs (SPY/QQQ), weaker on
-    single names.
+    Connors RSI(2) mean reversion — a SWING edge (1–5 day hold), not intraday.
+    >75% historical win rate on broad ETFs (SPY/QQQ); weaker on single names.
 
-    Rules: only longs when close > 200-day SMA (trend filter); buy when RSI(2) < 10
-    (stronger edge < 5); exit when close > 5-day SMA. Connors found fixed stops
-    HURT net performance — control risk with position size and the ETF trend
-    filter instead, and still cap catastrophe risk on live single names.
+    Long only when close > 200-day SMA; enter when RSI(2) < 10 (stronger < 5);
+    exit when close > 5-day SMA. Connors found fixed stops hurt results —
+    control risk via sizing + the trend filter (keep a catastrophe stop live).
     """
     if len(daily_closes) < 201:
         return {"setup": "connors_rsi2", "signal": None, "reason": "need ~200 daily closes"}
-    sma200 = sma(daily_closes, 200)
-    sma5 = sma(daily_closes, 5)
+    sma200, sma5 = sma(daily_closes, 200), sma(daily_closes, 5)
     r2 = rsi(daily_closes, 2)
     last = daily_closes[-1]
     in_uptrend = last > sma200
     entry = in_uptrend and r2 is not None and r2 < 10
-    exit_long = last > sma5
     return {
         "setup": "connors_rsi2",
         "signal": "long" if entry else None,
         "rsi2": round(r2, 2) if r2 is not None else None,
         "above_200sma": in_uptrend,
-        "exit_above_5sma": exit_long,
+        "exit_above_5sma": last > sma5 if sma5 else None,
         "reason": ("oversold pullback in an uptrend — entry" if entry
                    else "no entry (need close>200SMA and RSI2<10)"),
     }
