@@ -267,8 +267,8 @@ export default function CreditsModal() {
                       </button>
                     </div>
                     <ul className="mt-3 space-y-1.5 text-xs text-gray-500">
-                      <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> 1,000 bonus credits on signup</li>
-                      <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> 100 credits daily refresh</li>
+                      <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> 1,000 credits every month</li>
+                      <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> 100 credits daily refresh, up to a 2,500 cap (2.5x free)</li>
                       <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> In-depth research reports</li>
                       <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> Advanced analysis tools</li>
                       <li className="flex items-center gap-1.5"><span className="text-blue-500">+</span> Early access to new features</li>

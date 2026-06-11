@@ -544,7 +544,25 @@ async def stripe_webhook(request: Request):
                     cancel_at_period_end=cancel_at_period,
                     current_period_end=period_end,
                 )
-                logger.info(f"User {user_id} subscription updated: status={status} cancel_at_period_end={cancel_at}")
+                logger.info(f"User {user_id} subscription updated: status={status} cancel_at_period_end={cancel_at_period}")
+
+        elif event_type == "invoice.paid":
+            # Monthly renewal: grant the recurring credits promised in the Pro plan UI.
+            # billing_reason is "subscription_create" on the first invoice (already
+            # granted via checkout.session.completed) and "subscription_cycle" on renewals.
+            if data.get("billing_reason") == "subscription_cycle":
+                customer_id = data.get("customer")
+                user_id = (
+                    await CreditsService.get_user_id_by_stripe_customer(db, customer_id)
+                    if customer_id else None
+                )
+                if user_id:
+                    await CreditsService.add_credits(
+                        db, user_id, 1_000,
+                        transaction_type="subscription",
+                        description="Pro plan monthly credits (+1,000)",
+                    )
+                    logger.info(f"User {user_id} granted monthly Pro renewal credits")
 
         elif event_type == "customer.subscription.deleted":
             customer_id = data.get("customer")

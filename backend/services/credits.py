@@ -63,8 +63,8 @@ DAILY_REFRESH = {
 # Max credits a plan can accumulate to via refresh (cap)
 MAX_CREDIT_CAP = {
     "free":  1_000,
-    "pro":   1_000,
-    "max":   2_500,
+    "pro":   2_500,
+    "max":   5_000,
     "admin": None,
 }
 
