@@ -1,254 +1,53 @@
-# Finch - Portfolio Chatbot
+# Finch
 
-A modern AI-powered chatbot for managing and chatting with your investment portfolio. Built with FastAPI backend and Next.js frontend.
+**An AI financial analyst that knows your actual portfolio.**
 
-## 🚀 Features
+Finch is a chat-first research platform for stocks and markets. Connect your brokerage (read-only, via SnapTrade — 30+ brokers supported) and Finch can analyze *your* holdings, not hypothetical ones: concentration, sector tilt, fee drag, earnings coming up on positions you own. It runs real Python in a sandbox for analysis and visualizations, and can set standing scheduled jobs ("alert me if NVDA drops below $200") that notify you by email or push.
 
-- **AI-Powered Chat**: Conversational interface powered by Claude (Anthropic)
-- **Modern UI**: Beautiful, responsive interface built with Next.js and Tailwind CSS
-- **Session Management**: Persistent chat sessions with history
-- **Extensible Architecture**: Ready for Robinhood API integration via tool calls
-- **Real-time Responses**: Fast and efficient communication between frontend and backend
+Live at [finchapp.ai](https://finchapp.ai) · iOS app via Expo/EAS.
 
-## 📋 Prerequisites
+## What it does
 
-- Python 3.9+
-- Node.js 18+
-- npm or yarn
-- OpenAI API key (get from [https://platform.openai.com/api-keys](https://platform.openai.com/api-keys))
+- **AI research chat** — Claude-powered agent with streaming, tool use, and a code sandbox (E2B). Deep research across fundamentals (FMP), prices (Polygon), options analytics (ORATS), Reddit sentiment, earnings drift, biotech pipelines, and Indian markets (NSE/BSE).
+- **Portfolio sync** — read-only brokerage connection through SnapTrade; positions, transactions, P&L, portfolio health checks.
+- **Markets** — movers, news, earnings calendar, index cards, watchlist with sparklines, US/India toggle.
+- **Stock pages** — financials (5 statement types), earnings history, news, analyst grades, AI research notes.
+- **Scheduled jobs** — recurring or one-off agent tasks with email/push notifications; trade automations gated behind one-click email approval.
+- **Visualizations** — agent-generated interactive charts (Plotly, D3, etc.) in a gallery.
 
-## 🛠️ Installation
+## Architecture
 
-### Backend Setup
+| Piece | Stack | Where |
+|---|---|---|
+| Backend | FastAPI + SQLAlchemy (async) + PostgreSQL (Supabase) | `backend/` |
+| Web | Next.js (App Router) + Tailwind | `frontend/` |
+| Mobile | Expo / React Native + NativeWind | `frontend-mobile/` |
+| Agent sandbox | E2B (per-user sandboxes, skill scripts) | `backend/skills/`, `backend/modules/tools/` |
+| Auth | Supabase (Google OAuth + email/password) | |
+| Billing | Stripe (Pro subscription + credit top-ups) | `backend/routes/credits.py` |
 
-1. Navigate to the backend directory:
+Skills are self-contained folders in `backend/skills/<name>/` with a `SKILL.md`; they're auto-discovered and synced to the sandbox by content hash. See `CLAUDE.md` for development conventions (adding API keys, skills, web/mobile parity).
+
+## Running locally
+
+Prereqs: Python 3.13+, Node 18+, a `backend/.env` (see `backend/.env.example`).
+
 ```bash
-cd backend
+./setup.sh            # one-time: venv + pip + npm installs
+./start-backend.sh    # FastAPI on :8000
+./start-frontend.sh   # Next.js on :3000
+./start-mobile.sh     # Expo dev server
 ```
 
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+Backend env lives in `backend/.env`, web in `frontend/.env.local`, mobile in `frontend-mobile/.env` — all gitignored. Production mobile env is managed in EAS (`eas env:list --environment production`).
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+## Deployment
 
-4. Create a `.env` file in the backend directory:
-```bash
-cp .env.example .env
-```
+- **Backend**: Railway (`finch-production-8434.up.railway.app`)
+- **Web**: Vercel ([finchapp.ai](https://finchapp.ai))
+- **Mobile**: EAS Build → App Store
+- **DB/Auth/Storage**: Supabase; migrations via Alembic (`backend/alembic/`)
 
-5. Add your OpenAI API key to the `.env` file:
-```
-OPENAI_API_KEY=your_openai_api_key_here
-```
+## Disclaimer
 
-### Frontend Setup
-
-1. Navigate to the frontend directory:
-```bash
-cd frontend
-```
-
-2. Install dependencies:
-```bash
-npm install
-# or
-yarn install
-```
-
-3. Create a `.env.local` file (optional, uses default if not set):
-```bash
-cp .env.local.example .env.local
-```
-
-## 🚀 Running the Application
-
-### Easy Way: Use the Start Scripts
-
-**Option 1: Start Backend**
-```bash
-./start-backend.sh
-```
-
-**Option 2: Start Frontend** (in a new terminal)
-```bash
-./start-frontend.sh
-```
-
-**Option 3: Start Both** (requires tmux)
-```bash
-./start-all.sh
-```
-
-The scripts will:
-- ✅ Check and create virtual environments
-- ✅ Install dependencies
-- ✅ Create .env files from templates
-- ✅ Validate configuration
-- ✅ Start the services
-
-### Manual Way
-
-**Start the Backend:**
-
-From the `backend` directory:
-```bash
-source venv/bin/activate
-python main.py
-```
-
-The API will be available at `http://localhost:8000`
-
-You can verify it's running by visiting:
-- `http://localhost:8000` - Root endpoint
-- `http://localhost:8000/health` - Health check
-- `http://localhost:8000/docs` - Interactive API documentation (FastAPI Swagger UI)
-
-**Start the Frontend:**
-
-From the `frontend` directory:
-```bash
-npm run dev
-```
-
-The application will be available at `http://localhost:3000`
-
-## 📁 Project Structure
-
-```
-finch/
-├── backend/
-│   ├── main.py              # FastAPI application
-│   ├── agent.py             # AI agent implementation
-│   ├── requirements.txt     # Python dependencies
-│   └── .env.example         # Environment variables template
-├── frontend/
-│   ├── app/
-│   │   ├── page.tsx         # Main page
-│   │   ├── layout.tsx       # Root layout
-│   │   └── globals.css      # Global styles
-│   ├── components/
-│   │   ├── ChatContainer.tsx # Main chat component
-│   │   ├── ChatMessage.tsx   # Message component
-│   │   └── ChatInput.tsx     # Input component
-│   ├── lib/
-│   │   └── api.ts            # API client
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── tailwind.config.js
-└── README.md
-```
-
-## 🔧 API Endpoints
-
-### POST `/chat`
-Send a message to the chatbot
-```json
-{
-  "message": "What's my portfolio performance?",
-  "session_id": "optional-session-id"
-}
-```
-
-### GET `/chat/history/{session_id}`
-Retrieve chat history for a session
-
-### DELETE `/chat/history/{session_id}`
-Clear chat history for a session
-
-### GET `/health`
-Health check endpoint
-
-## 🎨 Customization
-
-### Changing the AI Model
-
-The backend uses Claude by default. To switch to OpenAI:
-
-1. Uncomment the OpenAI implementation in `backend/agent.py`
-2. Update `requirements.txt` to include `openai`
-3. Add your OpenAI API key to `.env`
-
-### Styling
-
-The frontend uses Tailwind CSS. Customize colors in `frontend/tailwind.config.js`:
-
-```javascript
-theme: {
-  extend: {
-    colors: {
-      primary: {
-        // Your custom colors
-      },
-    },
-  },
-}
-```
-
-## 🔌 Adding Tool Calls (Robinhood Integration)
-
-The agent is structured to support tool calling. To add Robinhood integration:
-
-1. Install robin-stocks: `pip install robin-stocks`
-2. Define tool schemas in `backend/agent.py`
-3. Implement tool handlers for portfolio queries and trading actions
-4. Update the agent's system prompt with tool descriptions
-
-Example tool structure:
-```python
-tools = [
-    {
-        "name": "get_portfolio",
-        "description": "Get current portfolio holdings",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    }
-]
-```
-
-## 🐛 Troubleshooting
-
-### Backend Issues
-
-- **Import errors**: Make sure you activated the virtual environment
-- **API key errors**: Verify your `.env` file has the correct API key
-- **Port already in use**: Change the port in `main.py`
-
-### Frontend Issues
-
-- **Module not found**: Run `npm install` again
-- **API connection errors**: Ensure backend is running on port 8000
-- **Build errors**: Delete `.next` folder and `node_modules`, then reinstall
-
-## 📝 Development Tips
-
-- Use `http://localhost:8000/docs` for interactive API testing
-- Check browser console for frontend errors
-- Backend logs will show in the terminal running the server
-- Use React DevTools for component debugging
-
-## 🤝 Contributing
-
-This is a personal project, but feel free to fork and customize for your needs!
-
-## 📄 License
-
-See LICENSE file for details.
-
-## 🔮 Roadmap
-
-- [ ] Robinhood API integration
-- [ ] Real-time portfolio updates
-- [ ] Chart visualizations
-- [ ] Trading capabilities via chat
-- [ ] Portfolio analytics and insights
-- [ ] Authentication and user management
-- [ ] Database persistence
-- [ ] Deployment configurations
+Finch is for research and information only. It is not financial advice, and nothing it produces should be treated as a recommendation to buy or sell securities.

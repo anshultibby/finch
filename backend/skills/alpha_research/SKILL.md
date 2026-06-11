@@ -199,4 +199,4 @@ Don't limit yourself to what's pre-built. Read the framework, identify which alp
 
 - For real-time price monitoring (use polygon_io)
 - For placing trades (use alpaca or snaptrade)
-- For portfolio analysis (use direct_indexing or portfolio_health_check)
+- For portfolio analysis (use portfolio_health_check)
