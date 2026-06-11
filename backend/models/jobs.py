@@ -27,3 +27,6 @@ class ScheduledJob(Base):
     last_error = Column(Text, nullable=True)
     last_run_credits = Column(Integer, nullable=False, default=0, server_default="0")
     credits_spent = Column(Integer, nullable=False, default=0, server_default="0")
+    # Finch-provisioned default automation (e.g. "day_trading_nightly"): exempt
+    # from recurring limits and credit charges; pausable but not cancellable.
+    system_key = Column(String, nullable=True)

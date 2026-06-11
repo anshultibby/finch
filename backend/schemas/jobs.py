@@ -54,10 +54,15 @@ class Job(BaseModel):
     last_error: Optional[str] = None
     last_run_credits: int = 0
     credits_spent: int = 0
+    system_key: Optional[str] = None  # set on Finch-provisioned default automations
 
     @property
     def is_recurring(self) -> bool:
         return self.recurrence is not None
+
+    @property
+    def is_system(self) -> bool:
+        return self.system_key is not None
 
     @property
     def projected_weekly_credits(self) -> int:

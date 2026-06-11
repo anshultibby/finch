@@ -154,6 +154,7 @@ function JobCard({ job, busy, onPause, onResume, onCancel, readOnly }: {
   onPause?: () => void; onResume?: () => void; onCancel?: () => void; readOnly?: boolean;
 }) {
   const isRecurring = !!job.recurrence;
+  const isSystem = !!job.system_key;
   const paused = job.status === 'paused';
   const done = job.status === 'done' || job.status === 'failed' || job.status === 'cancelled';
   const weekly = projectedWeekly(job);
@@ -161,7 +162,8 @@ function JobCard({ job, busy, onPause, onResume, onCancel, readOnly }: {
   const timeLabel = paused ? 'Paused'
     : job.status === 'pending' ? `Next ${relativeTime(job.run_at)}`
     : exactTime(job.run_at);
-  const costLabel = job.last_run_credits > 0
+  const costLabel = isSystem ? 'Included free'
+    : job.last_run_credits > 0
     ? `~${fmtCr(job.last_run_credits)}/run${weekly ? ` · ~${fmtCr(weekly)}/wk` : ''}`
     : (done ? '' : 'cost after 1st run');
 
@@ -177,6 +179,11 @@ function JobCard({ job, busy, onPause, onResume, onCancel, readOnly }: {
           {paused ? <Pause className="w-4 h-4" /> : isRecurring ? <Repeat className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
         </span>
         <div className="flex items-center gap-1.5">
+          {isSystem && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600" title="Built-in Finch automation — runs are free. Pause it anytime.">
+              <Sparkles className="w-2.5 h-2.5" /> Finch
+            </span>
+          )}
           {isRecurring && <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{RECURRENCE_LABEL[job.recurrence as string]}</span>}
           <StatusBadge status={job.status} />
         </div>
@@ -200,10 +207,12 @@ function JobCard({ job, busy, onPause, onResume, onCancel, readOnly }: {
               className="p-1.5 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors disabled:opacity-50">
               {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
             </button>
-            <button onClick={onCancel} disabled={busy} title="Cancel"
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
-              <X className="w-4 h-4" />
-            </button>
+            {!isSystem && (
+              <button onClick={onCancel} disabled={busy} title="Cancel"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
       </div>

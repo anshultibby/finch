@@ -66,6 +66,7 @@ def _to_dto(row: ScheduledJob) -> Job:
         run_count=row.run_count, chat_id=row.chat_id,
         context_paths=row.context_paths or [], last_error=row.last_error,
         last_run_credits=row.last_run_credits or 0, credits_spent=row.credits_spent or 0,
+        system_key=row.system_key,
     )
 
 
@@ -79,8 +80,10 @@ async def list_jobs(user_id: str) -> JobList:
         )).scalars().all()
     jobs = [_to_dto(r) for r in rows]
     active = [j for j in jobs if j.status in ACTIVE]
-    recurring = sum(1 for j in active if j.is_recurring)
-    oneoff = sum(1 for j in active if not j.is_recurring)
+    # System jobs don't consume the user's quota — keep counts consistent
+    # with _count_active's limit enforcement.
+    recurring = sum(1 for j in active if j.is_recurring and not j.is_system)
+    oneoff = sum(1 for j in active if not j.is_recurring and not j.is_system)
     return JobList(
         jobs=jobs, recurring_count=recurring, oneoff_count=oneoff,
         recurring_limit=RECURRING_LIMIT, oneoff_limit=ONEOFF_LIMIT,
@@ -88,10 +91,13 @@ async def list_jobs(user_id: str) -> JobList:
 
 
 async def _count_active(db, user_id: str, recurring: bool) -> int:
+    """Active jobs counted against the per-user limits. System jobs are
+    Finch-provisioned and don't consume the user's quota."""
     clause = ScheduledJob.recurrence.isnot(None) if recurring else ScheduledJob.recurrence.is_(None)
     return (await db.execute(
         select(func.count()).select_from(ScheduledJob)
-        .where(ScheduledJob.user_id == user_id, ScheduledJob.status.in_(ACTIVE), clause)
+        .where(ScheduledJob.user_id == user_id, ScheduledJob.status.in_(ACTIVE),
+               ScheduledJob.system_key.is_(None), clause)
     )).scalar() or 0
 
 
@@ -158,6 +164,8 @@ async def cancel_job(user_id: str, job_id: str) -> bool:
         )).scalars().first()
         if not row:
             return False
+        if row.system_key:
+            raise ValueError("This is a built-in Finch automation — pause it instead of cancelling.")
         row.status = "cancelled"
         await db.commit()
         return True
@@ -194,6 +202,42 @@ async def update_job(user_id: str, job_id: str, patch: JobUpdate) -> Optional[Jo
         row.recurrence = new_recurrence
         await db.commit()
         await db.refresh(row)
+        return _to_dto(row)
+
+
+async def ensure_system_job(user_id: str, system_key: str, name: str, message: str,
+                            first_run_at: datetime, recurrence: str = "weekdays",
+                            priority: int = 5) -> Job:
+    """
+    Idempotently provision a Finch built-in automation for a user. If the row
+    exists it's left exactly as the user has it (paused stays paused); a
+    cancelled/failed row is revived to pending. System jobs don't count against
+    limits and their runs are comped (see run_job).
+    """
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.user_id == user_id,
+                                       ScheduledJob.system_key == system_key)
+        )).scalars().first()
+        if row:
+            if row.status not in ACTIVE:  # revive a cancelled/done/failed row
+                row.status = "pending"
+                row.run_at = _advance_past_now(first_run_at, recurrence)
+                await db.commit()
+                await db.refresh(row)
+            return _to_dto(row)
+        run_at = first_run_at if first_run_at.tzinfo else first_run_at.replace(tzinfo=timezone.utc)
+        if run_at <= _now():
+            run_at = _advance_past_now(run_at, recurrence)
+        row = ScheduledJob(
+            id=uuid.uuid4().hex[:12], user_id=user_id, name=name, message=message,
+            run_at=run_at, recurrence=recurrence, priority=priority,
+            status="pending", system_key=system_key, context_paths=[],
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        logger.info(f"Provisioned system job '{system_key}' for {user_id} (first run {run_at.isoformat()})")
         return _to_dto(row)
 
 
@@ -282,6 +326,18 @@ async def run_job(job: Job) -> None:
             pass
         after = await _user_credits(job.user_id)
         spent = max(0, before - after)
+        if job.system_key and spent > 0:
+            # System automations are on the house: refund what the run consumed.
+            from services.credits import CreditsService
+            async with get_db_session() as db:
+                await CreditsService.add_credits(
+                    db, job.user_id, spent,
+                    transaction_type="system_job_comp",
+                    description=f"Built-in automation '{job.name}' — run comped",
+                    metadata={"job_id": job.id, "system_key": job.system_key},
+                )
+            logger.info(f"Comped {spent} credits for system job {job.id}")
+            spent = 0
         await _finalize(job, error=None, credits=spent)
         logger.info(f"Ran job {job.id} (spent {spent} credits)")
     except Exception as e:

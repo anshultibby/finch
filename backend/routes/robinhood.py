@@ -68,6 +68,9 @@ async def callback(
     try:
         user_id = await robinhood_auth.complete_callback(code, state)
         status = "connected" if user_id else "error"
+        if user_id:
+            from services.system_jobs import ensure_day_trading_nightly
+            await ensure_day_trading_nightly(user_id)
     except Exception as e:
         logger.error(f"Robinhood callback failed: {e}")
         status = "error"
@@ -87,6 +90,8 @@ async def native_exchange(
             request.user_id, request.code, request.code_verifier,
             request.client_id, request.redirect_uri,
         )
+        from services.system_jobs import ensure_day_trading_nightly
+        await ensure_day_trading_nightly(request.user_id)
         return {"success": True, "is_connected": True}
     except Exception as e:
         logger.error(f"Robinhood native exchange failed for {request.user_id}: {e}")

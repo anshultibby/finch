@@ -32,6 +32,15 @@ async def register_token(body: RegisterTokenRequest, user_id: str = Depends(get_
 
 @router.get("", response_model=JobList)
 async def list_jobs(user_id: str = Depends(get_current_user_id)):
+    # Backfill built-in automations for users who connected Robinhood before
+    # system jobs existed. Idempotent and pause-respecting, so safe on a GET.
+    try:
+        from services import robinhood_auth
+        if await robinhood_auth.is_connected(user_id):
+            from services.system_jobs import ensure_day_trading_nightly
+            await ensure_day_trading_nightly(user_id)
+    except Exception as e:
+        logger.warning(f"System-job backfill failed for {user_id}: {e}")
     return await job_scheduler.list_jobs(user_id)
 
 
@@ -56,7 +65,10 @@ async def update_job(job_id: str, body: JobUpdate, user_id: str = Depends(get_cu
 
 @router.delete("/{job_id}")
 async def cancel_job(job_id: str, user_id: str = Depends(get_current_user_id)):
-    ok = await job_scheduler.cancel_job(user_id, job_id)
+    try:
+        ok = await job_scheduler.cancel_job(user_id, job_id)
+    except ValueError as e:  # system job — pausable, not cancellable
+        raise HTTPException(status_code=409, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True}
