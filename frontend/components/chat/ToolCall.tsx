@@ -162,11 +162,11 @@ const getStatusStyles = (status: string, isError: boolean) => {
   }
   if (status === 'detected' || status === 'calling') {
     return {
-      container: 'bg-amber-50/70 border border-amber-200/60 hover:border-amber-300 hover:bg-amber-50',
-      icon: 'text-amber-500',
-      text: 'text-amber-700',
-      muted: 'text-amber-600',
-      file: 'bg-amber-100/70 text-amber-700'
+      container: 'bg-emerald-50/60 border border-emerald-200/60 hover:border-emerald-300 hover:bg-emerald-50',
+      icon: 'text-emerald-500',
+      text: 'text-emerald-700',
+      muted: 'text-emerald-600',
+      file: 'bg-emerald-100/60 text-emerald-700'
     };
   }
   return {
@@ -276,7 +276,11 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
     );
   }
 
-  const description = toolCall.statusMessage || '';
+  const intent = typeof toolCall.arguments?.intent === 'string' ? toolCall.arguments.intent.trim() : '';
+  const isInFlight = toolCall.status === 'detected' || toolCall.status === 'calling';
+  // statusMessage carries live sub-steps ("Starting sandbox…") while running;
+  // once settled it's just noise ("Done"), so only intent survives.
+  const description = intent || (isInFlight ? toolCall.statusMessage : '') || '';
   const isError = toolCall.status === 'error' || !!toolCall.error;
   const styles = getStatusStyles(toolCall.status, isError);
 
@@ -343,23 +347,23 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
             {toolName}
           </span>
 
-          {/* Filename pill for file operations - can shrink, hide on very small screens */}
+          {/* Filename pill for file operations — truncates on small screens */}
           {filename && (
-            <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+            <span className={`inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
               {filename}
             </span>
           )}
 
-          {/* Search query pill for search operations - hide on very small screens */}
+          {/* Search query pill for search operations — truncates on small screens */}
           {displayQuery && (
-            <span className={`hidden xs:inline-block text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+            <span className={`inline-block text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
               {displayQuery}
             </span>
           )}
 
-          {/* URL pill for scrape operations - hide on very small screens */}
+          {/* URL pill for scrape operations — truncates on small screens */}
           {displayUrl && (
-            <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
+            <span className={`inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
               {displayUrl}
             </span>
           )}
@@ -387,7 +391,7 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
             <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         ) : toolCall.status === 'detected' || toolCall.status === 'calling' ? (
-          <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse block" />
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse block" />
         ) : (
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path d="M9 5l7 7-7 7" />

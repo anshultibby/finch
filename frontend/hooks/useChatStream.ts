@@ -286,6 +286,19 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       update(chatId, updates, notify);
     },
 
+    // Live sub-step messages from inside a tool ("Starting sandbox…",
+    // "Running…"). Lands in statusMessage, which the activity ticker and
+    // tool cards use as detail text.
+    onToolStatus: (event: { tool_call_id?: string; message?: string }) => {
+      if (!event.tool_call_id || !event.message) return;
+      const state = getChatState(chatId);
+      const existing = state.streamingTools.find(t => t.tool_call_id === event.tool_call_id);
+      if (!existing) return;
+      update(chatId, {
+        streamingTools: upsertTool(state.streamingTools, { ...existing, statusMessage: event.message }, chatId),
+      }, notify);
+    },
+
     // ── Tool output streaming ─────────────────────────────────────────────
 
     onCodeOutput: (event: { stream: 'stdout' | 'stderr'; content: string }) => {

@@ -1,7 +1,22 @@
 """
 Models for tool system
 """
+import copy
 from typing import Any, Dict, Optional, Callable
+
+# Injected into every visible tool's schema so the model narrates each call.
+# The value rides along in `arguments` (and thus the tool_call_start SSE event)
+# and is stripped by ToolRunner before the handler is invoked.
+INTENT_PARAM = "intent"
+INTENT_SCHEMA = {
+    "type": "string",
+    "description": (
+        "One short present-tense phrase (3-8 words, sentence case) telling the "
+        "user what this specific call is doing, e.g. 'Comparing NVDA and AMD "
+        "margins'. Shown live in the UI. Include it on every call."
+    ),
+}
+
 
 class Tool:
     """
@@ -33,12 +48,19 @@ class Tool:
     
     def to_openai_schema(self) -> Dict[str, Any]:
         """Convert to OpenAI tool calling schema"""
+        parameters = self.parameters_schema
+        # Visible tools get the optional `intent` param so the model can label
+        # the call for the live activity ticker. Hidden tools skip it — nobody
+        # sees them, so the tokens would be wasted.
+        if not self.hidden_from_ui and INTENT_PARAM not in parameters.get("properties", {}):
+            parameters = copy.deepcopy(parameters)
+            parameters.setdefault("properties", {})[INTENT_PARAM] = INTENT_SCHEMA
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.parameters_schema
+                "parameters": parameters
             }
         }
 

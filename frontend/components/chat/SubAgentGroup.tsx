@@ -87,7 +87,7 @@ export default function SubAgentGroup({ parent, childTools, onSelectTool, onPeek
 
       {/* Body: nested tools + final result */}
       {open && (
-        <div className="px-3 pb-3 flex flex-col gap-1 animate-in fade-in duration-200">
+        <div className="px-3 pb-3 flex flex-col gap-1 animate-fade-in">
           <div className="ml-2 pl-3 border-l-2 border-indigo-200/70 flex flex-col gap-1">
             {childTools.map(child => (
               <ToolCall

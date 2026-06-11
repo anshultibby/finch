@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import ToolCall from './ToolCall';
+import ActivityTicker from './ActivityTicker';
 import SubAgentGroup, { isLimitSkipped } from './SubAgentGroup';
 import type { ToolCallStatus } from '@/lib/types';
 import type { TimeEstimate } from '@/hooks/useChatStream';
@@ -33,27 +34,6 @@ function formatEstimate(seconds: number): string {
   return `~${min} min`;
 }
 
-/** Get the display name for the active tool */
-function getActiveToolLabel(toolName: string): string {
-  const map: Record<string, string> = {
-    'bash': 'Running code',
-    'execute_code': 'Running code',
-    'web_search': 'Searching web',
-    'news_search': 'Searching news',
-    'scrape_url': 'Reading webpage',
-    'write_chat_file': 'Writing file',
-    'read_chat_file': 'Reading file',
-    'replace_in_chat_file': 'Editing file',
-    'get_portfolio': 'Fetching portfolio',
-    'get_brokerage_status': 'Checking brokerage',
-    'get_fmp_data': 'Fetching market data',
-    'build_custom_etf': 'Building ETF',
-    'connect_brokerage': 'Connecting brokerage',
-    'delegate': 'Delegating to sub-agent',
-  };
-  return map[toolName] || toolName.replace(/_/g, ' ');
-}
-
 export default function ToolCallSummary({
   toolCalls,
   isStreaming = false,
@@ -73,10 +53,10 @@ export default function ToolCallSummary({
 
   const specialTools: ToolCallStatus[] = [];
   const regularTools: ToolCallStatus[] = [];   // top-level (main-agent) tools, incl. delegate parents
+  const tickerTools: ToolCallStatus[] = [];    // everything the live ticker narrates, in order
   const childrenByTask = new Map<string, ToolCallStatus[]>();  // sub-agent tools keyed by task_id
   let completedCount = 0;
   let errorCount = 0;
-  let activeToolName: string | null = null;
 
   for (const t of sortedTools) {
     // Sub-agent tools (emitted by `delegate`) are nested under their parent, not
@@ -85,16 +65,16 @@ export default function ToolCallSummary({
       const arr = childrenByTask.get(t.task_id) ?? [];
       arr.push(t);
       childrenByTask.set(t.task_id, arr);
-      if (t.status === 'calling' || t.status === 'detected') activeToolName = t.tool_name;
+      tickerTools.push(t);
       continue;
     }
     if (ALWAYS_VISIBLE_TOOLS.has(t.tool_name)) {
       specialTools.push(t);
     } else {
       regularTools.push(t);
+      tickerTools.push(t);
       if (t.status === 'completed') completedCount++;
       else if (t.status === 'error') errorCount++;
-      else if (t.status === 'calling' || t.status === 'detected') activeToolName = t.tool_name;
     }
   }
 
@@ -168,11 +148,12 @@ export default function ToolCallSummary({
   if (isStreaming && timeEstimate) {
     const remaining = Math.max(0, timeEstimate.seconds - elapsedSeconds);
     if (remaining > 0) {
-      estimateLabel = `${formatEstimate(remaining)} remaining`;
+      estimateLabel = `${formatEstimate(remaining)} left`;
     }
   }
 
   const expanded = isExpanded || shouldAutoExpand;
+  const elapsedLabel = elapsedSeconds > 0 ? formatDuration(elapsedSeconds) : undefined;
 
   return (
     <div className="flex flex-col gap-1">
@@ -186,92 +167,72 @@ export default function ToolCallSummary({
         />
       ))}
 
-      {/* Collapsed summary bar */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex items-center gap-2.5 py-2 px-3 rounded-lg cursor-pointer transition-all duration-150 select-none ${
-          isStreaming
-            ? 'bg-amber-50/70 border border-amber-200/60 hover:border-amber-300'
-            : 'bg-gray-50/70 border border-gray-200/60 hover:border-gray-300'
-        }`}
-      >
-        {/* Status icon */}
-        <span className="flex-shrink-0">
-          {isStreaming ? (
-            <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse block" />
-          ) : (
-            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          )}
-        </span>
+      {isStreaming && !expanded ? (
+        /* Live ticker — finished actions evaporate, current one shimmers */
+        <ActivityTicker
+          tools={tickerTools}
+          elapsedLabel={elapsedLabel}
+          estimateLabel={estimateLabel || undefined}
+          thinkingLabel={
+            tickerTools.length === 0 && timeEstimate?.description
+              ? timeEstimate.description
+              : 'Thinking…'
+          }
+          onExpand={() => setIsExpanded(true)}
+        />
+      ) : (
+        /* Summary bar — collapse control while expanded, receipt when done */
+        <div
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-2.5 py-2 px-3 rounded-xl cursor-pointer transition-colors duration-150 select-none bg-white border border-stone-200/80 hover:border-stone-300"
+        >
+          <span className="flex-shrink-0">
+            {isStreaming ? (
+              <span className="relative w-3 h-3 flex items-center justify-center">
+                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
+                <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
+              </span>
+            ) : (
+              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+          </span>
 
-        {/* Status text */}
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          <span className={`text-sm font-medium flex-shrink-0 ${
-            isStreaming ? 'text-amber-700' : 'text-gray-600'
-          }`}>
+          <span className="flex-1 min-w-0 text-sm font-medium text-stone-600 truncate">
             {isStreaming
-              ? `Working... ${completedCount}/${totalCount > 0 ? totalCount : '?'} steps`
-              : `Completed ${totalCount} step${totalCount !== 1 ? 's' : ''}`
+              ? `Working — step ${Math.min(completedCount + 1, Math.max(totalCount, 1))} of ${totalCount > 0 ? totalCount : '…'}`
+              : `Ran ${totalCount} step${totalCount !== 1 ? 's' : ''}`
             }
             {subAgentCount > 0 && (
-              <span className={`ml-1.5 font-normal ${isStreaming ? 'text-indigo-500/80' : 'text-indigo-500/70'}`}>
+              <span className="ml-1.5 font-normal text-indigo-500/70">
                 · {subAgentCount} sub-agent{subAgentCount !== 1 ? 's' : ''}
+              </span>
+            )}
+            {!isStreaming && errorCount > 0 && (
+              <span className="ml-1.5 font-normal text-red-400">
+                · {errorCount} failed
               </span>
             )}
           </span>
 
-          {/* Active tool name or estimate description */}
-          {isStreaming && activeToolName && (
-            <span className="text-xs text-amber-600/80 truncate hidden sm:inline">
-              {getActiveToolLabel(activeToolName)}
-            </span>
-          )}
-          {isStreaming && !activeToolName && timeEstimate?.description && (
-            <span className="text-xs text-amber-600/70 truncate hidden sm:inline">
-              {timeEstimate.description}
-            </span>
-          )}
+          <span className="flex items-center gap-2 flex-shrink-0">
+            {elapsedLabel && startTime && (
+              <span className="text-[11px] text-stone-400 tabular-nums">{elapsedLabel}</span>
+            )}
+            <svg
+              className={`w-4 h-4 text-stone-300 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+              fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+            >
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+          </span>
         </div>
-
-        {/* Right side: time + chevron */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Time estimate or elapsed */}
-          {isStreaming && estimateLabel && (
-            <span className="text-xs text-amber-600/70">{estimateLabel}</span>
-          )}
-          {isStreaming && elapsedSeconds > 0 && (
-            <span className="text-xs text-amber-500 tabular-nums">{formatDuration(elapsedSeconds)}</span>
-          )}
-          {!isStreaming && startTime && elapsedSeconds > 0 && (
-            <span className="text-xs text-gray-400 tabular-nums">
-              {formatDuration(elapsedSeconds)}
-            </span>
-          )}
-
-          {/* Expand chevron */}
-          <svg
-            className={`w-4 h-4 transition-transform duration-200 ${
-              isStreaming ? 'text-amber-400' : 'text-gray-400'
-            } ${expanded ? 'rotate-90' : ''}`}
-            fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-          >
-            <path d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Time estimate description below the bar (first few seconds only) */}
-      {isStreaming && timeEstimate?.description && elapsedSeconds < 10 && totalCount === 0 && (
-        <p className="text-xs text-amber-600/60 px-3 -mt-0.5">
-          {timeEstimate.description}
-        </p>
       )}
 
       {/* Expanded tool list */}
       {expanded && (
-        <div className="flex flex-col gap-1 pl-1 animate-in fade-in duration-200">
+        <div className="flex flex-col gap-1 pl-1 animate-fade-in">
           {regularTools.map(renderTool)}
         </div>
       )}

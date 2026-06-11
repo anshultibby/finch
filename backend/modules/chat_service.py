@@ -555,7 +555,8 @@ class ChatService:
                         args = args_str
                     else:
                         args = {}
-                    status_message = tool_name
+                    # Prefer the model's own narration (injected `intent` arg)
+                    status_message = (args.get("intent") if isinstance(args, dict) else None) or tool_name
                     stored_result = tool_results.get(tool_call_id, {})
                     tool_call_data = {
                         "tool_call_id": tool_call_id,

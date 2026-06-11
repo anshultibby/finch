@@ -90,8 +90,12 @@ class ToolRunner:
                 # Inspect function signature to detect Pydantic model parameters
                 sig = inspect.signature(tool.handler)
                 kwargs = {"context": context}
-                
-                tool_arguments = arguments
+
+                # `intent` is a UI-only label injected into every tool schema
+                # (see models.INTENT_PARAM); handlers don't declare it, so drop
+                # it before binding arguments.
+                tool_arguments = {k: v for k, v in arguments.items() if k != "intent"}
+                arguments = tool_arguments
                 
                 # Check if any parameter (excluding 'context') is a Pydantic model
                 pydantic_param = None

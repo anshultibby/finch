@@ -123,6 +123,15 @@ export default function ChatView({
   const [emailRequested, setEmailRequested] = useState(false);
   const [emailDismissed, setEmailDismissed] = useState(false);
 
+  // 1s heartbeat while streaming so time-gated UI (the "email me" pill)
+  // appears even when no SSE events arrive to trigger a re-render.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!isLoading) return;
+    const interval = setInterval(() => setClockTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
   // UI state
   const [selectedTool, setSelectedTool] = useState<ToolCallStatus | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -745,23 +754,22 @@ export default function ChatView({
           </div>
         )}
 
-        {/* Email notification toast — appears during long streams. Centered
-            compact pill so it stays clear of the floated top-right Share toolbar. */}
+        {/* Fire-and-forget pill — appears during long streams. Centered compact
+            pill so it stays clear of the floated top-right Share toolbar. */}
         {isLoading && streamStartTime && !emailRequested && !emailDismissed && currentChatId && (Date.now() - streamStartTime) > 15000 && (
-          <div className="mt-3 flex justify-center px-4 animate-in fade-in slide-in-from-top-1 duration-200">
-            <div className="flex items-center gap-2.5 rounded-full border border-emerald-200 bg-emerald-50/90 backdrop-blur-sm pl-3.5 pr-1.5 py-1 shadow-sm">
+          <div className="mt-3 flex justify-center px-4 animate-activity-in">
+            <div className="flex items-center gap-2.5 rounded-full border border-stone-200 bg-white/90 backdrop-blur-sm pl-3.5 pr-1.5 py-1.5 shadow-sm max-w-full">
               <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              <p className="text-xs text-gray-700 whitespace-nowrap">
-                Still working — get an email when it's done?
+              <p className="text-xs text-stone-600 min-w-0">
+                This may take a while — feel free to leave.
               </p>
               <button
                 onClick={() => {
                   setEmailRequested(true);
                   setEmailDismissed(true);
                   chatApi.requestEmailNotification(currentChatId).catch(() => {});
-                  setTimeout(() => setEmailRequested(false), 3000);
                 }}
                 className="flex-shrink-0 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-full px-3 py-1 transition-colors"
               >
@@ -770,7 +778,7 @@ export default function ChatView({
               <button
                 onClick={() => setEmailDismissed(true)}
                 aria-label="Dismiss"
-                className="flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-emerald-100/60 rounded-full transition-colors p-1"
+                className="flex-shrink-0 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors p-1"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path d="M6 18L18 6M6 6l12 12" />
@@ -780,12 +788,12 @@ export default function ChatView({
           </div>
         )}
         {isLoading && emailRequested && (
-          <div className="mt-3 flex justify-center px-4 animate-in fade-in slide-in-from-top-1 duration-200">
-            <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/90 backdrop-blur-sm px-3.5 py-1.5 shadow-sm">
+          <div className="mt-3 flex justify-center px-4 animate-activity-in">
+            <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/90 backdrop-blur-sm px-3.5 py-1.5 shadow-sm max-w-full">
               <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path d="M5 13l4 4L19 7" />
               </svg>
-              <p className="text-xs font-medium text-emerald-700 whitespace-nowrap">We'll email you when this is ready.</p>
+              <p className="text-xs font-medium text-emerald-700 min-w-0">You're set — we'll email you. Safe to close this tab.</p>
             </div>
           </div>
         )}
@@ -811,8 +819,8 @@ export default function ChatView({
             {!currentChatId && !isNewChat && !isLoading && messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex space-x-2">
-                  {[0, 0.1, 0.2].map((delay, i) => (
-                    <div key={i} className="w-3 h-3 bg-purple-600 rounded-full animate-bounce" style={{ animationDelay: `${delay}s` }} />
+                  {[0, 0.15, 0.3].map((delay, i) => (
+                    <div key={i} className="w-2 h-2 bg-stone-300 rounded-full animate-pulse" style={{ animationDelay: `${delay}s` }} />
                   ))}
                 </div>
               </div>
@@ -821,8 +829,8 @@ export default function ChatView({
                 {loadingMore && (
                   <div className="flex justify-center py-3">
                     <div className="flex space-x-1.5">
-                      {[0, 0.1, 0.2].map((delay, i) => (
-                        <div key={i} className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}s` }} />
+                      {[0, 0.15, 0.3].map((delay, i) => (
+                        <div key={i} className="w-1.5 h-1.5 bg-stone-300 rounded-full animate-pulse" style={{ animationDelay: `${delay}s` }} />
                       ))}
                     </div>
                   </div>
@@ -910,11 +918,15 @@ export default function ChatView({
                 )}
 
                 {isLoading && !streamingText && streamingTools.length === 0 && (
-                  <div className="flex justify-start mb-4 px-3">
-                    <div className="flex space-x-2">
-                      {[0, 0.1, 0.2].map((delay, i) => (
-                        <div key={i} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}s` }} />
-                      ))}
+                  <div className="flex justify-start mb-4 px-3 animate-activity-in">
+                    <div className="flex items-center gap-2">
+                      <span className="relative w-3 h-3 flex items-center justify-center flex-shrink-0">
+                        <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
+                        <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
+                      </span>
+                      <span className="text-[13px] leading-5 activity-shimmer-text">
+                        {timeEstimate?.description || 'Thinking…'}
+                      </span>
                     </div>
                   </div>
                 )}

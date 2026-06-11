@@ -224,6 +224,46 @@ body {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
+/* ── Agent activity ticker ── */
+
+/* Shimmering light text for the in-flight action line */
+@keyframes textShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.activity-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    #57534e 0%, #57534e 38%,
+    #b3aea7 50%,
+    #57534e 62%, #57534e 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: textShimmer 2.4s linear infinite;
+}
+
+/* New activity line entering at the bottom of the ticker */
+@keyframes activityIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-activity-in {
+  animation: activityIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Soft breathing halo behind the live dot */
+@keyframes haloPulse {
+  0%, 100% { transform: scale(1); opacity: 0.35; }
+  50% { transform: scale(1.9); opacity: 0.12; }
+}
+.animate-halo {
+  animation: haloPulse 1.8s ease-in-out infinite;
+}
+
 /* ── Hide scrollbar (for horizontal scroll) ── */
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
@@ -296,8 +336,16 @@ body {
   .animate-sparkline,
   .animate-fade-in,
   .animate-slide-in-right,
-  .animate-shimmer {
+  .animate-shimmer,
+  .animate-activity-in,
+  .animate-halo {
     animation: none !important;
+  }
+  .activity-shimmer-text {
+    animation: none !important;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    color: #57534e;
   }
   .animate-sparkline { stroke-dashoffset: 0; }
   .animate-fade-in { opacity: 1 !important; }
