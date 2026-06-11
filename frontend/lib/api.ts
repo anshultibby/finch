@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import { supabase } from './supabase';
+import { track } from './analytics';
 
 // Re-export all types for backward compatibility
 export * from './types';
@@ -473,6 +474,7 @@ export const chatApi = {
 
 export const snaptradeApi = {
   initiateConnection: async (userId: string, redirectUri: string): Promise<SnapTradeConnectionResponse> => {
+    track('brokerage_connect_started');
     const response = await api.post<SnapTradeConnectionResponse>('/snaptrade/connect', {
       user_id: userId,
       redirect_uri: redirectUri,
@@ -481,6 +483,7 @@ export const snaptradeApi = {
   },
 
   connectBroker: async (userId: string, redirectUri: string, brokerId?: string): Promise<SnapTradeConnectionResponse> => {
+    track('brokerage_connect_started', { broker: brokerId });
     const response = await api.post<SnapTradeConnectionResponse>('/snaptrade/connect/broker', {
       user_id: userId,
       redirect_uri: redirectUri,
@@ -700,6 +703,9 @@ export const resourcesApi = {
 
 export interface UserPreferences {
   require_trade_approval: boolean;
+  morning_brief_enabled: boolean;
+  morning_brief_time: string;      // HH:MM, local to morning_brief_timezone
+  morning_brief_timezone: string;  // IANA name, e.g. Asia/Kolkata
 }
 
 export const accountApi = {

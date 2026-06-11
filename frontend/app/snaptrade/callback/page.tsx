@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect } from 'react';
+import { initAnalytics, trackBeacon } from '@/lib/analytics';
 
 export default function SnapTradeCallbackPage() {
   useEffect(() => {
+    initAnalytics();
+    trackBeacon('brokerage_connect_completed');
     const message = { type: 'SNAPTRADE_CONNECTION', success: true };
     const origin = window.location.origin;
 

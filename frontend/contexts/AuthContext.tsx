@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { useGoogleLogin, googleLogout } from '@react-oauth/google';
 import { supabase } from '@/lib/supabase';
+import { resetAnalytics } from '@/lib/analytics';
 
 interface AuthContextType {
   user: User | null;
@@ -93,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    resetAnalytics();
     googleLogout();
     const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) {

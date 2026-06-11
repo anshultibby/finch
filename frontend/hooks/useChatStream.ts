@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { chatApi } from '@/lib/api';
+import { track } from '@/lib/analytics';
 import { getFileType, getApiBaseUrl } from '@/lib/utils';
 import type {
   Message,
@@ -465,6 +466,12 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     }
 
     const trimmed = content.trim();
+    track('chat_message_sent', {
+      is_new_chat: isNewChat || !chatId,
+      has_images: !!images?.length,
+      skills: skills?.length ?? 0,
+      model,
+    });
 
     let targetChatId: string;
     if (isNewChat || !chatId) {
