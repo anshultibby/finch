@@ -10,6 +10,7 @@ from core.rate_limit import limiter
 from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, market_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router, account_router, trades_router
 from routes.analytics import router as analytics_router
 from routes.jobs import router as jobs_router
+from routes.brief import router as brief_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
 from utils.sentry import setup_sentry
@@ -130,6 +131,7 @@ app.include_router(analysis_router)
 app.include_router(visualizations_router)
 app.include_router(bot_store_router)
 app.include_router(jobs_router)
+app.include_router(brief_router)
 app.include_router(account_router)
 app.include_router(trades_router)
 

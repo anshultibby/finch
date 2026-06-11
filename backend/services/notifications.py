@@ -251,6 +251,52 @@ async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str
     return await _send_resend_email(to_email, subject, body_html)
 
 
+async def send_morning_brief_email(
+    to_email: str, subject: str, markdown_body: str, chat_url: Optional[str] = None
+) -> bool:
+    """Send the daily morning brief (agent-written markdown) as a styled email."""
+    body_inner = _markdown_to_email_html(markdown_body)
+
+    logo_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" '
+        'width="32" height="32" style="vertical-align: middle;">'
+        '<rect width="512" height="512" rx="112" fill="#4ABA8E"/>'
+        '<rect x="148" y="160" width="56" height="192" rx="28" fill="white"/>'
+        '<rect x="228" y="120" width="56" height="272" rx="28" fill="white"/>'
+        '<rect x="308" y="200" width="56" height="152" rx="28" fill="white"/>'
+        '</svg>'
+    )
+
+    cta = ""
+    if chat_url:
+        cta = (
+            f'<a href="{chat_url}" style="display: inline-block; margin-top: 8px; padding: 12px 28px; '
+            'background: #4ABA8E; color: #ffffff; text-decoration: none; border-radius: 10px; '
+            'font-weight: 600; font-size: 14px;">Open in Finch &rarr;</a>'
+        )
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 680px; margin: 0 auto; padding: 0;">
+      <div style="background: #fafaf9; padding: 24px 28px 16px; border-radius: 12px 12px 0 0; border: 1px solid rgba(0,0,0,0.06); border-bottom: none;">
+        {logo_svg}
+        <p style="color: #64748b; font-size: 13px; margin: 12px 0 0; text-transform: uppercase; letter-spacing: 0.05em;">Your morning brief</p>
+      </div>
+      <div style="background: #ffffff; padding: 24px 28px 28px; border: 1px solid rgba(0,0,0,0.06); border-top: none; border-bottom: none;">
+        {body_inner}
+        {cta}
+      </div>
+      <div style="padding: 16px 28px; border: 1px solid rgba(0,0,0,0.06); border-top: none; border-radius: 0 0 12px 12px; background: #fafaf9;">
+        <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+          Daily brief from <a href="https://finchapp.ai" style="color: #94a3b8; text-decoration: none;">finchapp.ai</a>
+          &mdash; pause it any time in Automations. Not financial advice.
+        </p>
+      </div>
+    </div>
+    """
+
+    return await _send_resend_email(to_email, subject, html)
+
+
 async def send_trade_push_notification(
     user_id: str,
     bot_name: str,

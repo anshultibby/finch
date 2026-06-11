@@ -37,10 +37,28 @@ async def update_preferences(
 ):
     """Update one or more preferences (only provided fields change)."""
     await verify_user_access(user_id, authenticated_user_id)
+    updates = body.model_dump(exclude_none=True)
+
+    # Morning-brief settings drive a system job. Provision/retime/pause it
+    # BEFORE persisting, so a bad timezone (or provisioning failure) rejects
+    # the save instead of leaving the toggle on with no job behind it.
+    if any(k.startswith("morning_brief") for k in updates):
+        from services.system_jobs import configure_morning_brief
+        async with get_db_session() as db:
+            current = await prefs_crud.get_user_preferences(db, user_id)
+        merged = {**current, **updates}
+        try:
+            await configure_morning_brief(
+                user_id,
+                enabled=merged["morning_brief_enabled"],
+                time_str=merged["morning_brief_time"],
+                tz_name=merged["morning_brief_timezone"],
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     async with get_db_session() as db:
-        return await prefs_crud.update_user_preferences(
-            db, user_id, body.model_dump(exclude_none=True)
-        )
+        return await prefs_crud.update_user_preferences(db, user_id, updates)
 
 
 @router.delete("/{user_id}")

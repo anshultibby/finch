@@ -17,6 +17,11 @@ from crud.user_api_keys import get_or_create_user_settings
 # the preferences API, so arbitrary keys can't be injected into the settings blob.
 DEFAULT_PREFERENCES: Dict[str, Any] = {
     "require_trade_approval": True,
+    # Daily morning brief (delivered by the morning_brief system job —
+    # provisioning is handled in routes/account.py on preference save).
+    "morning_brief_enabled": False,
+    "morning_brief_time": "08:00",       # HH:MM in the user's local timezone
+    "morning_brief_timezone": "UTC",     # IANA name, e.g. Asia/Kolkata
 }
 
 _PREFS_KEY = "preferences"
