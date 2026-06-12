@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import ToolCall from './ToolCall';
 import { buildTickerItems, splitCurrent, currentLabelOf, ActivityTrail, SparkleIcon } from './ActivityTicker';
 import SubAgentGroup, { isLimitSkipped } from './SubAgentGroup';
-import type { ToolCallStatus } from '@/lib/types';
+import TodoChecklist from './TodoChecklist';
+import type { ToolCallStatus, TodoItem } from '@/lib/types';
 import type { TimeEstimate, ThoughtEntry } from '@/hooks/useChatStream';
 
 interface ToolCallSummaryProps {
@@ -14,6 +15,8 @@ interface ToolCallSummaryProps {
   isStreaming?: boolean;
   startTime?: number | null;
   timeEstimate?: TimeEstimate | null;
+  /** Live task-phase checklist (streaming only) */
+  todos?: TodoItem[];
   onSelectTool?: (tool: ToolCallStatus) => void;
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
 }
@@ -78,12 +81,29 @@ export default function ToolCallSummary({
   isStreaming = false,
   startTime,
   timeEstimate,
+  todos,
   onSelectTool,
   onPeekAgent,
 }: ToolCallSummaryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const treeRef = useRef<HTMLDivElement>(null);
+  const historyOuterRef = useRef<HTMLDivElement>(null);
+  const historyInnerRef = useRef<HTMLDivElement>(null);
+
+  // Accordion with real pixel heights: a grid 0fr/1fr trick can't animate
+  // between two non-zero contents (expanded tree ↔ collapsed trail), which
+  // made closing snap. Track the inner content's height and transition to it.
+  useEffect(() => {
+    const inner = historyInnerRef.current;
+    const outer = historyOuterRef.current;
+    if (!inner || !outer) return;
+    const sync = () => { outer.style.height = `${inner.offsetHeight}px`; };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
 
   // Sort tools by insertion order, then partition into special vs regular
   // and compute status counts in a single pass
@@ -226,38 +246,6 @@ export default function ToolCallSummary({
         />
       ))}
 
-      {/* History region — unrolls in place ABOVE the anchor line, so the line
-          the user taps never moves. Collapsed while streaming: evaporating
-          trail. Expanded: the full thought/tool tree. */}
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-out"
-        style={{ gridTemplateRows: expanded || (isStreaming && settled.length > 0) ? '1fr' : '0fr' }}
-      >
-        <div className="overflow-hidden min-h-0">
-          {expanded ? (
-            <div
-              ref={treeRef}
-              className="flex flex-col gap-1 pl-4 pr-1 pb-1 max-h-80 overflow-y-auto chat-scrollbar"
-            >
-              {treeItems.map(item =>
-                item.tool ? renderTool(item.tool) : (
-                  <div key={item.thought!.id} className="flex gap-2 py-0.5 px-1 min-w-0">
-                    <SparkleIcon className="w-3 h-3 mt-1 flex-shrink-0 text-stone-300" />
-                    <p className="text-xs italic leading-5 text-stone-400 line-clamp-3 whitespace-pre-line min-w-0">
-                      {item.thought!.text.length > 400
-                        ? item.thought!.text.slice(0, 400).trimEnd() + '…'
-                        : item.thought!.text}
-                    </p>
-                  </div>
-                )
-              )}
-            </div>
-          ) : isStreaming && settled.length > 0 ? (
-            <ActivityTrail items={settled} />
-          ) : null}
-        </div>
-      </div>
-
       {/* Anchor line — always present, identical position collapsed/expanded,
           streaming or done. Streaming: live dot + current action shimmering.
           Done: receipt of what happened. */}
@@ -312,12 +300,47 @@ export default function ToolCallSummary({
             <span className="text-[11px] text-stone-400 tabular-nums">{elapsedLabel}</span>
           )}
           <svg
-            className={`w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-transform duration-200 ${expanded ? '-rotate-90' : ''}`}
+            className={`w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
             fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
           >
             <path d="M9 5l7 7-7 7" />
           </svg>
         </span>
+      </div>
+
+      {/* History region — unrolls BELOW the anchor line, so the line the user
+          taps never moves. Collapsed while streaming: evaporating trail
+          (newest on top, fading downward). Expanded: the full thought/tool
+          tree. Height is measured and transitioned so open, close, AND
+          mid-stream growth all animate smoothly. */}
+      <div
+        ref={historyOuterRef}
+        className="overflow-hidden transition-[height] duration-300 ease-out"
+        style={{ height: 0 }}
+      >
+        <div ref={historyInnerRef}>
+          {expanded ? (
+            <div
+              ref={treeRef}
+              className="flex flex-col gap-1 pl-4 pr-1 pb-1 pt-1 max-h-80 overflow-y-auto chat-scrollbar"
+            >
+              {treeItems.map(item =>
+                item.tool ? renderTool(item.tool) : (
+                  <div key={item.thought!.id} className="flex gap-2 py-0.5 px-1 min-w-0">
+                    <SparkleIcon className="w-3 h-3 mt-1 flex-shrink-0 text-stone-300" />
+                    <p className="text-xs italic leading-5 text-stone-400 line-clamp-3 whitespace-pre-line min-w-0">
+                      {item.thought!.text.length > 400
+                        ? item.thought!.text.slice(0, 400).trimEnd() + '…'
+                        : item.thought!.text}
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+          ) : isStreaming && settled.length > 0 ? (
+            <ActivityTrail items={settled} />
+          ) : null}
+        </div>
       </div>
     </div>
   );

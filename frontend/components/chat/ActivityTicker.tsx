@@ -158,19 +158,21 @@ export const SparkleIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// Opacity of trail rows by distance from the current action (last = most recent)
+// Opacity of trail rows by recency (index 0 = most recent, right under the anchor)
 const TRAIL_OPACITY = [0.55, 0.3, 0.14];
 export const TRAIL_LENGTH = TRAIL_OPACITY.length;
 
-/** The evaporating trail — the last few settled items at decreasing opacity. */
+/** The evaporating trail — hangs below the live anchor line like a comet
+    tail: newest settled item on top at the strongest opacity, fading
+    downward into the past. */
 export function ActivityTrail({ items }: { items: TickerItem[] }) {
-  const trail = items.slice(-TRAIL_LENGTH);
+  const trail = items.slice(-TRAIL_LENGTH).reverse();
   return (
-    <div className="flex flex-col gap-[5px] pb-[5px]">
+    <div className="flex flex-col gap-[5px] pt-[5px] pl-5">
       {trail.map((e, i) => (
         <div
           key={e.id}
-          style={{ opacity: TRAIL_OPACITY[trail.length - 1 - i] }}
+          style={{ opacity: TRAIL_OPACITY[i] }}
           className="flex items-center gap-2 min-w-0 transition-opacity duration-700 ease-out"
         >
           <span className="w-3 flex justify-center flex-shrink-0">
