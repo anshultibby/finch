@@ -26,7 +26,7 @@ import time
 import traceback as traceback_module
 from pathlib import Path
 from datetime import datetime
-from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ToolCallStreamingEvent, ToolCallDetectedEvent
+from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ThinkingDeltaEvent, ToolCallStreamingEvent, ToolCallDetectedEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
 from .message_processor import validate_and_fix_tool_calls, enforce_tool_call_sequence
@@ -373,13 +373,14 @@ async def stream_llm_response(
                 reasoning_content += delta.reasoning_content
                 reasoning_chars += len(delta.reasoning_content)
                 last_chunk_type = "reasoning"
+                # Reasoning is NOT part of the visible answer. Emitting it as a
+                # message delta made raw chain-of-thought flash in the chat and
+                # then vanish at message_end. Stream it as its own event so the
+                # UI can render it as ephemeral thought entries.
                 yield SSEEvent(
-                    event="assistant_message_delta",
-                    data=AssistantMessageDeltaEvent(delta=delta.reasoning_content).model_dump()
+                    event="thinking_delta",
+                    data=ThinkingDeltaEvent(delta=delta.reasoning_content).model_dump()
                 )
-                if on_content_delta:
-                    async for event in on_content_delta(delta.reasoning_content):
-                        yield event
 
             if hasattr(delta, 'content') and delta.content:
                 content += delta.content

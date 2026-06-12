@@ -2,19 +2,23 @@
 
 import React from 'react';
 import type { ToolCallStatus } from '@/lib/types';
+import type { ThoughtEntry } from '@/hooks/useChatStream';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ActivityTicker — the "evaporating log" shown while the agent is working.
 //
-// The current action renders as light shimmering text with a live dot; the
-// previous few actions sit above it at decreasing opacity, so finished work
-// visually evaporates as the agent moves on. Tapping anywhere expands the
-// full step list (handled by ToolCallSummary).
+// Tool calls AND reasoning fragments (thoughts) interleave chronologically via
+// their shared _insertionOrder. The current item renders as light shimmering
+// text with a live dot; the previous few sit above it at decreasing opacity,
+// so finished work visually evaporates as the agent moves on. Tapping anywhere
+// expands the full step list (handled by ToolCallSummary).
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface ActivityTickerProps {
   /** All non-special tools (main agent + sub-agent children) in insertion order */
   tools: ToolCallStatus[];
+  /** Live reasoning fragments, ordered against tools via _insertionOrder */
+  thoughts?: ThoughtEntry[];
   elapsedLabel?: string;
   estimateLabel?: string;
   /** Shown while the model is thinking before/between tools */
@@ -74,17 +78,31 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
 }
 
-interface ActivityEntry {
-  id: string;
-  verb: string;
-  detail: string | null;
-  isError: boolean;
+/** Collapse whitespace and keep the trailing n chars — a rolling "live tail". */
+function tail(s: string, n: number): string {
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > n ? '…' + flat.slice(-n) : flat;
 }
 
-function toEntry(t: ToolCallStatus): ActivityEntry {
-  // The model narrates its own calls via the injected `intent` argument
-  // (see backend modules/tools/models.py). Prefer that; fall back to a
-  // label derived from the tool name + arguments.
+/** First non-empty line, clipped — for settled thoughts in the trail. */
+function thoughtHead(s: string, n: number): string {
+  const line = s.split('\n').map(l => l.trim()).find(Boolean) || '';
+  return truncate(line, n);
+}
+
+interface TickerItem {
+  id: string;
+  order: number;
+  isThought: boolean;
+  isError: boolean;
+  active: boolean;
+  /** Display text: verb for tools, raw text for thoughts */
+  label: string;
+  detail: string | null;
+  rawThought?: string;
+}
+
+function toolItem(t: ToolCallStatus): TickerItem {
   const intent = typeof t.arguments?.intent === 'string' ? t.arguments.intent.trim() : '';
   const isActive = t.status === 'detected' || t.status === 'calling';
   // While running, append the live sub-step from inside the tool
@@ -94,34 +112,61 @@ function toEntry(t: ToolCallStatus): ActivityEntry {
     : null;
   return {
     id: t.tool_call_id,
-    verb: intent ? truncate(intent, 72) : verbFor(t.tool_name),
-    detail: intent ? subStep : (detailFor(t) ?? subStep),
+    order: t._insertionOrder ?? 0,
+    isThought: false,
     isError: t.status === 'error' || !!t.error,
+    active: isActive,
+    label: intent ? truncate(intent, 72) : verbFor(t.tool_name),
+    detail: intent ? subStep : (detailFor(t) ?? subStep),
+  };
+}
+
+function thoughtItem(th: ThoughtEntry): TickerItem {
+  return {
+    id: th.id,
+    order: th._insertionOrder,
+    isThought: true,
+    isError: false,
+    active: th.live,
+    label: thoughtHead(th.text, 80),
+    detail: null,
+    rawThought: th.text,
   };
 }
 
 // Opacity of trail rows by distance from the current action (1 = most recent)
 const TRAIL_OPACITY = [0.55, 0.3, 0.14];
 
+const SparkleIcon = ({ className }: { className?: string }) => (
+  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+    <path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3zM19 14l.9 2.6L22.5 17.5l-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9L19 14z" />
+  </svg>
+);
+
 export default function ActivityTicker({
   tools,
+  thoughts,
   elapsedLabel,
   estimateLabel,
   thinkingLabel = 'Thinking…',
   onExpand,
 }: ActivityTickerProps) {
-  // The current action is the last still-running tool; if everything has
-  // finished, the model is deciding its next move → show "Thinking…".
-  const activeIdx = tools.map(t => t.status === 'detected' || t.status === 'calling').lastIndexOf(true);
-  const current = activeIdx >= 0 ? toEntry(tools[activeIdx]) : null;
+  // Interleave tools and thoughts chronologically
+  const items: TickerItem[] = [
+    ...tools.map(toolItem),
+    ...(thoughts ?? []).map(thoughtItem),
+  ].sort((a, b) => a.order - b.order);
 
-  const settled = tools
-    .filter((t, i) => i !== activeIdx && (t.status === 'completed' || t.status === 'error'))
-    .map(toEntry);
-  const trail = settled.slice(-TRAIL_OPACITY.length);
+  // The current item is the last still-active one; if everything has settled,
+  // the model is deciding its next move → show the generic thinking label.
+  const activeIdx = items.map(i => i.active).lastIndexOf(true);
+  const current = activeIdx >= 0 ? items[activeIdx] : null;
+  const trail = items.filter((it, i) => i !== activeIdx && !it.active).slice(-TRAIL_OPACITY.length);
 
   const currentLabel = current
-    ? current.detail ? `${current.verb} ${current.detail}` : `${current.verb}…`
+    ? current.isThought
+      ? tail(current.rawThought || '', 110)
+      : current.detail ? `${current.label} ${current.detail}` : `${current.label}…`
     : thinkingLabel;
 
   return (
@@ -132,7 +177,7 @@ export default function ActivityTicker({
       aria-label="Show all steps"
     >
       <div className="flex flex-col gap-[5px]">
-        {/* Evaporating trail of finished actions */}
+        {/* Evaporating trail of finished actions and thoughts */}
         {trail.map((e, i) => (
           <div
             key={e.id}
@@ -140,7 +185,9 @@ export default function ActivityTicker({
             className="flex items-center gap-2 min-w-0 transition-opacity duration-700 ease-out"
           >
             <span className="w-3 flex justify-center flex-shrink-0">
-              {e.isError ? (
+              {e.isThought ? (
+                <SparkleIcon className="w-3 h-3 text-stone-400" />
+              ) : e.isError ? (
                 <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -150,8 +197,8 @@ export default function ActivityTicker({
                 </svg>
               )}
             </span>
-            <span className="text-[13px] leading-5 text-stone-500 truncate min-w-0">
-              {e.verb}
+            <span className={`text-[13px] leading-5 text-stone-500 truncate min-w-0 ${e.isThought ? 'italic text-stone-400' : ''}`}>
+              {e.label}
               {e.detail && <span className="text-stone-400"> · {e.detail}</span>}
             </span>
           </div>
@@ -163,7 +210,7 @@ export default function ActivityTicker({
             <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
             <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500" />
           </span>
-          <span className="text-[13px] leading-5 activity-shimmer-text truncate min-w-0 flex-1">
+          <span className={`text-[13px] leading-5 activity-shimmer-text truncate min-w-0 flex-1 ${current?.isThought ? 'italic' : ''}`}>
             {currentLabel}
           </span>
 

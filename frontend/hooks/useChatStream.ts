@@ -41,10 +41,21 @@ export interface TimeEstimate {
   description: string;
 }
 
+/** A live reasoning fragment, ordered against tool calls via _insertionOrder.
+    Ephemeral — exists only while streaming, never persisted. */
+export interface ThoughtEntry {
+  id: string;
+  text: string;
+  /** Still receiving deltas (no tool call or visible text has interrupted it) */
+  live: boolean;
+  _insertionOrder: number;
+}
+
 export interface ChatStreamState {
   messages: Message[];
   streamingText: string;
   streamingTools: ToolCallStatus[];
+  streamingThoughts: ThoughtEntry[];
   toolQueue: ToolCallStatus[];
   isLoading: boolean;
   error: string | null;
@@ -65,6 +76,7 @@ interface UseChatStreamOptions {
 const INITIAL_STATE: Omit<ChatStreamState, 'messages'> = {
   streamingText: '',
   streamingTools: [],
+  streamingThoughts: [],
   toolQueue: [],
   isLoading: false,
   error: null,
@@ -142,6 +154,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         toolCalls: sorted,
       }],
       streamingTools: [],
+      // Thoughts belong to the batch being finalized — they evaporate with it
+      streamingThoughts: [],
     }, notify);
   }, [getChatState, update]);
 
@@ -183,6 +197,13 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     }
   }, [getChatState, update]);
 
+  /** Mark the trailing thought as no longer receiving deltas. */
+  const settleThoughts = useCallback((chatId: string): ThoughtEntry[] => {
+    const state = getChatState(chatId);
+    if (!state.streamingThoughts.some(t => t.live)) return state.streamingThoughts;
+    return state.streamingThoughts.map(t => t.live ? { ...t, live: false } : t);
+  }, [getChatState]);
+
   // ── SSE event handlers ──────────────────────────────────────────────────
 
   const createEventHandlers = useCallback((
@@ -195,16 +216,48 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     onMessageDelta: (event: { delta: string }) => {
       const state = getChatState(chatId);
 
+      // Visible text interrupts the current thought
+      const streamingThoughts = settleThoughts(chatId);
+
       // New text starting while tools are on screen → finalize those tools first
       if (!state.streamingText && state.streamingTools.length > 0) {
         saveTools(chatId, notify);
         // Re-read state after saveTools mutated it
         const fresh = getChatState(chatId);
-        update(chatId, { streamingText: event.delta }, notify);
+        update(chatId, { streamingText: event.delta, streamingThoughts }, notify);
         return;
       }
 
-      update(chatId, { streamingText: state.streamingText + event.delta }, notify);
+      update(chatId, { streamingText: state.streamingText + event.delta, streamingThoughts }, notify);
+    },
+
+    // ── Reasoning ─────────────────────────────────────────────────────────
+
+    // Extended-thinking tokens. Appended to the trailing live thought, or a
+    // new thought entry ordered against tool calls via the shared counter.
+    onThinkingDelta: (event: { delta: string }) => {
+      if (!event.delta) return;
+      const state = getChatState(chatId);
+      const last = state.streamingThoughts[state.streamingThoughts.length - 1];
+
+      if (last?.live) {
+        update(chatId, {
+          streamingThoughts: state.streamingThoughts.map(t =>
+            t === last ? { ...t, text: (t.text + event.delta).slice(0, 8000) } : t
+          ),
+        }, notify);
+        return;
+      }
+
+      const order = state.toolInsertionCounter++;
+      update(chatId, {
+        streamingThoughts: [...state.streamingThoughts, {
+          id: `thought-${order}`,
+          text: event.delta,
+          live: true,
+          _insertionOrder: order,
+        }],
+      }, notify);
     },
 
     onMessageEnd: (event: { content: string; timestamp: string }) => {
@@ -232,6 +285,8 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       // Just add the tool. Never touch streamingText here —
       // onMessageEnd handles saving text to messages.
       update(chatId, {
+        // A tool call interrupts the current thought
+        streamingThoughts: settleThoughts(chatId),
         streamingTools: upsertTool(state.streamingTools, {
           tool_call_id: event.tool_call_id,
           tool_name: event.tool_name,
@@ -406,7 +461,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
 
       saveTools(chatId, notify);
       window.dispatchEvent(new CustomEvent('bots:refresh'));
-      update(chatId, { isLoading: false, stream: null, toolQueue: [] }, notify);
+      update(chatId, { isLoading: false, stream: null, toolQueue: [], streamingThoughts: [] }, notify);
       options.onHistoryRefresh?.();
     },
 
@@ -439,13 +494,14 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
         messages: msgs,
         streamingText: '',
         streamingTools: [],
+        streamingThoughts: [],
         toolQueue: [],
         error: event.error,
         isLoading: false,
         stream: null,
       }, notify);
     },
-  }), [getChatState, update, upsertTool, saveTools, options]);
+  }), [getChatState, update, upsertTool, saveTools, settleThoughts, options]);
 
   // ── Send message ────────────────────────────────────────────────────────
 
@@ -499,6 +555,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     }];
     state.isLoading = true;
     state.toolInsertionCounter = 0;
+    state.streamingThoughts = [];
     state.streamStartTime = Date.now();
     state.timeEstimate = null;
     onStateChange(state);

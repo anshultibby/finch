@@ -115,6 +115,7 @@ export default function ChatView({
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingText, setStreamingText] = useState('');
   const [streamingTools, setStreamingTools] = useState<ToolCallStatus[]>([]);
+  const [streamingThoughts, setStreamingThoughts] = useState<import('@/hooks/useChatStream').ThoughtEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
@@ -171,6 +172,7 @@ export default function ChatView({
     setMessages(state.messages);
     setStreamingText(state.streamingText);
     setStreamingTools(state.streamingTools);
+    setStreamingThoughts(state.streamingThoughts);
     setIsLoading(state.isLoading);
     setError(state.error);
     setPendingOptions(state.pendingOptions);
@@ -196,6 +198,7 @@ export default function ChatView({
     setMessages([]);
     setStreamingText('');
     setStreamingTools([]);
+    setStreamingThoughts([]);
     setIsLoading(false);
     setError(null);
     setPendingOptions(null);
@@ -887,6 +890,7 @@ export default function ChatView({
                     role="assistant"
                     content={streamingText}
                     toolCalls={streamingTools.length > 0 ? streamingTools : undefined}
+                    thoughts={streamingThoughts.length > 0 ? streamingThoughts : undefined}
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     onFileClick={(filename) => setSelectedFile(filename)}
@@ -919,13 +923,21 @@ export default function ChatView({
 
                 {isLoading && !streamingText && streamingTools.length === 0 && (
                   <div className="flex justify-start mb-4 px-3 animate-activity-in">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <span className="relative w-3 h-3 flex items-center justify-center flex-shrink-0">
                         <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
                         <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
                       </span>
-                      <span className="text-[13px] leading-5 activity-shimmer-text">
-                        {timeEstimate?.description || 'Thinking…'}
+                      <span className="text-[13px] leading-5 activity-shimmer-text truncate min-w-0">
+                        {/* live tail of the model's reasoning, if it's streaming */}
+                        {(() => {
+                          const live = streamingThoughts[streamingThoughts.length - 1];
+                          if (live?.text) {
+                            const tail = live.text.replace(/\s+/g, ' ').trim();
+                            return tail.length > 110 ? '…' + tail.slice(-110) : tail;
+                          }
+                          return timeEstimate?.description || 'Thinking…';
+                        })()}
                       </span>
                     </div>
                   </div>

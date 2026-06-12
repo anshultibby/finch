@@ -5,10 +5,12 @@ import ToolCall from './ToolCall';
 import ActivityTicker from './ActivityTicker';
 import SubAgentGroup, { isLimitSkipped } from './SubAgentGroup';
 import type { ToolCallStatus } from '@/lib/types';
-import type { TimeEstimate } from '@/hooks/useChatStream';
+import type { TimeEstimate, ThoughtEntry } from '@/hooks/useChatStream';
 
 interface ToolCallSummaryProps {
   toolCalls: ToolCallStatus[];
+  /** Live reasoning fragments (streaming only), interleaved with tools by _insertionOrder */
+  thoughts?: ThoughtEntry[];
   isStreaming?: boolean;
   startTime?: number | null;
   timeEstimate?: TimeEstimate | null;
@@ -72,6 +74,7 @@ function receiptSummary(tools: ToolCallStatus[]): string {
 
 export default function ToolCallSummary({
   toolCalls,
+  thoughts,
   isStreaming = false,
   startTime,
   timeEstimate,
@@ -207,6 +210,7 @@ export default function ToolCallSummary({
         /* Live ticker — finished actions evaporate, current one shimmers */
         <ActivityTicker
           tools={tickerTools}
+          thoughts={isStreaming ? thoughts : undefined}
           elapsedLabel={elapsedLabel}
           estimateLabel={estimateLabel || undefined}
           thinkingLabel={
@@ -273,10 +277,29 @@ export default function ToolCallSummary({
         </div>
       )}
 
-      {/* Expanded tool list — indented to align under the receipt text */}
+      {/* Expanded tree — thoughts and tools interleaved chronologically,
+          indented to align under the receipt text */}
       {expanded && (
         <div className="flex flex-col gap-1 pl-4 animate-fade-in">
-          {regularTools.map(renderTool)}
+          {([
+            ...regularTools.map(t => ({ order: t._insertionOrder ?? 0, tool: t, thought: null as ThoughtEntry | null })),
+            ...(isStreaming ? (thoughts ?? []) : []).map(th => ({ order: th._insertionOrder, tool: null as ToolCallStatus | null, thought: th })),
+          ] as Array<{ order: number; tool: ToolCallStatus | null; thought: ThoughtEntry | null }>)
+            .sort((a, b) => a.order - b.order)
+            .map(item =>
+              item.tool ? renderTool(item.tool) : (
+                <div key={item.thought!.id} className="flex gap-2 py-0.5 px-1 min-w-0">
+                  <svg className="w-3 h-3 mt-1 flex-shrink-0 text-stone-300" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3z" />
+                  </svg>
+                  <p className="text-xs italic leading-5 text-stone-400 line-clamp-3 whitespace-pre-line min-w-0">
+                    {item.thought!.text.length > 400
+                      ? item.thought!.text.slice(0, 400).trimEnd() + '…'
+                      : item.thought!.text}
+                  </p>
+                </div>
+              )
+            )}
         </div>
       )}
     </div>

@@ -278,11 +278,7 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
 
   const intent = typeof toolCall.arguments?.intent === 'string' ? toolCall.arguments.intent.trim() : '';
   const isInFlight = toolCall.status === 'detected' || toolCall.status === 'calling';
-  // statusMessage carries live sub-steps ("Starting sandbox…") while running;
-  // once settled it's just noise ("Done"), so only intent survives.
-  const description = intent || (isInFlight ? toolCall.statusMessage : '') || '';
   const isError = toolCall.status === 'error' || !!toolCall.error;
-  const styles = getStatusStyles(toolCall.status, isError);
 
   const toolName = getToolDisplayName(toolCall.tool_name);
   const isFile = isFileOperation(toolCall.tool_name);
@@ -290,114 +286,149 @@ export default function ToolCall({ toolCall, onShowOutput, onPeekAgent }: ToolCa
   const isScrape = isScrapeOperation(toolCall.tool_name);
   const isTrade = isTradeOperation(toolCall.tool_name);
   const tradeInfo = isTrade ? extractTradeInfo(toolCall) : null;
+
+  // Trades stay as a prominent card — they're real actions, not log entries
+  if (isTrade && tradeInfo) {
+    const styles = getStatusStyles(toolCall.status, isError);
+    return (
+      <div
+        onClick={onShowOutput}
+        className={`inline-flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer transition-all duration-150 whitespace-nowrap overflow-hidden touch-manipulation ${styles.container}`}
+        style={{ minHeight: '44px' }}
+      >
+        <span className={`flex-shrink-0 ${tradeInfo.action === 'buy' ? 'text-emerald-500' : 'text-red-500'}`}>
+          {tradeInfo.action === 'buy' ? (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" />
+            </svg>
+          )}
+        </span>
+        <span className={`text-xs font-bold uppercase flex-shrink-0 ${tradeInfo.action === 'buy' ? 'text-emerald-600' : 'text-red-600'}`}>
+          {tradeInfo.action}
+        </span>
+        <span className={`text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${tradeInfo.side === 'yes' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+          {tradeInfo.side?.toUpperCase()}
+        </span>
+        <span className="text-sm font-medium text-gray-700 truncate min-w-0">
+          {tradeInfo.market?.length > 30 ? tradeInfo.market.slice(0, 30) + '…' : tradeInfo.market}
+        </span>
+        <span className="text-xs text-gray-400 flex-shrink-0">×{tradeInfo.count}</span>
+        <span className="flex-shrink-0 ml-auto">
+          {isError ? (
+            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ) : isInFlight ? (
+            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse block" />
+          ) : (
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+          )}
+        </span>
+      </div>
+    );
+  }
+
+  // Everything else: a light log row — label line + muted result snippet
   const filename = isFile ? extractFilename(toolCall) : null;
   const searchQuery = isSearch ? extractSearchQuery(toolCall) : null;
   const url = isScrape ? extractUrl(toolCall) : null;
-  const isDelegate = toolCall.tool_name === 'delegate';
-  const delegateTask = isDelegate ? (toolCall.arguments?.task_id as string | undefined) || null : null;
+  const delegateTask = toolCall.tool_name === 'delegate'
+    ? (toolCall.arguments?.task_id as string | undefined) || null
+    : null;
 
-  // Truncate search query for display
-  const displayQuery = searchQuery && searchQuery.length > 80
-    ? searchQuery.substring(0, 80) + '...'
-    : searchQuery;
+  const detail =
+    (searchQuery && `“${clip(searchQuery, 64)}”`) ||
+    (filename && clip(filename, 48)) ||
+    (url && clip(url.replace(/^https?:\/\/(www\.)?/, ''), 56)) ||
+    delegateTask ||
+    // live sub-step from inside the tool ("Starting sandbox…")
+    (isInFlight && toolCall.statusMessage && toolCall.statusMessage !== toolCall.tool_name
+      ? clip(toolCall.statusMessage, 48)
+      : null);
 
-  // Truncate URL for display
-  const displayUrl = url && url.length > 50
-    ? url.substring(0, 50) + '...'
-    : url;
+  const snippet = resultSnippet(toolCall);
+
   return (
     <div
       onClick={onShowOutput}
-      className={`inline-flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer transition-all duration-150 whitespace-nowrap overflow-hidden touch-manipulation ${styles.container}`}
-      style={{ minHeight: '44px' }}
+      className="group flex flex-col py-1 -mx-1 px-1 rounded-lg cursor-pointer select-none transition-colors hover:bg-stone-50 min-w-0 touch-manipulation"
+      title="View output"
     >
-      {isTrade && tradeInfo ? (
-        <>
-          <span className={`flex-shrink-0 ${tradeInfo.action === 'buy' ? 'text-emerald-500' : 'text-red-500'}`}>
-            {tradeInfo.action === 'buy' ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" />
-              </svg>
-            )}
-          </span>
-          <span className={`text-xs font-bold uppercase flex-shrink-0 ${tradeInfo.action === 'buy' ? 'text-emerald-600' : 'text-red-600'}`}>
-            {tradeInfo.action}
-          </span>
-          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${tradeInfo.side === 'yes' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
-            {tradeInfo.side?.toUpperCase()}
-          </span>
-          <span className="text-sm font-medium text-gray-700 truncate min-w-0">
-            {tradeInfo.market?.length > 30 ? tradeInfo.market.slice(0, 30) + '…' : tradeInfo.market}
-          </span>
-          <span className="text-xs text-gray-400 flex-shrink-0">×{tradeInfo.count}</span>
-        </>
-      ) : (
-        <>
-          {/* Icon - never shrink */}
-          <span className={`flex-shrink-0 ${styles.icon}`}>
-            {getToolIcon(toolCall.tool_name)}
-          </span>
-
-          {/* Tool name - never shrink */}
-          <span className={`text-sm sm:text-sm font-medium flex-shrink-0 ${styles.text}`}>
-            {toolName}
-          </span>
-
-          {/* Filename pill for file operations — truncates on small screens */}
-          {filename && (
-            <span className={`inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-              {filename}
-            </span>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`flex-shrink-0 ${isError ? 'text-red-400' : isInFlight ? 'text-emerald-500' : 'text-stone-400'}`}>
+          {getToolIcon(toolCall.tool_name)}
+        </span>
+        <span className="flex-1 min-w-0 text-[13px] leading-5 truncate">
+          <span className={isError ? 'text-red-500' : 'text-stone-600'}>{intent || toolName}</span>
+          {detail && (
+            <span className={isError ? 'text-red-400/80' : 'text-stone-400'}> · {detail}</span>
           )}
-
-          {/* Search query pill for search operations — truncates on small screens */}
-          {displayQuery && (
-            <span className={`inline-block text-xs px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-              {displayQuery}
-            </span>
+        </span>
+        <span className="flex-shrink-0 pl-2">
+          {isInFlight ? (
+            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse block" />
+          ) : (
+            <svg className="w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
           )}
+        </span>
+      </div>
 
-          {/* URL pill for scrape operations — truncates on small screens */}
-          {displayUrl && (
-            <span className={`inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-              {displayUrl}
-            </span>
-          )}
-
-          {/* Task pill for delegate operations */}
-          {delegateTask && (
-            <span className={`hidden xs:inline-block text-xs font-mono px-1.5 py-0.5 rounded truncate min-w-0 ${styles.file}`}>
-              {delegateTask}
-            </span>
-          )}
-
-          {/* Description - show for all tools when available and not just the tool name */}
-          {description && description !== toolCall.tool_name && !filename && !displayQuery && !displayUrl && (
-            <span className={`hidden sm:inline text-sm ${styles.muted} truncate min-w-0`}>
-              {description}
-            </span>
-          )}
-        </>
+      {/* Inline result peek — first line of output / result count / error */}
+      {snippet && (
+        <p className={`pl-6 pr-5 text-xs leading-5 truncate ${snippet.isError ? 'text-red-400' : 'text-stone-400'}`}>
+          {snippet.text}
+        </p>
       )}
-
-      {/* Status indicator - never shrink */}
-      <span className="flex-shrink-0 ml-auto">
-        {isError ? (
-          <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        ) : toolCall.status === 'detected' || toolCall.status === 'calling' ? (
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse block" />
-        ) : (
-          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path d="M9 5l7 7-7 7" />
-          </svg>
-        )}
-      </span>
     </div>
   );
+}
+
+function clip(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
+}
+
+/** One-line peek at what the tool produced, shown inline under the row. */
+function resultSnippet(t: ToolCallStatus): { text: string; isError: boolean } | null {
+  if (t.status === 'detected' || t.status === 'calling') return null;
+
+  if (t.error) {
+    const line = firstLine(t.error);
+    return line ? { text: clip(line, 140), isError: true } : null;
+  }
+
+  const results = t.search_results?.results;
+  if (results && results.length > 0) {
+    const domains: string[] = [];
+    for (const r of results) {
+      try {
+        const host = new URL(r.link).hostname.replace(/^www\./, '');
+        if (!domains.includes(host)) domains.push(host);
+      } catch { /* skip malformed links */ }
+      if (domains.length >= 3) break;
+    }
+    const suffix = domains.length > 0 ? ` · ${domains.join(', ')}` : '';
+    return { text: `${results.length} result${results.length !== 1 ? 's' : ''}${suffix}`, isError: false };
+  }
+
+  const stdout = firstLine(t.code_output?.stdout);
+  if (stdout) return { text: clip(stdout, 140), isError: false };
+
+  const summary = firstLine(t.result_summary);
+  if (summary) return { text: clip(summary, 140), isError: false };
+
+  return null;
+}
+
+function firstLine(s?: string): string | null {
+  if (!s) return null;
+  const line = s.split('\n').map(l => l.trim()).find(Boolean);
+  return line || null;
 }

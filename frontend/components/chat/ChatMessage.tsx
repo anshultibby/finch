@@ -5,7 +5,7 @@ import ToolCallSummary from './ToolCallSummary';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import { getAuthHeader } from '@/lib/api';
 import type { ToolCallStatus } from '@/lib/types';
-import type { TimeEstimate } from '@/hooks/useChatStream';
+import type { TimeEstimate, ThoughtEntry } from '@/hooks/useChatStream';
 
 export interface MessageAction {
   icon: React.ReactNode;
@@ -20,6 +20,7 @@ interface ChatMessageProps {
   content: string;
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
+  thoughts?: ThoughtEntry[];
   chatId?: string;
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
@@ -901,7 +902,7 @@ function MessageActions({ actions, alwaysVisible, onFeedback, feedbackGiven, set
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate }: ChatMessageProps) {
   const isUser = role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -1048,7 +1049,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, chat
     return (
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
-          <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
+          <ToolCallSummary toolCalls={toolCalls} thoughts={thoughts} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
         </div>
       </div>
     );
@@ -1079,7 +1080,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, chat
           )}
           <CitationReferences citations={citations} />
           {toolCalls && toolCalls.length > 0 && (
-            <ToolCallSummary toolCalls={toolCalls} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
+            <ToolCallSummary toolCalls={toolCalls} thoughts={thoughts} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} />
           )}
           {actions && actions.length > 0 && (
             <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} onFeedback={onFeedback} feedbackGiven={feedbackGiven} setFeedbackModal={setFeedbackModal} />

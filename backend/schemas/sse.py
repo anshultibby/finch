@@ -81,6 +81,15 @@ class ThinkingEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
+class ThinkingDeltaEvent(BaseModel):
+    """Incremental reasoning/extended-thinking tokens, streamed live to the UI.
+
+    Distinct from the visible answer (AssistantMessageDeltaEvent) — these are
+    the model's working notes, rendered as ephemeral 'thought' entries.
+    """
+    delta: str
+
+
 class MessageEndEvent(BaseModel):
     """Event sent when assistant message is complete (with or without tool calls)"""
     role: str = "assistant"

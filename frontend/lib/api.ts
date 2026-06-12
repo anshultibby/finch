@@ -83,6 +83,7 @@ api.interceptors.request.use(
 
 export interface SSEEventHandlers {
   onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
+  onThinkingDelta?: (event: { delta: string }) => void;
   onMessageEnd?: (event: SSEMessageEndEvent) => void;
   onToolCallDetected?: (event: SSEToolCallDetectedEvent) => void;
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
@@ -201,6 +202,9 @@ export const chatApi = {
           break;
         case 'error':
           handlers.onError?.(eventData as SSEErrorEvent);
+          break;
+        case 'thinking_delta':
+          handlers.onThinkingDelta?.(eventData as { delta: string });
           break;
         case 'thinking':
           // Informational - ignore
