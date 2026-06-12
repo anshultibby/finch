@@ -342,6 +342,9 @@ export default function ToolCallSummary({
           ) : null}
         </div>
       </div>
+
+      {/* Live task-phase checklist — only while working; the receipt line covers history */}
+      {isStreaming && todos && todos.length > 0 && <TodoChecklist items={todos} />}
     </div>
   );
 }

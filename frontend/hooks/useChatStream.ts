@@ -13,6 +13,8 @@ import type {
   SSEToolCallCompleteEvent,
   SSEToolCallStreamingEvent,
   SSEFileContentEvent,
+  SSETodoUpdateEvent,
+  TodoItem,
   ImageAttachment,
 } from '@/lib/types';
 
@@ -65,6 +67,8 @@ export interface ChatStreamState {
   wasStreamingBeforeHidden: boolean;
   streamStartTime: number | null;
   timeEstimate: TimeEstimate | null;
+  /** Live task-phase checklist from update_todos. Ephemeral — never persisted. */
+  todos: TodoItem[];
 }
 
 interface UseChatStreamOptions {
@@ -86,6 +90,7 @@ const INITIAL_STATE: Omit<ChatStreamState, 'messages'> = {
   wasStreamingBeforeHidden: false,
   streamStartTime: null,
   timeEstimate: null,
+  todos: [],
 };
 
 export function useChatStream(options: UseChatStreamOptions = {}) {
@@ -440,6 +445,12 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       }, notify);
     },
 
+    onTodoUpdate: (event: SSETodoUpdateEvent) => {
+      // Full-list replacement; drop malformed items defensively
+      const todos = (event.todos ?? []).filter(t => t && typeof t.text === 'string');
+      update(chatId, { todos }, notify);
+    },
+
     onOptions: (event: SSEOptionsEvent) => {
       update(chatId, { pendingOptions: event }, notify);
     },
@@ -558,6 +569,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     state.streamingThoughts = [];
     state.streamStartTime = Date.now();
     state.timeEstimate = null;
+    state.todos = [];
     onStateChange(state);
 
     // Generate title for first message

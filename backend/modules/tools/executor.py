@@ -427,7 +427,7 @@ class ToolExecutor:
         
         # Emit time_estimate and tool_call_start events in a single pass
         from modules.tools import tool_registry
-        from schemas.sse import TimeEstimateEvent
+        from schemas.sse import TimeEstimateEvent, TodoUpdateEvent
 
         # Fallback: if the agent didn't call estimate_time first but is about to
         # run a real tool, emit a generic estimate so the UI has something to show.
@@ -468,6 +468,15 @@ class ToolExecutor:
                         description=call.arguments.get("description", "Working on your request..."),
                     ).model_dump()
                 )
+
+            # Handle update_todos specially — emit todo_update SSE event with the full list
+            if call.name == "update_todos":
+                todos = call.arguments.get("todos") or []
+                if isinstance(todos, list):
+                    yield SSEEvent(
+                        event="todo_update",
+                        data=TodoUpdateEvent(todos=todos).model_dump()
+                    )
 
             # Check if tool is hidden from UI
             tool_obj = tool_registry.get_tool(call.name)

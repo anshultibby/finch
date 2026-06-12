@@ -10,7 +10,7 @@ from modules.agent.context import AgentContext
 # Import tool descriptions
 from modules.tools.descriptions import (
     # Control
-    IDLE_DESC, ESTIMATE_TIME_DESC,
+    IDLE_DESC, ESTIMATE_TIME_DESC, UPDATE_TODOS_DESC,
     # Code Execution (Universal Interface)
     EXECUTE_CODE_DESC,
     # File Management (Convenient wrappers with DB sync)
@@ -68,6 +68,25 @@ def estimate_time(
 ) -> Dict[str, Any]:
     """Provide time estimate for the current task. Handled specially by executor."""
     return {"success": True, "message": "Time estimate registered"}
+
+
+@tool(
+    name="update_todos",
+    description=UPDATE_TODOS_DESC,
+    category="control",
+    hidden_from_ui=True
+)
+def update_todos(
+    *,
+    todos: List[Dict[str, Any]],
+    context: AgentContext
+) -> Dict[str, Any]:
+    """Replace the user-visible task checklist. Executor emits the todo_update SSE event.
+
+    Args:
+        todos: Full task list, each item {"text": str, "status": "pending"|"in_progress"|"completed"}.
+    """
+    return {"success": True, "message": f"Todo list updated ({len(todos)} items)"}
 
 
 # ============================================================================

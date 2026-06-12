@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 WORKSPACE_DIR = "/home/user"
 SKILLS_DIR = f"{WORKSPACE_DIR}/skills"
 APIS_DIR = f"{WORKSPACE_DIR}/apis"
+SCRATCHPAD_DIR = f"{WORKSPACE_DIR}/scratchpad"  # ephemeral — wiped on every sandbox create/reconnect
 EXECUTION_TIMEOUT = 180      # seconds — max runtime per execution
 SANDBOX_IDLE_TIMEOUT = 600   # seconds — sandbox auto-pauses after this idle time
 
@@ -136,6 +137,10 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
     from core.config import Config
 
     async with _sandboxes_lock:
+        # Scratchpad is wiped only when the sandbox is (re)connected, not on
+        # warm cache hits — its lifetime is one running sandbox session.
+        fresh_connection = False
+
         # --- 1. In-process cache ---
         entry = _sandboxes.get(user_id)
         if entry is not None:
@@ -165,6 +170,7 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
                         envs=envs,
                     )
                     _sandboxes[user_id] = entry
+                    fresh_connection = True
                     logger.info(
                         f"Reconnected to sandbox {sbx.sandbox_id} for user {user_id} "
                         f"(skills_loaded={record.skills_loaded}, hash={record.skills_hash})"
@@ -187,6 +193,7 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
             )
             entry = _SandboxEntry(sbx=sbx, skills_loaded=False, envs=envs)
             _sandboxes[user_id] = entry
+            fresh_connection = True
             await _upsert_user_sandbox(user_id, sbx.sandbox_id, skills_loaded=False)
             logger.info(f"Created new persistent sandbox {sbx.sandbox_id} for user {user_id}")
 
@@ -206,7 +213,27 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
         # --- 5. Ensure store directory layout exists ---
         await _ensure_store_layout(entry.sbx)
 
+        # --- 6. Reset the ephemeral scratchpad on every (re)connect ---
+        if fresh_connection:
+            await _reset_scratchpad(entry.sbx)
+
         return entry
+
+
+async def _reset_scratchpad(sbx) -> None:
+    """Wipe and recreate the ephemeral scratchpad directory.
+
+    Unlike the rest of /home/user, scratchpad contents do not survive a
+    sandbox pause — the agent uses it for throwaway thinking files.
+    """
+    try:
+        await sbx.commands.run(
+            f"rm -rf {SCRATCHPAD_DIR} && mkdir -p {SCRATCHPAD_DIR}",
+            timeout=10,
+        )
+        logger.debug("Reset scratchpad directory")
+    except Exception as e:
+        logger.debug(f"Scratchpad reset failed (non-fatal): {e}")
 
 
 async def _ensure_store_layout(sbx) -> None:

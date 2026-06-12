@@ -209,6 +209,16 @@ export interface SSEToolProgressEvent {
   timestamp: string;
 }
 
+export interface TodoItem {
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+export interface SSETodoUpdateEvent {
+  todos: TodoItem[];
+  timestamp: string;
+}
+
 export interface SSEToolLogEvent {
   tool_call_id?: string;
   tool_name?: string;

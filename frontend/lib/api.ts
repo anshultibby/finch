@@ -36,6 +36,7 @@ import type {
   SSEToolCallDetectedEvent,
   SSEToolCallStreamingEvent,
   SSEOptionsEvent,
+  SSETodoUpdateEvent,
   SSEDoneEvent,
   SSEErrorEvent,
   ToolCallStatus,
@@ -96,6 +97,7 @@ export interface SSEEventHandlers {
   onFileContent?: (event: SSEFileContentEvent) => void;
   onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void;
   onTimeEstimate?: (event: { estimated_seconds: number; estimated_tools: number; description: string }) => void;
+  onTodoUpdate?: (event: SSETodoUpdateEvent) => void;
   onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
@@ -193,6 +195,9 @@ export const chatApi = {
           break;
         case 'time_estimate':
           handlers.onTimeEstimate?.(eventData as { estimated_seconds: number; estimated_tools: number; description: string });
+          break;
+        case 'todo_update':
+          handlers.onTodoUpdate?.(eventData as SSETodoUpdateEvent);
           break;
         case 'tool_options':
           handlers.onOptions?.(eventData as SSEOptionsEvent);
@@ -710,6 +715,7 @@ export interface UserPreferences {
   morning_brief_enabled: boolean;
   morning_brief_time: string;      // HH:MM, local to morning_brief_timezone
   morning_brief_timezone: string;  // IANA name, e.g. Asia/Kolkata
+  morning_brief_phone: string;     // E.164 WhatsApp number, '' = off
 }
 
 export const accountApi = {

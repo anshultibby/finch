@@ -182,6 +182,16 @@ class TimeEstimateEvent(BaseModel):
     timestamp: str = datetime.now().isoformat()
 
 
+class TodoUpdateEvent(BaseModel):
+    """Event sent when the agent updates its task list (update_todos tool).
+
+    Carries the FULL list each time — the UI replaces, never merges.
+    Items: {"text": str, "status": "pending" | "in_progress" | "completed"}
+    """
+    todos: List[Dict[str, Any]]
+    timestamp: str = datetime.now().isoformat()
+
+
 class CancelledEvent(BaseModel):
     """Event sent when execution is cancelled due to user interruption"""
     reason: str = "User sent a new message"

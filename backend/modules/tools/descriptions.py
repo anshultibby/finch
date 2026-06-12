@@ -29,6 +29,24 @@ Set description to a short phrase the user sees while waiting (e.g. "Analyzing y
 
 If the task requires no tools (just a text response), skip calling this tool entirely."""
 
+UPDATE_TODOS_DESC = """Maintain a visible checklist of the PHASES of a long task so the user can watch progress.
+
+Items are high-level categories of work, NOT individual steps or tool calls.
+Good: "Research AMD fundamentals", "Compare valuations vs peers", "Build the chart pack", "Write up the verdict".
+Bad: "Call FMP API", "Run script", "Read SKILL.md", "Fetch income statement".
+
+Send the FULL list every time — it replaces the previous one. Each item:
+  {"text": "Compare valuations vs peers", "status": "pending" | "in_progress" | "completed"}
+
+Rules:
+- Call it right after estimate_time with your plan: 3-6 phases, each a short user-readable phrase.
+- A phase typically spans several tool calls. If two items would complete within the same tool call, they're one phase.
+- Update when you finish a phase: mark it completed, mark the next in_progress. Exactly ONE item in_progress at a time.
+- Batch updates with your next real tool call — never make a turn that ONLY updates todos.
+- It's fine to add/remove/reword phases mid-task as the plan evolves.
+- Skip it entirely for quick lookups and short tasks; an instantly-completed checklist is noise."""
+
+
 IDLE_DESC = """Signal that you have completed all tasks and are ready for the user's next input.
 
 Use this tool when:

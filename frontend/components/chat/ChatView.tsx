@@ -121,6 +121,7 @@ export default function ChatView({
   const [pendingOptions, setPendingOptions] = useState<SSEOptionsEvent | null>(null);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [timeEstimate, setTimeEstimate] = useState<import('@/hooks/useChatStream').TimeEstimate | null>(null);
+  const [todos, setTodos] = useState<import('@/lib/types').TodoItem[]>([]);
   const [emailRequested, setEmailRequested] = useState(false);
   const [emailDismissed, setEmailDismissed] = useState(false);
 
@@ -178,6 +179,7 @@ export default function ChatView({
     setPendingOptions(state.pendingOptions);
     setStreamStartTime(state.streamStartTime);
     setTimeEstimate(state.timeEstimate);
+    setTodos(state.todos);
 
     // Notify parent of loading state changes
     if (state.isLoading !== prevIsLoadingRef.current) {
@@ -204,6 +206,7 @@ export default function ChatView({
     setPendingOptions(null);
     setStreamStartTime(null);
     setTimeEstimate(null);
+    setTodos([]);
     setHasMoreMessages(false);
     setOldestSequence(null);
     setLoadingHistory(false);
@@ -899,6 +902,7 @@ export default function ChatView({
                     isStreaming={true}
                     startTime={streamStartTime}
                     timeEstimate={timeEstimate}
+                    todos={todos.length > 0 ? todos : undefined}
                   />
                 )}
 
