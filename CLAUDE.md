@@ -79,6 +79,9 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | Live thinking stream | ✅ | ✅ | Mobile shows pulsing tail line |
 | Stream drop recovery (poll /chat/status) | ✅ | ✅ | Mobile also recovers on app foreground |
 | Morning brief settings | ✅ | ✅ | |
+| "Why is it moving?" AI chip (stock page) | ✅ | ✅ | `/insights/why/{symbol}`, cached server-side |
+| Portfolio "Today" AI digest | ✅ | ✅ | `/insights/portfolio-digest`; watchlist fallback |
+| Smart move alerts (push + why) | — | ✅ | `services/market_monitor.py`; push is mobile-only |
 | App icon badge (unread) | — | ✅ | Mobile-only by nature |
 | Swaps (tax-loss harvesting) | ✅ | ❌ | Complex feature |
 | Visualizations gallery | ✅ | ❌ | Requires iframe/WebView |

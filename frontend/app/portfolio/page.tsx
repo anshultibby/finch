@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { snaptradeApi } from '@/lib/api';
+import TodayDigest from '@/components/insights/TodayDigest';
 import type { PortfolioResponse, PortfolioPerformance, Position, BrokerageAccount, Brokerage, SnapTradeStatusResponse } from '@/lib/types';
 
 // ── Broker accent palette ──────────────────────────────────────────────────
@@ -723,6 +724,9 @@ export default function PortfolioPage() {
 
         {/* ── Reconnect caution (connection paused for inactivity) ──────────── */}
         {reverifyBanner}
+
+        {/* ── Today digest (AI story of the day) ────────────────────────────── */}
+        {user && <TodayDigest userId={user.id} className="animate-card-in" />}
 
         {/* ── Stat cards ────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

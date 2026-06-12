@@ -18,6 +18,7 @@ import NewsCard from '@/components/market/NewsCard';
 import EmptyState from '@/components/ui/EmptyState';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
+import TodayDigestCard from '@/components/insights/TodayDigestCard';
 import AgentTabView from '@/components/AgentTabView';
 import AskBar from '@/components/chat/AskBar';
 import SignInPrompt from '@/components/SignInPrompt';
@@ -1003,6 +1004,9 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       showsVerticalScrollIndicator={false}
     >
+      {/* Today digest (AI story of the day) */}
+      <TodayDigestCard userId={userId} />
+
       {/* AI Trading Agent (Robinhood) */}
       <RobinhoodAgentCard userId={userId} />
 

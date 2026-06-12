@@ -11,6 +11,7 @@ import TickerLogo from '@/components/ui/TickerLogo';
 import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
 import ChatInput from '@/components/chat/ChatInput';
+import WhyChip from '@/components/insights/WhyChip';
 import type { Position } from '@/lib/types';
 import { formatCurrency as fmt, formatCurrencyCompact as fmtB, getCurrency, isIndianTicker, formatDate } from '@/lib/currency';
 
@@ -900,8 +901,13 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
                     <div className="mb-1">
                       <span className="text-3xl sm:text-4xl font-bold text-gray-900 font-numeric">{fmt(displayPrice, symbol)}</span>
                     </div>
-                    <div className={`text-sm font-medium font-numeric ${up ? 'text-emerald-600' : 'text-red-500'}`}>
-                      {up ? '+' : '-'}{fmt(Math.abs(displayDollar), symbol)} ({pct(activePct)})
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium font-numeric ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {up ? '+' : '-'}{fmt(Math.abs(displayDollar), symbol)} ({pct(activePct)})
+                      </span>
+                      {user && hoverPct === null && Math.abs(changePct) >= 0.05 && (
+                        <WhyChip symbol={symbol} changePct={changePct} />
+                      )}
                     </div>
                     {showExtended && (
                       <div className="flex items-center gap-1.5 mt-1">

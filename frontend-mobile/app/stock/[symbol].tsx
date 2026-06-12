@@ -13,6 +13,7 @@ import AskBar from '@/components/chat/AskBar';
 import PriceChange from '@/components/ui/PriceChange';
 import { CountUp } from '@/components/ui/CountUp';
 import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
+import WhyMoveCard from '@/components/insights/WhyMoveCard';
 
 type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis';
 
@@ -156,6 +157,9 @@ export default function StockDetailScreen() {
                 <Text style={s.exchangeLabel}>
                   {profile.exchangeShortName} · {profile.sector || quote.exchange}
                 </Text>
+              )}
+              {user && quote.changesPercentage != null && (
+                <WhyMoveCard symbol={symbol} changePct={quote.changesPercentage} />
               )}
             </View>
 

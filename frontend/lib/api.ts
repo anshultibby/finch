@@ -1137,6 +1137,52 @@ export const watchlistApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Insights API — instant AI intelligence (why-is-it-moving, portfolio digest)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MoveExplanation {
+  symbol: string;
+  name: string;
+  price: number | null;
+  change: number | null;
+  change_pct: number | null;
+  explanation: string;
+  sources: { title: string; site: string; url: string; publishedDate: string }[];
+  cached: boolean;
+}
+
+export interface DigestMover {
+  symbol: string;
+  name: string;
+  change_pct: number;
+  change: number;
+  contribution: number;
+  value: number;
+}
+
+export interface PortfolioDigest {
+  success: boolean;
+  mode: 'portfolio' | 'watchlist' | 'empty';
+  total_value?: number;
+  day_change?: number;
+  day_change_pct?: number;
+  movers?: DigestMover[];
+  narrative?: string;
+  generated_at?: string;
+}
+
+export const insightsApi = {
+  whyIsItMoving: async (symbol: string): Promise<MoveExplanation> => {
+    const response = await api.get(`/insights/why/${symbol}`);
+    return response.data;
+  },
+  getPortfolioDigest: async (userId: string): Promise<PortfolioDigest> => {
+    const response = await api.get(`/insights/portfolio-digest/${userId}`);
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stock Analysis API
 // ─────────────────────────────────────────────────────────────────────────────
 
