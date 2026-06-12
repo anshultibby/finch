@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ToolCall from './ToolCall';
-import ActivityTicker from './ActivityTicker';
+import { buildTickerItems, splitCurrent, currentLabelOf, ActivityTrail, SparkleIcon } from './ActivityTicker';
 import SubAgentGroup, { isLimitSkipped } from './SubAgentGroup';
 import type { ToolCallStatus } from '@/lib/types';
 import type { TimeEstimate, ThoughtEntry } from '@/hooks/useChatStream';
@@ -83,6 +83,7 @@ export default function ToolCallSummary({
 }: ToolCallSummaryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const treeRef = useRef<HTMLDivElement>(null);
 
   // Sort tools by insertion order, then partition into special vs regular
   // and compute status counts in a single pass
@@ -94,7 +95,6 @@ export default function ToolCallSummary({
   const regularTools: ToolCallStatus[] = [];   // top-level (main-agent) tools, incl. delegate parents
   const tickerTools: ToolCallStatus[] = [];    // everything the live ticker narrates, in order
   const childrenByTask = new Map<string, ToolCallStatus[]>();  // sub-agent tools keyed by task_id
-  let completedCount = 0;
   let errorCount = 0;
 
   for (const t of sortedTools) {
@@ -112,12 +112,10 @@ export default function ToolCallSummary({
     } else {
       regularTools.push(t);
       tickerTools.push(t);
-      if (t.status === 'completed') completedCount++;
-      else if (t.status === 'error') errorCount++;
+      if (t.status === 'error') errorCount++;
     }
   }
 
-  const totalCount = regularTools.length;
   // Sub-agents that actually ran (delegates not rejected by the per-chat cap).
   const subAgentCount = regularTools.filter(t => t.tool_name === 'delegate' && !isLimitSkipped(t)).length;
 
@@ -164,6 +162,13 @@ export default function ToolCallSummary({
 
   const shouldAutoExpand = false;
 
+  // Keep the expanded tree pinned to its newest rows while work streams in
+  useEffect(() => {
+    if (isExpanded && isStreaming && treeRef.current) {
+      treeRef.current.scrollTop = treeRef.current.scrollHeight;
+    }
+  }, [isExpanded, isStreaming, toolCalls, thoughts]);
+
   // If there are no regular tools, just render special tools
   if (regularTools.length === 0 && specialTools.length === 0) return null;
 
@@ -194,8 +199,23 @@ export default function ToolCallSummary({
   const expanded = isExpanded || shouldAutoExpand;
   const elapsedLabel = elapsedSeconds > 0 ? formatDuration(elapsedSeconds) : undefined;
 
+  // Interleaved chronology of tools + thoughts (ticker items)
+  const items = buildTickerItems(tickerTools, isStreaming ? thoughts : undefined);
+  const { current, settled } = splitCurrent(items);
+  const anchorLive = currentLabelOf(
+    current,
+    tickerTools.length === 0 && timeEstimate?.description ? timeEstimate.description : 'Thinking…'
+  );
+
+  // Expanded tree: top-level tools + thoughts in order (sub-agent tools render
+  // nested inside their delegate's SubAgentGroup, not as top-level rows).
+  const treeItems = ([
+    ...regularTools.map(t => ({ order: t._insertionOrder ?? 0, tool: t, thought: null as ThoughtEntry | null })),
+    ...(isStreaming ? (thoughts ?? []) : []).map(th => ({ order: th._insertionOrder, tool: null as ToolCallStatus | null, thought: th })),
+  ]).sort((a, b) => a.order - b.order);
+
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col">
       {/* Special tools always visible */}
       {specialTools.map(tool => (
         <ToolCall
@@ -206,102 +226,99 @@ export default function ToolCallSummary({
         />
       ))}
 
-      {isStreaming && !expanded ? (
-        /* Live ticker — finished actions evaporate, current one shimmers */
-        <ActivityTicker
-          tools={tickerTools}
-          thoughts={isStreaming ? thoughts : undefined}
-          elapsedLabel={elapsedLabel}
-          estimateLabel={estimateLabel || undefined}
-          thinkingLabel={
-            tickerTools.length === 0 && timeEstimate?.description
-              ? timeEstimate.description
-              : 'Thinking…'
-          }
-          onExpand={() => setIsExpanded(true)}
-        />
-      ) : (
-        /* Receipt line — collapse control while expanded, quiet summary when done.
-           Same visual language as the ticker: light text, no box. */
-        <div
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="group flex items-center gap-2 py-1 -mx-1 px-1 rounded-lg cursor-pointer select-none transition-colors hover:bg-stone-50 min-w-0"
-          role="button"
-          aria-label={expanded ? 'Hide steps' : 'Show all steps'}
-        >
-          <span className="w-3 flex justify-center flex-shrink-0">
-            {isStreaming ? (
-              <span className="relative w-3 h-3 flex items-center justify-center">
-                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
-                <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
-              </span>
-            ) : errorCount > 0 ? (
-              <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            ) : (
-              <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-            )}
-          </span>
+      {/* History region — unrolls in place ABOVE the anchor line, so the line
+          the user taps never moves. Collapsed while streaming: evaporating
+          trail. Expanded: the full thought/tool tree. */}
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-out"
+        style={{ gridTemplateRows: expanded || (isStreaming && settled.length > 0) ? '1fr' : '0fr' }}
+      >
+        <div className="overflow-hidden min-h-0">
+          {expanded ? (
+            <div
+              ref={treeRef}
+              className="flex flex-col gap-1 pl-4 pr-1 pb-1 max-h-80 overflow-y-auto chat-scrollbar"
+            >
+              {treeItems.map(item =>
+                item.tool ? renderTool(item.tool) : (
+                  <div key={item.thought!.id} className="flex gap-2 py-0.5 px-1 min-w-0">
+                    <SparkleIcon className="w-3 h-3 mt-1 flex-shrink-0 text-stone-300" />
+                    <p className="text-xs italic leading-5 text-stone-400 line-clamp-3 whitespace-pre-line min-w-0">
+                      {item.thought!.text.length > 400
+                        ? item.thought!.text.slice(0, 400).trimEnd() + '…'
+                        : item.thought!.text}
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+          ) : isStreaming && settled.length > 0 ? (
+            <ActivityTrail items={settled} />
+          ) : null}
+        </div>
+      </div>
 
+      {/* Anchor line — always present, identical position collapsed/expanded,
+          streaming or done. Streaming: live dot + current action shimmering.
+          Done: receipt of what happened. */}
+      <div
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="group flex items-center gap-2 py-1 -mx-1 px-1 rounded-lg cursor-pointer select-none transition-colors hover:bg-stone-50 min-w-0"
+        role="button"
+        aria-label={expanded ? 'Hide steps' : 'Show all steps'}
+      >
+        <span className="w-3 flex justify-center flex-shrink-0">
+          {isStreaming ? (
+            <span className="relative w-3 h-3 flex items-center justify-center">
+              <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
+              <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
+            </span>
+          ) : errorCount > 0 ? (
+            <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ) : (
+            <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          )}
+        </span>
+
+        {isStreaming ? (
+          <span className={`flex-1 min-w-0 text-[13px] leading-5 activity-shimmer-text truncate ${anchorLive.isThought ? 'italic' : ''}`}>
+            {anchorLive.text}
+          </span>
+        ) : (
           <span className="flex-1 min-w-0 text-[13px] leading-5 text-stone-500 truncate">
-            {isStreaming
-              ? `Working — step ${Math.min(completedCount + 1, Math.max(totalCount, 1))} of ${totalCount > 0 ? totalCount : '…'}`
-              : receiptSummary(regularTools)
-            }
+            {receiptSummary(regularTools)}
             {subAgentCount > 0 && (
               <span className="text-indigo-400/80">
                 {' '}· {subAgentCount} sub-agent{subAgentCount !== 1 ? 's' : ''}
               </span>
             )}
-            {!isStreaming && errorCount > 0 && (
+            {errorCount > 0 && (
               <span className="text-red-400">
                 {' '}· {errorCount} failed
               </span>
             )}
           </span>
+        )}
 
-          <span className="flex items-center gap-2 flex-shrink-0 pl-2">
-            {elapsedLabel && startTime && (
-              <span className="text-[11px] text-stone-400 tabular-nums">{elapsedLabel}</span>
-            )}
-            <svg
-              className={`w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-all duration-200 ${expanded ? 'rotate-90' : ''}`}
-              fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-            >
-              <path d="M9 5l7 7-7 7" />
-            </svg>
-          </span>
-        </div>
-      )}
-
-      {/* Expanded tree — thoughts and tools interleaved chronologically,
-          indented to align under the receipt text */}
-      {expanded && (
-        <div className="flex flex-col gap-1 pl-4 animate-fade-in">
-          {([
-            ...regularTools.map(t => ({ order: t._insertionOrder ?? 0, tool: t, thought: null as ThoughtEntry | null })),
-            ...(isStreaming ? (thoughts ?? []) : []).map(th => ({ order: th._insertionOrder, tool: null as ToolCallStatus | null, thought: th })),
-          ] as Array<{ order: number; tool: ToolCallStatus | null; thought: ThoughtEntry | null }>)
-            .sort((a, b) => a.order - b.order)
-            .map(item =>
-              item.tool ? renderTool(item.tool) : (
-                <div key={item.thought!.id} className="flex gap-2 py-0.5 px-1 min-w-0">
-                  <svg className="w-3 h-3 mt-1 flex-shrink-0 text-stone-300" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3z" />
-                  </svg>
-                  <p className="text-xs italic leading-5 text-stone-400 line-clamp-3 whitespace-pre-line min-w-0">
-                    {item.thought!.text.length > 400
-                      ? item.thought!.text.slice(0, 400).trimEnd() + '…'
-                      : item.thought!.text}
-                  </p>
-                </div>
-              )
-            )}
-        </div>
-      )}
+        <span className="flex items-center gap-2 flex-shrink-0 pl-2">
+          {isStreaming && estimateLabel && (
+            <span className="hidden xs:inline text-[11px] text-stone-400">{estimateLabel}</span>
+          )}
+          {elapsedLabel && startTime && (
+            <span className="text-[11px] text-stone-400 tabular-nums">{elapsedLabel}</span>
+          )}
+          <svg
+            className={`w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-transform duration-200 ${expanded ? '-rotate-90' : ''}`}
+            fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+          >
+            <path d="M9 5l7 7-7 7" />
+          </svg>
+        </span>
+      </div>
     </div>
   );
 }

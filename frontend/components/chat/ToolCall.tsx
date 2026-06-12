@@ -418,10 +418,10 @@ function resultSnippet(t: ToolCallStatus): { text: string; isError: boolean } | 
     return { text: `${results.length} result${results.length !== 1 ? 's' : ''}${suffix}`, isError: false };
   }
 
-  const stdout = firstLine(t.code_output?.stdout);
+  const stdout = readableLine(t.code_output?.stdout);
   if (stdout) return { text: clip(stdout, 140), isError: false };
 
-  const summary = firstLine(t.result_summary);
+  const summary = readableLine(t.result_summary);
   if (summary) return { text: clip(summary, 140), isError: false };
 
   return null;
@@ -431,4 +431,24 @@ function firstLine(s?: string): string | null {
   if (!s) return null;
   const line = s.split('\n').map(l => l.trim()).find(Boolean);
   return line || null;
+}
+
+/** A human-readable first line. Raw JSON payloads ('{"success": true, …') are
+    unwrapped to their message/content instead of dumped as braces. */
+function readableLine(s?: string): string | null {
+  if (!s) return null;
+  const trimmed = s.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (typeof parsed.message === 'string' && parsed.message.trim()) return firstLine(parsed.message);
+        if (typeof parsed.error === 'string' && parsed.error.trim()) return firstLine(parsed.error);
+        if (typeof parsed.content === 'string' && parsed.content.trim()) return firstLine(parsed.content);
+      }
+    } catch { /* unparseable or partial JSON */ }
+    // JSON with nothing quotable — no snippet beats a wall of braces
+    return null;
+  }
+  return firstLine(s);
 }

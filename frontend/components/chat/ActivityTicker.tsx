@@ -5,26 +5,13 @@ import type { ToolCallStatus } from '@/lib/types';
 import type { ThoughtEntry } from '@/hooks/useChatStream';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ActivityTicker — the "evaporating log" shown while the agent is working.
+// Activity ticker building blocks.
 //
 // Tool calls AND reasoning fragments (thoughts) interleave chronologically via
-// their shared _insertionOrder. The current item renders as light shimmering
-// text with a live dot; the previous few sit above it at decreasing opacity,
-// so finished work visually evaporates as the agent moves on. Tapping anywhere
-// expands the full step list (handled by ToolCallSummary).
+// their shared _insertionOrder. ToolCallSummary owns the layout (anchor line +
+// collapsible history); this module knows how to turn the raw stream into
+// display items and renders the evaporating trail.
 // ═══════════════════════════════════════════════════════════════════════════
-
-interface ActivityTickerProps {
-  /** All non-special tools (main agent + sub-agent children) in insertion order */
-  tools: ToolCallStatus[];
-  /** Live reasoning fragments, ordered against tools via _insertionOrder */
-  thoughts?: ThoughtEntry[];
-  elapsedLabel?: string;
-  estimateLabel?: string;
-  /** Shown while the model is thinking before/between tools */
-  thinkingLabel?: string;
-  onExpand?: () => void;
-}
 
 const VERBS: Record<string, string> = {
   bash: 'Running code',
@@ -79,7 +66,7 @@ function truncate(s: string, n: number): string {
 }
 
 /** Collapse whitespace and keep the trailing n chars — a rolling "live tail". */
-function tail(s: string, n: number): string {
+export function liveTail(s: string, n: number): string {
   const flat = s.replace(/\s+/g, ' ').trim();
   return flat.length > n ? '…' + flat.slice(-n) : flat;
 }
@@ -90,16 +77,18 @@ function thoughtHead(s: string, n: number): string {
   return truncate(line, n);
 }
 
-interface TickerItem {
+export interface TickerItem {
   id: string;
   order: number;
   isThought: boolean;
   isError: boolean;
   active: boolean;
-  /** Display text: verb for tools, raw text for thoughts */
+  /** Display text: intent/verb for tools, head line for thoughts */
   label: string;
   detail: string | null;
   rawThought?: string;
+  tool?: ToolCallStatus;
+  thought?: ThoughtEntry;
 }
 
 function toolItem(t: ToolCallStatus): TickerItem {
@@ -118,6 +107,7 @@ function toolItem(t: ToolCallStatus): TickerItem {
     active: isActive,
     label: intent ? truncate(intent, 72) : verbFor(t.tool_name),
     detail: intent ? subStep : (detailFor(t) ?? subStep),
+    tool: t,
   };
 }
 
@@ -131,106 +121,77 @@ function thoughtItem(th: ThoughtEntry): TickerItem {
     label: thoughtHead(th.text, 80),
     detail: null,
     rawThought: th.text,
+    thought: th,
   };
 }
 
-// Opacity of trail rows by distance from the current action (1 = most recent)
-const TRAIL_OPACITY = [0.55, 0.3, 0.14];
+/** Interleave tools and thoughts chronologically. */
+export function buildTickerItems(tools: ToolCallStatus[], thoughts?: ThoughtEntry[]): TickerItem[] {
+  return [
+    ...tools.map(toolItem),
+    ...(thoughts ?? []).map(thoughtItem),
+  ].sort((a, b) => a.order - b.order);
+}
 
-const SparkleIcon = ({ className }: { className?: string }) => (
+/** The current item is the last still-active one; the rest are history. */
+export function splitCurrent(items: TickerItem[]): { current: TickerItem | null; settled: TickerItem[] } {
+  const activeIdx = items.map(i => i.active).lastIndexOf(true);
+  return {
+    current: activeIdx >= 0 ? items[activeIdx] : null,
+    settled: items.filter((it, i) => i !== activeIdx && !it.active),
+  };
+}
+
+/** Shimmering anchor-line text for the in-flight item. */
+export function currentLabelOf(current: TickerItem | null, fallback: string): { text: string; isThought: boolean } {
+  if (!current) return { text: fallback, isThought: false };
+  if (current.isThought) return { text: liveTail(current.rawThought || '', 110), isThought: true };
+  return {
+    text: current.detail ? `${current.label} ${current.detail}` : `${current.label}…`,
+    isThought: false,
+  };
+}
+
+export const SparkleIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">
     <path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3zM19 14l.9 2.6L22.5 17.5l-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9L19 14z" />
   </svg>
 );
 
-export default function ActivityTicker({
-  tools,
-  thoughts,
-  elapsedLabel,
-  estimateLabel,
-  thinkingLabel = 'Thinking…',
-  onExpand,
-}: ActivityTickerProps) {
-  // Interleave tools and thoughts chronologically
-  const items: TickerItem[] = [
-    ...tools.map(toolItem),
-    ...(thoughts ?? []).map(thoughtItem),
-  ].sort((a, b) => a.order - b.order);
+// Opacity of trail rows by distance from the current action (last = most recent)
+const TRAIL_OPACITY = [0.55, 0.3, 0.14];
+export const TRAIL_LENGTH = TRAIL_OPACITY.length;
 
-  // The current item is the last still-active one; if everything has settled,
-  // the model is deciding its next move → show the generic thinking label.
-  const activeIdx = items.map(i => i.active).lastIndexOf(true);
-  const current = activeIdx >= 0 ? items[activeIdx] : null;
-  const trail = items.filter((it, i) => i !== activeIdx && !it.active).slice(-TRAIL_OPACITY.length);
-
-  const currentLabel = current
-    ? current.isThought
-      ? tail(current.rawThought || '', 110)
-      : current.detail ? `${current.label} ${current.detail}` : `${current.label}…`
-    : thinkingLabel;
-
+/** The evaporating trail — the last few settled items at decreasing opacity. */
+export function ActivityTrail({ items }: { items: TickerItem[] }) {
+  const trail = items.slice(-TRAIL_LENGTH);
   return (
-    <div
-      onClick={onExpand}
-      className="group cursor-pointer select-none py-1 -mx-1 px-1 rounded-lg transition-colors hover:bg-stone-50"
-      role="button"
-      aria-label="Show all steps"
-    >
-      <div className="flex flex-col gap-[5px]">
-        {/* Evaporating trail of finished actions and thoughts */}
-        {trail.map((e, i) => (
-          <div
-            key={e.id}
-            style={{ opacity: TRAIL_OPACITY[trail.length - 1 - i] }}
-            className="flex items-center gap-2 min-w-0 transition-opacity duration-700 ease-out"
-          >
-            <span className="w-3 flex justify-center flex-shrink-0">
-              {e.isThought ? (
-                <SparkleIcon className="w-3 h-3 text-stone-400" />
-              ) : e.isError ? (
-                <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-              )}
-            </span>
-            <span className={`text-[13px] leading-5 text-stone-500 truncate min-w-0 ${e.isThought ? 'italic text-stone-400' : ''}`}>
-              {e.label}
-              {e.detail && <span className="text-stone-400"> · {e.detail}</span>}
-            </span>
-          </div>
-        ))}
-
-        {/* Current action — live dot + shimmering light text */}
-        <div key={current?.id ?? 'thinking'} className="flex items-center gap-2 min-w-0 animate-activity-in">
-          <span className="relative w-3 h-3 flex items-center justify-center flex-shrink-0">
-            <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
-            <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500" />
-          </span>
-          <span className={`text-[13px] leading-5 activity-shimmer-text truncate min-w-0 flex-1 ${current?.isThought ? 'italic' : ''}`}>
-            {currentLabel}
-          </span>
-
-          {/* Meta: estimate + elapsed + expand affordance */}
-          <span className="flex items-center gap-2 flex-shrink-0 pl-2">
-            {estimateLabel && (
-              <span className="hidden xs:inline text-[11px] text-stone-400">{estimateLabel}</span>
+    <div className="flex flex-col gap-[5px] pb-[5px]">
+      {trail.map((e, i) => (
+        <div
+          key={e.id}
+          style={{ opacity: TRAIL_OPACITY[trail.length - 1 - i] }}
+          className="flex items-center gap-2 min-w-0 transition-opacity duration-700 ease-out"
+        >
+          <span className="w-3 flex justify-center flex-shrink-0">
+            {e.isThought ? (
+              <SparkleIcon className="w-3 h-3 text-stone-400" />
+            ) : e.isError ? (
+              <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
             )}
-            {elapsedLabel && (
-              <span className="text-[11px] text-stone-400 tabular-nums">{elapsedLabel}</span>
-            )}
-            <svg
-              className="w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-colors"
-              fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-            >
-              <path d="M9 5l7 7-7 7" />
-            </svg>
+          </span>
+          <span className={`text-[13px] leading-5 truncate min-w-0 ${e.isThought ? 'italic text-stone-400' : 'text-stone-500'}`}>
+            {e.label}
+            {e.detail && <span className="text-stone-400"> · {e.detail}</span>}
           </span>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
