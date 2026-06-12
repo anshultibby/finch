@@ -1,4 +1,4 @@
-import { View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity, StyleSheet, Modal, Pressable, Alert, Share, TextInput } from 'react-native';
+import { View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity, StyleSheet, Modal, Pressable, Alert, Share, TextInput, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -38,12 +38,24 @@ export default function ChatScreen() {
     messages,
     streamingText,
     streamingTools,
+    todos,
+    thinkingText,
     isStreaming,
     error,
     setMessages,
     sendMessage,
     stopStream,
+    recoverIfStalled,
   } = useChatStream(user?.id || '', id);
+
+  // iOS suspends the SSE socket when the app is backgrounded. On return,
+  // check whether the backend finished while we were away and load the result.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') recoverIfStalled().catch(() => {});
+    });
+    return () => sub.remove();
+  }, [recoverIfStalled]);
 
   useEffect(() => {
     chatApi.getModels().then(setModels).catch(() => {});
@@ -259,7 +271,7 @@ export default function ChatScreen() {
               onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
               ListFooterComponent={
                 isStreaming ? (
-                  <StreamingView text={streamingText} tools={streamingTools} />
+                  <StreamingView text={streamingText} tools={streamingTools} todos={todos} thinkingText={thinkingText} />
                 ) : error ? (
                   <View className="bg-red-50 rounded-xl p-3 mb-3">
                     {/* Credit errors get neutral copy: no purchase prompts or
@@ -273,7 +285,7 @@ export default function ChatScreen() {
                 ) : null
               }
             />
-            <ChatInput onSend={handleSend} onStop={stopStream} isStreaming={isStreaming} />
+            <ChatInput onSend={handleSend} onStop={stopStream} isStreaming={isStreaming} chatId={id} />
           </>
         )}
       </KeyboardAvoidingView>

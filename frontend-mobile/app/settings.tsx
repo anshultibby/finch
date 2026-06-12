@@ -3,9 +3,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { creditsApi, apiKeysApi, robinhoodApi, accountApi } from '@/lib/api';
+import { creditsApi, apiKeysApi, robinhoodApi, accountApi, UserPreferences } from '@/lib/api';
 import { connectRobinhood } from '@/lib/robinhoodAuth';
-import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles } from 'lucide-react-native';
+import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
@@ -27,15 +27,74 @@ export default function SettingsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [requireApproval, setRequireApproval] = useState(true);
   const [prefsBusy, setPrefsBusy] = useState(false);
+  const [briefEnabled, setBriefEnabled] = useState(false);
+  const [briefTime, setBriefTime] = useState('08:00');
+  const [briefPhoneDraft, setBriefPhoneDraft] = useState('');
+  const [briefPhoneSaved, setBriefPhoneSaved] = useState('');
 
   useEffect(() => {
     if (user) {
       creditsApi.getBalance(user.id).then(data => setCredits(data.credits)).catch(() => {});
       apiKeysApi.getKeys(user.id).then(data => setApiKeys(data.keys || [])).catch(() => {});
       robinhoodApi.checkStatus(user.id).then(d => setRhConnected(d.is_connected)).catch(() => {});
-      accountApi.getPreferences(user.id).then(p => setRequireApproval(p.require_trade_approval)).catch(() => {});
+      accountApi.getPreferences(user.id).then(p => {
+        setRequireApproval(p.require_trade_approval);
+        setBriefEnabled(p.morning_brief_enabled ?? false);
+        setBriefTime(p.morning_brief_time || '08:00');
+        setBriefPhoneDraft(p.morning_brief_phone || '');
+        setBriefPhoneSaved(p.morning_brief_phone || '');
+      }).catch(() => {});
     }
   }, [user]);
+
+  // The brief schedule is pinned to the device's timezone on every change, so
+  // it lands at the right local hour without ever asking the user.
+  const deviceTimezone = () => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  };
+
+  const saveBriefPrefs = async (updates: Partial<UserPreferences>, revert: () => void) => {
+    if (!user) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const p = await accountApi.updatePreferences(user.id, {
+        ...updates,
+        morning_brief_timezone: deviceTimezone(),
+      });
+      setBriefEnabled(p.morning_brief_enabled);
+      setBriefTime(p.morning_brief_time);
+      setBriefPhoneSaved(p.morning_brief_phone || '');
+    } catch {
+      revert();
+      Alert.alert('Could not save', 'Please try again.');
+    }
+  };
+
+  const handleToggleBrief = (value: boolean) => {
+    const prev = briefEnabled;
+    setBriefEnabled(value); // optimistic
+    saveBriefPrefs({ morning_brief_enabled: value }, () => setBriefEnabled(prev));
+  };
+
+  const handleSelectBriefTime = (time: string) => {
+    const prev = briefTime;
+    setBriefTime(time); // optimistic
+    saveBriefPrefs({ morning_brief_time: time }, () => setBriefTime(prev));
+  };
+
+  const handleSaveBriefPhone = () => {
+    const phone = briefPhoneDraft.trim();
+    if (phone === briefPhoneSaved) return;
+    if (phone && !/^\+[1-9]\d{6,14}$/.test(phone)) {
+      Alert.alert('Invalid number', 'Use international format, e.g. +15551234567.');
+      return;
+    }
+    saveBriefPrefs({ morning_brief_phone: phone }, () => setBriefPhoneDraft(briefPhoneSaved));
+  };
 
   const handleToggleApproval = async (value: boolean) => {
     if (!user || prefsBusy) return;
@@ -234,6 +293,65 @@ export default function SettingsScreen() {
               thumbColor="#ffffff"
             />
           </View>
+        </View>
+
+        {/* Morning Brief */}
+        <View style={styles.menuCard} className="mb-3">
+          <View className="p-3.5 flex-row items-center justify-between">
+            <View className="flex-row items-center gap-3 flex-1 pr-3">
+              <View style={[styles.iconBox, { backgroundColor: '#fff7ed' }]}>
+                <Sunrise size={16} color="#ea580c" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[13px] font-body-medium text-gray-900">Morning brief</Text>
+                <Text className="text-[11px] font-body text-gray-500">
+                  {briefEnabled
+                    ? `Daily at ${briefTime} — your holdings & watchlist news`
+                    : 'A daily digest of your holdings & watchlist'}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={briefEnabled}
+              onValueChange={handleToggleBrief}
+              trackColor={{ false: '#d6d3d1', true: '#059669' }}
+              thumbColor="#ffffff"
+            />
+          </View>
+
+          {briefEnabled && (
+            <View className="px-3.5 pb-3.5 border-t border-gray-100">
+              <Text className="text-[11px] font-body-medium text-gray-400 mt-3 mb-2 uppercase tracking-wide">Delivery time</Text>
+              <View className="flex-row flex-wrap gap-1.5">
+                {['06:30', '07:00', '07:30', '08:00', '08:30', '09:00'].map(t => (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => handleSelectBriefTime(t)}
+                    style={[styles.timeChip, briefTime === t && styles.timeChipActive]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.timeChipText, briefTime === t && styles.timeChipTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text className="text-[11px] font-body-medium text-gray-400 mt-3.5 mb-1.5 uppercase tracking-wide">WhatsApp (optional)</Text>
+              <TextInput
+                value={briefPhoneDraft}
+                onChangeText={setBriefPhoneDraft}
+                onBlur={handleSaveBriefPhone}
+                onSubmitEditing={handleSaveBriefPhone}
+                placeholder="+15551234567"
+                placeholderTextColor="#d1d5db"
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                style={styles.textInput}
+                returnKeyType="done"
+              />
+              <Text className="text-[10px] font-body text-gray-400">
+                Delivered by push and email{briefPhoneSaved ? ' and WhatsApp' : ''}, in your local timezone.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Notifications */}
@@ -444,5 +562,25 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     backgroundColor: '#111827',
+  },
+  timeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e7e5e4',
+    backgroundColor: '#fff',
+  },
+  timeChipActive: {
+    borderColor: '#059669',
+    backgroundColor: '#ecfdf5',
+  },
+  timeChipText: {
+    fontSize: 12,
+    fontFamily: 'DMSans-Medium',
+    color: '#6b7280',
+  },
+  timeChipTextActive: {
+    color: '#059669',
   },
 });

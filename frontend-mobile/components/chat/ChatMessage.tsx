@@ -80,8 +80,11 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
     <Animated.View entering={FadeInDown.springify().damping(15).mass(0.7)} className={`mb-3 ${isUser ? 'items-end' : 'items-start'}`}>
       {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
         <View className="w-full mb-1.5">
-          {message.toolCalls.map((tc) => (
-            <ToolCallCard key={tc.tool_call_id} toolCall={tc} />
+          {message.toolCalls.map((tc, i) => (
+            // Sub-agent (delegated) tools are indented under their parent.
+            <View key={tc.tool_call_id || `${tc.tool_name}-${i}`} style={tc.task_id || tc.parent_agent_id ? { paddingLeft: 16 } : undefined}>
+              <ToolCallCard toolCall={tc} />
+            </View>
           ))}
         </View>
       )}

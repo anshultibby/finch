@@ -81,6 +81,16 @@ export async function unregisterPushToken(
   }
 }
 
+/** Keep the app icon badge in lockstep with the unread notification count. */
+export async function syncBadgeCount(count: number): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    await Notifications.setBadgeCountAsync(Math.max(0, count));
+  } catch {
+    // Badge support varies by launcher (Android) — never let this throw.
+  }
+}
+
 export function setupNotificationListeners() {
   const responseSubscription =
     Notifications.addNotificationResponseReceivedListener((response) => {

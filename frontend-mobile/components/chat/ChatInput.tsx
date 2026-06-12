@@ -1,33 +1,62 @@
 import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, Image, ScrollView, StyleSheet } from 'react-native';
-import { Send, Square, X, Plus } from 'lucide-react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, StyleSheet, ActivityIndicator, ActionSheetIOS, Alert, Platform } from 'react-native';
+import { Send, Square, X, Plus, FileText } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import { chatFilesApi } from '@/lib/api';
 import type { ImageAttachment } from '@/lib/types';
 import { COLORS } from '@/lib/constants';
+
+interface PendingDoc {
+  uri: string;
+  name: string;
+  mimeType: string;
+}
 
 interface ChatInputProps {
   onSend: (text: string, images?: ImageAttachment[]) => void;
   onStop?: () => void;
   isStreaming: boolean;
   placeholder?: string;
+  /** Required for document uploads — docs are staged in the chat's sandbox. */
+  chatId?: string;
 }
 
-export default function ChatInput({ onSend, onStop, isStreaming, placeholder }: ChatInputProps) {
+export default function ChatInput({ onSend, onStop, isStreaming, placeholder, chatId }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<{ uri: string; base64: string; type: string }[]>([]);
+  const [docs, setDocs] = useState<PendingDoc[]>([]);
+  const [uploading, setUploading] = useState(false);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input.trim();
-    if (!text && images.length === 0) return;
-    if (isStreaming) return;
+    if (!text && images.length === 0 && docs.length === 0) return;
+    if (isStreaming || uploading) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    let message = text;
+    if (docs.length > 0 && chatId) {
+      setUploading(true);
+      try {
+        const uploaded = await Promise.all(docs.map(d => chatFilesApi.uploadFile(chatId, d)));
+        // Same convention as web: the agent finds the files at these sandbox paths.
+        message = `[Uploaded files]\n${uploaded.map(f => f.path).join('\n')}\n\n${text}`;
+      } catch {
+        Alert.alert('Upload failed', 'Could not upload the attached files. Please try again.');
+        setUploading(false);
+        return;
+      }
+      setUploading(false);
+    }
+
     const attachments: ImageAttachment[] | undefined = images.length > 0
       ? images.map(img => ({ data: img.base64, media_type: img.type }))
       : undefined;
-    onSend(text, attachments);
+    onSend(message, attachments);
     setInput('');
     setImages([]);
+    setDocs([]);
   };
 
   const pickImage = async () => {
@@ -47,17 +76,73 @@ export default function ChatInput({ onSend, onStop, isStreaming, placeholder }: 
     }
   };
 
-  const hasContent = input.trim().length > 0 || images.length > 0;
+  const pickDocument = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'text/csv', 'text/comma-separated-values', 'text/plain',
+             'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      copyToCacheDirectory: true,
+      multiple: true,
+    });
+    if (result.canceled) return;
+    setDocs(prev => [
+      ...prev,
+      ...result.assets.map(a => ({
+        uri: a.uri,
+        name: a.name,
+        mimeType: a.mimeType || 'application/octet-stream',
+      })),
+    ]);
+  };
+
+  const handleAttach = () => {
+    // Documents need a chat sandbox to upload into; without one, images only.
+    if (!chatId) {
+      pickImage();
+      return;
+    }
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Cancel', 'Photo', 'Document (PDF, CSV…)'], cancelButtonIndex: 0 },
+        (index) => {
+          if (index === 1) pickImage();
+          if (index === 2) pickDocument();
+        }
+      );
+    } else if (Platform.OS === 'android') {
+      Alert.alert('Attach', undefined, [
+        { text: 'Photo', onPress: pickImage },
+        { text: 'Document (PDF, CSV…)', onPress: pickDocument },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    } else {
+      pickImage();
+    }
+  };
+
+  const hasContent = input.trim().length > 0 || images.length > 0 || docs.length > 0;
+  const busy = isStreaming || uploading;
 
   return (
     <View style={styles.container}>
-      {images.length > 0 && (
+      {(images.length > 0 || docs.length > 0) && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 6, marginHorizontal: 8 }} contentContainerStyle={{ gap: 6 }}>
           {images.map((img, i) => (
-            <View key={i}>
+            <View key={`img-${i}`}>
               <Image source={{ uri: img.uri }} style={{ width: 40, height: 40, borderRadius: 8 }} />
               <TouchableOpacity
                 onPress={() => setImages(prev => prev.filter((_, idx) => idx !== i))}
+                style={styles.removeImage}
+              >
+                <X size={8} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          ))}
+          {docs.map((doc, i) => (
+            <View key={`doc-${i}`} style={styles.docChip}>
+              <FileText size={13} color={COLORS.gray500} />
+              <Text style={styles.docName} numberOfLines={1}>{doc.name}</Text>
+              <TouchableOpacity
+                onPress={() => setDocs(prev => prev.filter((_, idx) => idx !== i))}
                 style={styles.removeImage}
               >
                 <X size={8} color="#fff" />
@@ -68,7 +153,7 @@ export default function ChatInput({ onSend, onStop, isStreaming, placeholder }: 
       )}
 
       <View style={styles.row}>
-        <TouchableOpacity onPress={pickImage} disabled={isStreaming} style={styles.attachBtn} activeOpacity={0.6}>
+        <TouchableOpacity onPress={handleAttach} disabled={busy} style={styles.attachBtn} activeOpacity={0.6}>
           <Plus size={18} color={COLORS.gray400} strokeWidth={2} />
         </TouchableOpacity>
 
@@ -80,7 +165,7 @@ export default function ChatInput({ onSend, onStop, isStreaming, placeholder }: 
           multiline
           maxLength={10000}
           style={styles.input}
-          editable={!isStreaming}
+          editable={!busy}
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
         />
@@ -96,11 +181,13 @@ export default function ChatInput({ onSend, onStop, isStreaming, placeholder }: 
         ) : (
           <TouchableOpacity
             onPress={handleSend}
-            disabled={!hasContent}
+            disabled={!hasContent || uploading}
             style={[styles.sendBtn, { backgroundColor: hasContent ? '#059669' : '#e5e7eb' }]}
             activeOpacity={0.8}
           >
-            <Send size={13} color={hasContent ? '#fff' : '#9ca3af'} />
+            {uploading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Send size={13} color={hasContent ? '#fff' : '#9ca3af'} />}
           </TouchableOpacity>
         )}
       </View>
@@ -164,5 +251,23 @@ const styles = StyleSheet.create({
     height: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  docChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 40,
+    maxWidth: 160,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  docName: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontFamily: 'DMSans-Medium',
+    color: '#374151',
   },
 });

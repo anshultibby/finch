@@ -6,6 +6,7 @@ import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { snaptradeApi, marketApi, watchlistApi, notificationsApi } from '@/lib/api';
 import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
+import { syncBadgeCount } from '@/lib/pushNotifications';
 import type { SnapTradeStatusResponse } from '@/lib/types';
 import { AlertTriangle } from 'lucide-react-native';
 import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell, Lock } from 'lucide-react-native';
@@ -204,7 +205,11 @@ export default function HomeScreen() {
       if (!isCacheFresh('home-watchlist', TTL)) fetchWatchlist().then(() => touchCache('home-watchlist'));
       if (!isCacheFresh('home-portfolio', TTL)) fetchPortfolio().then(() => touchCache('home-portfolio'));
     }
-    notificationsApi.getUnreadCount().then(d => setUnreadCount(d.unread_count || 0)).catch(() => {});
+    notificationsApi.getUnreadCount().then(d => {
+      const count = d.unread_count || 0;
+      setUnreadCount(count);
+      syncBadgeCount(count);
+    }).catch(() => {});
   }, [user, marketRegion, fetchMarkets, fetchEarnings, fetchWatchlist, fetchPortfolio]));
 
   const onRefresh = useCallback(async () => {

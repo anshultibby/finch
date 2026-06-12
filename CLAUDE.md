@@ -74,7 +74,12 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | Message actions (copy, feedback) | ✅ | ✅ | |
 | Tool call expansion (view output) | ✅ | ✅ | |
 | Sidebar/drawer navigation | ✅ | ✅ | |
-| Chat file uploads (PDF/CSV) | ✅ | ❌ | Mobile has images only |
+| Chat file uploads (PDF/CSV) | ✅ | ✅ | |
+| Live task checklist (update_todos) | ✅ | ✅ | |
+| Live thinking stream | ✅ | ✅ | Mobile shows pulsing tail line |
+| Stream drop recovery (poll /chat/status) | ✅ | ✅ | Mobile also recovers on app foreground |
+| Morning brief settings | ✅ | ✅ | |
+| App icon badge (unread) | — | ✅ | Mobile-only by nature |
 | Swaps (tax-loss harvesting) | ✅ | ❌ | Complex feature |
 | Visualizations gallery | ✅ | ❌ | Requires iframe/WebView |
 | TradingView chart | ✅ | ❌ | Needs WebView embed |

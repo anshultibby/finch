@@ -91,7 +91,14 @@ export interface ToolCallStatus {
   parent_agent_id?: string;
   sub_agent_id?: string;
   sub_agent_chat_id?: string;
+  task_id?: string;
   _insertionOrder?: number;
+}
+
+/** One entry of the agent's live task-phase checklist (update_todos tool). */
+export interface TodoItem {
+  text: string;
+  status: 'pending' | 'in_progress' | 'completed';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,6 +112,7 @@ export interface SSEToolCallStartEvent {
   user_description?: string;
   agent_id: string;
   parent_agent_id?: string;
+  task_id?: string;
   timestamp: string;
 }
 
@@ -122,7 +130,12 @@ export interface SSEToolCallCompleteEvent {
   parent_agent_id?: string;
   sub_agent_id?: string;
   sub_agent_chat_id?: string;
+  task_id?: string;
   timestamp: string;
+}
+
+export interface SSETodoUpdateEvent {
+  todos: TodoItem[];
 }
 
 export interface SSEAssistantMessageDeltaEvent {

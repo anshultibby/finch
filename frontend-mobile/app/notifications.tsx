@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
 import { notificationsApi } from '@/lib/api';
+import { syncBadgeCount } from '@/lib/pushNotifications';
 import { MessageSquare, TrendingUp, Bell, CheckCheck } from 'lucide-react-native';
 import { COLORS, formatRelativeTime } from '@/lib/constants';
 
@@ -32,7 +33,9 @@ export default function NotificationsScreen() {
   const fetchNotifications = useCallback(async () => {
     try {
       const data = await notificationsApi.getNotifications(50);
-      setNotifications(data.notifications || []);
+      const items: NotificationItem[] = data.notifications || [];
+      setNotifications(items);
+      syncBadgeCount(items.filter(n => !n.read).length);
     } catch {} finally {
       setLoading(false);
     }
@@ -50,6 +53,7 @@ export default function NotificationsScreen() {
     try {
       await notificationsApi.markRead();
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      syncBadgeCount(0);
     } catch {}
   };
 
@@ -57,7 +61,11 @@ export default function NotificationsScreen() {
     if (!notif.read) {
       try {
         await notificationsApi.markRead([notif.id]);
-        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
+        setNotifications(prev => {
+          const next = prev.map(n => n.id === notif.id ? { ...n, read: true } : n);
+          syncBadgeCount(next.filter(n => !n.read).length);
+          return next;
+        });
       } catch {}
     }
 

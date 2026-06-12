@@ -28,8 +28,10 @@ import type {
   SSEToolCallDetectedEvent,
   SSEToolCallStreamingEvent,
   SSEOptionsEvent,
+  SSETodoUpdateEvent,
   SSEDoneEvent,
   SSEErrorEvent,
+  FileAttachment,
   ToolCallStatus,
   ApiKeysResponse,
   ApiKeyResponse,
@@ -78,9 +80,13 @@ export interface SSEEventHandlers {
   onFileContent?: (event: SSEFileContentEvent) => void;
   onToolCallStreaming?: (event: SSEToolCallStreamingEvent) => void;
   onTimeEstimate?: (event: { estimated_seconds: number; estimated_tools: number; description: string }) => void;
+  onTodoUpdate?: (event: SSETodoUpdateEvent) => void;
+  onThinkingDelta?: (event: { delta: string }) => void;
   onOptions?: (event: SSEOptionsEvent) => void;
   onDone?: (event: SSEDoneEvent) => void;
   onError?: (event: SSEErrorEvent) => void;
+  /** Fired when a dropped stream finished server-side — reload history to show the result. */
+  onStreamRecovered?: () => void;
 }
 
 export const chatApi = {
@@ -159,6 +165,12 @@ export const chatApi = {
         case 'time_estimate':
           handlers.onTimeEstimate?.(eventData as { estimated_seconds: number; estimated_tools: number; description: string });
           break;
+        case 'todo_update':
+          handlers.onTodoUpdate?.(eventData as SSETodoUpdateEvent);
+          break;
+        case 'thinking_delta':
+          handlers.onThinkingDelta?.(eventData as { delta: string });
+          break;
         case 'tool_options':
           handlers.onOptions?.(eventData as SSEOptionsEvent);
           break;
@@ -204,6 +216,9 @@ export const chatApi = {
 
             if (!eventStr.trim()) continue;
 
+            // Skip SSE comments (heartbeat keepalives from the server)
+            if (eventStr.startsWith(':')) continue;
+
             const eventMatch = eventStr.match(/event:\s*(\w+)/);
             const dataMatch = eventStr.match(/data:\s*([\s\S]+)/);
 
@@ -220,7 +235,27 @@ export const chatApi = {
         reader.cancel().catch(() => {});
       } catch (error: any) {
         if (!isClosed && error.name !== 'AbortError') {
-          handlers.onError?.({ error: error.message, timestamp: new Date().toISOString() });
+          // The connection dropped (flaky cellular, app backgrounded, …) but the
+          // backend keeps processing. Poll status until it finishes, then let the
+          // UI reload the completed result from history instead of erroring out.
+          const POLL_INTERVAL = 3000;
+          const MAX_POLLS = 100; // ~5 minutes
+          for (let i = 0; i < MAX_POLLS && !isClosed; i++) {
+            try {
+              const status = await chatApi.checkChatStatus(chatId);
+              if (!status.is_processing) {
+                handlers.onStreamRecovered?.();
+                handlers.onDone?.({ message: 'Stream recovered', timestamp: new Date().toISOString() });
+                return;
+              }
+            } catch {
+              // Status check failed — keep trying
+            }
+            await new Promise(r => setTimeout(r, POLL_INTERVAL));
+          }
+          if (!isClosed) {
+            handlers.onError?.({ error: 'Connection lost. Pull to refresh to see the result.', timestamp: new Date().toISOString() });
+          }
         }
       }
     };
@@ -308,6 +343,23 @@ export const chatApi = {
       comment,
       message_content: messageContent,
     });
+  },
+};
+
+export const chatFilesApi = {
+  /** Upload a document (PDF/CSV/…) to the user's sandbox so the agent can read it. */
+  uploadFile: async (
+    chatId: string,
+    file: { uri: string; name: string; mimeType: string },
+  ): Promise<FileAttachment> => {
+    const formData = new FormData();
+    // React Native FormData takes a {uri, name, type} descriptor instead of a Blob.
+    formData.append('file', { uri: file.uri, name: file.name, type: file.mimeType } as any);
+    const response = await api.post(`/api/chat-files/${chatId}/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    const d = response.data;
+    return { name: d.filename, path: d.path, media_type: d.media_type };
   },
 };
 
@@ -481,6 +533,10 @@ export const creditsApi = {
 
 export interface UserPreferences {
   require_trade_approval: boolean;
+  morning_brief_enabled: boolean;
+  morning_brief_time: string;     // HH:MM (local)
+  morning_brief_timezone: string; // IANA, e.g. Asia/Kolkata
+  morning_brief_phone: string;    // E.164 WhatsApp number; empty disables WhatsApp
 }
 
 export const accountApi = {
