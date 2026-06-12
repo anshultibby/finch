@@ -22,6 +22,7 @@ DEFAULT_PREFERENCES: Dict[str, Any] = {
     "morning_brief_enabled": False,
     "morning_brief_time": "08:00",       # HH:MM in the user's local timezone
     "morning_brief_timezone": "UTC",     # IANA name, e.g. Asia/Kolkata
+    "morning_brief_phone": "",           # E.164 WhatsApp number, empty = off
 }
 
 _PREFS_KEY = "preferences"

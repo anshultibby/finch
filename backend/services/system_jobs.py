@@ -38,8 +38,11 @@ _NIGHTLY_MESSAGE = (
     "session_state(), reconcile journal vs broker, grade today's trades, apply "
     "kill criteria via setup_stats(), pull tomorrow's earnings calendar (FMP) and "
     "macro events (fred skill), set tomorrow's risk and rules of engagement, "
-    "write_plan(), append_note(). Place no orders. If the user has never traded "
-    "and has no journal, keep it to a one-paragraph plan and stop — stay cheap."
+    "write_plan(), append_note(). Then ensure the next trading day's intraday "
+    "decision-point jobs exist — one-off ENTRY/MANAGE/FLATTEN per the skill's "
+    "Scheduling section (list_jobs() first; create only what's missing). Place "
+    "no orders. If the operation isn't set up (no strategy and no journal), keep "
+    "it to a one-paragraph plan, schedule nothing, and stop — stay cheap."
 )
 
 
@@ -149,6 +152,16 @@ async def ensure_day_trading_nightly(user_id: str) -> None:
             first_run_at=_next_nightly_utc(),
             recurrence="weekdays",
         )
+        # ensure_system_job leaves existing rows untouched — refresh the message
+        # so prompt improvements reach already-provisioned jobs.
+        async with get_db_session() as db:
+            row = (await db.execute(
+                select(ScheduledJob).where(ScheduledJob.user_id == user_id,
+                                           ScheduledJob.system_key == DAY_TRADING_NIGHTLY)
+            )).scalars().first()
+            if row and row.message != _NIGHTLY_MESSAGE:
+                row.message = _NIGHTLY_MESSAGE
+                await db.commit()
     except Exception as e:
         # Provisioning must never break the connect flow.
         logger.error(f"Failed to provision {DAY_TRADING_NIGHTLY} for {user_id}: {e}")

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { chatApi } from '@/lib/api';
 import { Menu, SquarePen, MessageSquare } from 'lucide-react-native';
 import FinchLogo from '@/components/FinchLogo';
+import SignInPrompt from '@/components/SignInPrompt';
 
 export default function ChatIndexScreen() {
   const { user } = useAuth();
@@ -13,7 +14,10 @@ export default function ChatIndexScreen() {
   const router = useRouter();
 
   const createNewChat = async () => {
-    if (!user) return;
+    if (!user) {
+      router.push('/(auth)/login');
+      return;
+    }
     try {
       const chatId = await chatApi.createChat(user.id);
       router.push(`/(tabs)/chat/${chatId}`);
@@ -32,18 +36,25 @@ export default function ChatIndexScreen() {
         </TouchableOpacity>
       </View>
 
-      <View className="flex-1 items-center justify-center px-8">
-        <View style={styles.iconCircle}>
-          <MessageSquare size={28} color="#9ca3af" />
+      {user ? (
+        <View className="flex-1 items-center justify-center px-8">
+          <View style={styles.iconCircle}>
+            <MessageSquare size={28} color="#9ca3af" />
+          </View>
+          <Text style={styles.title}>Start a conversation</Text>
+          <Text style={styles.subtitle}>
+            Ask about stocks, analyze your portfolio, or get investment research.
+          </Text>
+          <TouchableOpacity onPress={createNewChat} style={styles.newChatBtn} activeOpacity={0.8}>
+            <Text style={styles.newChatText}>New Chat</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.title}>Start a conversation</Text>
-        <Text style={styles.subtitle}>
-          Ask about stocks, analyze your portfolio, or get investment research.
-        </Text>
-        <TouchableOpacity onPress={createNewChat} style={styles.newChatBtn} activeOpacity={0.8}>
-          <Text style={styles.newChatText}>New Chat</Text>
-        </TouchableOpacity>
-      </View>
+      ) : (
+        <SignInPrompt
+          title="Chat with your AI research desk"
+          description="Sign in to ask questions, run research, and analyze your portfolio with Finch's AI agent."
+        />
+      )}
     </SafeAreaView>
   );
 }

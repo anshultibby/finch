@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, TextInput, FlatList, Alert, Platform, StyleSheet, KeyboardAvoidingView, Dimensions } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, TextInput, FlatList, Alert, Platform, StyleSheet, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDrawer } from '@/contexts/DrawerContext';
@@ -19,6 +19,7 @@ import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import AgentTabView from '@/components/AgentTabView';
 import AskBar from '@/components/chat/AskBar';
+import SignInPrompt from '@/components/SignInPrompt';
 import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -26,8 +27,15 @@ import * as WebBrowser from 'expo-web-browser';
 
 type MarketRegion = 'us' | 'india';
 
-// Two index cards per row: account for 16px side padding + 10px inter-card gap.
-const IDX_CARD_W = (Dimensions.get('window').width - 16 * 2 - 10) / 2;
+// Index cards per row: 2 on phones, 4 on tablet-width windows. Account for
+// 16px side padding + 10px inter-card gaps. Must be derived from the LIVE
+// window width (useWindowDimensions) — a value captured at module load goes
+// stale when iPadOS resizes the app window, leaving the grid overflowing or
+// cramped.
+const idxCardWidth = (windowWidth: number) => {
+  const cols = windowWidth >= 700 ? 4 : 2;
+  return (windowWidth - 16 * 2 - 10 * (cols - 1)) / cols;
+};
 
 const MARKET_INDICES: Record<MarketRegion, { symbol: string; label: string }[]> = {
   us: [
@@ -234,7 +242,10 @@ export default function HomeScreen() {
   };
 
   const newChat = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      router.push('/(auth)/login');
+      return;
+    }
     try {
       const { chatApi } = await import('@/lib/api');
       const chatId = await chatApi.createChat(user.id);
@@ -411,14 +422,27 @@ export default function HomeScreen() {
             />
           )}
           {activeTab === 'watchlist' && (
-            <WatchlistTab
-              items={watchlistItems} loading={watchlistLoading}
-              refreshing={refreshing} onRefresh={onRefresh}
-              onStockPress={(s) => router.push(`/stock/${s}`)}
-              onRemove={removeFromWatchlist}
+            user ? (
+              <WatchlistTab
+                items={watchlistItems} loading={watchlistLoading}
+                refreshing={refreshing} onRefresh={onRefresh}
+                onStockPress={(s) => router.push(`/stock/${s}`)}
+                onRemove={removeFromWatchlist}
+              />
+            ) : (
+              <SignInPrompt
+                title="Track your favorite stocks"
+                description="Sign in to build a watchlist and follow the symbols you care about."
+              />
+            )
+          )}
+          {activeTab === 'portfolio' && !user && (
+            <SignInPrompt
+              title="See your portfolio in one place"
+              description="Sign in to securely connect your brokerage and track holdings, performance, and trades."
             />
           )}
-          {activeTab === 'portfolio' && (
+          {activeTab === 'portfolio' && user && (
             <PortfolioTab
               isConnected={isConnected}
               reverify={reverify}
@@ -435,7 +459,14 @@ export default function HomeScreen() {
             />
           )}
           {activeTab === 'agent' && (
-            <AgentTabView userId={user?.id || ''} />
+            user ? (
+              <AgentTabView userId={user.id} />
+            ) : (
+              <SignInPrompt
+                title="Meet your trading agent"
+                description="Sign in to set up an AI agent that researches and manages trades with your approval."
+              />
+            )
           )}
           </View>
 
@@ -461,6 +492,8 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
   updatedAt: string;
 }) {
   const [showRegionPicker, setShowRegionPicker] = useState(false);
+  const { width: windowWidth } = useWindowDimensions();
+  const cardW = idxCardWidth(windowWidth);
 
   if (loading) {
     return (
@@ -525,7 +558,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
           const q = indexQuotes[idx.symbol] || {};
           const up = (q.changesPercentage ?? 0) >= 0;
           return (
-            <TouchableOpacity key={idx.symbol} onPress={() => onStockPress(idx.symbol)} style={idxStyles.gridCard} activeOpacity={0.7}>
+            <TouchableOpacity key={idx.symbol} onPress={() => onStockPress(idx.symbol)} style={[idxStyles.gridCard, { width: cardW }]} activeOpacity={0.7}>
               <View className="flex-row items-center justify-between">
                 <Text style={idxStyles.cardLabel} numberOfLines={1}>{idx.label}</Text>
                 {q.changesPercentage != null && (
@@ -536,7 +569,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
               </View>
               <Text style={idxStyles.cardPrice}>{q.price ? formatCurrency(q.price, false, idx.symbol) : '—'}</Text>
               <View style={idxStyles.cardSpark}>
-                <MiniSparkline symbol={idx.symbol} width={IDX_CARD_W - 28} height={30} days={7} />
+                <MiniSparkline symbol={idx.symbol} width={cardW - 28} height={30} days={7} />
               </View>
             </TouchableOpacity>
           );
@@ -1421,7 +1454,6 @@ const idxStyles = StyleSheet.create({
     marginBottom: 20,
   },
   gridCard: {
-    width: IDX_CARD_W,
     backgroundColor: '#fff',
     borderRadius: 14,
     paddingHorizontal: 14,

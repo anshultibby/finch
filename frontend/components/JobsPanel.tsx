@@ -44,7 +44,9 @@ export default function JobsPanel() {
 
   const jobs = data?.jobs || [];
   const active = jobs.filter(j => ['pending', 'running', 'paused'].includes(j.status));
-  const past = jobs.filter(j => ['done', 'failed', 'cancelled'].includes(j.status));
+  const past = jobs
+    .filter(j => ['done', 'failed', 'cancelled'].includes(j.status))
+    .sort((a, b) => new Date(b.last_run_at || b.run_at).getTime() - new Date(a.last_run_at || a.run_at).getTime());
   const allPaused = active.length > 0 && active.every(j => j.status === 'paused');
   const isEmpty = active.length === 0 && past.length === 0;
 

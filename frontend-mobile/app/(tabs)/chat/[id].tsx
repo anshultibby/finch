@@ -262,15 +262,13 @@ export default function ChatScreen() {
                   <StreamingView text={streamingText} tools={streamingTools} />
                 ) : error ? (
                   <View className="bg-red-50 rounded-xl p-3 mb-3">
-                    <Text className="text-[13px] font-body text-red-600">{error}</Text>
-                    {(error.toLowerCase().includes('credit') || error.toLowerCase().includes('daily limit')) && (
-                      <TouchableOpacity
-                        onPress={() => router.push('/settings')}
-                        className="mt-2 bg-blue-600 rounded-lg py-2 px-4 self-start"
-                      >
-                        <Text className="text-white text-[13px] font-body-semibold">Add Credits</Text>
-                      </TouchableOpacity>
-                    )}
+                    {/* Credit errors get neutral copy: no purchase prompts or
+                        "contact support for credits" steering on iOS (3.1.1). */}
+                    <Text className="text-[13px] font-body text-red-600">
+                      {error.toLowerCase().includes('credit') || error.toLowerCase().includes('daily limit')
+                        ? "You've used up today's credits. Credits refresh automatically every day — check back soon."
+                        : error}
+                    </Text>
                   </View>
                 ) : null
               }

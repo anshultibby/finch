@@ -9,6 +9,7 @@ import { Star, Trash2, ChevronDown, Plus, X } from 'lucide-react-native';
 import { COLORS, formatCurrency, formatPct } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import EmptyState from '@/components/ui/EmptyState';
+import SignInPrompt from '@/components/SignInPrompt';
 
 interface WatchlistItem {
   symbol: string;
@@ -161,6 +162,20 @@ export default function WatchlistScreen() {
   };
 
   const selectedList = lists.find(l => l.id === selectedListId);
+
+  if (!user) {
+    return (
+      <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
+        <View className="px-5 pt-2 pb-3">
+          <Text className="text-2xl font-body-bold text-gray-900">Watchlist</Text>
+        </View>
+        <SignInPrompt
+          title="Track your favorite stocks"
+          description="Sign in to build a watchlist and follow the symbols you care about."
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>

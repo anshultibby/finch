@@ -7,7 +7,7 @@ import { useDrawer } from '@/contexts/DrawerContext';
 import { chatApi } from '@/lib/api';
 import {
   X, SquarePen, Search, Star, BarChart3, Wallet, Settings,
-  ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2,
+  ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2, LogIn,
 } from 'lucide-react-native';
 import FinchLogo from '@/components/FinchLogo';
 import { COLORS } from '@/lib/constants';
@@ -71,8 +71,11 @@ export default function Sidebar() {
   };
 
   const createNewChat = async () => {
-    if (!user) return;
     closeDrawer();
+    if (!user) {
+      router.push('/(auth)/login');
+      return;
+    }
     try {
       const chatId = await chatApi.createChat(user.id);
       router.push(`/(tabs)/chat/${chatId}`);
@@ -219,18 +222,30 @@ export default function Sidebar() {
 
         {/* Account footer */}
         <View style={styles.footer}>
-          <TouchableOpacity style={styles.profileRow} onPress={() => go('/settings')} activeOpacity={0.7}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.profileName} numberOfLines={1}>{fullName}</Text>
-              {!!user?.email && <Text style={styles.profileEmail} numberOfLines={1}>{user.email}</Text>}
-            </View>
-            <TouchableOpacity onPress={() => go('/settings')} style={styles.gearBtn} activeOpacity={0.7}>
-              <Settings size={18} color={COLORS.gray400} />
+          {user ? (
+            <TouchableOpacity style={styles.profileRow} onPress={() => go('/settings')} activeOpacity={0.7}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initial}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.profileName} numberOfLines={1}>{fullName}</Text>
+                {!!user?.email && <Text style={styles.profileEmail} numberOfLines={1}>{user.email}</Text>}
+              </View>
+              <TouchableOpacity onPress={() => go('/settings')} style={styles.gearBtn} activeOpacity={0.7}>
+                <Settings size={18} color={COLORS.gray400} />
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.profileRow} onPress={() => go('/(auth)/login')} activeOpacity={0.7}>
+              <View style={styles.avatar}>
+                <LogIn size={17} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.profileName} numberOfLines={1}>Sign in</Text>
+                <Text style={styles.profileEmail} numberOfLines={1}>Free to sign up</Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
       </Animated.View>
 

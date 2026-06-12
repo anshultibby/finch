@@ -1,6 +1,6 @@
 ---
 name: day_trading
-description: "Run a disciplined day-trading operation: scheduled decision points (plan → entry → manage → flatten), backtested setups (5-min ORB on stocks-in-play, VWAP reclaim, RSI(2) swing), code-enforced risk gates that persist across runs, and LLM catalyst triage. Pairs with robinhood (execution) and polygon_io (data). Routes trades through email approval by default."
+description: "Run a disciplined day-trading operation: scheduled decision points (plan → entry → manage → flatten), backtested setups (5-min ORB on stocks-in-play, VWAP reclaim, RSI(2) swing), code-enforced risk gates that persist across runs, and LLM catalyst triage. Pairs with robinhood (execution), polygon_io (historical data) and FMP (same-day data). Routes trades through email approval by default."
 metadata:
   emoji: "📈"
   category: trading
@@ -65,6 +65,8 @@ after a losing day**. `journal.write_plan(...)`, then `append_note(...)`.
 ### ENTRY — 09:36 ET (after the 5-min opening range completes)
 ```python
 candidates = stocks_in_play(top_n=10)        # true RVOL + ATR + today's RTH bars
+# data.py handles the Polygon same-day block itself (FMP fallback) — a Polygon
+# "not authorized" on today's bars is NOT a reason to abort the run.
 # Triage each catalyst (search the news). Keep ≤ 3.
 budget = RiskBudget.from_journal(equity)     # inherits today's losses from prior runs
 if budget.can_trade(account_value=equity)["ok"]:
@@ -167,16 +169,26 @@ retires itself; 10% account drawdown → full stop pending user reset.
 
 ## Scheduling
 
-`schedule_job` runs on UTC — fixed times drift an hour at DST changes and
-`weekdays` ignores holidays. Hence the `session()` guard, and the nightly PLAN
-re-anchors job times if today's runs fired in the wrong phase. ET targets:
-ENTRY 09:36 · MANAGE 10:15, 14:30 · FLATTEN 15:45 · PLAN at 22:00 UTC
-(17:00–18:00 ET; evening-ET times cross UTC midnight and break the weekdays
-recurrence — don't move it later). The PLAN job is provisioned automatically as
-a built-in automation ("Nightly trading plan") when the user connects
-Robinhood — comped, pausable in Automations, not cancellable. Job messages stay
-thin ("execute the day_trading skill's ENTRY decision point exactly") — the
-recipe lives here. Self-chaining allowed before 15:30 ET only.
+The nightly PLAN is the only standing job — provisioned automatically as a
+built-in automation ("Nightly trading plan") when the user connects Robinhood;
+comped, pausable in Automations, not cancellable. Nothing provisions the
+intraday runs for you: **every PLAN run ends by ensuring the next trading
+day's one-off jobs exist** — ENTRY 09:36 · MANAGE 10:15, 14:30 · FLATTEN
+15:45 ET (12:45 on `early_close` days). `list_jobs()` first and create only
+what's missing; one-offs die after running, so the nightly re-creating them IS
+the loop that keeps the operation alive. Skip the next calendar day if it
+fails `is_trading_day()` (target the next trading day instead), and schedule
+nothing if the operation isn't set up (no strategy.md, no journal).
+
+`schedule_job` takes UTC — fixed times drift an hour at DST changes and
+`weekdays` recurrence ignores holidays. That's why the intraday jobs are
+one-offs at freshly computed UTC times each night (convert that DATE's ET
+target via the clock helpers, never a remembered offset) and why every run
+opens with the `session()` guard. PLAN itself stays at 22:00 UTC (17:00–18:00
+ET; evening-ET times cross UTC midnight and break the weekdays recurrence —
+don't move it later). Job messages stay thin ("execute the day_trading skill's
+ENTRY decision point exactly") — the recipe lives here. Self-chaining allowed
+before 15:30 ET only.
 
 ## Hard rules
 

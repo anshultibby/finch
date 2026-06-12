@@ -1,5 +1,7 @@
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, TextInput, Alert, Platform } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
@@ -64,13 +66,21 @@ function useTypingAnimation() {
 }
 
 export default function LoginScreen() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { signInWithGoogle, signInWithApple, signInWithEmail, signUpWithEmail } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [showEmailLogin, setShowEmailLogin] = useState(false);
   const [emailMode, setEmailMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const typingText = useTypingAnimation();
+  const router = useRouter();
+
+  // Guests may browse markets without an account (guideline 5.1.1) — this
+  // screen must never be a dead end.
+  const browseAsGuest = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const handleSignIn = async () => {
     setIsLoading(true);
@@ -78,6 +88,21 @@ export default function LoginScreen() {
       await signInWithGoogle();
     } catch (error) {
       console.error('Sign in error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setIsLoading(true);
+    try {
+      await signInWithApple();
+    } catch (error: any) {
+      // The user dismissing the OS sheet is not an error worth surfacing.
+      if (error?.code !== 'ERR_REQUEST_CANCELED') {
+        console.error('Apple sign in error:', error);
+        Alert.alert('Sign in failed', error?.message || 'Could not sign in with Apple.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -143,7 +168,16 @@ export default function LoginScreen() {
           </Text>
         </View>
 
-        {/* CTA */}
+        {/* CTA — Apple first on iOS (guideline 4.8: equivalent prominence) */}
+        {Platform.OS === 'ios' && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+            cornerRadius={14}
+            style={styles.appleBtn}
+            onPress={handleAppleSignIn}
+          />
+        )}
         <TouchableOpacity
           onPress={handleSignIn}
           disabled={isLoading}
@@ -216,6 +250,10 @@ export default function LoginScreen() {
             <Text style={styles.emailToggleText}>Sign in with email</Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity onPress={browseAsGuest} style={styles.guestLink}>
+          <Text style={styles.guestLinkText}>Browse markets without an account →</Text>
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.legal}>
@@ -233,6 +271,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 32,
     justifyContent: 'center',
+    // Keep the hero + buttons readable on wide layouts (iPad landscape).
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 480,
   },
   logoRow: {
     flexDirection: 'row',
@@ -302,6 +344,10 @@ const styles = StyleSheet.create({
     color: '#059669',
     fontWeight: '300',
   },
+  appleBtn: {
+    height: 50,
+    marginBottom: 10,
+  },
   ctaBtn: {
     backgroundColor: '#ffffff',
     borderRadius: 14,
@@ -367,6 +413,15 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 15,
     fontFamily: 'DMSans-Medium',
+  },
+  guestLink: {
+    alignItems: 'center',
+    marginTop: 22,
+  },
+  guestLinkText: {
+    fontSize: 13,
+    fontFamily: 'DMSans-Medium',
+    color: '#059669',
   },
   legal: {
     textAlign: 'center',

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { ArrowUp, Sparkles } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,9 +21,31 @@ export default function AskBar({ placeholder = 'Ask anything…', prefix }: { pl
 
   const hasContent = text.trim().length > 0;
 
+  // Guests can't chat (account-based, costs credits) — the whole bar becomes a
+  // sign-in affordance instead of an editable input.
+  if (!user) {
+    return (
+      <View style={styles.wrap}>
+        <TouchableOpacity
+          style={styles.bar}
+          onPress={() => router.push('/(auth)/login')}
+          activeOpacity={0.8}
+        >
+          <Sparkles size={16} color={COLORS.emerald} />
+          <Text style={[styles.input, styles.guestPlaceholder]} numberOfLines={1}>
+            Sign in to ask Finch anything
+          </Text>
+          <View style={[styles.send, { backgroundColor: '#e5e7eb' }]}>
+            <ArrowUp size={16} color="#9ca3af" strokeWidth={2.6} />
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const submit = async () => {
     const q = text.trim();
-    if (!q || !user || busy) return;
+    if (!q || busy) return;
     setBusy(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
@@ -96,6 +118,9 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     paddingVertical: 10,
     maxHeight: 96,
+  },
+  guestPlaceholder: {
+    color: '#9ca3af',
   },
   send: {
     width: 34,

@@ -7,6 +7,7 @@ import { creditsApi, accountApi } from '@/lib/api';
 import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
+import SignInPrompt from '@/components/SignInPrompt';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -59,6 +60,20 @@ export default function ProfileScreen() {
       { text: 'Delete account', style: 'destructive', onPress: doDelete },
     ]);
   };
+
+  if (!user) {
+    return (
+      <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
+        <View className="px-4 h-11 justify-center">
+          <Text className="text-base font-body-bold text-gray-900">Profile</Text>
+        </View>
+        <SignInPrompt
+          title="Create your Finch account"
+          description="Sign in to manage your watchlist, portfolio connections, and notification settings."
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>

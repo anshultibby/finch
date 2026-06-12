@@ -13,7 +13,8 @@ from sqlalchemy import text
 
 from auth.dependencies import get_current_user_id
 from core.database import get_db_session
-from services.notifications import send_morning_brief_email
+from crud.user_preferences import get_user_preferences
+from services.notifications import send_morning_brief_email, send_morning_brief_whatsapp
 from services.push_notifications import send_push_notification
 from utils.logger import get_logger
 
@@ -47,6 +48,7 @@ async def send_brief(
             text("SELECT email FROM auth.users WHERE id = CAST(:uid AS uuid)"),
             {"uid": user_id},
         )).scalar()
+        prefs = await get_user_preferences(db, user_id)
 
     from core.config import Config
     chat_url = f"{Config.FRONTEND_URL}/chat/{body.chat_id}" if body.chat_id else None
@@ -70,5 +72,13 @@ async def send_brief(
     except Exception as e:
         logger.warning(f"Morning brief push failed for {user_id}: {e}")
 
-    logger.info(f"Morning brief delivered to {user_id}: email={email_sent} push={push_sent}")
-    return {"email": email_sent, "push": push_sent}
+    whatsapp_sent = False
+    phone = (prefs.get("morning_brief_phone") or "").strip()
+    if phone:
+        whatsapp_sent = await send_morning_brief_whatsapp(phone, body.markdown)
+
+    logger.info(
+        f"Morning brief delivered to {user_id}: "
+        f"email={email_sent} push={push_sent} whatsapp={whatsapp_sent}"
+    )
+    return {"email": email_sent, "push": push_sent, "whatsapp": whatsapp_sent}

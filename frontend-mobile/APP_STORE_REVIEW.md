@@ -10,7 +10,11 @@ Connect — they live in the gitignored env files as `E2E_EMAIL` / `E2E_PASSWORD
 - **Password:** `<E2E_PASSWORD>`
 
 ## What to Test (this build)
-- **NEW: In-app account deletion** — Profile → **Delete account** (below Sign Out).
+- **NEW: Sign in with Apple** — first option on the login screen (Guideline 4.8).
+- **NEW: Guest browsing** — launch without signing in: Markets, Earnings, news, and
+  full stock research are freely accessible; account-based features (Watchlist,
+  Portfolio, AI Chat) show an inline sign-in prompt instead (Guideline 5.1.1).
+- **In-app account deletion** — Profile → **Delete account** (below Sign Out).
   Confirms, permanently deletes the account, and signs out. (Guideline 5.1.1(v).)
 - **AI Research Chat** — Markets tab → "Ask anything about the markets…" bar, or the
   compose icon. Try "Is NVDA overvalued right now?" — streams a sourced answer.

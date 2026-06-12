@@ -251,6 +251,59 @@ async def send_chat_complete_email(to_email: str, chat_title: str, chat_url: str
     return await _send_resend_email(to_email, subject, body_html)
 
 
+def _markdown_to_whatsapp(text: str) -> str:
+    """Convert brief markdown to WhatsApp formatting (single-asterisk bold,
+    no headings), truncated to WhatsApp's message limit."""
+    import re
+    out = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped in ("---", "***"):
+            continue
+        # "## Heading" -> "*Heading*"
+        m = re.match(r"^#{1,6}\s+(.*)$", stripped)
+        if m:
+            out.append(f"*{m.group(1).strip()}*")
+            continue
+        # "**bold**" -> "*bold*"
+        out.append(re.sub(r"\*\*(.+?)\*\*", r"*\1*", line))
+    result = "\n".join(out).strip()
+    return result[:3900]  # WhatsApp cap is 4096; leave headroom
+
+
+async def send_morning_brief_whatsapp(to_number: str, markdown_body: str) -> bool:
+    """Send the morning brief over WhatsApp via Twilio.
+
+    Free-form messages only deliver inside a 24h session (sandbox: the user
+    must have joined and messaged recently). Outside the window Twilio accepts
+    the message but WhatsApp drops it (error 63016 on the message resource) —
+    production daily delivery needs an approved Content Template.
+    """
+    from_number = os.getenv("TWILIO_WHATSAPP_FROM")
+    client = _get_twilio_client()
+    if not client or not from_number:
+        logger.warning("Twilio WhatsApp not configured (TWILIO_* env vars)")
+        return False
+
+    to = to_number if to_number.startswith("whatsapp:") else f"whatsapp:{to_number}"
+
+    def _send():
+        return client.messages.create(
+            body=_markdown_to_whatsapp(markdown_body),
+            from_=from_number,
+            to=to,
+        )
+
+    try:
+        loop = asyncio.get_event_loop()
+        msg = await loop.run_in_executor(None, _send)
+        logger.info(f"Morning brief WhatsApp sent: {msg.sid} (status={msg.status})")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send WhatsApp brief: {e}")
+        return False
+
+
 async def send_morning_brief_email(
     to_email: str, subject: str, markdown_body: str, chat_url: Optional[str] = None
 ) -> bool:

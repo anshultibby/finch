@@ -23,6 +23,10 @@ class UserPreferences(BaseModel):
         "UTC",
         description="IANA timezone the brief time is interpreted in, e.g. Asia/Kolkata.",
     )
+    morning_brief_phone: str = Field(
+        "",
+        description="E.164 WhatsApp number for brief delivery; empty disables WhatsApp.",
+    )
 
 
 class UpdatePreferencesRequest(BaseModel):
@@ -31,3 +35,4 @@ class UpdatePreferencesRequest(BaseModel):
     morning_brief_enabled: Optional[bool] = None
     morning_brief_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     morning_brief_timezone: Optional[str] = Field(None, max_length=64)
+    morning_brief_phone: Optional[str] = Field(None, pattern=r"^$|^\+[1-9]\d{6,14}$")

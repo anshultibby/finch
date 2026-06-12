@@ -80,7 +80,10 @@ export default function StockDetailScreen() {
   }, [fetchData]);
 
   const toggleWatchlist = async () => {
-    if (!user) return;
+    if (!user) {
+      router.push('/(auth)/login');
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       if (inWatchlist) await watchlistApi.removeSymbol(user.id, symbol);
@@ -90,7 +93,10 @@ export default function StockDetailScreen() {
   };
 
   const chatAboutStock = async () => {
-    if (!user) return;
+    if (!user) {
+      router.push('/(auth)/login');
+      return;
+    }
     try {
       const chatId = await chatApi.createChat(user.id);
       router.push(`/(tabs)/chat/${chatId}`);

@@ -12,6 +12,7 @@ import { accountApi, type UserPreferences } from '@/lib/api';
 export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { user } = useAuth();
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const [briefPhoneDraft, setBriefPhoneDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +22,10 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
     setLoading(true);
     accountApi
       .getPreferences(user.id)
-      .then(setPrefs)
+      .then((p) => {
+        setPrefs(p);
+        setBriefPhoneDraft(p.morning_brief_phone || '');
+      })
       .catch(() => setError('Could not load your settings.'))
       .finally(() => setLoading(false));
   }, [isOpen, user?.id]);
@@ -67,6 +71,16 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
       morning_brief_time: time,
       morning_brief_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     });
+  };
+
+  const saveBriefPhone = () => {
+    const phone = briefPhoneDraft.trim();
+    if (phone && !/^\+[1-9]\d{6,14}$/.test(phone)) {
+      setError('WhatsApp number must be in international format, e.g. +15551234567.');
+      return;
+    }
+    if (phone === (prefs?.morning_brief_phone ?? '')) return;
+    savePrefs({ morning_brief_phone: phone });
   };
 
   if (!isOpen) return null;
@@ -162,20 +176,35 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
               </div>
 
               {briefEnabled && (
-                <div className="mt-4 flex items-center gap-3">
-                  <label htmlFor="brief-time" className="text-sm text-gray-600">Deliver at</label>
-                  <input
-                    id="brief-time"
-                    type="time"
-                    value={briefTime}
-                    disabled={saving}
-                    onChange={(e) => setBriefTime(e.target.value)}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
-                  />
-                  <span className="text-xs text-gray-400">
-                    {Intl.DateTimeFormat().resolvedOptions().timeZone}
-                  </span>
-                </div>
+                <>
+                  <div className="mt-4 flex items-center gap-3">
+                    <label htmlFor="brief-time" className="text-sm text-gray-600">Deliver at</label>
+                    <input
+                      id="brief-time"
+                      type="time"
+                      value={briefTime}
+                      disabled={saving}
+                      onChange={(e) => setBriefTime(e.target.value)}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                    />
+                    <span className="text-xs text-gray-400">
+                      {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <label htmlFor="brief-phone" className="text-sm text-gray-600">WhatsApp</label>
+                    <input
+                      id="brief-phone"
+                      type="tel"
+                      placeholder="+15551234567 (optional)"
+                      value={briefPhoneDraft}
+                      disabled={saving}
+                      onChange={(e) => setBriefPhoneDraft(e.target.value)}
+                      onBlur={saveBriefPhone}
+                      className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                    />
+                  </div>
+                </>
               )}
             </div>
           )}

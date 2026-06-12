@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { Redirect, Stack } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { DrawerProvider } from '@/contexts/DrawerContext';
 import Sidebar from '@/components/Sidebar';
 
 export default function MainLayout() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
@@ -16,10 +16,8 @@ export default function MainLayout() {
     );
   }
 
-  if (!user) {
-    return <Redirect href="/(auth)/login" />;
-  }
-
+  // No auth wall here: guests may browse markets, news, and stock pages
+  // (App Store guideline 5.1.1). Account-based screens render SignInPrompt.
   return (
     <DrawerProvider>
       <View style={{ flex: 1 }}>
