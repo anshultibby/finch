@@ -34,6 +34,42 @@ function formatEstimate(seconds: number): string {
   return `~${min} min`;
 }
 
+// Past-tense labels for the completed receipt line ("Searched the web, ran code")
+const RECEIPT_VERBS: Record<string, string> = {
+  bash: 'Ran code',
+  execute_code: 'Ran code',
+  run_python: 'Ran code',
+  web_search: 'Searched the web',
+  news_search: 'Scanned the news',
+  scrape_url: 'Read pages',
+  write_chat_file: 'Wrote files',
+  read_chat_file: 'Read files',
+  replace_in_chat_file: 'Edited files',
+  get_portfolio: 'Checked your portfolio',
+  get_brokerage_status: 'Checked your brokerage',
+  get_fmp_data: 'Pulled market data',
+  build_custom_etf: 'Built your ETF',
+  connect_brokerage: 'Connected your brokerage',
+  finish_execution: 'Wrapped up',
+  get_reddit_trending_stocks: 'Checked Reddit chatter',
+  get_reddit_ticker_sentiment: 'Read Reddit sentiment',
+};
+
+/** "Searched the web, ran code, +2 more" — what actually happened, deduped, in order. */
+function receiptSummary(tools: ToolCallStatus[]): string {
+  const labels: string[] = [];
+  for (const t of tools) {
+    if (t.tool_name === 'delegate') continue; // shown separately as "· N sub-agents"
+    const label = RECEIPT_VERBS[t.tool_name]
+      || t.tool_name.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    if (!labels.includes(label)) labels.push(label);
+  }
+  if (labels.length === 0) return `Ran ${tools.length} step${tools.length !== 1 ? 's' : ''}`;
+  const shown = labels.slice(0, 3).map((l, i) => i === 0 ? l : l.charAt(0).toLowerCase() + l.slice(1));
+  const extra = labels.length - 3;
+  return shown.join(', ') + (extra > 0 ? `, +${extra} more` : '');
+}
+
 export default function ToolCallSummary({
   toolCalls,
   isStreaming = false,
@@ -181,47 +217,54 @@ export default function ToolCallSummary({
           onExpand={() => setIsExpanded(true)}
         />
       ) : (
-        /* Summary bar — collapse control while expanded, receipt when done */
+        /* Receipt line — collapse control while expanded, quiet summary when done.
+           Same visual language as the ticker: light text, no box. */
         <div
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-2.5 py-2 px-3 rounded-xl cursor-pointer transition-colors duration-150 select-none bg-white border border-stone-200/80 hover:border-stone-300"
+          className="group flex items-center gap-2 py-1 -mx-1 px-1 rounded-lg cursor-pointer select-none transition-colors hover:bg-stone-50 min-w-0"
+          role="button"
+          aria-label={expanded ? 'Hide steps' : 'Show all steps'}
         >
-          <span className="flex-shrink-0">
+          <span className="w-3 flex justify-center flex-shrink-0">
             {isStreaming ? (
               <span className="relative w-3 h-3 flex items-center justify-center">
                 <span className="absolute inset-0 rounded-full bg-emerald-400 animate-halo" />
                 <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
               </span>
+            ) : errorCount > 0 ? (
+              <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             ) : (
-              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
               </svg>
             )}
           </span>
 
-          <span className="flex-1 min-w-0 text-sm font-medium text-stone-600 truncate">
+          <span className="flex-1 min-w-0 text-[13px] leading-5 text-stone-500 truncate">
             {isStreaming
               ? `Working — step ${Math.min(completedCount + 1, Math.max(totalCount, 1))} of ${totalCount > 0 ? totalCount : '…'}`
-              : `Ran ${totalCount} step${totalCount !== 1 ? 's' : ''}`
+              : receiptSummary(regularTools)
             }
             {subAgentCount > 0 && (
-              <span className="ml-1.5 font-normal text-indigo-500/70">
-                · {subAgentCount} sub-agent{subAgentCount !== 1 ? 's' : ''}
+              <span className="text-indigo-400/80">
+                {' '}· {subAgentCount} sub-agent{subAgentCount !== 1 ? 's' : ''}
               </span>
             )}
             {!isStreaming && errorCount > 0 && (
-              <span className="ml-1.5 font-normal text-red-400">
-                · {errorCount} failed
+              <span className="text-red-400">
+                {' '}· {errorCount} failed
               </span>
             )}
           </span>
 
-          <span className="flex items-center gap-2 flex-shrink-0">
+          <span className="flex items-center gap-2 flex-shrink-0 pl-2">
             {elapsedLabel && startTime && (
               <span className="text-[11px] text-stone-400 tabular-nums">{elapsedLabel}</span>
             )}
             <svg
-              className={`w-4 h-4 text-stone-300 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+              className={`w-3.5 h-3.5 text-stone-300 group-hover:text-stone-400 transition-all duration-200 ${expanded ? 'rotate-90' : ''}`}
               fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
             >
               <path d="M9 5l7 7-7 7" />
@@ -230,9 +273,9 @@ export default function ToolCallSummary({
         </div>
       )}
 
-      {/* Expanded tool list */}
+      {/* Expanded tool list — indented to align under the receipt text */}
       {expanded && (
-        <div className="flex flex-col gap-1 pl-1 animate-fade-in">
+        <div className="flex flex-col gap-1 pl-4 animate-fade-in">
           {regularTools.map(renderTool)}
         </div>
       )}
