@@ -21,6 +21,11 @@ class UserAccount(Base):
 
     user_id = Column(String, primary_key=True, index=True)
     plan = Column(String, nullable=False, default="free")  # free | pro | admin
+    # Which billing system currently owns the Pro grant: "stripe" (web checkout)
+    # or "apple" (iOS In-App Purchase via RevenueCat). NULL while on free. Used so
+    # each platform only offers/manages the subscription it owns and we never
+    # double-charge a user across web + iOS.
+    subscription_provider = Column(String, nullable=True)  # stripe | apple
     stripe_customer_id = Column(String, nullable=True, index=True)
     stripe_subscription_id = Column(String, nullable=True)
     subscription_status = Column(String, nullable=True)

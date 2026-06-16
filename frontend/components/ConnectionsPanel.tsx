@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { snaptradeApi } from '@/lib/api';
+import { snaptradeApi, casparserApi } from '@/lib/api';
+import type { CASParserStatusResponse, CASParserPortfolioResponse } from '@/lib/api';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import PriceRangeChart, { type SeriesPoint } from '@/components/ui/PriceRangeChart';
 import type { Brokerage, AccountDetail, Position, PortfolioResponse, PortfolioPerformance } from '@/lib/types';
@@ -74,6 +75,181 @@ function BrokerLogo({ logo, name }: { logo: string; name: string }) {
   return (
     <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-base font-bold text-gray-400">
       {name.charAt(0)}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CDSL OTP Connect Modal
+// ---------------------------------------------------------------------------
+
+type CdslStep = 'form' | 'otp' | 'success';
+
+function CdslConnectModal({ onClose, onConnected }: {
+  onClose: () => void;
+  onConnected: () => void;
+}) {
+  const [step, setStep] = useState<CdslStep>('form');
+  const [pan, setPan] = useState('');
+  const [boId, setBoId] = useState('');
+  const [dob, setDob] = useState('');
+  const [otp, setOtp] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ investor_name: string; total_holdings: number } | null>(null);
+
+  const handleInitiate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res = await casparserApi.initiateConnect(pan.toUpperCase(), boId.replace(/\D/g, ''), dob);
+      setSessionId(res.session_id);
+      setStep('otp');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send OTP. Check your details and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res = await casparserApi.verifyConnect(sessionId, otp, pan.toUpperCase(), boId.replace(/\D/g, ''), dob);
+      setResult({ investor_name: res.investor_name, total_holdings: res.total_holdings });
+      setStep('success');
+    } catch (err: any) {
+      setError(err.message || 'Invalid OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Connect Indian Portfolio</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Via CDSL eCAS — no broker login required</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 mb-5">
+            {(['form', 'otp', 'success'] as CdslStep[]).map((s, i) => (
+              <React.Fragment key={s}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors ${
+                  s === step ? 'bg-gray-900 text-white' :
+                  (i < (['form','otp','success'] as CdslStep[]).indexOf(step)) ? 'bg-emerald-500 text-white' :
+                  'bg-gray-100 text-gray-400'
+                }`}>{i + 1}</div>
+                {i < 2 && <div className="flex-1 h-px bg-gray-200" />}
+              </React.Fragment>
+            ))}
+          </div>
+
+          {step === 'form' && (
+            <form onSubmit={handleInitiate} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">PAN Number</label>
+                <input
+                  value={pan}
+                  onChange={e => setPan(e.target.value.toUpperCase())}
+                  placeholder="ABCDE1234F"
+                  maxLength={10}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-gray-400"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">CDSL BO ID <span className="font-normal text-gray-400">(16-digit demat account number)</span></label>
+                <input
+                  value={boId}
+                  onChange={e => setBoId(e.target.value)}
+                  placeholder="1234567890123456"
+                  maxLength={20}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-gray-400"
+                  required
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Found in HDFC Securities app → Profile → Demat Account details</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">Date of Birth</label>
+                <input
+                  type="date"
+                  value={dob}
+                  onChange={e => setDob(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400"
+                  required
+                />
+              </div>
+              {error && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+              <button type="submit" disabled={loading}
+                className="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors">
+                {loading ? 'Sending OTP…' : 'Send OTP →'}
+              </button>
+              <p className="text-[10px] text-gray-400 text-center">An OTP will be sent to your CDSL-registered mobile number</p>
+            </form>
+          )}
+
+          {step === 'otp' && (
+            <form onSubmit={handleVerify} className="space-y-4">
+              <p className="text-sm text-gray-600">Enter the 6-digit OTP sent to your CDSL-registered mobile number.</p>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">OTP</label>
+                <input
+                  value={otp}
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  maxLength={6}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono text-center tracking-widest text-lg focus:outline-none focus:border-gray-400"
+                  autoFocus
+                  required
+                />
+              </div>
+              {error && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+              <button type="submit" disabled={loading || otp.length < 6}
+                className="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors">
+                {loading ? 'Verifying…' : 'Verify & Import Holdings'}
+              </button>
+              <button type="button" onClick={() => { setStep('form'); setError(''); setOtp(''); }}
+                className="w-full py-2 text-xs text-gray-400 hover:text-gray-600">
+                ← Back
+              </button>
+            </form>
+          )}
+
+          {step === 'success' && result && (
+            <div className="text-center py-2 space-y-3">
+              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+                <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-bold text-gray-900">{result.investor_name || 'Connected!'}</p>
+                <p className="text-sm text-gray-500 mt-1">{result.total_holdings} holdings imported from CDSL</p>
+              </div>
+              <button onClick={() => { onConnected(); onClose(); }}
+                className="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors">
+                View Holdings
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -680,20 +856,24 @@ export default function ConnectionsPanel() {
   const [connecting, setConnecting] = useState(false);
   const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  const [showCdslModal, setShowCdslModal] = useState(false);
+  const [cdslPortfolio, setCdslPortfolio] = useState<CASParserPortfolioResponse | null>(null);
   const initRef = useRef(false);
   const chartCacheRef = useRef<Record<number, SeriesPoint[]>>({});
 
   const loadData = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [portfolioRes, brokerRes, perfRes] = await Promise.all([
+      const [portfolioRes, brokerRes, perfRes, cdslRes] = await Promise.all([
         snaptradeApi.getPortfolio(user.id).catch(() => null),
         snaptradeApi.getBrokerages().catch(() => null),
         snaptradeApi.getPortfolioPerformance(user.id).catch(() => null),
+        casparserApi.getPortfolio(user.id).catch(() => null),
       ]);
       if (portfolioRes?.success) setPortfolio(portfolioRes);
       if (brokerRes?.success) setBrokerages(brokerRes.brokerages);
       if (perfRes?.success) setPerformance(perfRes);
+      if (cdslRes?.is_connected) setCdslPortfolio(cdslRes);
     } catch {} finally { setLoading(false); }
   }, [user?.id]);
 
@@ -885,9 +1065,34 @@ export default function ConnectionsPanel() {
         <div className="shrink-0 px-5 py-4 bg-white border-b border-gray-100">
           <h1 className="text-lg font-bold text-gray-900">Portfolio</h1>
         </div>
-        <EmptyState onConnect={() => setShowModal(true)} />
+        <div className="flex-1 overflow-y-auto">
+          <EmptyState onConnect={() => setShowModal(true)} />
+          <div className="px-5 pb-8">
+            <div className="relative flex items-center my-2">
+              <div className="flex-1 h-px bg-gray-200" />
+              <span className="px-3 text-[11px] text-gray-400 font-medium">or</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <button onClick={() => setShowCdslModal(true)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 text-left transition-colors">
+              <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center shrink-0">
+                <span className="text-lg">🇮🇳</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-800">Connect Indian Portfolio</p>
+                <p className="text-xs text-gray-400">HDFC Securities, Zerodha & more via CDSL</p>
+              </div>
+              <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
         {showModal && (
           <ConnectModal brokerages={brokerages} connecting={connecting} selectedBroker={selectedBroker} iframeUrl={iframeUrl} onConnect={handleConnect} onClose={() => { setShowModal(false); setIframeUrl(null); setConnecting(false); setSelectedBroker(null); }} />
+        )}
+        {showCdslModal && (
+          <CdslConnectModal onClose={() => setShowCdslModal(false)} onConnected={() => { initRef.current = false; loadData(); }} />
         )}
       </div>
     );
@@ -1037,7 +1242,66 @@ export default function ConnectionsPanel() {
             </div>
           </div>
 
-          {/* Add another */}
+          {/* ── Indian Holdings (CDSL) ─────────────────────────────────── */}
+          {cdslPortfolio?.is_connected ? (
+            <div>
+              <div className="flex items-center justify-between px-1 mb-2">
+                <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Indian Portfolio</h2>
+                <div className="flex items-center gap-2">
+                  {cdslPortfolio.holdings_fetched_at && (
+                    <span className="text-[10px] text-gray-400">{timeAgo(cdslPortfolio.holdings_fetched_at)}</span>
+                  )}
+                  <button onClick={() => setShowCdslModal(true)}
+                    className="text-[10px] text-gray-400 hover:text-gray-600 underline underline-offset-2">Refresh</button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {cdslPortfolio.accounts.map((acct, ai) => (
+                  <div key={ai} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-gray-50 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-700">{acct.dp_name || 'Demat Account'}</span>
+                      <span className="text-[10px] text-gray-400">{acct.holdings.length} holdings</span>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {acct.holdings.slice(0, 8).map((h, hi) => (
+                        <div key={hi} className="px-4 py-2 flex items-center justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-800 truncate max-w-[180px]">{h.name || h.isin}</p>
+                            <p className="text-[10px] text-gray-400 font-mono">{h.isin}</p>
+                          </div>
+                          <span className="text-xs font-semibold text-gray-600 tabular-nums ml-2 shrink-0">{h.quantity} shares</span>
+                        </div>
+                      ))}
+                      {acct.holdings.length > 8 && (
+                        <div className="px-4 py-2 text-center text-[11px] text-gray-400">
+                          +{acct.holdings.length - 8} more holdings
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 text-center mt-2">
+                Holdings snapshot from CDSL · Prices not shown · Refresh requires new OTP
+              </p>
+            </div>
+          ) : (
+            <button onClick={() => setShowCdslModal(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-gray-300 text-left transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center shrink-0">
+                <span className="text-base">🇮🇳</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-gray-800">Connect Indian Portfolio</p>
+                <p className="text-[10px] text-gray-400">HDFC Securities, Zerodha & more via CDSL</p>
+              </div>
+              <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
+
+          {/* Add another US brokerage */}
           <button onClick={() => setShowModal(true)}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-300 bg-white text-gray-400 hover:text-gray-600 transition-all">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -1059,6 +1323,12 @@ export default function ConnectionsPanel() {
           iframeUrl={iframeUrl}
           onConnect={handleConnect}
           onClose={() => { setShowModal(false); setIframeUrl(null); setConnecting(false); setSelectedBroker(null); }}
+        />
+      )}
+      {showCdslModal && (
+        <CdslConnectModal
+          onClose={() => setShowCdslModal(false)}
+          onConnected={() => { initRef.current = false; loadData(); }}
         />
       )}
     </div>

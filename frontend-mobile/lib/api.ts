@@ -567,10 +567,21 @@ export const snaptradeApi = {
   },
 };
 
+export interface CreditBalance {
+  user_id: string;
+  credits: number;
+  total_credits_used: number;
+  plan: 'free' | 'pro' | 'admin';
+  subscription_provider: 'stripe' | 'apple' | null;
+  subscription_status: string | null;
+  cancel_at_period_end: boolean;
+  current_period_end: string | null;
+}
+
 export const creditsApi = {
-  getBalance: async (userId: string) => {
+  getBalance: async (userId: string): Promise<CreditBalance> => {
     const response = await api.get(`/credits/balance/${userId}`);
-    return response.data;
+    return response.data as CreditBalance;
   },
 };
 

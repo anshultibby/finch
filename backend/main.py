@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from core.config import Config
 from core.rate_limit import limiter
-from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, market_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router, account_router, trades_router, apple_notifications_router
+from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, market_router, watchlist_router, push_router, analysis_router, visualizations_router, bot_store_router, account_router, trades_router, apple_notifications_router, casparser_router
 from routes.analytics import router as analytics_router
 from routes.jobs import router as jobs_router
 from routes.brief import router as brief_router
@@ -137,6 +137,7 @@ app.include_router(insights_router)
 app.include_router(account_router)
 app.include_router(trades_router)
 app.include_router(apple_notifications_router)
+app.include_router(casparser_router)
 
 
 import asyncio

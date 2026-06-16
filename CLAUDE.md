@@ -79,6 +79,7 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | Live thinking stream | ✅ | ✅ | Mobile shows pulsing tail line |
 | Stream drop recovery (poll /chat/status) | ✅ | ✅ | Mobile also recovers on app foreground |
 | Morning brief settings | ✅ | ✅ | |
+| Pro subscription | ✅ | ✅ | Web = Stripe; iOS = Apple IAP (RevenueCat). See `docs/iap-setup.md` |
 | "Why is it moving?" AI chip (stock page) | ✅ | ✅ | `/insights/why/{symbol}`, cached server-side |
 | Portfolio "Today" AI digest | ✅ | ✅ | `/insights/portfolio-digest`; watchlist fallback |
 | Smart move alerts (push + why) | — | ✅ | `services/market_monitor.py`; push is mobile-only |
@@ -92,6 +93,20 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | PDF export | ✅ | ❌ | |
 | Earnings transcript | ✅ | ❌ | |
 | Privacy page | ✅ | ❌ | |
+
+## In-App Purchase (iOS Pro subscription)
+
+The **Pro** plan is sold two ways, both writing the same `user_accounts.plan`
+(`subscription_provider` records the owner: `stripe` | `apple`):
+- **Web** → Stripe Checkout (`/credits/checkout` + `/credits/webhook`).
+- **iOS** → Apple In-App Purchase via **RevenueCat** (App Store Guideline 3.1.1).
+  Client: `frontend-mobile/lib/purchases.ts` + `PaywallModal.tsx`. Backend:
+  `POST /credits/revenuecat-webhook` (auth via `REVENUECAT_WEBHOOK_AUTH`).
+
+Dashboard/product setup (ASC subscription product, RevenueCat entitlement
+`pro`, offering, webhook secret, EAS `EXPO_PUBLIC_REVENUECAT_IOS_KEY`) is the
+manual part — see **`docs/iap-setup.md`**. IAP no-ops gracefully when the key is
+unset, so local/Expo-Go dev is unaffected.
 
 ## Chat Logs
 

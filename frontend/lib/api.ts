@@ -1373,4 +1373,106 @@ export const storeApi = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// CASParser — Indian demat holdings via CDSL OTP
+// ---------------------------------------------------------------------------
+
+export interface CASParserStatusResponse {
+  is_connected: boolean;
+  investor_name?: string;
+  pan_last4?: string;
+  holdings_fetched_at?: string;
+  total_holdings?: number;
+}
+
+export interface CASParserHolding {
+  isin: string;
+  name: string;
+  quantity: number;
+  face_value?: number;
+}
+
+export interface CASParserDematAccount {
+  dp_name: string;
+  dp_id: string;
+  client_id: string;
+  holdings: CASParserHolding[];
+}
+
+export interface CASParserPortfolioResponse {
+  is_connected: boolean;
+  investor_name?: string;
+  accounts: CASParserDematAccount[];
+  holdings_fetched_at?: string;
+  total_holdings: number;
+}
+
+export const casparserApi = {
+  initiateConnect: async (pan: string, bo_id: string, dob: string): Promise<{ session_id: string; message: string }> => {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/casparser/connect/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify({ pan, bo_id, dob }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Failed to initiate OTP');
+    }
+    return res.json();
+  },
+
+  verifyConnect: async (
+    session_id: string,
+    otp: string,
+    pan: string,
+    bo_id: string,
+    dob: string
+  ): Promise<{ is_connected: boolean; investor_name: string; total_holdings: number }> => {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/casparser/connect/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify({ session_id, otp, pan, bo_id, dob }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'OTP verification failed');
+    }
+    return res.json();
+  },
+
+  getStatus: async (userId: string): Promise<CASParserStatusResponse> => {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/casparser/status/${userId}`, { headers: auth });
+    if (!res.ok) return { is_connected: false };
+    return res.json();
+  },
+
+  getPortfolio: async (userId: string): Promise<CASParserPortfolioResponse> => {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/casparser/portfolio/${userId}`, { headers: auth });
+    if (!res.ok) return { is_connected: false, accounts: [], total_holdings: 0 };
+    return res.json();
+  },
+
+  refreshPortfolio: async (userId: string): Promise<{ session_id: string; message: string }> => {
+    const auth = await getAuthHeader();
+    const res = await fetch(`${API_BASE_URL}/casparser/portfolio/${userId}/refresh`, {
+      method: 'POST',
+      headers: auth,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Failed to initiate refresh');
+    }
+    return res.json();
+  },
+
+  disconnect: async (userId: string): Promise<void> => {
+    const auth = await getAuthHeader();
+    await fetch(`${API_BASE_URL}/casparser/${userId}`, { method: 'DELETE', headers: auth });
+  },
+};
+
 export default api;

@@ -24,6 +24,7 @@ class CreditBalanceResponse(BaseModel):
     credits: int
     total_credits_used: int
     plan: str = "free"
+    subscription_provider: Optional[str] = None  # stripe | apple
     subscription_status: Optional[str] = None
     cancel_at_period_end: bool = False
     current_period_end: Optional[str] = None
@@ -87,6 +88,7 @@ async def get_credit_balance(
                     UserAccount.subscription_status,
                     UserAccount.cancel_at_period_end,
                     UserAccount.current_period_end,
+                    UserAccount.subscription_provider,
                 ).where(UserAccount.user_id == user_id)
             )
             row = result.first()
@@ -112,6 +114,7 @@ async def get_credit_balance(
                 subscription_status=row[3],
                 cancel_at_period_end=bool(row[4]),
                 current_period_end=period_end.isoformat() if period_end else None,
+                subscription_provider=row[6],
             )
     
     except HTTPException:
@@ -514,6 +517,9 @@ async def stripe_webhook(request: Request):
             else:
                 subscription_id = data.get("subscription")
                 await CreditsService.set_user_plan(db, user_id, "pro")
+                await CreditsService.set_subscription_info(
+                    db, user_id, subscription_provider="stripe",
+                )
                 if subscription_id:
                     await CreditsService.set_subscription_info(
                         db, user_id,
@@ -573,6 +579,114 @@ async def stripe_webhook(request: Request):
                 await CreditsService.set_user_plan(db, user_id, "free")
                 await CreditsService.clear_subscription_info(db, user_id)
                 logger.info(f"User {user_id} downgraded to free (subscription expired)")
+
+    return {"status": "ok"}
+
+
+@router.post("/revenuecat-webhook")
+async def revenuecat_webhook(request: Request):
+    """
+    RevenueCat webhook for Apple In-App Purchase (iOS Pro subscription).
+
+    RevenueCat validates the App Store receipt and POSTs lifecycle events here.
+    We map `app_user_id` (which the iOS app sets to the Supabase user id via
+    Purchases.logIn) onto UserAccount and mirror the Stripe grant logic so the
+    `plan`/`credits` columns are the single source of truth across web + iOS.
+
+    Auth: RevenueCat sends the dashboard-configured secret verbatim in the
+    Authorization header — we compare it against REVENUECAT_WEBHOOK_AUTH.
+    """
+    import hmac
+
+    if not Config.REVENUECAT_WEBHOOK_AUTH:
+        raise HTTPException(status_code=500, detail="RevenueCat not configured")
+
+    auth = request.headers.get("authorization", "")
+    if not hmac.compare_digest(auth, Config.REVENUECAT_WEBHOOK_AUTH):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    body = await request.json()
+    event = body.get("event") or {}
+    event_type = event.get("type")
+    user_id = event.get("app_user_id")
+
+    # Anonymous RevenueCat ids ($RCAnonymousID:...) mean the purchase happened
+    # before the app called logIn — we can't attribute it, so ack and move on.
+    if not user_id or user_id.startswith("$RCAnonymousID"):
+        logger.warning(f"RevenueCat {event_type} without a resolvable app_user_id; ignoring")
+        return {"status": "ignored"}
+
+    from datetime import datetime, timezone
+    exp_ms = event.get("expiration_at_ms")
+    period_end = (
+        datetime.fromtimestamp(exp_ms / 1000, tz=timezone.utc) if exp_ms else None
+    )
+
+    APPLE_MONTHLY_CREDITS = 1_000  # match the Stripe Pro grant
+
+    async with get_db_session() as db:
+        if event_type in ("INITIAL_PURCHASE", "NON_RENEWING_PURCHASE"):
+            current = await CreditsService.get_user_plan(db, user_id)
+            if current == "pro":
+                logger.warning(
+                    f"User {user_id} bought Pro on Apple while already pro "
+                    f"(prior provider may be Stripe) — switching provider to apple"
+                )
+            await CreditsService.set_user_plan(db, user_id, "pro")
+            await CreditsService.set_subscription_info(
+                db, user_id,
+                subscription_provider="apple",
+                subscription_status="active",
+                cancel_at_period_end=False,
+                current_period_end=period_end,
+            )
+            await CreditsService.add_credits(
+                db, user_id, APPLE_MONTHLY_CREDITS,
+                transaction_type="subscription",
+                description=f"Pro plan activation bonus (+{APPLE_MONTHLY_CREDITS:,} credits)",
+            )
+            logger.info(f"User {user_id} upgraded to pro via Apple IAP")
+
+        elif event_type == "RENEWAL":
+            await CreditsService.set_user_plan(db, user_id, "pro")
+            await CreditsService.set_subscription_info(
+                db, user_id,
+                subscription_provider="apple",
+                subscription_status="active",
+                cancel_at_period_end=False,
+                current_period_end=period_end,
+            )
+            await CreditsService.add_credits(
+                db, user_id, APPLE_MONTHLY_CREDITS,
+                transaction_type="subscription",
+                description=f"Pro plan monthly credits (+{APPLE_MONTHLY_CREDITS:,})",
+            )
+            logger.info(f"User {user_id} granted monthly Pro renewal credits (Apple)")
+
+        elif event_type == "CANCELLATION":
+            # Auto-renew turned off — keep Pro until the paid period actually ends
+            # (EXPIRATION handles the downgrade), mirroring Stripe's cancel flow.
+            await CreditsService.set_subscription_info(
+                db, user_id,
+                cancel_at_period_end=True,
+                current_period_end=period_end,
+            )
+            logger.info(f"User {user_id} cancelled Apple Pro auto-renew")
+
+        elif event_type == "UNCANCELLATION":
+            await CreditsService.set_subscription_info(
+                db, user_id,
+                cancel_at_period_end=False,
+                current_period_end=period_end,
+            )
+            logger.info(f"User {user_id} re-enabled Apple Pro auto-renew")
+
+        elif event_type == "EXPIRATION":
+            await CreditsService.set_user_plan(db, user_id, "free")
+            await CreditsService.clear_subscription_info(db, user_id)
+            logger.info(f"User {user_id} downgraded to free (Apple subscription expired)")
+
+        # BILLING_ISSUE / PRODUCT_CHANGE / TEST etc. — acknowledged, no state change.
 
     return {"status": "ok"}
 

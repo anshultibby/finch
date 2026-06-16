@@ -7,6 +7,7 @@ import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { registerForPushNotifications, setupNotificationListeners } from '@/lib/pushNotifications';
+import { initPurchases, identifyUser, logoutPurchases } from '@/lib/purchases';
 
 interface AuthContextType {
   user: User | null;
@@ -29,11 +30,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pushRegistered = useRef(false);
 
   useEffect(() => {
+    // Configure the IAP SDK up front (no-op off-iOS / without a key).
+    initPurchases();
+
     supabase.auth
       .getSession()
       .then(({ data: { session } }) => {
         setSession(session);
         setUser(session?.user ?? null);
+        if (session?.user) identifyUser(session.user.id);
       })
       .catch((e) => {
         // A rejected getSession (e.g. keychain/SecureStore failure or a
@@ -51,6 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+
+      if (session?.user) identifyUser(session.user.id);
 
       if (session?.access_token && !pushRegistered.current) {
         pushRegistered.current = true;
@@ -150,6 +157,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    await logoutPurchases().catch(() => {});
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   };

@@ -90,6 +90,10 @@ class Settings(BaseSettings):
         default=None,
         description="indianapi.in key for Indian (NSE/BSE) stock market data"
     )
+    CASPARSER_API_KEY: Optional[str] = Field(
+        default=None,
+        description="CASParser API key for Indian demat account holdings via CDSL OTP flow"
+    )
     ORATS_API_KEY: Optional[str] = Field(
         default=None,
         description="ORATS API key for options data (chain, IV rank, historical metrics)"
@@ -378,6 +382,12 @@ class Settings(BaseSettings):
     STRIPE_PRO_PRICE_ID: Optional[str] = Field(
         default=None,
         description="Stripe Price ID for the Pro subscription (price_...)"
+    )
+    # In-App Purchase (Apple, via RevenueCat) — iOS Pro subscription.
+    REVENUECAT_WEBHOOK_AUTH: Optional[str] = Field(
+        default=None,
+        description="Shared secret RevenueCat sends verbatim in the Authorization header "
+                    "of webhook POSTs (set the same value in the RevenueCat dashboard)."
     )
     ADMIN_SECRET: Optional[str] = Field(
         default=None,

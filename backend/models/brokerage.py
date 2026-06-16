@@ -207,6 +207,29 @@ class Visualization(Base):
     )
 
 
+class CASParserConnection(Base):
+    """
+    Stores a user's CDSL demat connection via CASParser.
+    Credentials (PAN, DOB) are encrypted at rest.
+    Holdings are cached as JSONB — re-fetched via CDSL OTP on demand.
+    """
+    __tablename__ = "casparser_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, unique=True, index=True)
+    pan_encrypted = Column(String, nullable=False)
+    bo_id = Column(String, nullable=False)
+    dob_encrypted = Column(String, nullable=False)
+    investor_name = Column(String, nullable=True)
+    is_connected = Column(Boolean, default=True, nullable=False)
+    holdings_cache = Column(JSONB, nullable=True)
+    holdings_fetched_at = Column(DateTime(timezone=True), nullable=True)
+    connected_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<CASParserConnection(user='{self.user_id}', connected={self.is_connected})>"
+
+
 class PendingTrade(Base):
     """A trade staged by an automation, awaiting one-click email approval.
 

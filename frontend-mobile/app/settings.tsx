@@ -1,10 +1,12 @@
-import { View, Text, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, Modal, StyleSheet, Platform, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, Modal, StyleSheet, Platform, Switch, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
-import { creditsApi, apiKeysApi, robinhoodApi, accountApi, UserPreferences } from '@/lib/api';
+import { useState, useEffect, useCallback } from 'react';
+import { creditsApi, apiKeysApi, robinhoodApi, accountApi, UserPreferences, CreditBalance } from '@/lib/api';
 import { connectRobinhood } from '@/lib/robinhoodAuth';
+import { purchasesAvailable } from '@/lib/purchases';
+import PaywallModal from '@/components/PaywallModal';
 import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
@@ -19,7 +21,8 @@ interface ApiKeyEntry {
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const router = useRouter();
-  const [credits, setCredits] = useState<number | null>(null);
+  const [balance, setBalance] = useState<CreditBalance | null>(null);
+  const [showPaywall, setShowPaywall] = useState(false);
   const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [rhConnected, setRhConnected] = useState(false);
@@ -32,9 +35,13 @@ export default function SettingsScreen() {
   const [briefPhoneDraft, setBriefPhoneDraft] = useState('');
   const [briefPhoneSaved, setBriefPhoneSaved] = useState('');
 
+  const refreshBalance = useCallback(() => {
+    if (user) creditsApi.getBalance(user.id).then(setBalance).catch(() => {});
+  }, [user]);
+
   useEffect(() => {
     if (user) {
-      creditsApi.getBalance(user.id).then(data => setCredits(data.credits)).catch(() => {});
+      refreshBalance();
       apiKeysApi.getKeys(user.id).then(data => setApiKeys(data.keys || [])).catch(() => {});
       robinhoodApi.checkStatus(user.id).then(d => setRhConnected(d.is_connected)).catch(() => {});
       accountApi.getPreferences(user.id).then(p => {
@@ -138,6 +145,23 @@ export default function SettingsScreen() {
     }
   };
 
+  // Apple requires a path to manage/cancel from inside the app. iOS subscriptions
+  // are managed in the system Apple ID sheet; web (Stripe) subscriptions on the site.
+  const handleManageSubscription = () => {
+    if (balance?.subscription_provider === 'apple') {
+      Linking.openURL('https://apps.apple.com/account/subscriptions');
+    } else {
+      Alert.alert(
+        'Manage on the web',
+        'This subscription was started on finchapp.ai. Manage or cancel it there.',
+        [
+          { text: 'Close', style: 'cancel' },
+          { text: 'Open finchapp.ai', onPress: () => Linking.openURL('https://finchapp.ai') },
+        ],
+      );
+    }
+  };
+
   const handleSignOut = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (Platform.OS === 'web') {
@@ -194,6 +218,8 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const isPro = balance?.plan === 'pro';
+
   return (
     <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={[]}>
       <ScrollView contentContainerClassName="px-4 pb-8">
@@ -214,21 +240,48 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Credits */}
+        {/* Plan & Credits */}
         <View style={styles.menuCard} className="mb-3">
           <View className="p-3.5 flex-row items-center justify-between">
             <View className="flex-row items-center gap-3">
-              <View style={[styles.iconBox, { backgroundColor: '#fffbeb' }]}>
-                <CreditCard size={16} color="#d97706" />
+              <View style={[styles.iconBox, { backgroundColor: isPro ? '#ecfdf5' : '#fffbeb' }]}>
+                {isPro
+                  ? <Sparkles size={16} color="#059669" />
+                  : <CreditCard size={16} color="#d97706" />}
               </View>
               <View>
-                <Text className="text-[13px] font-body-medium text-gray-900">Credits</Text>
+                <View className="flex-row items-center gap-1.5">
+                  <Text className="text-[13px] font-body-medium text-gray-900">
+                    {isPro ? 'Finch Pro' : 'Free plan'}
+                  </Text>
+                  {isPro && (
+                    <View style={styles.proBadge}><Text style={styles.proBadgeText}>PRO</Text></View>
+                  )}
+                </View>
                 <Text className="text-[11px] font-body text-gray-500">
-                  {credits !== null ? `${credits.toLocaleString()} remaining` : 'Loading...'}
+                  {balance !== null ? `${balance.credits.toLocaleString()} credits remaining` : 'Loading...'}
                 </Text>
               </View>
             </View>
+            {/* Upgrade CTA — only where IAP can run (App Store 3.1.1). */}
+            {!isPro && purchasesAvailable() && (
+              <TouchableOpacity onPress={() => setShowPaywall(true)} style={styles.upgradeBtn} activeOpacity={0.85}>
+                <Text style={styles.upgradeBtnText}>Upgrade</Text>
+              </TouchableOpacity>
+            )}
           </View>
+
+          {/* Manage subscription (Pro only) */}
+          {isPro && (
+            <TouchableOpacity
+              className="p-3.5 flex-row items-center justify-between border-t border-gray-100"
+              onPress={handleManageSubscription}
+              activeOpacity={0.7}
+            >
+              <Text className="text-[13px] font-body-medium text-gray-700">Manage subscription</Text>
+              <ChevronRight size={16} color="#d1d5db" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* API Keys */}
@@ -420,6 +473,12 @@ export default function SettingsScreen() {
         onKeysChanged={(keys) => setApiKeys(keys)}
         onDelete={deleteApiKey}
       />
+
+      <PaywallModal
+        visible={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        onPurchased={refreshBalance}
+      />
     </SafeAreaView>
   );
 }
@@ -527,6 +586,29 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  proBadge: {
+    backgroundColor: '#059669',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  proBadgeText: {
+    fontSize: 9,
+    fontFamily: 'DMSans-Bold',
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  upgradeBtn: {
+    backgroundColor: '#059669',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  upgradeBtnText: {
+    fontSize: 12,
+    fontFamily: 'DMSans-Bold',
+    color: '#fff',
   },
   sheet: {
     backgroundColor: '#fff',

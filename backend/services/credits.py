@@ -474,7 +474,7 @@ class CreditsService:
     async def set_subscription_info(
         db: AsyncSession, user_id: str, **kwargs
     ) -> bool:
-        allowed = {"stripe_subscription_id", "subscription_status", "cancel_at_period_end", "current_period_end"}
+        allowed = {"stripe_subscription_id", "subscription_status", "cancel_at_period_end", "current_period_end", "subscription_provider"}
         values = {k: v for k, v in kwargs.items() if k in allowed}
         if not values:
             return False
@@ -496,6 +496,7 @@ class CreditsService:
                 subscription_status=None,
                 cancel_at_period_end=False,
                 current_period_end=None,
+                subscription_provider=None,
             )
         )
         return result.rowcount > 0
