@@ -36,6 +36,11 @@ class RenameListRequest(BaseModel):
     name: str
 
 
+class ScreenshotImportRequest(BaseModel):
+    images: list[str]  # base64 data URLs (or raw base64) of watchlist screenshots
+    list_id: Optional[str] = None
+
+
 async def _ensure_default_lists(user_id: str, db: AsyncSession) -> list[dict]:
     """Create default lists if they don't exist, return all lists."""
     result = await db.execute(
@@ -64,6 +69,40 @@ async def _ensure_default_lists(user_id: str, db: AsyncSession) -> list[dict]:
     for l in result.scalars().all():
         created.append({"id": str(l.id), "name": l.name, "list_type": l.list_type, "position": l.position})
     return created
+
+
+async def _ensure_named_list(user_id: str, name: str, db: AsyncSession) -> str:
+    """Return the id of the user's list with this name, creating it if absent."""
+    existing = await db.execute(
+        text("SELECT id::text FROM watchlist_list WHERE user_id = :u AND name = :n"),
+        {"u": user_id, "n": name},
+    )
+    row = existing.fetchone()
+    if row:
+        return row[0]
+    next_pos = (await db.execute(
+        text("SELECT COALESCE(MAX(position), -1) + 1 FROM watchlist_list WHERE user_id = :u"),
+        {"u": user_id},
+    )).scalar() or 0
+    created = await db.execute(
+        text(
+            "INSERT INTO watchlist_list (id, user_id, name, list_type, position) "
+            "VALUES (gen_random_uuid(), :u, :n, 'custom', :p) "
+            "ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name "
+            "RETURNING id::text"
+        ),
+        {"u": user_id, "n": name, "p": next_pos},
+    )
+    return created.fetchone()[0]
+
+
+async def _resolve_target_list(user_id: str, list_id: Optional[str], db: AsyncSession) -> Optional[str]:
+    """Use the given list_id, else fall back to the user's 'My Watchlist'."""
+    if list_id:
+        return list_id
+    lists = await _ensure_default_lists(user_id, db)
+    my_list = next((l for l in lists if l["list_type"] == "my_watchlist"), None)
+    return my_list["id"] if my_list else None
 
 
 @router.get("/{user_id}/lists")
@@ -341,3 +380,98 @@ async def remove_from_watchlist(
     except Exception as e:
         logger.error(f"Error removing {symbol} from watchlist for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to remove from watchlist")
+
+
+async def _insert_symbols(user_id: str, list_id: str, symbols: list[str], source: str, db: AsyncSession) -> int:
+    """Insert symbols into a list with the given source. Idempotent. Returns count attempted."""
+    for symbol in symbols:
+        await db.execute(
+            text(
+                "INSERT INTO user_watchlist (id, user_id, symbol, source, list_id) "
+                "VALUES (gen_random_uuid(), :user_id, :symbol, :source, :list_id) "
+                "ON CONFLICT (user_id, symbol, list_id) DO NOTHING"
+            ),
+            {"user_id": user_id, "symbol": symbol.upper(), "source": source, "list_id": list_id},
+        )
+    return len(symbols)
+
+
+@router.post("/{user_id}/sync/robinhood")
+async def sync_robinhood_watchlist(
+    user_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Pull the user's Robinhood watchlists into a single 'Robinhood' list.
+
+    Idempotent: replaces the previous robinhood-sourced entries each run so
+    symbols removed on Robinhood drop off here too (manually-added symbols in the
+    same list are left untouched)."""
+    await verify_user_access(user_id, authenticated_user_id)
+
+    from services import robinhood_auth
+    if not await robinhood_auth.is_connected(user_id):
+        raise HTTPException(status_code=400, detail="Robinhood is not connected")
+
+    try:
+        groups = await robinhood_auth.get_watchlist_symbols(user_id)
+    except Exception as e:
+        logger.error(f"Robinhood watchlist read failed for {user_id}: {e}")
+        raise HTTPException(status_code=502, detail="Couldn't read your Robinhood watchlists")
+
+    symbols = sorted({s for g in groups for s in g.get("symbols", [])})
+    if not symbols:
+        return {"success": True, "added": 0, "list_id": None, "list_name": "Robinhood",
+                "message": "No watchlist symbols found on Robinhood"}
+
+    try:
+        list_id = await _ensure_named_list(user_id, "Robinhood", db)
+        # Clear prior RH-sourced entries so removals propagate; keep manual ones.
+        await db.execute(
+            text("DELETE FROM user_watchlist WHERE user_id = :u AND list_id = :l AND source = 'robinhood'"),
+            {"u": user_id, "l": list_id},
+        )
+        await _insert_symbols(user_id, list_id, symbols, "robinhood", db)
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Robinhood watchlist sync write failed for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save synced watchlist")
+
+    return {"success": True, "added": len(symbols), "list_id": list_id,
+            "list_name": "Robinhood", "symbols": symbols}
+
+
+@router.post("/{user_id}/sync/screenshot")
+async def import_watchlist_screenshot(
+    user_id: str,
+    request: ScreenshotImportRequest,
+    db: AsyncSession = Depends(get_async_db),
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Extract tickers from uploaded watchlist screenshots and add them to a list."""
+    await verify_user_access(user_id, authenticated_user_id)
+
+    if not request.images:
+        raise HTTPException(status_code=400, detail="No images provided")
+
+    from services.watchlist_import import extract_and_resolve
+    try:
+        resolved, unresolved = await extract_and_resolve(request.images)
+    except Exception as e:
+        logger.error(f"Screenshot watchlist import failed for {user_id}: {e}")
+        raise HTTPException(status_code=502, detail="Couldn't read the screenshot")
+
+    if not resolved:
+        return {"success": True, "added": 0, "symbols": [], "unresolved": unresolved,
+                "message": "No tickers found in the screenshot"}
+
+    try:
+        target_list_id = await _resolve_target_list(user_id, request.list_id, db)
+        await _insert_symbols(user_id, target_list_id, [r["symbol"] for r in resolved], "screenshot", db)
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Screenshot import write failed for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save imported symbols")
+
+    return {"success": True, "added": len(resolved), "symbols": resolved,
+            "unresolved": unresolved, "list_id": target_list_id}

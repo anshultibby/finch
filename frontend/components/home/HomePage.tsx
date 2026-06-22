@@ -3,8 +3,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, snaptradeApi, watchlistApi } from '@/lib/api';
+import { marketApi, snaptradeApi, watchlistApi, robinhoodApi } from '@/lib/api';
 import { useCachedResource, mutateCache } from '@/hooks/useCachedResource';
+import WatchlistImportModal from './WatchlistImportModal';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
@@ -200,6 +201,20 @@ function WatchlistItem({ item, onClick }: { item: any; onClick: () => void }) {
         </div>
       </div>
     </button>
+  );
+}
+
+// Small origin badge shown on a watchlist card (AI pick, Robinhood sync, screenshot import).
+function WatchlistSourceBadge({ source }: { source?: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    ai: { label: 'AI', cls: 'bg-violet-50 text-violet-500 border-violet-100' },
+    robinhood: { label: 'RH', cls: 'bg-[#00C805]/10 text-[#00a504] border-[#00C805]/20' },
+    screenshot: { label: 'IMG', cls: 'bg-sky-50 text-sky-500 border-sky-100' },
+  };
+  const b = source ? map[source] : undefined;
+  if (!b) return null;
+  return (
+    <span className={`text-[8px] px-1 py-px rounded font-bold leading-tight border ${b.cls}`}>{b.label}</span>
   );
 }
 
@@ -690,12 +705,15 @@ function WatchlistTabView({ userId, onStockClick }: {
   const [adding, setAdding] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showSearch, setShowSearch] = useState(false);
-  const [showListDropdown, setShowListDropdown] = useState(false);
   const [showNewList, setShowNewList] = useState(false);
   const [newListName, setNewListName] = useState('');
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showScreenshot, setShowScreenshot] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchRef = useRef<HTMLDivElement>(null);
-  const listDropdownRef = useRef<HTMLDivElement>(null);
+  const importMenuRef = useRef<HTMLDivElement>(null);
 
   // Lists + items are cached so returning to the Watchlist tab renders instantly;
   // mutations below write through the cache to stay correct without a refetch.
@@ -712,6 +730,14 @@ function WatchlistTabView({ userId, onStockClick }: {
     () => watchlistApi.getWatchlist(userId, selectedListId!).then(d => d.symbols || []),
     { ttl: 60_000 },
   );
+
+  // Robinhood connection state drives the "Sync from Robinhood" affordance.
+  const { data: rhStatus } = useCachedResource<{ is_connected: boolean }>(
+    `rh-status:${userId}`,
+    () => robinhoodApi.checkStatus(userId),
+    { ttl: 120_000 },
+  );
+  const rhConnected = !!rhStatus?.is_connected;
 
   // Default to the first list once lists load.
   useEffect(() => {
@@ -770,7 +796,6 @@ function WatchlistTabView({ userId, onStockClick }: {
       }
       setNewListName('');
       setShowNewList(false);
-      setShowListDropdown(false);
     } catch {}
   };
 
@@ -785,93 +810,163 @@ function WatchlistTabView({ userId, onStockClick }: {
     } catch {}
   };
 
+  // Re-fetch the currently-selected list's items (used after sync / screenshot import).
+  const refreshSelected = useCallback(async () => {
+    refreshLists();
+    if (selectedListId) {
+      try {
+        const data = await watchlistApi.getWatchlist(userId, selectedListId);
+        mutateItems(data.symbols || []);
+      } catch {}
+    }
+  }, [refreshLists, selectedListId, userId, mutateItems]);
+
+  const handleSyncRobinhood = async () => {
+    setShowImportMenu(false);
+    // Not connected → send them to Robinhood's OAuth flow first.
+    if (!rhConnected) {
+      try {
+        const res = await robinhoodApi.connect(userId);
+        if (res.authorize_url) window.location.href = res.authorize_url;
+      } catch { setSyncMsg("Couldn't start Robinhood connection"); }
+      return;
+    }
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await watchlistApi.syncRobinhood(userId);
+      const fresh = await watchlistApi.getLists(userId);
+      mutateCache(listsKey, fresh.lists || []);
+      if (res.list_id) setSelectedListId(res.list_id);
+      setSyncMsg(res.added > 0
+        ? `Synced ${res.added} ${res.added === 1 ? 'stock' : 'stocks'} from Robinhood`
+        : (res.message || 'No watchlist symbols found on Robinhood'));
+    } catch {
+      setSyncMsg("Couldn't sync from Robinhood");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowSearch(false);
-      if (listDropdownRef.current && !listDropdownRef.current.contains(e.target as Node)) setShowListDropdown(false);
+      if (importMenuRef.current && !importMenuRef.current.contains(e.target as Node)) setShowImportMenu(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  useEffect(() => {
+    if (!syncMsg) return;
+    const t = setTimeout(() => setSyncMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [syncMsg]);
+
   const selectedList = lists.find(l => l.id === selectedListId);
 
   return (
     <div>
+      {/* Header + import menu */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Watchlist</h2>
+        <div ref={importMenuRef} className="relative">
+          <button onClick={() => setShowImportMenu(v => !v)} disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-60">
+            {syncing ? (
+              <svg className="w-4 h-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-9L21 3m0 0l-4.5 4.5M21 3v.01M21 7.5H7.5" />
+              </svg>
+            )}
+            Import
+            <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showImportMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showImportMenu && (
+            <div className="absolute top-full right-0 mt-1 w-64 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-30 py-1">
+              <button onClick={handleSyncRobinhood}
+                className="w-full flex items-start gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition-colors">
+                <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#00C805]/10 text-[#00a504] mt-0.5">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4 3h3.2l2.3 13.2L11.9 3H15l2.4 13.2L19.7 3H23l-3.6 18h-3.5l-2.4-12.7L11.1 21H7.6L4 3z" /></svg>
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-gray-900">Sync from Robinhood</span>
+                  <span className="block text-xs text-gray-400">{rhConnected ? 'Import your Robinhood watchlists' : 'Connect Robinhood first'}</span>
+                </span>
+              </button>
+              <button onClick={() => { setShowImportMenu(false); setShowScreenshot(true); }}
+                className="w-full flex items-start gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition-colors">
+                <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 mt-0.5">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 9a2 2 0 012-2h.93a2 2 0 001.66-.89l.82-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.66.89l.82 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-gray-900">Upload screenshot</span>
+                  <span className="block text-xs text-gray-400">Read tickers from any app</span>
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* List selector */}
-      <div ref={listDropdownRef} className="relative mb-4">
-        <button
-          onClick={() => setShowListDropdown(!showListDropdown)}
-          className="w-full flex items-center justify-between px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            {selectedList?.list_type === 'ai_picks' && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-500 font-semibold border border-violet-100">AI</span>
-            )}
-            <span className="font-medium text-gray-900">{selectedList?.name || 'Select list'}</span>
-            <span className="text-xs text-gray-400">({watchlist.length})</span>
-          </div>
-          <svg className={`w-4 h-4 text-gray-400 transition-transform ${showListDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+      {syncMsg && (
+        <div className="mb-3 px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg">
+          {syncMsg}
+        </div>
+      )}
 
-        {showListDropdown && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-30">
-            {lists.map(list => (
-              <div key={list.id} className="flex items-center">
-                <button
-                  onClick={() => { setSelectedListId(list.id); setShowListDropdown(false); }}
-                  className={`flex-1 flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${list.id === selectedListId ? 'bg-gray-50' : ''}`}
-                >
-                  {list.list_type === 'ai_picks' && (
-                    <span className="text-[9px] px-1 py-px rounded bg-violet-50 text-violet-500 font-semibold border border-violet-100">AI</span>
-                  )}
-                  <span className="font-medium text-gray-900">{list.name}</span>
-                  <span className="text-xs text-gray-400">({list.item_count})</span>
-                </button>
-                {list.list_type === 'custom' && (
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteList(list.id); }}
-                    className="px-3 py-2.5 text-gray-300 hover:text-red-400 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            ))}
-            <div className="border-t border-gray-100">
-              {showNewList ? (
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <input value={newListName} onChange={e => setNewListName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleCreateList()}
-                    placeholder="List name..." autoFocus
-                    className="flex-1 px-2 py-1.5 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-                  <button onClick={handleCreateList} disabled={!newListName.trim()}
-                    className="px-3 py-1.5 text-xs font-semibold text-white rounded-lg disabled:opacity-40"
-                    style={{ background: '#059669' }}>Add</button>
-                  <button onClick={() => { setShowNewList(false); setNewListName(''); }}
-                    className="text-gray-400 hover:text-gray-600">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setShowNewList(true)}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  New list
-                </button>
+      {/* List pills */}
+      <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1 -mx-0.5 px-0.5" style={{ scrollbarWidth: 'none' }}>
+        {lists.map(list => {
+          const active = list.id === selectedListId;
+          return (
+            <button key={list.id} onClick={() => setSelectedListId(list.id)}
+              className={`flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors ${
+                active ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}>
+              {list.list_type === 'ai_picks' && (
+                <span className="text-[8px] px-1 py-px rounded bg-violet-100 text-violet-600 font-bold leading-tight">AI</span>
               )}
-            </div>
+              <span>{list.name}</span>
+              <span className={active ? 'text-emerald-500' : 'text-gray-400'}>{list.item_count}</span>
+              {list.list_type === 'custom' && active && (
+                <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); handleDeleteList(list.id); }}
+                  className="ml-0.5 -mr-0.5 text-emerald-400 hover:text-red-500 transition-colors">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {showNewList ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <input value={newListName} onChange={e => setNewListName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateList(); if (e.key === 'Escape') { setShowNewList(false); setNewListName(''); } }}
+              placeholder="Name…" autoFocus
+              className="w-24 px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-300" />
+            <button onClick={handleCreateList} disabled={!newListName.trim()}
+              className="px-2 py-1.5 text-emerald-600 disabled:text-gray-300">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+            </button>
           </div>
+        ) : (
+          <button onClick={() => setShowNewList(true)}
+            className="flex items-center gap-1 pl-2.5 pr-3 py-1.5 rounded-full text-xs font-medium text-gray-400 border border-dashed border-gray-200 hover:text-gray-600 hover:border-gray-300 transition-colors whitespace-nowrap shrink-0">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            New
+          </button>
         )}
       </div>
 
@@ -926,7 +1021,10 @@ function WatchlistTabView({ userId, onStockClick }: {
                 <button onClick={() => onStockClick(item.symbol)} className="w-full text-left">
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <div className="text-sm font-bold text-gray-900">{item.symbol}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold text-gray-900">{item.symbol}</span>
+                        <WatchlistSourceBadge source={item.source} />
+                      </div>
                       <div className="text-xs text-gray-400 truncate max-w-[140px]">{item.name || ''}</div>
                     </div>
                     <div className="text-right">
@@ -953,10 +1051,35 @@ function WatchlistTabView({ userId, onStockClick }: {
           })}
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-100 bg-gray-50 flex flex-col items-center justify-center h-[200px] text-sm text-gray-400">
-          <div className="mb-1">No stocks in this list</div>
-          <div className="text-xs">Search above to add stocks</div>
+        <div className="rounded-xl border border-gray-100 bg-gray-50 flex flex-col items-center justify-center py-10 px-4 text-center">
+          <div className="text-sm text-gray-500 mb-1">No stocks in this list yet</div>
+          <div className="text-xs text-gray-400 mb-4">Search above, or bring one over from elsewhere</div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleSyncRobinhood}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg className="w-3.5 h-3.5 text-[#00a504]" fill="currentColor" viewBox="0 0 24 24"><path d="M4 3h3.2l2.3 13.2L11.9 3H15l2.4 13.2L19.7 3H23l-3.6 18h-3.5l-2.4-12.7L11.1 21H7.6L4 3z" /></svg>
+              Sync from Robinhood
+            </button>
+            <button onClick={() => setShowScreenshot(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 9a2 2 0 012-2h.93a2 2 0 001.66-.89l.82-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.66.89l.82 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Upload screenshot
+            </button>
+          </div>
         </div>
+      )}
+
+      {showScreenshot && (
+        <WatchlistImportModal
+          userId={userId}
+          listId={selectedListId}
+          listName={selectedList?.name || 'My Watchlist'}
+          onClose={() => setShowScreenshot(false)}
+          onImported={refreshSelected}
+        />
       )}
     </div>
   );

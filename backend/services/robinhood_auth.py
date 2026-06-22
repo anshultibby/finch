@@ -24,6 +24,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -471,3 +472,95 @@ async def get_connected_accounts(user_id: str) -> dict:
             logger.warning(f"Robinhood stats failed for {user_id}: {e}")
 
     return {"accounts": accounts, "agentic_account": agentic, "portfolio": portfolio, "stats": stats}
+
+
+# ---------------------------------------------------------------------------
+# Watchlist sync — harvest the user's Robinhood watchlists via MCP
+# ---------------------------------------------------------------------------
+
+# Ticker-shaped: 1–7 chars, leading letter, allowing '.'/'-' (e.g. BRK.B, RDS-A).
+_TICKER_RE = re.compile(r"^[A-Z][A-Z.\-]{0,6}$")
+
+
+def _coerce_list(raw: Any, keys: tuple[str, ...]) -> list:
+    """Pull a list out of an MCP response that may be wrapped in {data: {...}}."""
+    container = raw.get("data") if isinstance(raw, dict) and "data" in raw else raw
+    if isinstance(container, list):
+        return container
+    if isinstance(container, dict):
+        for k in keys:
+            v = container.get(k)
+            if isinstance(v, list):
+                return v
+    return []
+
+
+def _harvest_symbols(node: Any) -> list[str]:
+    """Recursively pull ticker-shaped values out of an arbitrary MCP payload.
+
+    Robinhood's watchlist tools aren't part of our typed surface, so rather than
+    bet on one response shape we walk the whole tree and collect anything stored
+    under a symbol/ticker key. De-duped, order-preserving."""
+    found: list[str] = []
+
+    def walk(n: Any) -> None:
+        if isinstance(n, dict):
+            for k, v in n.items():
+                if k in ("symbol", "ticker", "instrument_symbol") and isinstance(v, str):
+                    found.append(v)
+                else:
+                    walk(v)
+        elif isinstance(n, list):
+            for x in n:
+                walk(x)
+
+    walk(node)
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in found:
+        s = s.strip().upper()
+        if s and _TICKER_RE.match(s) and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+async def get_watchlist_symbols(user_id: str) -> list[dict]:
+    """Best-effort harvest of the user's Robinhood watchlists.
+
+    Returns [{"name": str, "symbols": [str, ...]}]. Tolerant of unknown MCP
+    response shapes: if `get_watchlists` already embeds the symbols we take them
+    directly, otherwise we call `get_watchlist_items` per list trying a couple of
+    likely argument names."""
+    raw = await mcp_call(user_id, "get_watchlists")
+    watchlists = _coerce_list(raw, ("watchlists", "results", "lists"))
+
+    # Some variants return the items inline with no per-list wrapper.
+    if not watchlists:
+        syms = _harvest_symbols(raw)
+        return [{"name": "Robinhood", "symbols": syms}] if syms else []
+
+    out: list[dict] = []
+    for wl in watchlists:
+        name = "Robinhood"
+        if isinstance(wl, dict):
+            name = wl.get("name") or wl.get("display_name") or wl.get("title") or "Robinhood"
+        symbols = _harvest_symbols(wl)
+
+        if not symbols:
+            wl_id = wl.get("id") if isinstance(wl, dict) else None
+            for arg in ({"name": name}, {"watchlist_name": name},
+                        {"id": wl_id} if wl_id else None):
+                if arg is None:
+                    continue
+                try:
+                    items_raw = await mcp_call(user_id, "get_watchlist_items", arg)
+                except Exception:
+                    continue
+                symbols = _harvest_symbols(items_raw)
+                if symbols:
+                    break
+
+        if symbols:
+            out.append({"name": str(name)[:100], "symbols": symbols})
+    return out

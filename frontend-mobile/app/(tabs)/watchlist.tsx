@@ -3,11 +3,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback, useEffect } from 'react';
-import { watchlistApi, marketApi } from '@/lib/api';
+import { watchlistApi, marketApi, robinhoodApi } from '@/lib/api';
 import { useCachedResource, mutateCache, isCacheFresh } from '@/hooks/useCachedResource';
-import { Star, Trash2, ChevronDown, Plus, X } from 'lucide-react-native';
+import { Star, Trash2, ChevronDown, Plus, X, Download, Camera, TrendingUp } from 'lucide-react-native';
 import { COLORS, formatCurrency, formatPct } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import EmptyState from '@/components/ui/EmptyState';
 import SignInPrompt from '@/components/SignInPrompt';
 
@@ -16,7 +17,23 @@ interface WatchlistItem {
   price?: number;
   change_pct?: number;
   name?: string;
-  source?: 'manual' | 'ai';
+  source?: string;
+}
+
+// Small origin badge shown on a watchlist row (mirrors web).
+function SourceBadge({ source }: { source?: string }) {
+  const map: Record<string, { label: string; bg: string; border: string; text: string }> = {
+    ai: { label: 'AI', bg: 'bg-violet-50', border: 'border-violet-100', text: 'text-violet-500' },
+    robinhood: { label: 'RH', bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-600' },
+    screenshot: { label: 'IMG', bg: 'bg-sky-50', border: 'border-sky-100', text: 'text-sky-500' },
+  };
+  const b = source ? map[source] : undefined;
+  if (!b) return null;
+  return (
+    <View className={`px-1 py-px rounded border ${b.bg} ${b.border}`}>
+      <Text className={`text-[9px] font-body-bold ${b.text}`}>{b.label}</Text>
+    </View>
+  );
 }
 
 interface WatchlistListInfo {
@@ -34,6 +51,9 @@ export default function WatchlistScreen() {
   const [showListPicker, setShowListPicker] = useState(false);
   const [showNewList, setShowNewList] = useState(false);
   const [newListName, setNewListName] = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   // Turn a list's raw symbols into display items (hydrating quotes when needed).
   const fetchItemsData = useCallback(async (listId: string): Promise<WatchlistItem[]> => {
@@ -161,6 +181,87 @@ export default function WatchlistScreen() {
     ]);
   };
 
+  // After a sync/import, refresh list counts and the affected list's items.
+  const applySyncedList = useCallback(async (listId: string | null) => {
+    if (!user) return;
+    try {
+      const fresh = await watchlistApi.getLists(user.id);
+      if (listsKey) mutateCache(listsKey, fresh.lists || []);
+    } catch {}
+    if (listId) {
+      try {
+        const freshItems = await fetchItemsData(listId);
+        mutateCache(`wl-items:${user.id}:${listId}`, freshItems);
+      } catch {}
+      setSelectedListId(listId);
+    } else {
+      refreshItems();
+    }
+  }, [user, listsKey, fetchItemsData, refreshItems]);
+
+  const syncRobinhood = useCallback(async () => {
+    if (!user) return;
+    setShowImport(false);
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const status = await robinhoodApi.checkStatus(user.id);
+      if (!status.is_connected) {
+        Alert.alert('Robinhood not connected',
+          'Connect Robinhood from the Agent tab first, then sync your watchlists here.');
+        return;
+      }
+      const res = await watchlistApi.syncRobinhood(user.id);
+      await applySyncedList(res.list_id || null);
+      setSyncMsg(res.added > 0
+        ? `Synced ${res.added} ${res.added === 1 ? 'stock' : 'stocks'} from Robinhood`
+        : (res.message || 'No watchlist symbols found on Robinhood'));
+    } catch {
+      setSyncMsg("Couldn't sync from Robinhood");
+    } finally {
+      setSyncing(false);
+    }
+  }, [user, applySyncedList]);
+
+  const importFromScreenshot = useCallback(async () => {
+    if (!user) return;
+    setShowImport(false);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      base64: true,
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 8,
+    });
+    if (result.canceled) return;
+    const images = result.assets
+      .filter(a => a.base64)
+      .map(a => `data:${a.mimeType || 'image/jpeg'};base64,${a.base64}`);
+    if (!images.length) return;
+
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await watchlistApi.importScreenshot(user.id, images, selectedListId || undefined);
+      await applySyncedList(res.list_id || selectedListId);
+      let msg = res.added > 0
+        ? `Added ${res.added} ${res.added === 1 ? 'stock' : 'stocks'} from screenshot`
+        : (res.message || 'No tickers found in the screenshot');
+      if (res.unresolved?.length) msg += ` · couldn't match ${res.unresolved.join(', ')}`;
+      setSyncMsg(msg);
+    } catch {
+      setSyncMsg("Couldn't read the screenshot");
+    } finally {
+      setSyncing(false);
+    }
+  }, [user, selectedListId, applySyncedList]);
+
+  useEffect(() => {
+    if (!syncMsg) return;
+    const t = setTimeout(() => setSyncMsg(null), 6000);
+    return () => clearTimeout(t);
+  }, [syncMsg]);
+
   const selectedList = lists.find(l => l.id === selectedListId);
 
   if (!user) {
@@ -180,7 +281,26 @@ export default function WatchlistScreen() {
   return (
     <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       <View className="px-5 pt-2 pb-3">
-        <Text className="text-2xl font-body-bold text-gray-900 mb-3">Watchlist</Text>
+        <View className="flex-row items-center justify-between mb-3">
+          <Text className="text-2xl font-body-bold text-gray-900">Watchlist</Text>
+          <TouchableOpacity
+            onPress={() => setShowImport(true)}
+            disabled={syncing}
+            className="flex-row items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2"
+            activeOpacity={0.7}
+          >
+            {syncing
+              ? <ActivityIndicator size="small" color={COLORS.gray400} />
+              : <Download size={15} color={COLORS.gray700} />}
+            <Text className="text-sm font-body-medium text-gray-700">Import</Text>
+          </TouchableOpacity>
+        </View>
+
+        {syncMsg && (
+          <View className="mb-3 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-100">
+            <Text className="text-xs font-body-medium text-emerald-700">{syncMsg}</Text>
+          </View>
+        )}
 
         {/* List selector */}
         <TouchableOpacity
@@ -228,6 +348,7 @@ export default function WatchlistScreen() {
               <View className="flex-1 mr-3">
                 <View className="flex-row items-center gap-1.5">
                   <Text className="text-[15px] font-body-bold text-gray-900">{item.symbol}</Text>
+                  <SourceBadge source={item.source} />
                 </View>
                 {item.name && (
                   <Text className="text-sm font-body text-gray-500 mt-0.5" numberOfLines={1}>{item.name}</Text>
@@ -322,6 +443,46 @@ export default function WatchlistScreen() {
                 </TouchableOpacity>
               )}
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Import action sheet */}
+      <Modal visible={showImport} transparent animationType="slide">
+        <Pressable className="flex-1 bg-black/30" onPress={() => setShowImport(false)}>
+          <View className="flex-1" />
+          <Pressable onPress={() => {}} className="bg-white rounded-t-3xl px-5 pt-4 pb-8">
+            <View className="w-10 h-1 rounded-full bg-gray-200 self-center mb-4" />
+            <Text className="text-lg font-body-bold text-gray-900 mb-1">Import to {selectedList?.name || 'list'}</Text>
+            <Text className="text-sm font-body text-gray-400 mb-4">Bring stocks in from elsewhere</Text>
+
+            <TouchableOpacity
+              onPress={syncRobinhood}
+              className="flex-row items-center gap-3 px-4 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 mb-2.5"
+              activeOpacity={0.7}
+            >
+              <View className="w-9 h-9 rounded-xl items-center justify-center bg-emerald-50">
+                <TrendingUp size={18} color="#059669" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[15px] font-body-medium text-gray-900">Sync from Robinhood</Text>
+                <Text className="text-xs font-body text-gray-400">Import your Robinhood watchlists</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={importFromScreenshot}
+              className="flex-row items-center gap-3 px-4 py-3.5 rounded-2xl bg-gray-50 border border-gray-200"
+              activeOpacity={0.7}
+            >
+              <View className="w-9 h-9 rounded-xl items-center justify-center bg-sky-50">
+                <Camera size={18} color="#0ea5e9" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[15px] font-body-medium text-gray-900">Upload screenshot</Text>
+                <Text className="text-xs font-body text-gray-400">Read tickers from any app</Text>
+              </View>
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>

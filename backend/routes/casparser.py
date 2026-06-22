@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 import uuid
 
 from core.database import get_async_db
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user_id, verify_user_access
 from models.brokerage import CASParserConnection
 from schemas.casparser import (
     CASParserInitiateRequest,
@@ -46,7 +46,7 @@ router = APIRouter(prefix="/casparser", tags=["casparser"])
 @router.post("/connect/initiate")
 async def initiate_connect(
     body: CASParserInitiateRequest,
-    user=Depends(get_current_user),
+    authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
     Step 1: Call CASParser which logs into the CDSL portal and triggers an OTP
@@ -67,7 +67,7 @@ async def initiate_connect(
 @router.post("/connect/verify")
 async def verify_connect(
     body: CASParserVerifyRequest,
-    user=Depends(get_current_user),
+    authenticated_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
     """
@@ -111,7 +111,7 @@ async def verify_connect(
 
     # Upsert the connection row
     result = await db.execute(
-        select(CASParserConnection).where(CASParserConnection.user_id == user.id)
+        select(CASParserConnection).where(CASParserConnection.user_id == authenticated_user_id)
     )
     conn = result.scalar_one_or_none()
 
@@ -129,7 +129,7 @@ async def verify_connect(
     else:
         conn = CASParserConnection(
             id=uuid.uuid4(),
-            user_id=user.id,
+            user_id=authenticated_user_id,
             pan_encrypted=pan_enc,
             bo_id=bo_id,
             dob_encrypted=dob_enc,
@@ -159,11 +159,10 @@ async def verify_connect(
 @router.get("/status/{user_id}", response_model=CASParserStatusResponse)
 async def get_status(
     user_id: str,
-    user=Depends(get_current_user),
+    authenticated_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
-    if user.id != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await verify_user_access(user_id, authenticated_user_id)
 
     result = await db.execute(
         select(CASParserConnection).where(CASParserConnection.user_id == user_id)
@@ -195,11 +194,10 @@ async def get_status(
 @router.get("/portfolio/{user_id}", response_model=CASParserPortfolioResponse)
 async def get_portfolio(
     user_id: str,
-    user=Depends(get_current_user),
+    authenticated_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
-    if user.id != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await verify_user_access(user_id, authenticated_user_id)
 
     result = await db.execute(
         select(CASParserConnection).where(CASParserConnection.user_id == user_id)
@@ -245,7 +243,7 @@ async def get_portfolio(
 @router.post("/portfolio/{user_id}/refresh")
 async def refresh_portfolio(
     user_id: str,
-    user=Depends(get_current_user),
+    authenticated_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
     """
@@ -253,8 +251,7 @@ async def refresh_portfolio(
     The frontend must complete the OTP step via /connect/verify.
     Returns a new session_id.
     """
-    if user.id != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await verify_user_access(user_id, authenticated_user_id)
 
     result = await db.execute(
         select(CASParserConnection).where(CASParserConnection.user_id == user_id)
@@ -281,11 +278,10 @@ async def refresh_portfolio(
 @router.delete("/{user_id}")
 async def disconnect(
     user_id: str,
-    user=Depends(get_current_user),
+    authenticated_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
 ):
-    if user.id != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    await verify_user_access(user_id, authenticated_user_id)
 
     await db.execute(
         delete(CASParserConnection).where(CASParserConnection.user_id == user_id)

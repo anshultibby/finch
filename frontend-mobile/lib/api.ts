@@ -522,6 +522,16 @@ export const watchlistApi = {
     const response = await api.delete(`/watchlist/${userId}/${symbol}${params}`);
     return response.data;
   },
+  // Pull the user's Robinhood watchlists into a synced "Robinhood" list.
+  syncRobinhood: async (userId: string) => {
+    const response = await api.post(`/watchlist/${userId}/sync/robinhood`);
+    return response.data;
+  },
+  // Extract tickers from uploaded/camera screenshots and add them to a list.
+  importScreenshot: async (userId: string, images: string[], listId?: string) => {
+    const response = await api.post(`/watchlist/${userId}/sync/screenshot`, { images, list_id: listId });
+    return response.data;
+  },
 };
 
 export const snaptradeApi = {

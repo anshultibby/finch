@@ -1134,6 +1134,22 @@ export const watchlistApi = {
     const response = await api.delete(`/watchlist/${userId}/${symbol}${params}`);
     return response.data;
   },
+  // Pull the user's Robinhood watchlists into a synced "Robinhood" list.
+  syncRobinhood: async (userId: string): Promise<{
+    success: boolean; added: number; list_id: string | null; list_name: string;
+    symbols?: string[]; message?: string;
+  }> => {
+    const response = await api.post(`/watchlist/${userId}/sync/robinhood`);
+    return response.data;
+  },
+  // Extract tickers from uploaded screenshots and add them to a list.
+  importScreenshot: async (userId: string, images: string[], listId?: string): Promise<{
+    success: boolean; added: number; symbols: { symbol: string; name?: string }[];
+    unresolved: string[]; list_id?: string; message?: string;
+  }> => {
+    const response = await api.post(`/watchlist/${userId}/sync/screenshot`, { images, list_id: listId });
+    return response.data;
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
