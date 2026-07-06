@@ -59,6 +59,10 @@ def _advance_past_now(run_at: datetime, recurrence: str) -> datetime:
 
 
 def _to_dto(row: ScheduledJob) -> Job:
+    # The chat runs execute in (see run_job) — only exposed once a run has
+    # started, so the UI doesn't link to a chat that doesn't exist yet.
+    has_run = bool(row.run_count or row.last_run_at or row.last_error
+                   or row.status == "running")
     return Job(
         id=row.id, user_id=row.user_id, name=row.name, message=row.message,
         run_at=row.run_at, recurrence=row.recurrence, priority=row.priority,
@@ -67,6 +71,7 @@ def _to_dto(row: ScheduledJob) -> Job:
         context_paths=row.context_paths or [], last_error=row.last_error,
         last_run_credits=row.last_run_credits or 0, credits_spent=row.credits_spent or 0,
         system_key=row.system_key,
+        run_chat_id=(row.chat_id or f"job-{row.id}") if has_run else None,
     )
 
 

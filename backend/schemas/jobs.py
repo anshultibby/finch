@@ -55,6 +55,9 @@ class Job(BaseModel):
     last_run_credits: int = 0
     credits_spent: int = 0
     system_key: Optional[str] = None  # set on Finch-provisioned default automations
+    # Chat the runs execute in (chat_id or the implicit job-<id>), exposed once
+    # there's something to look at — lets the UI open the execution flow.
+    run_chat_id: Optional[str] = None
 
     @property
     def is_recurring(self) -> bool:

@@ -940,6 +940,7 @@ export interface ScheduledJob {
   last_run_credits: number;
   credits_spent: number;
   system_key: string | null;  // set on Finch-provisioned built-in automations
+  run_chat_id: string | null; // chat holding the run's execution flow (null until a run starts)
 }
 
 export interface CreateJobInput {

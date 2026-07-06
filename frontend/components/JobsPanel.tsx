@@ -3,9 +3,10 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Clock, Repeat, X, CalendarClock, RefreshCw, CheckCircle2, AlertCircle,
-  Pause, Play, Plus, Sparkles, ChevronRight,
+  Pause, Play, Plus, Sparkles, ChevronRight, MessagesSquare,
 } from 'lucide-react';
 import { jobsApi, type ScheduledJob, type JobListResponse, type Recurrence } from '@/lib/api';
+import { useNavigation } from '@/contexts/NavigationContext';
 import PageHeader from '@/components/ui/PageHeader';
 
 const RECURRENCE_LABEL: Record<string, string> = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', weekdays: 'Weekdays' };
@@ -28,6 +29,7 @@ export default function JobsPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { loadChat } = useNavigation();
 
   const load = useCallback(async () => {
     setError(null);
@@ -130,7 +132,8 @@ export default function JobsPanel() {
                 <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">History</div>
                 <div className="divide-y divide-gray-100 border-y border-gray-100">
                   {past.map(job => (
-                    <HistoryRow key={job.id} job={job} onOpen={() => setSelectedId(job.id)} />
+                    <HistoryRow key={job.id} job={job} onOpen={() => setSelectedId(job.id)}
+                      onOpenChat={job.run_chat_id ? () => loadChat(job.run_chat_id!) : undefined} />
                   ))}
                 </div>
               </>
@@ -154,6 +157,9 @@ export default function JobsPanel() {
           onPause={() => act(() => jobsApi.pause(selected.id), selected.id)}
           onResume={() => act(() => jobsApi.resume(selected.id), selected.id)}
           onCancel={async () => { await act(() => jobsApi.cancel(selected.id), selected.id); setSelectedId(null); }}
+          onOpenChat={selected.run_chat_id
+            ? () => { setSelectedId(null); loadChat(selected.run_chat_id!); }
+            : undefined}
         />
       )}
     </div>
@@ -234,7 +240,9 @@ function JobCard({ job, busy, onOpen, onPause, onResume }: {
 
 // ── History row ──────────────────────────────────────────────────────────────
 
-function HistoryRow({ job, onOpen }: { job: ScheduledJob; onOpen: () => void }) {
+function HistoryRow({ job, onOpen, onOpenChat }: {
+  job: ScheduledJob; onOpen: () => void; onOpenChat?: () => void;
+}) {
   return (
     <button
       onClick={onOpen}
@@ -244,6 +252,16 @@ function HistoryRow({ job, onOpen }: { job: ScheduledJob; onOpen: () => void }) 
       <div className="flex-1 min-w-0">
         <span className="text-[13px] font-medium text-gray-700 truncate block">{job.name}</span>
       </div>
+      {onOpenChat && (
+        <span
+          role="button"
+          onClick={(e) => { e.stopPropagation(); onOpenChat(); }}
+          title="View execution in chat"
+          className="p-1.5 rounded-lg text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 transition-all flex-shrink-0 opacity-0 group-hover:opacity-100"
+        >
+          <MessagesSquare className="w-4 h-4" />
+        </span>
+      )}
       <span className="text-[12px] text-gray-400 font-numeric flex-shrink-0">{exactTime(job.run_at)}</span>
       <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
     </button>
@@ -263,9 +281,10 @@ const STATUS_LABEL: Record<ScheduledJob['status'], string> = {
 
 // ── Detail modal ─────────────────────────────────────────────────────────────
 
-function JobDetailModal({ job, busy, onClose, onPause, onResume, onCancel }: {
+function JobDetailModal({ job, busy, onClose, onPause, onResume, onCancel, onOpenChat }: {
   job: ScheduledJob; busy: boolean;
   onClose: () => void; onPause: () => void; onResume: () => void; onCancel: () => void;
+  onOpenChat?: () => void;
 }) {
   const isRecurring = !!job.recurrence;
   const isSystem = !!job.system_key;
@@ -337,6 +356,26 @@ function JobDetailModal({ job, busy, onClose, onPause, onResume, onCancel }: {
               </div>
             ))}
           </dl>
+
+          {onOpenChat && (
+            <button
+              onClick={onOpenChat}
+              className="group flex items-center gap-3 w-full mt-4 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-left hover:border-emerald-300 hover:bg-emerald-50/40 transition-colors"
+            >
+              <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex-shrink-0">
+                <MessagesSquare className="w-4 h-4" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13px] font-semibold text-gray-900">View execution</span>
+                <span className="block text-[12px] text-gray-500 truncate">
+                  {job.run_count > 1
+                    ? `Every step from all ${job.run_count} runs, in the run chat`
+                    : 'Every step of the run — tool calls, output, result'}
+                </span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 transition-colors flex-shrink-0" />
+            </button>
+          )}
 
           {job.last_error && (
             <div className="mt-4 rounded-2xl bg-red-50 border border-red-100 px-4 py-3">
