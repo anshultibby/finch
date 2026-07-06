@@ -52,23 +52,35 @@ async def get_access_token(user_id: str) -> Optional[str]:
     apikey = settings.SUPABASE_SERVICE_KEY
     if not base or not apikey:
         return None
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{base}/auth/v1/token?grant_type=refresh_token",
-                headers={"apikey": apikey, "Content-Type": "application/json"},
-                json={"refresh_token": refresh},
-            )
-        if resp.status_code != 200:
-            logger.warning(f"Token refresh for {user_id} failed: {resp.status_code}")
-            return None
-        data = resp.json()
-        if data.get("refresh_token"):  # Supabase rotates the refresh token
-            await store_refresh_token(user_id, data["refresh_token"])
-        return data.get("access_token")
-    except Exception as e:
-        logger.error(f"Token refresh error for {user_id}: {e}")
-        return None
+    # Retry transient failures (network blips, 5xx). A 4xx means the refresh
+    # token itself is bad (rotated elsewhere / family revoked) — retrying just
+    # burns Supabase's reuse-detection goodwill, so bail immediately.
+    import asyncio
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{base}/auth/v1/token?grant_type=refresh_token",
+                    headers={"apikey": apikey, "Content-Type": "application/json"},
+                    json={"refresh_token": refresh},
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("refresh_token"):  # Supabase rotates the refresh token
+                    await store_refresh_token(user_id, data["refresh_token"])
+                return data.get("access_token")
+            if 400 <= resp.status_code < 500:
+                logger.error(
+                    f"Token refresh for {user_id} rejected ({resp.status_code}): "
+                    f"{resp.text[:200]} — refresh token likely revoked; user must "
+                    "sign in again for scheduled jobs to run authenticated."
+                )
+                return None
+            logger.warning(f"Token refresh for {user_id} failed: {resp.status_code} (attempt {attempt + 1}/3)")
+        except Exception as e:
+            logger.warning(f"Token refresh error for {user_id}: {e} (attempt {attempt + 1}/3)")
+        await asyncio.sleep(2 * (attempt + 1))
+    return None
 
 
 async def has_token(user_id: str) -> bool:

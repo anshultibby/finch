@@ -1,6 +1,12 @@
 [build]
 
 [deploy]
+# Runs in a one-off container before the new release is promoted, with the
+# service env (DATABASE_URL etc.). Keeps the prod schema in lockstep with the
+# code being deployed — without this, migrations had to be applied by hand and
+# 083/084 were missed, crashing every user_accounts query (FLATTEN, billing,
+# digest) until back-filled manually.
+preDeployCommand = "alembic upgrade head"
 startCommand = "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
 healthcheckPath = "/health"
 healthcheckTimeout = 100

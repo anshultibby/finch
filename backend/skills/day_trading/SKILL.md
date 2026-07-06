@@ -162,23 +162,35 @@ trades.jsonl (pass each trade's `trade_id` to every later event), plan.md
 (stale date at ENTRY = nightly failed → half size or skip), notebook.md
 (`append_note` ends EVERY run), strategy.md (the evolving rules).
 
-New user → first ~10 sessions paper (`paper=True` in log_trade extras, skip the
-order step); go live only after they've seen the stats. Kill criteria go in
-`strategy.md` before trade one: a setup negative after ~20–30 logged trades
-retires itself; 10% account drawdown → full stop pending user reset.
+New user → paper first (`paper=True` in log_trade extras, skip the order
+step). The ramp is measured in **logged paper trades, not sessions** — target
+~10, then go live once the user has seen the stats. Paper trades are free:
+during the ramp, a candidate that passes the mechanical gates (`can_trade` ok,
+`plan_trade` shares > 0, signal `armed`/`triggered`) and whose catalyst is not
+skip-tier MUST be taken on paper and managed honestly through MANAGE/FLATTEN.
+"No trade is the default" governs live money; a paper ramp that logs zero
+trades for weeks is over-filtering, teaches nothing, and never ends. Kill
+criteria go in `strategy.md` before trade one: a setup negative after ~20–30
+logged trades retires itself; 10% account drawdown → full stop pending user
+reset. Small accounts (< $5k): the default ¼-equity weight cap leaves almost
+no tradeable universe — use `plan_trade(..., max_weight=0.5)` and note it in
+strategy.md; skip setups whose instruments exceed the cap outright (e.g.
+RSI(2) on SPY at 4-figure share prices).
 
 ## Scheduling
 
 The nightly PLAN is the only standing job — provisioned automatically as a
 built-in automation ("Nightly trading plan") when the user connects Robinhood;
-comped, pausable in Automations, not cancellable. Nothing provisions the
-intraday runs for you: **every PLAN run ends by ensuring the next trading
-day's one-off jobs exist** — ENTRY 09:36 · MANAGE 10:15, 14:30 · FLATTEN
-15:45 ET (12:45 on `early_close` days). `list_jobs()` first and create only
-what's missing; one-offs die after running, so the nightly re-creating them IS
-the loop that keeps the operation alive. Skip the next calendar day if it
-fails `is_trading_day()` (target the next trading day instead), and schedule
-nothing if the operation isn't set up (no strategy.md, no journal).
+comped, pausable in Automations, not cancellable. Once the operation is live
+(any "Day trade —" job has ever existed), the **backend pre-provisions the
+next trading day's one-off jobs** whenever the nightly runs — ENTRY 09:36 ·
+MANAGE 10:15, 14:30 · FLATTEN 15:45 ET (12:45 on `early_close` days, 14:30
+skipped) — so a failed PLAN run or a missing sandbox auth token can no longer
+dark a session. Your job at PLAN: `list_jobs()` to verify, create only genuine
+gaps, and **bootstrap day one for a new operation** (the backend only takes
+over after the first day-trade job exists). If the jobs API is unauthenticated
+this run, note it and move on — the backend has you covered. Schedule nothing
+if the operation isn't set up (no strategy.md, no journal).
 
 `schedule_job` takes UTC — fixed times drift an hour at DST changes and
 `weekdays` recurrence ignores holidays. That's why the intraday jobs are
