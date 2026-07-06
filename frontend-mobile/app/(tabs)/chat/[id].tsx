@@ -33,6 +33,7 @@ export default function ChatScreen() {
   const [busy, setBusy] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const hasGeneratedTitle = useRef(false);
+  const titleRequestInFlight = useRef(false);
 
   const {
     messages,
@@ -84,13 +85,25 @@ export default function ChatScreen() {
   }, [id, setMessages]);
 
   useEffect(() => {
-    if (hasGeneratedTitle.current) return;
+    if (hasGeneratedTitle.current || titleRequestInFlight.current) return;
     const userMessages = messages.filter(m => m.role === 'user');
     if (userMessages.length === 1 && !isStreaming) {
-      hasGeneratedTitle.current = true;
-      chatApi.generateTitle(id, userMessages[0].content)
-        .then(data => setChatTitle(data.title))
-        .catch(() => {});
+      const firstMessage = userMessages[0].content;
+      titleRequestInFlight.current = true;
+      chatApi.generateTitle(id, firstMessage)
+        .then(data => {
+          hasGeneratedTitle.current = true;
+          setChatTitle(data.title);
+        })
+        .catch(() => {
+          // Leave hasGeneratedTitle unset so a later re-render (e.g. app
+          // foreground) retries instead of getting stuck on 'Chat' forever.
+          const trimmed = firstMessage.trim().replace(/\n/g, ' ');
+          setChatTitle(trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed);
+        })
+        .finally(() => {
+          titleRequestInFlight.current = false;
+        });
     }
   }, [messages, isStreaming, id]);
 

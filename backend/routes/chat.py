@@ -11,7 +11,7 @@ import json
 
 from schemas import ChatMessage
 from modules.chat_service import ChatService
-from services.chat_title import generate_chat_title
+from services.chat_title import generate_chat_title, TitleGenerationError
 from core.database import get_db_session
 from crud import chat_async
 from utils.logger import get_logger
@@ -429,8 +429,17 @@ async def generate_title(
             if chat:
                 await verify_user_access(chat.user_id, authenticated_user_id)
 
-        # Generate title and icon using LLM
-        title, icon = await generate_chat_title(request.first_message)
+        # Generate title and icon using LLM. On failure, fall back to a title
+        # derived from the message itself rather than persisting a "New Chat"
+        # sentinel — a persisted sentinel is indistinguishable from a real
+        # title and permanently blocks any future retry.
+        try:
+            title, icon = await generate_chat_title(request.first_message)
+        except TitleGenerationError as e:
+            logger.warning(f"Falling back to derived title for chat {request.chat_id}: {e}")
+            fallback = request.first_message.strip().replace("\n", " ")[:50]
+            title = fallback + "..." if len(request.first_message.strip()) > 50 else fallback
+            icon = "💬"
 
         # Update the chat in database (chat may not exist yet if stream hasn't created it)
         async with get_db_session() as db:
