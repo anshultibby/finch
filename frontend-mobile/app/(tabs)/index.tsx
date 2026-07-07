@@ -19,6 +19,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import TodayDigestCard from '@/components/insights/TodayDigestCard';
+import WhileYouWereGoneCard from '@/components/activity/WhileYouWereGoneCard';
 import AgentTabView from '@/components/AgentTabView';
 import AskBar from '@/components/chat/AskBar';
 import SignInPrompt from '@/components/SignInPrompt';
@@ -524,6 +525,9 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       showsVerticalScrollIndicator={false}
     >
+      {/* The agent accounts for itself before generic market data */}
+      <WhileYouWereGoneCard />
+
       {/* Market Region Toggle + Sentiment */}
       <View className="px-4 mt-3 mb-3 flex-row items-center justify-between">
         <TouchableOpacity

@@ -95,8 +95,11 @@ export function setupNotificationListeners() {
   const responseSubscription =
     Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
-      if (data?.chatId) {
-        router.push(`/(tabs)/chat/${data.chatId}`);
+      const chatId = data?.chatId || data?.chat_id; // older payloads used snake_case
+      if (data?.screen === 'approvals') {
+        router.push('/activity' as any);
+      } else if (chatId) {
+        router.push(`/(tabs)/chat/${chatId}`);
       } else if (data?.symbol) {
         router.push(`/stock/${data.symbol}`);
       }

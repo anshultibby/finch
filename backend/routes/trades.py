@@ -23,6 +23,7 @@ from core.database import get_async_db
 from auth.dependencies import get_current_user_id, get_current_user_email
 from crud import pending_trades as crud_pending
 from services import robinhood_auth
+from services.agent_events import record_event
 from services.notifications import _send_resend_email
 from utils.logger import get_logger
 
@@ -41,6 +42,18 @@ class TradeApprovalRequest(BaseModel):
     order_params: dict
     summary: Optional[str] = None  # human-readable preview (e.g. from review_order)
     ttl_minutes: int = 60
+
+
+def _order_value_cents(p: dict) -> Optional[int]:
+    """Dollar stake of the order in cents, when computable from its params."""
+    try:
+        if p.get("dollar_amount"):
+            return int(round(float(p["dollar_amount"]) * 100))
+        if p.get("quantity") and p.get("limit_price"):
+            return int(round(float(p["quantity"]) * float(p["limit_price"]) * 100))
+    except (TypeError, ValueError):
+        pass
+    return None
 
 
 def _default_summary(p: dict) -> str:
@@ -100,6 +113,28 @@ async def request_trade_approval(
     html = _approval_email_html(summary, approve_url, reject_url, pt.expires_at)
     sent = await _send_resend_email(to_email, "Approve this trade?", html)
 
+    value_cents = _order_value_cents(p)
+    await record_event(
+        user_id, "trade_proposed", f"Proposed: {summary}",
+        data={"pending_trade_id": str(pt.id), "symbol": str(p.get("symbol", "")).upper(),
+              "side": p.get("side"), "expires_at": pt.expires_at.isoformat()},
+        value_cents=value_cents, source="trade",
+    )
+    # Push so mobile gets the approval moment too — email is the fallback.
+    try:
+        from services.push_notifications import send_push_notification
+        from core.database import get_db_session
+        async with get_db_session() as push_db:
+            await send_push_notification(
+                push_db, user_id,
+                title="Trade waiting for your approval",
+                body=summary,
+                data={"screen": "approvals", "pendingTradeId": str(pt.id)},
+                notif_type="trade",
+            )
+    except Exception as e:
+        logger.warning(f"Approval push failed for {user_id}: {e}")
+
     return {
         "token": pt.token,
         "status": pt.status,
@@ -131,6 +166,42 @@ def _page(title: str, body: str, color: str = "#1c1917") -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+async def _approve_and_place(db: AsyncSession, pt) -> tuple[bool, Optional[str]]:
+    """Place the staged order and move the trade to a terminal state.
+
+    Returns (ok, error). Shared by the email-token route and the in-app route
+    so the two approval surfaces can never drift in behavior.
+    """
+    params = {"account_number": pt.account_number, **pt.order_params}
+    try:
+        resp = await robinhood_auth.mcp_call(pt.user_id, "place_equity_order", params)
+        await crud_pending.set_pending_trade_status(db, pt, "approved", order_response=resp)
+        logger.info(f"Pending trade {pt.token} approved + placed for {pt.user_id}")
+        await record_event(
+            pt.user_id, "trade_decided", f"Approved & placed: {pt.summary}",
+            data={"pending_trade_id": str(pt.id), "status": "approved"},
+            value_cents=_order_value_cents(pt.order_params or {}), source="trade",
+        )
+        return True, None
+    except Exception as e:
+        logger.error(f"Pending trade {pt.token} failed to place: {e}")
+        await crud_pending.set_pending_trade_status(db, pt, "failed", error=str(e))
+        await record_event(
+            pt.user_id, "trade_decided", f"Order failed: {pt.summary}",
+            body=str(e)[:500],
+            data={"pending_trade_id": str(pt.id), "status": "failed"}, source="trade",
+        )
+        return False, str(e)
+
+
+async def _reject(db: AsyncSession, pt) -> None:
+    await crud_pending.set_pending_trade_status(db, pt, "rejected")
+    await record_event(
+        pt.user_id, "trade_decided", f"Rejected: {pt.summary}",
+        data={"pending_trade_id": str(pt.id), "status": "rejected"}, source="trade",
+    )
+
+
 @router.get("/approve/{token}", response_class=HTMLResponse)
 async def approve_trade(token: str, db: AsyncSession = Depends(get_async_db)):
     pt = await crud_pending.get_pending_trade_by_token(db, token)
@@ -142,16 +213,10 @@ async def approve_trade(token: str, db: AsyncSession = Depends(get_async_db)):
         await crud_pending.set_pending_trade_status(db, pt, "expired")
         return _page("Link expired", "This approval link expired, so no trade was placed.", "#a16207")
 
-    params = {"account_number": pt.account_number, **pt.order_params}
-    try:
-        resp = await robinhood_auth.mcp_call(pt.user_id, "place_equity_order", params)
-        await crud_pending.set_pending_trade_status(db, pt, "approved", order_response=resp)
-        logger.info(f"Pending trade {pt.token} approved + placed for {pt.user_id}")
+    ok, err = await _approve_and_place(db, pt)
+    if ok:
         return _page("Trade placed ✅", f"<p>{pt.summary}</p><p style='color:#16a34a;'>Your order was submitted to Robinhood.</p>", "#16a34a")
-    except Exception as e:
-        logger.error(f"Pending trade {pt.token} failed to place: {e}")
-        await crud_pending.set_pending_trade_status(db, pt, "failed", error=str(e))
-        return _page("Couldn't place trade", f"<p>{pt.summary}</p><p>Robinhood rejected the order: {e}</p>", "#b91c1c")
+    return _page("Couldn't place trade", f"<p>{pt.summary}</p><p>Robinhood rejected the order: {err}</p>", "#b91c1c")
 
 
 @router.get("/reject/{token}", response_class=HTMLResponse)
@@ -161,5 +226,52 @@ async def reject_trade(token: str, db: AsyncSession = Depends(get_async_db)):
         return _page("Link not found", "This approval link is invalid.", "#b91c1c")
     if pt.status != "pending":
         return _page("Already handled", f"This trade was already <b>{pt.status}</b>.", "#a16207")
-    await crud_pending.set_pending_trade_status(db, pt, "rejected")
+    await _reject(db, pt)
     return _page("Trade rejected", f"<p>{pt.summary}</p><p>No order was placed.</p>")
+
+
+# ---------------------------------------------------------------------------
+# In-app approval (authed — the approval moment on web + mobile)
+# ---------------------------------------------------------------------------
+
+@router.get("/pending")
+async def list_pending(user_id: str = Depends(get_current_user_id)):
+    """Live pending approvals for the signed-in user (expires stale ones)."""
+    from services.agent_events import _pending_trades
+    return {"pending_trades": await _pending_trades(user_id)}
+
+
+async def _get_own_pending(db: AsyncSession, user_id: str, trade_id: str):
+    pt = await crud_pending.get_pending_trade_by_id(db, trade_id)
+    if not pt or pt.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Pending trade not found")
+    if pt.status != "pending":
+        raise HTTPException(status_code=409, detail=f"Trade already {pt.status}")
+    if datetime.now(timezone.utc) > pt.expires_at:
+        await crud_pending.set_pending_trade_status(db, pt, "expired")
+        raise HTTPException(status_code=410, detail="This proposal expired — no trade was placed")
+    return pt
+
+
+@router.post("/pending/{trade_id}/approve")
+async def approve_pending_in_app(
+    trade_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    pt = await _get_own_pending(db, user_id, trade_id)
+    ok, err = await _approve_and_place(db, pt)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Robinhood rejected the order: {err}")
+    return {"status": "approved", "summary": pt.summary, "order_response": pt.order_response}
+
+
+@router.post("/pending/{trade_id}/reject")
+async def reject_pending_in_app(
+    trade_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+):
+    pt = await _get_own_pending(db, user_id, trade_id)
+    await _reject(db, pt)
+    return {"status": "rejected", "summary": pt.summary}

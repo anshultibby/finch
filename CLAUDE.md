@@ -81,6 +81,8 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | Morning brief settings | ✅ | ✅ | |
 | Pro subscription | ✅ | ✅ | Web = Stripe; iOS = Apple IAP (RevenueCat). See `docs/iap-setup.md` |
 | "Why is it moving?" AI chip (stock page) | ✅ | ✅ | `/insights/why/{symbol}`, cached server-side |
+| "While you were gone" recap + agent ledger | ✅ | ✅ | `/activity/recap`; `agent_events` table; mobile full ledger at `/activity` |
+| In-app trade approval (hold-to-approve) | ✅ | ✅ | `/trades/pending` + approve/reject; email links remain as fallback |
 | Portfolio "Today" AI digest | ✅ | ✅ | `/insights/portfolio-digest`; watchlist fallback |
 | Smart move alerts (push + why) | — | ✅ | `services/market_monitor.py`; push is mobile-only |
 | App icon badge (unread) | — | ✅ | Mobile-only by nature |

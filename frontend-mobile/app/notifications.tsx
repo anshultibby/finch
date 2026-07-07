@@ -69,8 +69,11 @@ export default function NotificationsScreen() {
       } catch {}
     }
 
-    if (notif.data?.chatId) {
-      router.push(`/(tabs)/chat/${notif.data.chatId}`);
+    const chatId = notif.data?.chatId || notif.data?.chat_id; // older payloads used snake_case
+    if (notif.data?.screen === 'approvals') {
+      router.push('/activity' as any);
+    } else if (chatId) {
+      router.push(`/(tabs)/chat/${chatId}`);
     } else if (notif.data?.symbol) {
       router.push(`/stock/${notif.data.symbol}`);
     }

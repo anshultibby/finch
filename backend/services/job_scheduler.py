@@ -309,6 +309,50 @@ async def _finalize(job: Job, *, error: Optional[str], credits: int = 0) -> None
         await db.commit()
 
 
+async def _run_outcome_snippet(chat_id: str, max_len: int = 280) -> Optional[str]:
+    """First line(s) of the run's final assistant message — what the agent
+    concluded, in its own words, for the activity ledger."""
+    try:
+        from models.chat_models import ChatMessageDB
+        async with get_db_session() as db:
+            row = (await db.execute(
+                select(ChatMessageDB.content)
+                .where(ChatMessageDB.chat_id == chat_id, ChatMessageDB.role == "assistant",
+                       ChatMessageDB.content != "")
+                .order_by(ChatMessageDB.sequence.desc())
+                .limit(1)
+            )).scalar()
+        if not row:
+            return None
+        text = " ".join(str(row).split())
+        return text[:max_len] + ("…" if len(text) > max_len else "")
+    except Exception:
+        return None
+
+
+async def _record_run_event(job: Job, chat_id: str, error: Optional[str]) -> None:
+    """Ledger entry for the run — including 'looked, nothing needed' runs."""
+    try:
+        from services.agent_events import record_event
+        if error is None:
+            snippet = await _run_outcome_snippet(chat_id)
+            await record_event(
+                job.user_id, "job_run", job.name, body=snippet,
+                data={"job_id": job.id, "chat_id": chat_id,
+                      "system_key": job.system_key, "status": "ok"},
+                source="automation",
+            )
+        else:
+            await record_event(
+                job.user_id, "job_run", f"{job.name} — failed", body=error[:300],
+                data={"job_id": job.id, "chat_id": chat_id,
+                      "system_key": job.system_key, "status": "failed"},
+                source="automation",
+            )
+    except Exception as e:
+        logger.warning(f"Failed to record run event for job {job.id}: {e}")
+
+
 async def run_job(job: Job) -> None:
     """Run one claimed job: send its message to the agent (as the user)."""
     if job.system_key == "day_trading_nightly":
@@ -359,10 +403,12 @@ async def run_job(job: Job) -> None:
             logger.info(f"Comped {spent} credits for system job {job.id}")
             spent = 0
         await _finalize(job, error=None, credits=spent)
+        await _record_run_event(job, chat_id, error=None)
         logger.info(f"Ran job {job.id} (spent {spent} credits)")
     except Exception as e:
         logger.error(f"Job {job.id} failed: {e}")
         await _finalize(job, error=str(e)[:300])
+        await _record_run_event(job, job.chat_id or f"job-{job.id}", error=str(e)[:300])
 
 
 async def run_due_once(now: Optional[datetime] = None) -> int:

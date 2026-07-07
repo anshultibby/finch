@@ -65,12 +65,19 @@ async def send_brief(
             push_sent = await send_push_notification(
                 db, user_id,
                 title=body.subject,
+                # camelCase: the mobile deep-link handlers key on data.chatId
                 body=_push_preview(body.markdown),
-                data={"chat_id": body.chat_id} if body.chat_id else None,
+                data={"chatId": body.chat_id} if body.chat_id else None,
                 notif_type="general",
             )
     except Exception as e:
         logger.warning(f"Morning brief push failed for {user_id}: {e}")
+
+    from services.agent_events import record_event
+    await record_event(
+        user_id, "brief", body.subject, body=_push_preview(body.markdown, 240),
+        data={"chat_id": body.chat_id} if body.chat_id else None, source="brief",
+    )
 
     whatsapp_sent = False
     phone = (prefs.get("morning_brief_phone") or "").strip()

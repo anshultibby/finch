@@ -147,6 +147,12 @@ async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
             notif_type="price",
         )
 
+    from services.agent_events import record_event
+    await record_event(
+        user_id, "alert", title, body=body,
+        data={"symbol": symbol, "pct": round(float(pct), 2)}, source="monitor",
+    )
+
 
 async def check_once() -> int:
     """Run one monitor pass. Returns the number of alerts sent."""

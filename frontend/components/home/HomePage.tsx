@@ -9,6 +9,7 @@ import WatchlistImportModal from './WatchlistImportModal';
 import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
+import WhileYouWereGone from '@/components/activity/WhileYouWereGone';
 import AgentTabView from './AgentTabView';
 import ChatInput from '@/components/chat/ChatInput';
 import EmptyState from '@/components/ui/EmptyState';
@@ -1655,6 +1656,9 @@ export default function HomePage() {
           <div className="flex-1 min-w-0 px-5 pt-4 overflow-y-auto flex flex-col">
             {activeTab === 'markets' && (
               <>
+                {/* The agent accounts for itself before we show generic markets */}
+                <WhileYouWereGone hasBrokerage={hasBrokerage} onConnect={openConnectModal} />
+
                 {/* Top Assets — 2x2 grid */}
                 <div className="mb-6">
                   <h2 className="text-sm font-semibold text-gray-900 mb-3">Top Assets</h2>

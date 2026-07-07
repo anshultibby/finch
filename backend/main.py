@@ -12,6 +12,7 @@ from routes.analytics import router as analytics_router
 from routes.jobs import router as jobs_router
 from routes.brief import router as brief_router
 from routes.insights import router as insights_router
+from routes.activity import router as activity_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
 from utils.sentry import setup_sentry
@@ -134,6 +135,7 @@ app.include_router(bot_store_router)
 app.include_router(jobs_router)
 app.include_router(brief_router)
 app.include_router(insights_router)
+app.include_router(activity_router)
 app.include_router(account_router)
 app.include_router(trades_router)
 app.include_router(apple_notifications_router)
@@ -206,6 +208,12 @@ async def startup_event():
     from services.market_monitor import run_market_monitor_loop
     asyncio.create_task(run_market_monitor_loop())
     logger.info("Started market monitor")
+
+    # Start the nightly ledger review (cheap GLM analysis of each user's
+    # watchlist/portfolio written into the agent-activity ledger).
+    from services.ledger_review import run_ledger_review_loop
+    asyncio.create_task(run_ledger_review_loop())
+    logger.info("Started ledger review")
 
     # Initialize Supabase Storage bucket (if configured)
     if storage_service.is_available():

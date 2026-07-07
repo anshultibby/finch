@@ -472,6 +472,68 @@ export const insightsApi = {
   },
 };
 
+// ── Agent activity — the agent's ledger + "while you were gone" recap ───────
+
+export interface AgentEvent {
+  id: string;
+  event_type: 'job_run' | 'alert' | 'trade_proposed' | 'trade_decided' | 'brief' | 'insight';
+  source: string | null;
+  title: string;
+  body: string | null;
+  data: Record<string, unknown>;
+  value_cents: number | null;
+  created_at: string;
+}
+
+export interface PendingTradeItem {
+  id: string;
+  summary: string | null;
+  order_params: Record<string, unknown>;
+  broker: string;
+  expires_at: string | null;
+  created_at: string | null;
+}
+
+export interface ActivityRecap {
+  since: string;
+  last_seen_at: string | null;
+  headline: string | null;
+  counts: Record<string, number>;
+  events: AgentEvent[];
+  pending_trades: PendingTradeItem[];
+  next_run: { name: string; run_at: string | null; system_key: string | null } | null;
+  has_content: boolean;
+}
+
+export const activityApi = {
+  getRecap: async (): Promise<ActivityRecap> => {
+    const response = await api.get('/activity/recap');
+    return response.data;
+  },
+  getFeed: async (limit = 50, before?: string): Promise<{ events: AgentEvent[] }> => {
+    const response = await api.get('/activity', { params: { limit, before } });
+    return response.data;
+  },
+  markSeen: async (): Promise<void> => {
+    await api.post('/activity/seen');
+  },
+};
+
+export const pendingTradesApi = {
+  list: async (): Promise<{ pending_trades: PendingTradeItem[] }> => {
+    const response = await api.get('/trades/pending');
+    return response.data;
+  },
+  approve: async (tradeId: string) => {
+    const response = await api.post(`/trades/pending/${tradeId}/approve`);
+    return response.data;
+  },
+  reject: async (tradeId: string) => {
+    const response = await api.post(`/trades/pending/${tradeId}/reject`);
+    return response.data;
+  },
+};
+
 export const apiKeysApi = {
   getKeys: async (userId: string) => {
     const response = await api.get(`/api-keys/${userId}`);

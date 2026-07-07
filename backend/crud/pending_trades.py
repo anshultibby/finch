@@ -43,6 +43,14 @@ async def get_pending_trade_by_token(db: AsyncSession, token: str) -> Optional[P
     return result.scalars().first()
 
 
+async def get_pending_trade_by_id(db: AsyncSession, trade_id: str) -> Optional[PendingTrade]:
+    try:
+        result = await db.execute(select(PendingTrade).where(PendingTrade.id == trade_id))
+    except Exception:  # not a valid UUID
+        return None
+    return result.scalars().first()
+
+
 async def set_pending_trade_status(
     db: AsyncSession,
     pt: PendingTrade,
