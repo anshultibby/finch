@@ -228,6 +228,19 @@ async def review_once(now_et: Optional[datetime] = None) -> int:
         return 0
     done = await _reviewed_today(set(users.keys()), day_start_utc)
     todo = {u: s for u, s in users.items() if u not in done}
+    # Heartbeat users get the agentic review instead — don't double-cover.
+    from crud.user_preferences import get_user_preferences
+    filtered = {}
+    for uid, syms in todo.items():
+        try:
+            async with get_db_session() as db:
+                prefs = await get_user_preferences(db, uid)
+            if prefs.get("heartbeat_enabled"):
+                continue
+        except Exception:
+            pass
+        filtered[uid] = syms
+    todo = filtered
     if not todo:
         return 0
 

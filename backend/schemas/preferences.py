@@ -27,6 +27,17 @@ class UserPreferences(BaseModel):
         "",
         description="E.164 WhatsApp number for brief delivery; empty disables WhatsApp.",
     )
+    heartbeat_enabled: bool = Field(
+        False,
+        description="When True, a recurring agentic heartbeat watches the user's "
+                    "portfolio/watchlist/news, writes to the activity ledger, and "
+                    "sends alerts when something matters. Spends the user's credits.",
+    )
+    heartbeat_interval_minutes: int = Field(
+        1440,
+        description="Minutes between heartbeat runs (min 5). Free plan is fixed "
+                    "to daily (1440); Pro can set any interval.",
+    )
 
 
 class UpdatePreferencesRequest(BaseModel):
@@ -36,3 +47,5 @@ class UpdatePreferencesRequest(BaseModel):
     morning_brief_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     morning_brief_timezone: Optional[str] = Field(None, max_length=64)
     morning_brief_phone: Optional[str] = Field(None, pattern=r"^$|^\+[1-9]\d{6,14}$")
+    heartbeat_enabled: Optional[bool] = None
+    heartbeat_interval_minutes: Optional[int] = Field(None, ge=5, le=20160)

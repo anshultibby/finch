@@ -7,7 +7,7 @@ import { creditsApi, apiKeysApi, robinhoodApi, accountApi, UserPreferences, Cred
 import { connectRobinhood } from '@/lib/robinhoodAuth';
 import { purchasesAvailable } from '@/lib/purchases';
 import PaywallModal from '@/components/PaywallModal';
-import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise } from 'lucide-react-native';
+import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise, Activity } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
@@ -34,6 +34,8 @@ export default function SettingsScreen() {
   const [briefTime, setBriefTime] = useState('08:00');
   const [briefPhoneDraft, setBriefPhoneDraft] = useState('');
   const [briefPhoneSaved, setBriefPhoneSaved] = useState('');
+  const [heartbeatEnabled, setHeartbeatEnabled] = useState(false);
+  const [heartbeatMinutes, setHeartbeatMinutes] = useState(1440);
 
   const refreshBalance = useCallback(() => {
     if (user) creditsApi.getBalance(user.id).then(setBalance).catch(() => {});
@@ -50,6 +52,8 @@ export default function SettingsScreen() {
         setBriefTime(p.morning_brief_time || '08:00');
         setBriefPhoneDraft(p.morning_brief_phone || '');
         setBriefPhoneSaved(p.morning_brief_phone || '');
+        setHeartbeatEnabled(p.heartbeat_enabled ?? false);
+        setHeartbeatMinutes(p.heartbeat_interval_minutes ?? 1440);
       }).catch(() => {});
     }
   }, [user]);
@@ -101,6 +105,27 @@ export default function SettingsScreen() {
       return;
     }
     saveBriefPrefs({ morning_brief_phone: phone }, () => setBriefPhoneDraft(briefPhoneSaved));
+  };
+
+  const saveHeartbeat = async (enabled: boolean, minutes: number) => {
+    if (!user) return;
+    const prevEnabled = heartbeatEnabled;
+    const prevMinutes = heartbeatMinutes;
+    setHeartbeatEnabled(enabled);
+    setHeartbeatMinutes(minutes);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const p = await accountApi.updatePreferences(user.id, {
+        heartbeat_enabled: enabled,
+        heartbeat_interval_minutes: minutes,
+      });
+      setHeartbeatEnabled(p.heartbeat_enabled);
+      setHeartbeatMinutes(p.heartbeat_interval_minutes);
+    } catch (e: any) {
+      setHeartbeatEnabled(prevEnabled);
+      setHeartbeatMinutes(prevMinutes);
+      Alert.alert('Could not save', e?.response?.data?.detail || 'Please try again.');
+    }
   };
 
   const handleToggleApproval = async (value: boolean) => {
@@ -402,6 +427,68 @@ export default function SettingsScreen() {
               />
               <Text className="text-[10px] font-body text-gray-400">
                 Delivered by push and email{briefPhoneSaved ? ' and WhatsApp' : ''}, in your local timezone.
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Heartbeat — the passive analyst */}
+        <View style={styles.menuCard} className="mb-3">
+          <View className="p-3.5 flex-row items-center justify-between">
+            <View className="flex-row items-center gap-3 flex-1 pr-3">
+              <View style={[styles.iconBox, { backgroundColor: '#ecfdf5' }]}>
+                <Activity size={16} color="#059669" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[13px] font-body-medium text-gray-900">Heartbeat</Text>
+                <Text className="text-[11px] font-body text-gray-500">
+                  {heartbeatEnabled
+                    ? `Watching your portfolio & news ${heartbeatMinutes === 1440 ? 'daily' : `every ${heartbeatMinutes >= 60 ? `${Math.round(heartbeatMinutes / 60)}h` : `${heartbeatMinutes}m`}`}`
+                    : 'Your passive analyst — watches portfolio & news, alerts when it matters'}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={heartbeatEnabled}
+              onValueChange={(v) => saveHeartbeat(v, heartbeatMinutes)}
+              trackColor={{ false: '#d6d3d1', true: '#059669' }}
+              thumbColor="#ffffff"
+            />
+          </View>
+
+          {heartbeatEnabled && (
+            <View className="px-3.5 pb-3.5 border-t border-gray-100">
+              <Text className="text-[11px] font-body-medium text-gray-400 mt-3 mb-2 uppercase tracking-wide">Check every</Text>
+              <View className="flex-row flex-wrap gap-1.5">
+                {[
+                  { label: 'Daily', minutes: 1440, pro: false },
+                  { label: '4h', minutes: 240, pro: true },
+                  { label: '1h', minutes: 60, pro: true },
+                  { label: '30m', minutes: 30, pro: true },
+                  { label: '15m', minutes: 15, pro: true },
+                ].map(opt => {
+                  const locked = opt.pro && (balance?.plan ?? 'free') === 'free';
+                  const active = heartbeatMinutes === opt.minutes;
+                  return (
+                    <TouchableOpacity
+                      key={opt.minutes}
+                      onPress={() => locked
+                        ? Alert.alert('Pro feature', 'Custom heartbeat intervals need a Pro plan — the free plan runs daily.')
+                        : saveHeartbeat(true, opt.minutes)}
+                      style={[styles.timeChip, active && styles.timeChipActive, locked && { opacity: 0.4 }]}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>
+                        {opt.label}{locked ? ' · Pro' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text className="text-[10px] font-body text-gray-400 mt-2">
+                Each run reviews your holdings, watchlist and news, records what it finds in
+                your ledger, and alerts you only when something matters. Uses your credits
+                (~10–25 per run).
               </Text>
             </View>
           )}

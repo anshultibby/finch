@@ -2,11 +2,15 @@
 Scheduled job schemas. A job is a JSON message + starting context files + a
 planned execution time. The agent schedules them; a waker runs them.
 """
+import re
+
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, List
 from datetime import datetime
 
-# Recurrence: None = one-off. Otherwise a simple cadence.
+# Recurrence: None = one-off. Otherwise a simple cadence. (System jobs may
+# additionally use a minute-level "every_<N>m" — e.g. the heartbeat — which is
+# why the read DTO below types recurrence as plain str.)
 Recurrence = Literal["hourly", "daily", "weekly", "weekdays"]
 JobStatus = Literal["pending", "running", "done", "failed", "cancelled", "paused"]
 
@@ -43,7 +47,7 @@ class Job(BaseModel):
     name: str
     message: str
     run_at: datetime
-    recurrence: Optional[Recurrence] = None
+    recurrence: Optional[str] = None  # named cadence or system "every_<N>m"
     priority: int = 5
     status: JobStatus = "pending"
     created_at: datetime
@@ -72,7 +76,12 @@ class Job(BaseModel):
         """Estimated ongoing credits/week from the last run's cost."""
         if not self.recurrence or not self.last_run_credits:
             return 0
-        return self.last_run_credits * RUNS_PER_WEEK.get(self.recurrence, 0)
+        runs = RUNS_PER_WEEK.get(self.recurrence, 0)
+        if not runs:
+            m = re.fullmatch(r"every_(\d+)m", self.recurrence)
+            if m:
+                runs = 7 * 24 * 60 // max(int(m.group(1)), 5)
+        return self.last_run_credits * runs
 
 
 class JobList(BaseModel):

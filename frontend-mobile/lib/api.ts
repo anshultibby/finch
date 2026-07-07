@@ -502,6 +502,7 @@ export interface ActivityRecap {
   events: AgentEvent[];
   pending_trades: PendingTradeItem[];
   next_run: { name: string; run_at: string | null; system_key: string | null } | null;
+  running_now: { name: string; started_at: string | null; chat_id: string | null } | null;
   has_content: boolean;
 }
 
@@ -663,6 +664,8 @@ export interface UserPreferences {
   morning_brief_time: string;     // HH:MM (local)
   morning_brief_timezone: string; // IANA, e.g. Asia/Kolkata
   morning_brief_phone: string;    // E.164 WhatsApp number; empty disables WhatsApp
+  heartbeat_enabled: boolean;         // recurring agentic portfolio/news watch
+  heartbeat_interval_minutes: number; // min 5; free plan fixed to 1440 (daily)
 }
 
 export const accountApi = {

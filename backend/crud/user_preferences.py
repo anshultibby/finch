@@ -23,6 +23,13 @@ DEFAULT_PREFERENCES: Dict[str, Any] = {
     "morning_brief_time": "08:00",       # HH:MM in the user's local timezone
     "morning_brief_timezone": "UTC",     # IANA name, e.g. Asia/Kolkata
     "morning_brief_phone": "",           # E.164 WhatsApp number, empty = off
+    # Heartbeat: the recurring agentic run that watches the user's portfolio,
+    # watchlist and news, writes to the activity ledger, and decides when to
+    # alert. NOT comped — it spends the user's credits (disclosed in Settings).
+    # Interval is minute-level for Pro; free users are fixed to daily
+    # (gated in routes/account.py).
+    "heartbeat_enabled": False,
+    "heartbeat_interval_minutes": 1440,
 }
 
 _PREFS_KEY = "preferences"

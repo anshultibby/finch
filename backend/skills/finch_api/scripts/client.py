@@ -203,6 +203,61 @@ def request_trade_approval(account_number, order_params, summary=None, ttl_minut
     return _request("POST", "/trades/request-approval", body=body)
 
 
+# ── Agent memory (heartbeat & friends) ───────────────────────────────────────
+
+def list_events(limit=20, event_type=None):
+    """Read the user's activity ledger — everything the agent has reported.
+
+    This is your cross-run memory: heartbeat runs start in a fresh chat, so
+    call this FIRST to see what you've already told the user and never repeat
+    it. event_type filters to one kind: insight | alert | job_run |
+    trade_proposed | trade_decided | brief.
+
+    Returns {"events": [{event_type, title, body, data, created_at, ...}]}.
+    """
+    qs = f"?limit={int(limit)}"
+    if event_type:
+        qs += f"&event_type={event_type}"
+    return _request("GET", f"/activity{qs}")
+
+
+def search_past_chats(query, limit=10):
+    """Content-search the user's past conversations (including automation runs).
+
+    Use when the ledger isn't enough and you need deeper context — e.g.
+    search_past_chats("GTLB thesis") to find what was said about a position.
+
+    Returns {"results": [{chat_id, title, snippet, timestamp}]}.
+    """
+    import urllib.parse
+    return _request("GET", f"/activity/search-chats?q={urllib.parse.quote(query)}&limit={int(limit)}")
+
+
+# ── Agent insights (heartbeat & friends) ─────────────────────────────────────
+
+def report_insight(title, body=None, alert=False, chat_id=None):
+    """Report an insight to the user's activity ledger ("while you were gone").
+
+    Use this from heartbeat/automation runs when you find something the user
+    should know about their portfolio, watchlist, or the market.
+
+    title: one punchy, specific line with numbers (<= 80 chars ideally).
+    body: up to ~3 short supporting lines (optional).
+    alert: True ALSO sends a push notification — reserve for urgent,
+      decision-relevant items; a wrong alert erodes trust fast.
+    chat_id: deep-links the insight/alert to a chat in the app. Defaults to
+      the current run's chat (FINCH_CHAT_ID), so tapping it opens your work.
+
+    Returns {"recorded": bool, "alerted": bool}.
+    """
+    import os
+    if chat_id is None:
+        chat_id = os.getenv("FINCH_CHAT_ID") or None
+    payload = {"title": title, "body": body, "alert": alert, "chat_id": chat_id}
+    payload = {k: v for k, v in payload.items() if v is not None}
+    return _request("POST", "/activity/insight", body=payload)
+
+
 # ── Morning brief delivery ───────────────────────────────────────────────────
 
 def send_morning_brief(subject, markdown, chat_id=None):

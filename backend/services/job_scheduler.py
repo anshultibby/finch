@@ -9,6 +9,7 @@ so they never double-run, then runs each by sending its message to the agent —
 Limits per user: RECURRING_LIMIT recurring + ONEOFF_LIMIT one-off active jobs.
 Priority is a column (0 = highest); the waker orders due jobs by it.
 """
+import re
 import uuid
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -28,6 +29,35 @@ ONEOFF_LIMIT = 10
 ACTIVE = ("pending", "running", "paused")
 CLAIM_BATCH = 25
 
+# System jobs whose runs are NOT comped: the user opted in knowing they spend
+# credits (heartbeat settings copy says so explicitly).
+UNCOMPED_SYSTEM_KEYS = {"heartbeat", "heartbeat_trigger"}
+
+# Recurring jobs whose runs each get a FRESH chat instead of extending one
+# ever-growing thread. Their cross-run memory is the agent-events ledger
+# (list_events) + past-chat search — not accumulated chat context.
+FRESH_CHAT_SYSTEM_KEYS = {"heartbeat"}
+
+
+def _run_chat_id(row_or_job) -> str:
+    """Chat id a run executes in. Fresh-chat jobs get a per-run suffix keyed by
+    run_count: retries of a failed run (run_count unchanged) resume that run's
+    chat; the next successful cycle moves to a new one."""
+    if row_or_job.system_key in FRESH_CHAT_SYSTEM_KEYS:
+        return f"job-{row_or_job.id}-r{row_or_job.run_count or 0}"
+    return row_or_job.chat_id or f"job-{row_or_job.id}"
+
+
+def _last_run_chat_id(row) -> str:
+    """Chat of the most recent run, for the UI's "view execution" link."""
+    if row.system_key in FRESH_CHAT_SYSTEM_KEYS:
+        n = row.run_count or 0
+        # running or failed → current counter; else last success is n-1.
+        if row.status == "running" or row.last_error:
+            return f"job-{row.id}-r{n}"
+        return f"job-{row.id}-r{max(n - 1, 0)}"
+    return row.chat_id or f"job-{row.id}"
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -43,6 +73,10 @@ def next_occurrence(after: datetime, recurrence: str) -> datetime:
         while nxt.weekday() >= 5:
             nxt += timedelta(days=1)
         return nxt
+    # Minute-level interval, e.g. "every_30m" (the heartbeat's format).
+    m = re.fullmatch(r"every_(\d+)m", recurrence or "")
+    if m:
+        return after + timedelta(minutes=max(int(m.group(1)), 5))
     return after + timedelta(days=1)  # daily / default
 
 
@@ -71,7 +105,7 @@ def _to_dto(row: ScheduledJob) -> Job:
         context_paths=row.context_paths or [], last_error=row.last_error,
         last_run_credits=row.last_run_credits or 0, credits_spent=row.credits_spent or 0,
         system_key=row.system_key,
-        run_chat_id=(row.chat_id or f"job-{row.id}") if has_run else None,
+        run_chat_id=_last_run_chat_id(row) if has_run else None,
     )
 
 
@@ -376,7 +410,7 @@ async def run_job(job: Job) -> None:
                 "refresh token is revoked and they must sign in again."
             )
 
-        chat_id = job.chat_id or f"job-{job.id}"
+        chat_id = _run_chat_id(job)
         message = job.message
         if job.context_paths:
             message += "\n\n[Context files you can read]\n" + "\n".join(job.context_paths[:10])
@@ -390,7 +424,7 @@ async def run_job(job: Job) -> None:
             pass
         after = await _user_credits(job.user_id)
         spent = max(0, before - after)
-        if job.system_key and spent > 0:
+        if job.system_key and job.system_key not in UNCOMPED_SYSTEM_KEYS and spent > 0:
             # System automations are on the house: refund what the run consumed.
             from services.credits import CreditsService
             async with get_db_session() as db:
@@ -408,7 +442,7 @@ async def run_job(job: Job) -> None:
     except Exception as e:
         logger.error(f"Job {job.id} failed: {e}")
         await _finalize(job, error=str(e)[:300])
-        await _record_run_event(job, job.chat_id or f"job-{job.id}", error=str(e)[:300])
+        await _record_run_event(job, _run_chat_id(job), error=str(e)[:300])
 
 
 async def run_due_once(now: Optional[datetime] = None) -> int:

@@ -202,3 +202,42 @@ send_morning_brief(
 The backend emails the rendered brief (Resend) and sends a push notification.
 Only use this from the morning-brief automation — for ad-hoc chat results the
 normal chat-completion notification already covers delivery.
+
+## Reporting Insights (heartbeat & automations)
+
+When an automation (especially the `heartbeat` system job) finds something the
+user should know — an unusual move in a holding, news that changes a thesis, a
+risk building in their portfolio — report it to their activity ledger:
+
+```python
+from skills.finch_api.scripts import report_insight
+
+report_insight(
+    title="NVDA closed 3% off its 52-week high on double volume",
+    body="Volume ran 2.1x average into the close.\nYour 12-share position gained $310 today.",
+    alert=False,
+)
+# {"recorded": true, "alerted": false}
+```
+
+`alert=True` ALSO sends a push notification — reserve it for urgent,
+decision-relevant items a holder should know about right now. A wrong alert
+erodes trust fast; when in doubt, record without alerting. The insight shows
+up in the user's "while you were gone" recap and activity feed.
+
+## Agent Memory (fresh-chat runs)
+
+Heartbeat runs each start in a FRESH chat — cross-run memory is queried, not
+accumulated:
+
+```python
+from skills.finch_api.scripts import list_events, search_past_chats
+
+list_events(limit=15)                    # the ledger: what you already reported
+list_events(event_type="insight")        # just your insights
+search_past_chats("GTLB thesis")         # dig into earlier conversations
+```
+
+Call `list_events()` FIRST in a heartbeat run so you never repeat yourself.
+Reach for `search_past_chats()` only when the ledger isn't enough — it does a
+content search across all the user's chats, including previous automation runs.

@@ -39,6 +39,29 @@ async def update_preferences(
     await verify_user_access(user_id, authenticated_user_id)
     updates = body.model_dump(exclude_none=True)
 
+    # Heartbeat settings drive a system job that spends the user's credits.
+    # Free plan is fixed to daily; any other interval requires Pro.
+    if any(k.startswith("heartbeat") for k in updates):
+        from services.system_jobs import configure_heartbeat, HEARTBEAT_DAILY_MINUTES
+        from models.user import UserAccount
+        from sqlalchemy import select
+        async with get_db_session() as db:
+            current = await prefs_crud.get_user_preferences(db, user_id)
+            plan = (await db.execute(
+                select(UserAccount.plan).where(UserAccount.user_id == user_id)
+            )).scalar() or "free"
+        merged = {**current, **updates}
+        interval = int(merged["heartbeat_interval_minutes"])
+        if plan == "free" and interval != HEARTBEAT_DAILY_MINUTES:
+            raise HTTPException(
+                status_code=403,
+                detail="Custom heartbeat intervals are a Pro feature — the free "
+                       "plan runs daily. Upgrade to set your own interval.",
+            )
+        await configure_heartbeat(
+            user_id, enabled=merged["heartbeat_enabled"], interval_minutes=interval
+        )
+
     # Morning-brief settings drive a system job. Provision/retime/pause it
     # BEFORE persisting, so a bad timezone (or provisioning failure) rejects
     # the save instead of leaving the toggle on with no job behind it.

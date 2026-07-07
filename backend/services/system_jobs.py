@@ -24,6 +24,8 @@ logger = get_logger(__name__)
 
 DAY_TRADING_NIGHTLY = "day_trading_nightly"
 MORNING_BRIEF = "morning_brief"
+HEARTBEAT = "heartbeat"
+HEARTBEAT_TRIGGER = "heartbeat_trigger"  # one-off runs the market monitor fires
 
 # 22:00 UTC = 18:00 ET in summer / 17:00 ET in winter — always after the close,
 # and still the same UTC calendar day, so the "weekdays" recurrence (which
@@ -140,6 +142,105 @@ async def configure_morning_brief(
         f"Morning brief for {user_id}: enabled={enabled} "
         f"time={time_str} tz={tz_name} next_run={run_at.isoformat()}"
     )
+
+
+# ── heartbeat: the passive analyst in your pocket ────────────────────────────
+# A recurring agentic run that watches the user's portfolio, watchlist and
+# news; writes what it finds into the activity ledger (report_insight) and is
+# the single source of alerts for heartbeat users. Unlike other system jobs it
+# is NOT comped — the user opts in knowing it spends credits (Settings copy).
+# Interval is minute-level for Pro; free users are fixed to daily (gated in
+# routes/account.py).
+
+HEARTBEAT_MIN_INTERVAL_MINUTES = 5
+HEARTBEAT_DAILY_MINUTES = 24 * 60
+
+_HEARTBEAT_MESSAGE = (
+    "Heartbeat run (built-in automation — this spends the user's credits; they "
+    "can pause it or change how often it runs in Settings). You are the user's "
+    "passive analyst: check their portfolio, watchlist, and news for those "
+    "symbols. Each run is a FRESH chat — your memory lives in the ledger: "
+    "`from skills.finch_api.scripts import list_events, search_past_chats, "
+    "report_insight`. Start with list_events(limit=15) to see what you already "
+    "reported and never repeat it; use search_past_chats('NVDA thesis') if you "
+    "need deeper context from earlier runs or the user's own conversations. "
+    "When something a holder should know about has changed, "
+    "report_insight(title, body, alert=False) — alert=True only when it's "
+    "urgent enough to interrupt their day. If nothing meaningful changed, "
+    "reply with one short line saying so. Stay cheap and be judicious about "
+    "what's worth the user's attention."
+)
+
+
+async def configure_heartbeat(user_id: str, enabled: bool, interval_minutes: int) -> None:
+    """Provision, re-time, or pause the user's heartbeat."""
+    interval = max(int(interval_minutes), HEARTBEAT_MIN_INTERVAL_MINUTES)
+    recurrence = f"every_{interval}m"
+    # First run lands ~2 minutes out so enabling feels immediately alive.
+    first_run = datetime.now(timezone.utc) + timedelta(minutes=2)
+
+    if enabled:
+        await ensure_system_job(
+            user_id=user_id,
+            system_key=HEARTBEAT,
+            name="Heartbeat — portfolio & news watch",
+            message=_HEARTBEAT_MESSAGE,
+            first_run_at=first_run,
+            recurrence=recurrence,
+        )
+
+    # ensure_system_job leaves an existing row untouched — apply the (possibly
+    # changed) interval and enabled state directly, and refresh the message so
+    # prompt improvements reach existing jobs.
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.user_id == user_id,
+                                       ScheduledJob.system_key == HEARTBEAT)
+        )).scalars().first()
+        if not row:
+            return  # disabled and never provisioned
+        if row.status != "running":
+            row.status = "pending" if enabled else "paused"
+        if enabled:
+            row.recurrence = recurrence
+            row.message = _HEARTBEAT_MESSAGE
+            row.run_at = first_run
+        await db.commit()
+    logger.info(f"Heartbeat for {user_id}: enabled={enabled} every {interval}m")
+
+
+async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:
+    """Fire a one-off heartbeat run immediately (the market-monitor tripwire).
+    Skips if a trigger is already pending/running so a volatile day can't
+    stack investigations. Returns True if a run was enqueued."""
+    now = datetime.now(timezone.utc)
+    async with get_db_session() as db:
+        existing = (await db.execute(
+            select(ScheduledJob).where(
+                ScheduledJob.user_id == user_id,
+                ScheduledJob.system_key == HEARTBEAT_TRIGGER,
+                ScheduledJob.status.in_(("pending", "running")),
+            )
+        )).scalars().first()
+        if existing:
+            return False
+        db.add(ScheduledJob(
+            id=uuid.uuid4().hex[:12], user_id=user_id,
+            name="Heartbeat — market tripwire",
+            message=(
+                f"Market tripwire (auto-triggered heartbeat run — spends the "
+                f"user's credits): {reason}. Check list_events() from "
+                "skills.finch_api.scripts first so you don't re-report, then "
+                "investigate why, judge what it means for the user's "
+                "portfolio/watchlist, and report_insight(title, body, alert=...) "
+                "— alert=True only if a holder should know right now. Stay cheap."
+            ),
+            run_at=now, recurrence=None, priority=3,
+            status="pending", system_key=HEARTBEAT_TRIGGER, context_paths=[],
+        ))
+        await db.commit()
+    logger.info(f"Heartbeat tripwire enqueued for {user_id}: {reason}")
+    return True
 
 
 # ── intraday decision points ─────────────────────────────────────────────────

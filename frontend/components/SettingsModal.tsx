@@ -2,7 +2,15 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountApi, type UserPreferences } from '@/lib/api';
+import { accountApi, creditsApi, type UserPreferences } from '@/lib/api';
+
+// Heartbeat interval presets. Sub-daily is Pro-only (enforced server-side too).
+const HEARTBEAT_PRESETS: { label: string; minutes: number; pro: boolean }[] = [
+  { label: 'Daily', minutes: 1440, pro: false },
+  { label: '4h', minutes: 240, pro: true },
+  { label: '1h', minutes: 60, pro: true },
+  { label: '15m', minutes: 15, pro: true },
+];
 
 /**
  * Trading & approvals settings as a floating modal (same shell as CreditsModal),
@@ -13,6 +21,8 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
   const { user } = useAuth();
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
   const [briefPhoneDraft, setBriefPhoneDraft] = useState('');
+  const [plan, setPlan] = useState<string>('free');
+  const [customMinutesDraft, setCustomMinutesDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,9 +35,11 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
       .then((p) => {
         setPrefs(p);
         setBriefPhoneDraft(p.morning_brief_phone || '');
+        setCustomMinutesDraft(String(p.heartbeat_interval_minutes ?? 1440));
       })
       .catch(() => setError('Could not load your settings.'))
       .finally(() => setLoading(false));
+    creditsApi.getBalance(user.id).then((b) => setPlan(b.plan || 'free')).catch(() => {});
   }, [isOpen, user?.id]);
 
   // Esc to close, matching common modal affordances.
@@ -47,9 +59,10 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
     try {
       const updated = await accountApi.updatePreferences(user.id, updates);
       setPrefs(updated);
-    } catch {
+    } catch (e: unknown) {
       setPrefs(previous); // revert on failure
-      setError('Could not save. Try again.');
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || 'Could not save. Try again.');
     } finally {
       setSaving(false);
     }
@@ -83,11 +96,29 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
     savePrefs({ morning_brief_phone: phone });
   };
 
+  const isPro = plan !== 'free';
+  const setHeartbeatEnabled = (value: boolean) => savePrefs({ heartbeat_enabled: value });
+  const setHeartbeatInterval = (minutes: number) => {
+    setCustomMinutesDraft(String(minutes));
+    savePrefs({ heartbeat_interval_minutes: minutes });
+  };
+  const saveCustomMinutes = () => {
+    const minutes = parseInt(customMinutesDraft, 10);
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 20160) {
+      setError('Interval must be between 5 minutes and 2 weeks.');
+      return;
+    }
+    if (minutes === prefs?.heartbeat_interval_minutes) return;
+    savePrefs({ heartbeat_interval_minutes: minutes });
+  };
+
   if (!isOpen) return null;
 
   const requireApproval = prefs?.require_trade_approval ?? true;
   const briefEnabled = prefs?.morning_brief_enabled ?? false;
   const briefTime = prefs?.morning_brief_time ?? '08:00';
+  const heartbeatEnabled = prefs?.heartbeat_enabled ?? false;
+  const heartbeatMinutes = prefs?.heartbeat_interval_minutes ?? 1440;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -205,6 +236,87 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean; on
                     />
                   </div>
                 </>
+              )}
+            </div>
+          )}
+
+          {!loading && (
+            <div className="rounded-xl border border-gray-200 p-4 mt-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="font-medium text-gray-900">Heartbeat — your passive analyst</div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    On a schedule you choose, Finch reviews your portfolio, watchlist, and
+                    the news, writes what it finds to your activity ledger, and alerts you
+                    only when something genuinely matters. Each run uses your credits.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={heartbeatEnabled}
+                  disabled={saving}
+                  onClick={() => setHeartbeatEnabled(!heartbeatEnabled)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    heartbeatEnabled ? 'bg-emerald-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      heartbeatEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {heartbeatEnabled && (
+                <div className="mt-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-600">Check every</span>
+                    {HEARTBEAT_PRESETS.map((p) => {
+                      const locked = p.pro && !isPro;
+                      const active = heartbeatMinutes === p.minutes;
+                      return (
+                        <button
+                          key={p.minutes}
+                          disabled={saving || locked}
+                          onClick={() => setHeartbeatInterval(p.minutes)}
+                          title={locked ? 'Custom intervals are a Pro feature' : undefined}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                            active
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : locked
+                                ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
+                          }`}
+                        >
+                          {p.label}{locked ? ' ·Pro' : ''}
+                        </button>
+                      );
+                    })}
+                    {isPro && (
+                      <span className="flex items-center gap-1 text-xs text-gray-500">
+                        or
+                        <input
+                          type="number"
+                          min={5}
+                          max={20160}
+                          value={customMinutesDraft}
+                          disabled={saving}
+                          onChange={(e) => setCustomMinutesDraft(e.target.value)}
+                          onBlur={saveCustomMinutes}
+                          className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-900 focus:border-emerald-500 focus:outline-none"
+                        />
+                        min
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-400">
+                    {isPro
+                      ? 'Frequent heartbeats spend credits faster — roughly 10–25 credits per run.'
+                      : 'Free plan runs daily. Upgrade to Pro to set any interval, down to minutes.'}
+                  </p>
+                </div>
               )}
             </div>
           )}

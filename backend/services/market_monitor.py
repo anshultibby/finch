@@ -119,6 +119,16 @@ def _crossed_band(pct: float) -> float | None:
     return crossed
 
 
+async def _heartbeat_enabled(user_id: str) -> bool:
+    try:
+        from crud.user_preferences import get_user_preferences
+        async with get_db_session() as db:
+            prefs = await get_user_preferences(db, user_id)
+        return bool(prefs.get("heartbeat_enabled"))
+    except Exception:
+        return False
+
+
 async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
     from services.move_explainer import explain_move
     from services.push_notifications import send_push_notification
@@ -126,6 +136,14 @@ async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
     pct = quote.get("changesPercentage") or 0.0
     arrow = "▲" if pct >= 0 else "▼"
     title = f"{symbol} {arrow} {abs(pct):.1f}%"
+
+    # Heartbeat users get ONE source of alerts: the tripwire wakes their
+    # heartbeat agent, which investigates and decides whether to alert
+    # (report_insight). Everyone else keeps the direct templated push.
+    if await _heartbeat_enabled(user_id):
+        from services.system_jobs import trigger_heartbeat_now
+        await trigger_heartbeat_now(user_id, f"{symbol} moved {pct:+.1f}% today")
+        return
 
     body = ""
     try:

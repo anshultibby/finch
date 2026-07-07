@@ -83,6 +83,7 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | "Why is it moving?" AI chip (stock page) | ✅ | ✅ | `/insights/why/{symbol}`, cached server-side |
 | "While you were gone" recap + agent ledger | ✅ | ✅ | `/activity/recap`; `agent_events` table; mobile full ledger at `/activity` |
 | In-app trade approval (hold-to-approve) | ✅ | ✅ | `/trades/pending` + approve/reject; email links remain as fallback |
+| Heartbeat (agentic portfolio/news watch) | ✅ | ✅ | Settings toggle + interval; spends credits (not comped); Pro = minute-level interval, free = daily |
 | Portfolio "Today" AI digest | ✅ | ✅ | `/insights/portfolio-digest`; watchlist fallback |
 | Smart move alerts (push + why) | — | ✅ | `services/market_monitor.py`; push is mobile-only |
 | App icon badge (unread) | — | ✅ | Mobile-only by nature |

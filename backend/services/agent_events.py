@@ -79,12 +79,15 @@ def _event_dto(e: AgentEvent) -> dict:
 
 
 async def get_events(
-    user_id: str, limit: int = 50, before: Optional[datetime] = None
+    user_id: str, limit: int = 50, before: Optional[datetime] = None,
+    event_type: Optional[str] = None,
 ) -> list[dict]:
     async with get_db_session() as db:
         q = select(AgentEvent).where(AgentEvent.user_id == user_id)
         if before:
             q = q.where(AgentEvent.created_at < before)
+        if event_type:
+            q = q.where(AgentEvent.event_type == event_type)
         q = q.order_by(AgentEvent.created_at.desc()).limit(min(limit, 100))
         rows = (await db.execute(q)).scalars().all()
     return [_event_dto(e) for e in rows]
@@ -166,6 +169,27 @@ async def _next_scheduled_run(user_id: str) -> Optional[dict]:
     }
 
 
+async def _running_now(user_id: str) -> Optional[dict]:
+    """The job executing right now, if any — lets the app show the agent
+    live-working on home and deep-link into the run chat's stream."""
+    from models.jobs import ScheduledJob
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob)
+            .where(ScheduledJob.user_id == user_id, ScheduledJob.status == "running")
+            .order_by(ScheduledJob.run_at.desc())
+            .limit(1)
+        )).scalars().first()
+    if not row:
+        return None
+    return {
+        "name": row.name,
+        # run_at ≈ actual start: jobs are claimed (marked running) once due.
+        "started_at": row.run_at.isoformat() if row.run_at else None,
+        "chat_id": row.chat_id or f"job-{row.id}",
+    }
+
+
 async def get_recap(user_id: str) -> dict:
     now = _now()
     async with get_db_session() as db:
@@ -194,6 +218,7 @@ async def get_recap(user_id: str) -> dict:
 
     pending = await _pending_trades(user_id)
     next_run = await _next_scheduled_run(user_id)
+    running_now = await _running_now(user_id)
 
     return {
         "since": since.isoformat(),
@@ -203,6 +228,7 @@ async def get_recap(user_id: str) -> dict:
         "events": [_event_dto(e) for e in rows],
         "pending_trades": pending,
         "next_run": next_run,
+        "running_now": running_now,
         "has_content": bool(rows or pending),
     }
 
