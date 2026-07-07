@@ -188,10 +188,13 @@ class Notification(Base):
 
 
 class UserAuthToken(Base):
-    """Stored Supabase refresh token so scheduled jobs can run as the user.
+    """Backend-owned Supabase refresh token so scheduled jobs can run as the
+    user. Minted via the admin API (services/job_auth) — its own token family,
+    never a client's. Storing a browser/mobile refresh token here logs that
+    device out: spending it rotates the shared family, and Supabase's reuse
+    detection revokes the family on the device's next silent refresh.
 
-    The refresh token (long-lived) is exchanged for a fresh access token at job
-    run time. It's a credential — server-side only.
+    It's a credential — server-side only.
     """
     __tablename__ = "user_auth_tokens"
 

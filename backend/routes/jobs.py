@@ -1,7 +1,7 @@
 """
-Scheduled jobs API — register the per-user token (so jobs run as the user),
-and list / create / cancel jobs. Jobs themselves are file-backed (see
-services/job_scheduler).
+Scheduled jobs API — list / create / cancel jobs. Jobs themselves are
+file-backed (see services/job_scheduler); job runs authenticate via
+backend-minted sessions (see services/job_auth).
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from auth.dependencies import get_current_user_id
 from schemas.jobs import JobCreate, JobUpdate, Job, JobList
 from services import job_scheduler
-from services.job_auth import store_refresh_token, has_token
+from services.job_auth import has_token
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -23,10 +23,11 @@ class RegisterTokenRequest(BaseModel):
 
 @router.post("/register-token")
 async def register_token(body: RegisterTokenRequest, user_id: str = Depends(get_current_user_id)):
-    """Store the caller's Supabase refresh token so scheduled jobs can run as them."""
-    if not body.refresh_token:
-        raise HTTPException(status_code=400, detail="refresh_token required")
-    await store_refresh_token(user_id, body.refresh_token)
+    """Deprecated no-op, kept so shipped clients don't 404. The backend mints
+    its own Supabase session per user now; storing (and later spending) the
+    caller's refresh token here is what used to log users out — the client's
+    copy became a stale ancestor in the same token family, and Supabase's
+    reuse detection revoked the whole family on their next silent refresh."""
     return {"ok": True}
 
 

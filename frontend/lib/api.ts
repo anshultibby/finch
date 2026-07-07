@@ -979,9 +979,6 @@ export const jobsApi = {
     const response = await api.patch(`/jobs/${jobId}`, patch);
     return response.data;
   },
-  registerToken: async (refreshToken: string): Promise<void> => {
-    await api.post('/jobs/register-token', { refresh_token: refreshToken });
-  },
 };
 
 export const analyticsApi = {

@@ -20,7 +20,6 @@ test.describe('Jobs UI', () => {
     await page.route('**/jobs', route => route.request().method() === 'GET'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(JOBS) })
       : route.fallback());
-    await page.route('**/jobs/register-token', route => route.fulfill({ status: 200, body: '{"ok":true}' }));
   });
 
   test('list with cost + pause-all', async ({ page }, testInfo) => {
