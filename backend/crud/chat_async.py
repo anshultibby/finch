@@ -3,9 +3,10 @@ Async CRUD operations for chats and chat messages
 """
 from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, exists, or_, and_
 from sqlalchemy.orm import selectinload, load_only
 from models.chat_models import Chat, ChatMessageDB as ChatMessage
+from models.jobs import ScheduledJob
 from datetime import datetime
 
 
@@ -67,9 +68,20 @@ async def get_user_chats_with_preview(
     from sqlalchemy import func, literal_column
     from sqlalchemy.sql import text
 
+    # Automation runs get their own chat (job.chat_id, or the synthetic
+    # "job-{id}" fallback in job_scheduler.run_job) so the agent's execution
+    # transcript is isolated per run. Those are surfaced in the Automations
+    # panel, not the chat sidebar, so exclude them here.
+    is_job_chat = exists().where(
+        or_(
+            ScheduledJob.chat_id == Chat.chat_id,
+            func.concat('job-', ScheduledJob.id) == Chat.chat_id,
+        )
+    )
+
     query = (
         select(Chat)
-        .where(Chat.user_id == user_id, Chat.parent_chat_id.is_(None))
+        .where(Chat.user_id == user_id, Chat.parent_chat_id.is_(None), ~is_job_chat)
     )
     if search:
         query = query.where(Chat.title.ilike(f"%{search}%"))
@@ -84,8 +96,6 @@ async def get_user_chats_with_preview(
         
         # Get the latest message for each chat (user or assistant only)
         # Using a window function approach with SQLAlchemy
-        from sqlalchemy import and_, or_
-        
         messages_result = await db.execute(
             select(ChatMessage.chat_id, ChatMessage.content, ChatMessage.sequence)
             .where(
