@@ -674,6 +674,12 @@ export default function PortfolioPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
+              <a href="/" title="Back to dashboard"
+                className="flex items-center justify-center w-8 h-8 -ml-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5 8.25 12l7.5-7.5" />
+                </svg>
+              </a>
               <h1 className="text-xl font-bold text-slate-900">Portfolio</h1>
               <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
                 {allAccounts.length} account{allAccounts.length !== 1 ? 's' : ''}

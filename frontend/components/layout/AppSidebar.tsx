@@ -7,6 +7,7 @@ import ChatItemMenu from '@/components/chat/ChatItemMenu';
 import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
 import { useCredits } from '@/contexts/CreditsContext';
+import { usePendingTrades } from '@/hooks/usePendingTrades';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -126,6 +127,22 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const { trades: pendingTrades } = usePendingTrades(!!userId);
+  // Re-render every 30s while a proposal is pending so the countdown stays honest.
+  const [, setExpiryTick] = useState(0);
+  useEffect(() => {
+    if (pendingTrades.length === 0) return;
+    const t = setInterval(() => setExpiryTick(n => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [pendingTrades.length]);
+  const pendingExpiryLabel = (() => {
+    const next = pendingTrades
+      .map(t => (t.expires_at ? new Date(t.expires_at).getTime() : Infinity))
+      .sort((a, b) => a - b)[0];
+    if (!next || next === Infinity) return null;
+    const mins = Math.max(0, Math.round((next - Date.now()) / 60000));
+    return mins < 60 ? `${mins}m left` : `${Math.floor(mins / 60)}h left`;
+  })();
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
   const { credits, loading: creditsLoading, openModal: openCreditsModal } = useCredits();
   const [searchQuery, setSearchQuery] = useState('');
@@ -312,6 +329,33 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                 </button>
               );
             })}
+
+            {/* Pending approvals — a trade waiting on the user outranks nav.
+                Visible from any view; lands on home where the approval card is. */}
+            {pendingTrades.length > 0 && (
+              <button
+                onClick={() => onNavigate({ type: 'home' })}
+                className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors ${expanded ? '' : 'justify-center'}`}
+                title={!expanded ? `${pendingTrades.length} trade${pendingTrades.length > 1 ? 's' : ''} waiting for approval` : undefined}
+              >
+                <span className="relative flex h-2 w-2 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                {expanded ? (
+                  <>
+                    <span className="text-xs font-bold text-emerald-800">
+                      {pendingTrades.length} trade{pendingTrades.length > 1 ? 's' : ''} waiting
+                    </span>
+                    {pendingExpiryLabel && (
+                      <span className="ml-auto text-[11px] font-semibold text-emerald-600 tabular-nums">{pendingExpiryLabel}</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[11px] font-bold text-emerald-800">{pendingTrades.length}</span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Divider */}

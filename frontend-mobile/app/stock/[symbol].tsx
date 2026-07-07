@@ -14,6 +14,7 @@ import PriceChange from '@/components/ui/PriceChange';
 import { CountUp } from '@/components/ui/CountUp';
 import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
 import WhyMoveCard from '@/components/insights/WhyMoveCard';
+import Markdown from 'react-native-markdown-display';
 
 type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis';
 
@@ -193,6 +194,8 @@ export default function StockDetailScreen() {
                 analyst={analyst}
                 peers={peers}
                 router={router}
+                latestNote={analysis[0]}
+                onReadNote={() => { Haptics.selectionAsync(); setActiveTab('analysis'); }}
               />
             )}
             {activeTab === 'earnings' && (
@@ -231,11 +234,57 @@ export default function StockDetailScreen() {
 
 // ── Overview Tab ────────────────────────────────────────────────────────────────
 
-function OverviewTab({ symbol, quote, profile, analyst, peers, router }: {
+// First readable paragraph of a markdown research note, de-markdown'd —
+// the "verdict" line notes usually open with.
+function noteSnippet(md: string | null | undefined, max = 200): string {
+  if (!md) return '';
+  const para = md.split('\n').map(l => l.trim()).find(l =>
+    l && !l.startsWith('#') && !l.startsWith('|') && !l.startsWith('---') && !l.startsWith('```')
+  );
+  if (!para) return '';
+  const plain = para.replace(/\*\*|__|`/g, '').replace(/\[([^\]]*)\]\(([^)]*)\)/g, '$1');
+  return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
+}
+
+function OverviewTab({ symbol, quote, profile, analyst, peers, router, latestNote, onReadNote }: {
   symbol: string; quote: any; profile: any; analyst: any; peers: any[]; router: any;
+  latestNote?: any; onReadNote: () => void;
 }) {
   return (
     <>
+      {/* Finch's take — lead with the analyst's synthesis, not raw data */}
+      {latestNote && (
+        <View className="px-4 mb-3.5">
+          <TouchableOpacity onPress={onReadNote} activeOpacity={0.75} style={s.card}>
+            <View className="flex-row items-center justify-between mb-1.5">
+              <View className="flex-row items-center" style={{ gap: 5 }}>
+                <TrendingUp size={12} color="#059669" />
+                <Text className="text-[10px] font-body-bold text-gray-400 uppercase tracking-widest">
+                  Finch&apos;s take
+                </Text>
+              </View>
+              {latestNote.created_at && (
+                <Text className="text-[11px] font-body text-gray-400">
+                  {new Date(latestNote.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </Text>
+              )}
+            </View>
+            <Text className="text-[14px] font-body-bold text-gray-900 mb-1" numberOfLines={2}>
+              {latestNote.title || 'Research note'}
+            </Text>
+            {!!noteSnippet(latestNote.content) && (
+              <Text className="text-[13px] font-body text-gray-600 leading-[18px]" numberOfLines={3}>
+                {noteSnippet(latestNote.content)}
+              </Text>
+            )}
+            <View className="flex-row items-center mt-2" style={{ gap: 2 }}>
+              <Text className="text-[11px] font-body-bold text-emerald-700">Read full note</Text>
+              <ChevronRight size={12} color="#047857" />
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Key Stats */}
       <View className="px-4 mb-3.5">
         <View style={s.card}>
@@ -867,7 +916,7 @@ function AnalysisTab({ analyst, analysis, quote, onChat }: {
                 {note.title || note.summary || 'Research Note'}
               </Text>
               {expandedNote === i && note.content && (
-                <Text style={s.noteContent}>{note.content}</Text>
+                <Markdown style={noteMdStyles}>{note.content}</Markdown>
               )}
               <Text style={s.noteDate}>{note.created_at ? new Date(note.created_at).toLocaleDateString() : ''}</Text>
             </TouchableOpacity>
@@ -983,3 +1032,22 @@ const s = StyleSheet.create({
     lineHeight: 18, marginTop: 4, paddingHorizontal: 24,
   },
 });
+
+// AI research notes are markdown (headings, tables) — compact variant of the
+// chat renderer's styles, sized to fit inside a note card.
+const noteMdStyles = {
+  body: { color: '#4b5563', fontSize: 13, lineHeight: 19, fontFamily: 'DMSans', marginTop: 8 },
+  heading1: { fontSize: 15, color: '#111827', marginTop: 10, marginBottom: 4, fontFamily: 'DMSans-Bold' },
+  heading2: { fontSize: 14, color: '#111827', marginTop: 10, marginBottom: 4, fontFamily: 'DMSans-Bold' },
+  heading3: { fontSize: 13, color: '#111827', marginTop: 8, marginBottom: 3, fontFamily: 'DMSans-Bold' },
+  paragraph: { marginTop: 0, marginBottom: 6 },
+  strong: { color: '#111827', fontFamily: 'DMSans-Bold' },
+  bullet_list: { marginTop: 2, marginBottom: 4 },
+  ordered_list: { marginTop: 2, marginBottom: 4 },
+  list_item: { marginVertical: 1 },
+  table: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, overflow: 'hidden' as const, marginVertical: 6 },
+  thead: { backgroundColor: '#f9fafb' },
+  th: { paddingVertical: 5, paddingHorizontal: 8, fontSize: 11.5, fontFamily: 'DMSans-Medium', color: '#6b7280' },
+  td: { paddingVertical: 5, paddingHorizontal: 8, fontSize: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', color: '#374151' },
+  tr: { borderBottomWidth: 0 },
+};

@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDrawer } from '@/contexts/DrawerContext';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { snaptradeApi, marketApi, watchlistApi, notificationsApi } from '@/lib/api';
+import { snaptradeApi, marketApi, watchlistApi, notificationsApi, pendingTradesApi, type PendingTradeItem } from '@/lib/api';
 import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import { syncBadgeCount } from '@/lib/pushNotifications';
 import type { SnapTradeStatusResponse } from '@/lib/types';
@@ -16,6 +16,7 @@ import SectionHeader from '@/components/ui/SectionHeader';
 import MoverCard from '@/components/market/MoverCard';
 import NewsCard from '@/components/market/NewsCard';
 import EmptyState from '@/components/ui/EmptyState';
+import DataError from '@/components/ui/DataError';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import TodayDigestCard from '@/components/insights/TodayDigestCard';
@@ -84,6 +85,7 @@ export default function HomeScreen() {
   const searchInputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingTrades, setPendingTrades] = useState<PendingTradeItem[]>([]);
 
   // Markets state
   const [marketRegion, setMarketRegion] = useState<MarketRegion>('us');
@@ -91,12 +93,14 @@ export default function HomeScreen() {
   const [movers, setMovers] = useState<any>(null);
   const [news, setNews] = useState<any[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
+  const [marketsError, setMarketsError] = useState(false);
   const [marketsRefreshing, setMarketsRefreshing] = useState(false);
   const [marketsUpdatedAt, setMarketsUpdatedAt] = useState(() => new Date().toISOString());
 
   // Earnings state
   const [earnings, setEarnings] = useState<any[]>([]);
   const [earningsLoading, setEarningsLoading] = useState(true);
+  const [earningsError, setEarningsError] = useState(false);
 
   // Watchlist state
   const [watchlistItems, setWatchlistItems] = useState<any[]>([]);
@@ -119,10 +123,13 @@ export default function HomeScreen() {
       const [moversData, newsData, batchQuotes] = await Promise.all([
         marketApi.getMovers().catch(() => null),
         marketApi.getGeneralNews(8, marketRegion).catch(() => []),
-        marketApi.getBatchQuotes(indices).catch(() => ({})),
+        marketApi.getBatchQuotes(indices).catch(() => null),
       ]);
       if (moversData) setMovers(moversData);
       setNews(newsData?.news || newsData || []);
+      // Index quotes are the tab's backbone — surface the failure instead of
+      // rendering a grid of "—" cards with no explanation.
+      setMarketsError(batchQuotes === null && !moversData);
       // batch-quotes returns an array; key it by symbol for O(1) lookup.
       if (Array.isArray(batchQuotes)) {
         const quoteMap: Record<string, any> = {};
@@ -137,7 +144,8 @@ export default function HomeScreen() {
 
   const fetchEarnings = useCallback(async () => {
     try {
-      const data = await marketApi.getEarnings().catch(() => []);
+      const data = await marketApi.getEarnings().catch(() => null);
+      setEarningsError(data === null);
       setEarnings(data?.earnings || data || []);
     } catch {} finally {
       setEarningsLoading(false);
@@ -212,6 +220,17 @@ export default function HomeScreen() {
       setUnreadCount(count);
       syncBadgeCount(count);
     }).catch(() => {});
+    // A trade waiting on the user outranks everything — always check on focus.
+    if (user) {
+      pendingTradesApi.list().then(d => {
+        const live = (d.pending_trades || []).filter(
+          t => !t.expires_at || new Date(t.expires_at).getTime() > Date.now()
+        );
+        setPendingTrades(live);
+      }).catch(() => {});
+    } else {
+      setPendingTrades([]);
+    }
   }, [user, marketRegion, fetchMarkets, fetchEarnings, fetchWatchlist, fetchPortfolio]));
 
   const onRefresh = useCallback(async () => {
@@ -337,6 +356,39 @@ export default function HomeScreen() {
         </View>
       )}
 
+      {/* Pending approvals — a trade waiting on the user outranks everything.
+          Pinned above the tabs so it's visible from any tab; taps land on the
+          activity ledger where the approval card lives. */}
+      {!searchActive && pendingTrades.length > 0 && (
+        <TouchableOpacity
+          onPress={() => { Haptics.selectionAsync(); router.push('/activity' as any); }}
+          activeOpacity={0.8}
+          className="mx-4 mb-2 flex-row items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5"
+        >
+          <View className="flex-row items-center" style={{ gap: 8 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#10b981' }} />
+            <Text className="text-[13px] font-body-bold text-emerald-800">
+              {pendingTrades.length} trade{pendingTrades.length > 1 ? 's' : ''} waiting for approval
+            </Text>
+          </View>
+          <View className="flex-row items-center" style={{ gap: 4 }}>
+            {(() => {
+              const next = pendingTrades
+                .map(t => (t.expires_at ? new Date(t.expires_at).getTime() : Infinity))
+                .sort((a, b) => a - b)[0];
+              if (!next || next === Infinity) return null;
+              const mins = Math.max(0, Math.round((next - Date.now()) / 60000));
+              return (
+                <Text className="text-[11px] font-body-bold text-emerald-600 tabular-nums">
+                  {mins < 60 ? `${mins}m left` : `${Math.floor(mins / 60)}h left`}
+                </Text>
+              );
+            })()}
+            <ChevronRight size={14} color="#047857" />
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* Search Results */}
       {searchActive && searchQuery.trim() ? (
         <View className="flex-1">
@@ -413,17 +465,19 @@ export default function HomeScreen() {
           {activeTab === 'markets' && (
             <MarketsTab
               gainers={gainers} losers={losers} actives={actives} news={news}
-              loading={marketsLoading} refreshing={refreshing} onRefresh={onRefresh}
+              loading={marketsLoading} error={marketsError} refreshing={refreshing} onRefresh={onRefresh}
               onStockPress={(s) => router.push(`/stock/${s}`)}
               marketRegion={marketRegion}
               onRegionChange={(r) => { setMarketRegion(r); setMarketsLoading(true); }}
               indexQuotes={indexQuotes}
               updatedAt={marketsUpdatedAt}
+              isConnected={isConnected}
+              onConnectPress={() => setActiveTab('portfolio')}
             />
           )}
           {activeTab === 'earnings' && (
             <EarningsTab
-              earnings={earnings} loading={earningsLoading}
+              earnings={earnings} loading={earningsLoading} error={earningsError}
               refreshing={refreshing} onRefresh={onRefresh}
               onStockPress={(s) => router.push(`/stock/${s}`)}
             />
@@ -463,6 +517,7 @@ export default function HomeScreen() {
               onStockPress={(s) => router.push(`/stock/${s}`)}
               userId={user?.id || ''}
               onConnectionChange={fetchPortfolio}
+              onStartWatchlist={() => setActiveTab('watchlist')}
             />
           )}
           {activeTab === 'agent' && (
@@ -489,15 +544,18 @@ export default function HomeScreen() {
 
 // ── Markets Tab ──────────────────────────────────────────────────────────────
 
-function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRefresh, onStockPress, marketRegion, onRegionChange, indexQuotes, updatedAt }: {
+function MarketsTab({ gainers, losers, actives, news, loading, error, refreshing, onRefresh, onStockPress, marketRegion, onRegionChange, indexQuotes, updatedAt, isConnected, onConnectPress }: {
   gainers: any[]; losers: any[]; actives: any[]; news: any[];
-  loading: boolean; refreshing: boolean; onRefresh: () => void;
+  loading: boolean; error?: boolean; refreshing: boolean; onRefresh: () => void;
   onStockPress: (symbol: string) => void;
   marketRegion: MarketRegion;
   onRegionChange: (r: MarketRegion) => void;
   indexQuotes: Record<string, any>;
   updatedAt: string;
+  isConnected?: boolean;
+  onConnectPress?: () => void;
 }) {
+  const { user } = useAuth();
   const [showRegionPicker, setShowRegionPicker] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
   const cardW = idxCardWidth(windowWidth);
@@ -525,8 +583,14 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
       showsVerticalScrollIndicator={false}
     >
-      {/* The agent accounts for itself before generic market data */}
-      <WhileYouWereGoneCard />
+      {/* The briefing block — the agent accounts for itself (ledger, approvals)
+          and tells the story of the user's day (digest) before market data. */}
+      <WhileYouWereGoneCard hasBrokerage={isConnected} onConnect={onConnectPress} />
+      {user && (
+        <View className="px-4 mt-2">
+          <TodayDigestCard userId={user.id} />
+        </View>
+      )}
 
       {/* Market Region Toggle + Sentiment */}
       <View className="px-4 mt-3 mb-3 flex-row items-center justify-between">
@@ -563,6 +627,11 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
       )}
 
       {/* Index Cards — 2-column grid */}
+      {error ? (
+        <View className="px-4 mb-4">
+          <DataError message="Couldn't load market data" onRetry={onRefresh} />
+        </View>
+      ) : (
       <View style={idxStyles.grid}>
         {indices.map(idx => {
           const q = indexQuotes[idx.symbol] || {};
@@ -585,6 +654,7 @@ function MarketsTab({ gainers, losers, actives, news, loading, refreshing, onRef
           );
         })}
       </View>
+      )}
 
       {gainers.length > 0 && (
         <View className="mt-4 mb-5">
@@ -695,8 +765,8 @@ function SentimentChip({ s }: { s: { label: string; color: string; score: number
 
 // ── Earnings Tab ─────────────────────────────────────────────────────────────
 
-function EarningsTab({ earnings, loading, refreshing, onRefresh, onStockPress }: {
-  earnings: any[]; loading: boolean; refreshing: boolean; onRefresh: () => void;
+function EarningsTab({ earnings, loading, error, refreshing, onRefresh, onStockPress }: {
+  earnings: any[]; loading: boolean; error?: boolean; refreshing: boolean; onRefresh: () => void;
   onStockPress: (symbol: string) => void;
 }) {
   if (loading) {
@@ -710,7 +780,10 @@ function EarningsTab({ earnings, loading, refreshing, onRefresh, onStockPress }:
       showsVerticalScrollIndicator={false}
       contentContainerClassName="px-4 pt-4 pb-8"
     >
-      {earnings.length === 0 ? (
+      {error && earnings.length === 0 ? (
+        // A failed fetch must not masquerade as "no earnings this week".
+        <DataError message="Couldn't load the earnings calendar" onRetry={onRefresh} />
+      ) : earnings.length === 0 ? (
         <EmptyState
           icon={<Calendar size={48} color={COLORS.gray200} />}
           title="No upcoming earnings"
@@ -810,7 +883,7 @@ function WatchlistTab({ items, loading, refreshing, onRefresh, onStockPress, onR
 
 // ── Portfolio Tab (SnapTrade) ─────────────────────────────────────────────────
 
-function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performance, brokerages, loading, refreshing, onRefresh, onStockPress, userId, onConnectionChange }: {
+function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performance, brokerages, loading, refreshing, onRefresh, onStockPress, userId, onConnectionChange, onStartWatchlist }: {
   isConnected: boolean;
   reverify?: SnapTradeStatusResponse | null;
   portfolioData: any;
@@ -823,6 +896,7 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
   onStockPress: (symbol: string) => void;
   userId: string;
   onConnectionChange: () => void;
+  onStartWatchlist: () => void;
 }) {
   const [connecting, setConnecting] = useState(false);
   const [showBrokers, setShowBrokers] = useState(false);
@@ -920,6 +994,11 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
           </View>
         ) : (
           <View>
+            {/* Watchlist-mode digest — show the daily AI story even before a
+                brokerage is connected, so this screen previews value instead
+                of gating it. Renders nothing when there's no watchlist. */}
+            <TodayDigestCard userId={userId} />
+
             {reverify?.needs_reverify && (
               <View className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4 flex-row items-start gap-3">
                 <View className="w-9 h-9 rounded-lg bg-amber-100 items-center justify-center">
@@ -982,6 +1061,19 @@ function PortfolioTab({ isConnected, reverify, portfolioData, accounts, performa
               <Lock size={12} color="#9ca3af" />
               <Text style={pStyles.trustText}>Bank-level encryption · Read-only access · Disconnect anytime</Text>
             </View>
+
+            {/* Escape hatch — not ready to connect shouldn't be a dead end */}
+            <TouchableOpacity
+              onPress={onStartWatchlist}
+              activeOpacity={0.7}
+              className="mt-4 flex-row items-center justify-center"
+              style={{ gap: 4 }}
+            >
+              <Text className="text-[13px] font-body-medium text-emerald-700">
+                Not ready? Start with a watchlist
+              </Text>
+              <ChevronRight size={14} color="#047857" />
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>

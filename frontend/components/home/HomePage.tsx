@@ -10,9 +10,11 @@ import { PORTFOLIO_REVIEW_PROMPT } from '@/lib/aiPrompts';
 import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import WhileYouWereGone from '@/components/activity/WhileYouWereGone';
+import TodayDigest from '@/components/insights/TodayDigest';
 import AgentTabView from './AgentTabView';
 import ChatInput from '@/components/chat/ChatInput';
 import EmptyState from '@/components/ui/EmptyState';
+import DataError from '@/components/ui/DataError';
 import CountUp from '@/components/ui/CountUp';
 import TickerLogo from '@/components/ui/TickerLogo';
 import { Wallet } from 'lucide-react';
@@ -242,7 +244,7 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
 
   // Cached per week+market so re-opening the tab (or paging back to a week) is
   // instant. Earnings dates rarely move, so a 5-minute freshness window is fine.
-  const { data: earningsData, isLoading: loading } = useCachedResource<any[]>(
+  const { data: earningsData, isLoading: loading, error: earningsError, refresh: refreshEarnings } = useCachedResource<any[]>(
     `earnings:${market}:${fromDate}:${toDate}`,
     () => marketApi.getEarnings(fromDate, toDate, market).then(d => (Array.isArray(d) ? d : [])),
     { ttl: 5 * 60_000 },
@@ -329,6 +331,10 @@ function EarningsCalendar({ onStockClick, market }: { onStockClick: (s: string) 
         {loading ? (
           <div className="flex items-center justify-center h-[200px]">
             <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+          </div>
+        ) : earningsError && !earningsData ? (
+          <div className="flex items-center justify-center h-[200px] px-4">
+            <DataError message="Couldn't load the earnings calendar" onRetry={refreshEarnings} className="w-full max-w-md bg-white" />
           </div>
         ) : activeDayEarnings.length > 0 ? (
           <div className="divide-y divide-gray-100">
@@ -1146,7 +1152,8 @@ function AccountDropdown({ accounts, selectedAccountId, accountCount, onSelect }
   );
 }
 
-function PortfolioTabView({ externalPortfolio, hasBrokerage, onStockClick, selectedAccountId, onClearAccount, onSelectAccount, onConnect }: {
+function PortfolioTabView({ userId, externalPortfolio, hasBrokerage, onStockClick, selectedAccountId, onClearAccount, onSelectAccount, onConnect }: {
+  userId: string;
   externalPortfolio: PortfolioResponse | null;
   hasBrokerage: boolean;
   onStockClick: (s: string) => void;
@@ -1190,6 +1197,23 @@ function PortfolioTabView({ externalPortfolio, hasBrokerage, onStockClick, selec
 
   return (
     <div>
+      {/* This tab is the "today" snapshot; /portfolio is the full workspace
+          (history chart, per-account cards, transactions). One clear split
+          instead of two near-identical portfolio views. */}
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900">Today</h3>
+        <a href="/portfolio"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">
+          View full portfolio
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </a>
+      </div>
+
+      {/* AI story of the portfolio's day — same digest as /portfolio */}
+      <TodayDigest userId={userId} onSelectSymbol={onStockClick} className="mb-5" />
+
       {/* Net Worth / Account card */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 mb-5">
         {externalPortfolio && externalPortfolio.accounts && externalPortfolio.accounts.length > 1 ? (
@@ -1254,11 +1278,11 @@ function PortfolioTabView({ externalPortfolio, hasBrokerage, onStockClick, selec
         </div>
       </div>
 
-      {/* Holdings list */}
+      {/* Holdings list — top positions only; the full list lives on /portfolio */}
       {allPositions.length > 0 && (
         <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="divide-y divide-gray-100">
-            {allPositions.sort((a, b) => b.value - a.value).map((p, i) => {
+            {allPositions.sort((a, b) => b.value - a.value).slice(0, 8).map((p, i) => {
               const gl = p.gain_loss || 0;
               const glPct = p.gain_loss_percent || 0;
               const isUp = gl >= 0;
@@ -1285,6 +1309,12 @@ function PortfolioTabView({ externalPortfolio, hasBrokerage, onStockClick, selec
               );
             })}
           </div>
+          {allPositions.length > 8 && (
+            <a href="/portfolio"
+              className="block w-full px-4 py-2.5 text-center text-xs font-semibold text-gray-500 hover:text-gray-900 hover:bg-gray-50 border-t border-gray-100 transition-colors">
+              See all {allPositions.length} holdings
+            </a>
+          )}
         </div>
       )}
     </div>
@@ -1478,6 +1508,7 @@ export default function HomePage() {
   const [externalPortfolio, setExternalPortfolio] = useState<PortfolioResponse | null>(null);
   const [hasBrokerage, setHasBrokerage] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [marketsError, setMarketsError] = useState(false);
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [brokerages, setBrokerages] = useState<Brokerage[]>([]);
@@ -1487,20 +1518,23 @@ export default function HomePage() {
 
   const indices = market === 'us' ? US_INDICES : INDIA_INDICES;
 
-  useEffect(() => {
-    if (!user) return;
+  const loadMarkets = useCallback(() => {
+    if (!user) return Promise.resolve();
     const allSymbols = [...US_INDICES, ...INDIA_INDICES].map(i => i.symbol);
 
-    Promise.all([
-      marketApi.getBatchQuotes(allSymbols).catch(() => []),
-      marketApi.getMovers().catch(() => ({ gainers: [], losers: [] })),
+    return Promise.all([
+      marketApi.getBatchQuotes(allSymbols).catch(() => null),
+      marketApi.getMovers().catch(() => null),
       watchlistApi.getWatchlist(user.id).catch(() => ({ symbols: [] })),
       snaptradeApi.checkStatus(user.id).catch(() => ({ is_connected: false })),
     ]).then(([quotes, m, wl, brokerage]) => {
+      // Index quotes are the tab's backbone — surface the failure instead of
+      // rendering a grid of "--" cards with no explanation.
+      setMarketsError(quotes === null);
       const quoteMap: Record<string, any> = {};
       if (Array.isArray(quotes)) quotes.forEach((q: any) => { quoteMap[q.symbol] = q; });
       setIndexQuotes(quoteMap);
-      setMovers({ gainers: m.gainers || [], losers: m.losers || [] });
+      setMovers({ gainers: m?.gainers || [], losers: m?.losers || [] });
       setWatchlist(wl.symbols || []);
 
       const brokerageConnected = Boolean((brokerage as any)?.is_connected);
@@ -1510,6 +1544,8 @@ export default function HomePage() {
       }
     }).finally(() => setLoading(false));
   }, [user]);
+
+  useEffect(() => { loadMarkets(); }, [loadMarkets]);
 
   // News re-fetches on market toggle so India shows Indian headlines.
   useEffect(() => {
@@ -1656,23 +1692,30 @@ export default function HomePage() {
           <div className="flex-1 min-w-0 px-5 pt-4 overflow-y-auto flex flex-col">
             {activeTab === 'markets' && (
               <>
-                {/* The agent accounts for itself before we show generic markets */}
+                {/* The briefing block — the agent accounts for itself (ledger,
+                    approvals) and tells the story of the user's day (digest)
+                    before any generic market data. */}
                 <WhileYouWereGone hasBrokerage={hasBrokerage} onConnect={openConnectModal} />
+                <TodayDigest userId={user!.id} onSelectSymbol={openStock} className="mb-6" />
 
                 {/* Top Assets — 2x2 grid */}
                 <div className="mb-6">
                   <h2 className="text-sm font-semibold text-gray-900 mb-3">Top Assets</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {indices.map(idx => (
-                      <IndexCard
-                        key={idx.symbol}
-                        symbol={idx.symbol}
-                        label={idx.label}
-                        quote={indexQuotes[idx.symbol]}
-                        onClick={() => openStock((idx as any).navSymbol || idx.symbol)}
-                      />
-                    ))}
-                  </div>
+                  {marketsError ? (
+                    <DataError message="Couldn't load market data" onRetry={loadMarkets} />
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {indices.map(idx => (
+                        <IndexCard
+                          key={idx.symbol}
+                          symbol={idx.symbol}
+                          label={idx.label}
+                          quote={indexQuotes[idx.symbol]}
+                          onClick={() => openStock((idx as any).navSymbol || idx.symbol)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Market movers — compact horizontal list */}
@@ -1714,6 +1757,7 @@ export default function HomePage() {
 
             {activeTab === 'portfolio' && (
               <PortfolioTabView
+                userId={user!.id}
                 externalPortfolio={externalPortfolio}
                 hasBrokerage={hasBrokerage}
                 onStockClick={openStock}
@@ -1731,7 +1775,7 @@ export default function HomePage() {
             <div className="flex-grow" />
 
             {/* ── Bottom Chat Bar ──────────────────────────────────────── */}
-            <div className="sticky bottom-0 px-3 sm:px-4 pb-1">
+            <div className="sticky bottom-0 z-10 px-3 sm:px-4 pt-6 pb-1 bg-gradient-to-t from-white via-white/95 to-transparent">
               <ChatInput
                 onSimpleSend={handleChatSend}
                 placeholder="Ask about stocks, portfolio, markets..."

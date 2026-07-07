@@ -8,6 +8,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { pendingTradesApi, type PendingTradeItem } from '@/lib/api';
+import { invalidatePendingTrades } from '@/hooks/usePendingTrades';
 
 const HOLD_MS = 1100;
 
@@ -68,10 +69,11 @@ export default function ApprovalCard({
     setError(null);
     try {
       await pendingTradesApi.approve(trade.id);
+      invalidatePendingTrades();
       onDecided(trade.id, 'approved');
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { detail?: string } } };
-      if (err.response?.status === 410) { onDecided(trade.id, 'expired'); return; }
+      if (err.response?.status === 410) { invalidatePendingTrades(); onDecided(trade.id, 'expired'); return; }
       // The backend marks the trade failed on a placement error — terminal.
       setFailed(err.response?.data?.detail || 'Order could not be placed.');
       setBusy(null);
@@ -103,6 +105,7 @@ export default function ApprovalCard({
     setError(null);
     try {
       await pendingTradesApi.reject(trade.id);
+      invalidatePendingTrades();
       onDecided(trade.id, 'rejected');
     } catch {
       setError('Could not reject — try again.');

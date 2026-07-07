@@ -24,6 +24,18 @@ function fmtN(n: number) {
 }
 function pct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; }
 
+/** First readable paragraph of a markdown research note, de-markdown'd —
+ *  the "verdict" line notes usually open with. */
+function noteSnippet(md: string | null | undefined, max = 260): string {
+  if (!md) return '';
+  const para = md.split('\n').map(l => l.trim()).find(l =>
+    l && !l.startsWith('#') && !l.startsWith('|') && !l.startsWith('---') && !l.startsWith('```')
+  );
+  if (!para) return '';
+  const plain = para.replace(/\*\*|__|`/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
+}
+
 // ─── Stat cell ───────────────────────────────────────────────────────────────
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -954,6 +966,62 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
         <div className="px-4 sm:px-6 pt-5">
           {activeTab === 'overview' && (
             <>
+              {/* Finch's take — lead with the analyst's synthesis, not raw data */}
+              {aiNotes.length > 0 ? (
+                <div className="mb-5 rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+                      </svg>
+                      <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Finch&apos;s take</span>
+                    </div>
+                    {aiNotes[0].created_at && (
+                      <span className="text-[11px] text-gray-400">
+                        {formatDate(aiNotes[0].created_at, { month: 'short', day: 'numeric' }, isIndianTicker(symbol))}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900 mb-1">{aiNotes[0].title}</div>
+                  {noteSnippet(aiNotes[0].content) && (
+                    <p className="text-[13px] text-gray-600 leading-relaxed line-clamp-3 mb-2.5">
+                      {noteSnippet(aiNotes[0].content)}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between gap-3">
+                    {analyst?.grades?.consensus ? (
+                      <span className="text-[11px] text-gray-400">
+                        Street: <span className={`font-bold ${
+                          analyst.grades.consensus === 'Buy' ? 'text-emerald-600' :
+                          analyst.grades.consensus === 'Sell' ? 'text-red-500' : 'text-gray-600'
+                        }`}>{analyst.grades.consensus}</span>
+                        {analyst.consensus?.targetConsensus ? (
+                          <span> · PT {fmt(analyst.consensus.targetConsensus, symbol)}</span>
+                        ) : null}
+                      </span>
+                    ) : <span />}
+                    <button
+                      onClick={() => setActiveTab('analysis')}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 transition-colors"
+                    >
+                      Read full note →
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => openChatAbout(symbol, `Give me a deep-dive on ${symbol}: thesis, valuation, key risks, and what would change your mind. Save it as a research note.`, { page: 'stock', symbol, name })}
+                  className="w-full mb-5 flex items-center justify-between gap-3 rounded-2xl border border-dashed border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 px-4 py-3 transition-colors text-left group"
+                >
+                  <span className="text-[13px] text-gray-500">
+                    No research note on <span className="font-semibold text-gray-700">{symbol}</span> yet — ask Finch for a deep-dive.
+                  </span>
+                  <span className="text-[11px] font-bold text-emerald-700 shrink-0 group-hover:translate-x-0.5 transition-transform">
+                    Run analysis →
+                  </span>
+                </button>
+              )}
+
               {/* Your position */}
               {position && (
                 <div className="mb-5 rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
@@ -1289,7 +1357,7 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
 
         {/* Sticky chat bar — full-width fade so wide tables scroll under it
             cleanly instead of peeking out beside a narrow floating box. */}
-        <div className="sticky bottom-0 px-3 sm:px-4 pt-8 pb-2 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none">
+        <div className="sticky bottom-0 z-10 px-3 sm:px-4 pt-8 pb-2 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none">
           <div className="max-w-3xl pointer-events-auto">
           <ChatInput
             onSimpleSend={(msg) => openChatAbout(symbol, msg, {

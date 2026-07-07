@@ -72,9 +72,42 @@ function EventRow({ event, onOpen }: { event: AgentEvent; onOpen: (e: AgentEvent
           </span>
         </div>
         {event.body && (
-          <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{event.body}</p>
+          // Bodies come from agent output and often carry markdown emphasis;
+          // render them as plain text.
+          <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{event.body.replace(/\*\*|__|`/g, '')}</p>
         )}
       </div>
+    </button>
+  );
+}
+
+/** The agent, live: a job is executing right now. One tap lands in the run
+ *  chat where the full activity trail is streaming. */
+function RunningStrip({ run, onOpen }: {
+  run: NonNullable<ActivityRecap['running_now']>;
+  onOpen: () => void;
+}) {
+  const startedMin = run.started_at
+    ? Math.max(0, Math.round((Date.now() - new Date(run.started_at).getTime()) / 60000))
+    : null;
+  return (
+    <button
+      onClick={onOpen}
+      disabled={!run.chat_id}
+      className="w-full flex items-center gap-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100 px-3 py-2.5 mb-3 group hover:bg-emerald-50 transition-colors text-left"
+    >
+      <span className="relative flex h-2 w-2 flex-shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+      </span>
+      <span className="activity-shimmer-text text-xs font-semibold truncate">
+        Working now: {run.name}{startedMin !== null ? ` · ${startedMin === 0 ? 'just started' : `${startedMin}m in`}` : ''}
+      </span>
+      {run.chat_id && (
+        <span className="ml-auto flex-shrink-0 text-[11px] font-bold text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity">
+          watch →
+        </span>
+      )}
     </button>
   );
 }
@@ -142,6 +175,17 @@ export default function WhileYouWereGone({
     return () => { alive = false; };
   }, []);
 
+  // While a run is in flight, keep the card live: refresh the recap so the
+  // strip's elapsed time ticks and the run's results land as they're written.
+  const isRunning = Boolean(recap?.running_now);
+  useEffect(() => {
+    if (!isRunning) return;
+    const t = setInterval(() => {
+      activityApi.getRecap().then(setRecap).catch(() => {});
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [isRunning]);
+
   const openEvent = useCallback((e: AgentEvent) => {
     const chatId = e.data?.chat_id as string | undefined;
     const symbol = e.data?.symbol as string | undefined;
@@ -167,11 +211,32 @@ export default function WhileYouWereGone({
     [recap, decided],
   );
 
-  if (!recap) return null;
+  // Reserve the hero slot while loading — the briefing popping in a beat
+  // after the index cards demotes it to an afterthought.
+  if (!recap) {
+    return (
+      <div className="flex-shrink-0 rounded-2xl border border-gray-100 bg-white mb-6 p-4">
+        <div className="w-40 h-3 rounded animate-shimmer mb-3" />
+        <div className="w-3/4 h-4 rounded animate-shimmer" />
+      </div>
+    );
+  }
+
+  const openRun = () => {
+    if (recap.running_now?.chat_id) loadChat(recap.running_now.chat_id);
+  };
 
   // Nothing yet and no brokerage: show the ghost of the ledger they'd have.
   if (!recap.has_content) {
     if (!hasBrokerage) return <GhostLedger onConnect={onConnect} />;
+    // A run in flight beats the quiet line — show the agent working.
+    if (recap.running_now) {
+      return (
+        <div className="flex-shrink-0 mb-5">
+          <RunningStrip run={recap.running_now} onOpen={openRun} />
+        </div>
+      );
+    }
     // Connected but quiet: one honest line — watching, and when it checks next.
     if (recap.next_run?.run_at) {
       return (
@@ -219,6 +284,11 @@ export default function WhileYouWereGone({
       </div>
 
       <div className="px-4 pb-4">
+        {/* Live run — the agent is working right now; tap to watch the stream */}
+        {recap.running_now && (
+          <RunningStrip run={recap.running_now} onOpen={openRun} />
+        )}
+
         {recap.headline && showLedger && (
           <p className="text-[15px] font-semibold text-gray-900 leading-snug mb-3">{recap.headline}</p>
         )}

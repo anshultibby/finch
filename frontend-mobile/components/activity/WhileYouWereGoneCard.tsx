@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { ChevronRight } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,12 +27,87 @@ function timeUntil(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
+/** The agent, live: a job is executing right now. One tap lands in the run
+ *  chat where the full activity trail is streaming. */
+function RunningStrip({ run, onOpen }: {
+  run: NonNullable<ActivityRecap['running_now']>;
+  onOpen: () => void;
+}) {
+  const pulse = useSharedValue(1);
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withSequence(withTiming(0.35, { duration: 700 }), withTiming(1, { duration: 700 })),
+      -1,
+    );
+  }, [pulse]);
+  const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  const startedMin = run.started_at
+    ? Math.max(0, Math.round((Date.now() - new Date(run.started_at).getTime()) / 60000))
+    : null;
+
+  return (
+    <TouchableOpacity
+      onPress={onOpen}
+      disabled={!run.chat_id}
+      activeOpacity={0.75}
+      className="flex-row items-center rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 mb-2.5"
+      style={{ gap: 8 }}
+    >
+      <Animated.View style={[{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#10b981' }, dotStyle]} />
+      <Text className="text-xs font-body-bold text-emerald-800 flex-1" numberOfLines={1}>
+        Working now: {run.name}
+        {startedMin !== null ? ` · ${startedMin === 0 ? 'just started' : `${startedMin}m in`}` : ''}
+      </Text>
+      {run.chat_id && <ChevronRight size={13} color="#047857" />}
+    </TouchableOpacity>
+  );
+}
+
+/** Ghost ledger for pre-connect users: what this surface looks like alive. */
+function GhostLedger({ onConnect }: { onConnect: () => void }) {
+  const sample = ['#10b981', '#f59e0b', '#059669'];
+  return (
+    <View className="mx-4 mt-3 mb-1 rounded-2xl bg-white border border-gray-100 p-4">
+      <View className="flex-row items-center mb-2.5" style={{ gap: 6 }}>
+        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#d1d5db' }} />
+        <Text className="text-[10px] font-body-bold text-gray-400 uppercase tracking-widest">
+          Your agent&apos;s ledger
+        </Text>
+      </View>
+      {sample.map((dot, i) => (
+        <View key={i} className="flex-row items-center py-1.5" style={{ gap: 10, opacity: 0.55 }}>
+          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: dot }} />
+          <View className="flex-1 h-2.5 rounded bg-gray-100" style={{ maxWidth: i === 1 ? '70%' : '85%' }} />
+          <View className="w-9 h-2.5 rounded bg-gray-100" />
+        </View>
+      ))}
+      <Text className="text-xs font-body text-gray-500 mt-2.5 leading-4">
+        Every check, alert, and proposed trade Finch makes for you — with the dollars at stake — gets recorded here.
+      </Text>
+      <TouchableOpacity
+        onPress={onConnect}
+        activeOpacity={0.85}
+        className="mt-3 rounded-xl bg-emerald-600 py-2.5 items-center"
+      >
+        <Text className="text-xs font-body-bold text-white">Connect brokerage</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 /**
  * "While you were gone" — the agent accounts for itself at the top of home:
  * what it did since the user last looked, anything waiting on approval, and
  * when it checks next. Signed-out users see nothing (guest mode untouched).
  */
-export default function WhileYouWereGoneCard() {
+export default function WhileYouWereGoneCard({
+  hasBrokerage,
+  onConnect,
+}: {
+  hasBrokerage?: boolean;
+  onConnect?: () => void;
+} = {}) {
   const { user } = useAuth();
   const router = useRouter();
   const [recap, setRecap] = useState<ActivityRecap | null>(null);
@@ -46,6 +122,17 @@ export default function WhileYouWereGoneCard() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [user]);
+
+  // While a run is in flight, keep the card live: the strip's elapsed time
+  // ticks and the run's results land in the ledger as they're written.
+  const isRunning = Boolean(recap?.running_now);
+  useEffect(() => {
+    if (!isRunning) return;
+    const t = setInterval(() => {
+      activityApi.getRecap().then(setRecap).catch(() => {});
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [isRunning]);
 
   const dismiss = useCallback(() => {
     setDismissed(true);
@@ -67,7 +154,19 @@ export default function WhileYouWereGoneCard() {
 
   const pending = (recap.pending_trades || []).filter(t => !decided[t.id]);
 
+  const openRun = () => {
+    if (recap?.running_now?.chat_id) router.push(`/(tabs)/chat/${recap.running_now.chat_id}`);
+  };
+
   if (!recap.has_content) {
+    // A run in flight beats the quiet line — show the agent working.
+    if (recap.running_now) {
+      return (
+        <View className="mx-4 mt-3 mb-1">
+          <RunningStrip run={recap.running_now} onOpen={openRun} />
+        </View>
+      );
+    }
     // Connected but quiet: one honest line — watching, and when it checks next.
     if (recap.next_run?.run_at) {
       return (
@@ -79,6 +178,8 @@ export default function WhileYouWereGoneCard() {
         </View>
       );
     }
+    // Nothing set up yet: show the ghost of the ledger they'd have.
+    if (hasBrokerage === false && onConnect) return <GhostLedger onConnect={onConnect} />;
     return null;
   }
 
@@ -103,6 +204,9 @@ export default function WhileYouWereGoneCard() {
       </View>
 
       <View className="px-4 pb-3.5">
+        {/* Live run — the agent is working right now; tap to watch the stream */}
+        {recap.running_now && <RunningStrip run={recap.running_now} onOpen={openRun} />}
+
         {!dismissed && !!recap.headline && (
           <Text className="text-[15px] font-body-bold text-gray-900 leading-5 mb-2.5">
             {recap.headline}

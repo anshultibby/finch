@@ -131,7 +131,7 @@ export default function ActivityScreen() {
                     </View>
                     {!!item.body && (
                       <Text className="text-xs font-body text-gray-500 mt-0.5" numberOfLines={2}>
-                        {item.body}
+                        {item.body.replace(/\*\*|__|`/g, '')}
                       </Text>
                     )}
                   </View>
