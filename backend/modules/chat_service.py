@@ -181,7 +181,14 @@ class ChatService:
                 
                 # Track pending assistant message (with tool calls) until tools_end arrives
                 pending_assistant_msg = None
-                
+                # BaseAgent.process_message_stream catches its own exceptions and turns
+                # them into an "error" SSE event rather than raising — necessary so a
+                # live chat stream ends cleanly, but it means a mid-run failure (LLM
+                # timeout, provider error, etc.) is otherwise invisible to callers that
+                # just drain this generator (e.g. job_scheduler.run_job). Track it here
+                # so we can persist a visible marker and re-raise after cleanup.
+                agent_error = None
+
                 # Stream events from agent and save completed messages immediately as they arrive.
                 # Saving inside the loop (not after) means progress is persisted even if the
                 # client disconnects mid-stream.
@@ -193,7 +200,11 @@ class ChatService:
                     ):
                         # YIELD EVENT FIRST for real-time streaming
                         yield event.to_sse_format()
-                        
+
+                        if event.event == "error":
+                            agent_error = event.data.get("error") or "Agent error (no message)"
+                            logger.error(f"⚠️ Agent stream errored for chat {chat_id}: {agent_error}")
+
                         if event.event == "tool_call_start":
                             logger.info(f"🚀 Yielding tool_call_start event to client: {event.data}")
                         
@@ -316,7 +327,22 @@ class ChatService:
                                         pass
 
                             pending_assistant_msg = None
-                
+
+                # If the agent loop errored out, persist a visible marker so the
+                # transcript doesn't just end on a dangling tool call — this is what
+                # job_scheduler's ledger snippet and the chat UI read to know what
+                # happened.
+                if agent_error:
+                    try:
+                        await chat_async.create_message(
+                            db=db, chat_id=chat_id, role="assistant",
+                            content=f"⚠️ This run stopped early due to an error: {agent_error}",
+                            sequence=current_sequence,
+                        )
+                        current_sequence += 1
+                    except Exception as e:
+                        logger.error(f"Failed to persist agent-error marker message: {e}")
+
                 # --- Post-streaming cleanup ---
                 # Each step is wrapped individually so a failure in one
                 # (e.g. a DB error that poisons the transaction) doesn't
@@ -486,6 +512,13 @@ class ChatService:
                         pass
 
                 logger.info("Chat turn complete - all messages saved incrementally")
+
+                # Re-raise now that all cleanup (credits, compaction, notifications,
+                # is_processing reset) has run, so callers that don't inspect individual
+                # SSE events — job_scheduler.run_job in particular — see the failure
+                # instead of recording the run as a silent success.
+                if agent_error:
+                    raise RuntimeError(agent_error)
     
     async def _with_db(self, db, coro_fn):
         if db is None:
