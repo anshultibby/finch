@@ -37,3 +37,15 @@ class AgentActivitySeen(Base):
 
     user_id = Column(String, primary_key=True)
     seen_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class UserActivity(Base):
+    """When the user last opened the app (one row per user).
+
+    Touched by the home recap fetch. Gates credit-spending automations: the
+    heartbeat pauses for users inactive >72h, resumes when they return.
+    """
+    __tablename__ = "user_activity"
+
+    user_id = Column(String, primary_key=True)
+    last_active_at = Column(DateTime(timezone=True), nullable=False)

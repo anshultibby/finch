@@ -84,6 +84,9 @@ async def search_chats(
 
 @router.get("/recap")
 async def activity_recap(user_id: str = Depends(get_current_user_id)):
+    # Fetched on every home open — our "user is active" signal. Gates (and
+    # resumes) credit-spending automations like the heartbeat.
+    await agent_events.touch_activity(user_id)
     return await agent_events.get_recap(user_id)
 
 

@@ -212,7 +212,12 @@ async def configure_heartbeat(user_id: str, enabled: bool, interval_minutes: int
 async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:
     """Fire a one-off heartbeat run immediately (the market-monitor tripwire).
     Skips if a trigger is already pending/running so a volatile day can't
-    stack investigations. Returns True if a run was enqueued."""
+    stack investigations, and for users inactive >72h (the recurring heartbeat
+    is likewise gated — it resumes when they return). Returns True if a run
+    was enqueued."""
+    from services.agent_events import is_user_active
+    if not await is_user_active(user_id):
+        return False
     now = datetime.now(timezone.utc)
     async with get_db_session() as db:
         existing = (await db.execute(

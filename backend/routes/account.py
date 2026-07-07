@@ -61,6 +61,10 @@ async def update_preferences(
         await configure_heartbeat(
             user_id, enabled=merged["heartbeat_enabled"], interval_minutes=interval
         )
+        # Changing heartbeat settings is definitive proof the user is active —
+        # make sure the activity gate can't skip the run they just asked for.
+        from services.agent_events import touch_activity
+        await touch_activity(user_id)
 
     # Morning-brief settings drive a system job. Provision/retime/pause it
     # BEFORE persisting, so a bad timezone (or provisioning failure) rejects

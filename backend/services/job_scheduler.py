@@ -38,6 +38,11 @@ UNCOMPED_SYSTEM_KEYS = {"heartbeat", "heartbeat_trigger"}
 # (list_events) + past-chat search — not accumulated chat context.
 FRESH_CHAT_SYSTEM_KEYS = {"heartbeat"}
 
+# Credit-spending automations that only run for ACTIVE users (opened the app
+# within 72h). Skipped runs just advance the schedule — no credits, no events;
+# touch_activity() resumes them the moment the user returns.
+ACTIVITY_GATED_SYSTEM_KEYS = {"heartbeat", "heartbeat_trigger"}
+
 
 def _run_chat_id(row_or_job) -> str:
     """Chat id a run executes in. Fresh-chat jobs get a per-run suffix keyed by
@@ -387,8 +392,32 @@ async def _record_run_event(job: Job, chat_id: str, error: Optional[str]) -> Non
         logger.warning(f"Failed to record run event for job {job.id}: {e}")
 
 
+async def _skip_inactive(job: Job) -> None:
+    """Advance a claimed job's schedule without running it (user inactive).
+    No credits spent, no run recorded — run_count stays put so the next real
+    run reuses the pending fresh-chat slot."""
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.id == job.id)
+        )).scalars().first()
+        if not row:
+            return
+        if row.recurrence:
+            row.run_at = _advance_past_now(row.run_at, row.recurrence)
+            row.status = "pending"
+        else:
+            row.status = "done"  # one-off tripwire: quietly drop it
+        await db.commit()
+    logger.info(f"Skipped job {job.id} ({job.name}) — user inactive >72h")
+
+
 async def run_job(job: Job) -> None:
     """Run one claimed job: send its message to the agent (as the user)."""
+    if job.system_key in ACTIVITY_GATED_SYSTEM_KEYS:
+        from services.agent_events import is_user_active
+        if not await is_user_active(job.user_id):
+            await _skip_inactive(job)
+            return
     if job.system_key == "day_trading_nightly":
         # Provision tomorrow's intraday decision points BEFORE the agent runs —
         # the LLM's own schedule_job() path dies whenever the user token can't

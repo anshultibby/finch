@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db_session
-from models.activity import AgentEvent, AgentActivitySeen
+from models.activity import AgentEvent, AgentActivitySeen, UserActivity
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,9 +26,69 @@ RECAP_MAX_AGE = timedelta(days=7)   # never dig further back than this
 RECAP_DEFAULT_WINDOW = timedelta(hours=48)  # first visit / never-dismissed
 RECAP_EVENT_LIMIT = 30
 
+ACTIVE_WINDOW = timedelta(hours=72)  # "active user" = opened the app within this
+_TOUCH_THROTTLE_SECONDS = 300
+_last_touch: dict[str, datetime] = {}  # in-memory write throttle
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# ── user activity (gates credit-spending automations) ───────────────────────
+
+async def touch_activity(user_id: str) -> None:
+    """Record that the user just opened the app. Never raises.
+
+    If this is a return from >72h away, wake a paused-by-inactivity heartbeat:
+    pull its next run to now so the agent is visibly working within minutes.
+    """
+    now = _now()
+    last = _last_touch.get(user_id)
+    if last and (now - last).total_seconds() < _TOUCH_THROTTLE_SECONDS:
+        return
+    _last_touch[user_id] = now
+    try:
+        async with get_db_session() as db:
+            prev = (await db.execute(
+                select(UserActivity.last_active_at).where(UserActivity.user_id == user_id)
+            )).scalar()
+            stmt = pg_insert(UserActivity).values(
+                user_id=user_id, last_active_at=now
+            ).on_conflict_do_update(
+                index_elements=["user_id"], set_={"last_active_at": now},
+            )
+            await db.execute(stmt)
+
+            # Returning after an inactive stretch → resume the heartbeat now.
+            if prev is None or now - prev > ACTIVE_WINDOW:
+                from models.jobs import ScheduledJob
+                hb = (await db.execute(
+                    select(ScheduledJob).where(
+                        ScheduledJob.user_id == user_id,
+                        ScheduledJob.system_key == "heartbeat",
+                        ScheduledJob.status == "pending",
+                    )
+                )).scalars().first()
+                if hb and hb.run_at > now + timedelta(minutes=10):
+                    hb.run_at = now + timedelta(minutes=2)
+                    logger.info(f"Heartbeat resumed for returning user {user_id}")
+            await db.commit()
+    except Exception:
+        logger.exception("touch_activity failed for %s", user_id)
+
+
+async def is_user_active(user_id: str, window: timedelta = ACTIVE_WINDOW) -> bool:
+    """True if the user opened the app within the window."""
+    try:
+        async with get_db_session() as db:
+            last = (await db.execute(
+                select(UserActivity.last_active_at).where(UserActivity.user_id == user_id)
+            )).scalar()
+        return bool(last and _now() - last <= window)
+    except Exception:
+        logger.exception("is_user_active failed for %s", user_id)
+        return True  # fail open: never silently kill automations on a DB blip
 
 
 # ── writing ──────────────────────────────────────────────────────────────────
