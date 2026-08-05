@@ -71,16 +71,36 @@ function WidgetList() {
 
 // ── detail (with view-driven polling) ────────────────────────────────────────
 function WidgetDetail({ widgetId }: { widgetId: string }) {
-  const { navigateTo, goBack } = useNavigation();
+  const { goBack, openWidgetChat, chatDrawerOpen } = useNavigation();
   const [widget, setWidget] = useState<Widget | null>(null);
   const [data, setData] = useState<WidgetData | undefined>();
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const reloadWidget = useCallback(() => {
+    widgetsApi.get(widgetId).then(setWidget).catch(() => {});
+  }, [widgetId]);
+
   useEffect(() => {
     widgetsApi.get(widgetId).then(setWidget).catch(() => setWidget(null));
   }, [widgetId]);
+
+  // While the edit chat is open, poll the widget spec so agent edits appear
+  // live; refetch once more when the chat closes to catch the final state.
+  useEffect(() => {
+    if (!chatDrawerOpen) { reloadWidget(); return; }
+    const t = setInterval(reloadWidget, 5000);
+    return () => clearInterval(t);
+  }, [chatDrawerOpen, reloadWidget]);
+
+  const editWithAI = () => {
+    if (!widget) return;
+    openWidgetChat(
+      `I'm looking at my "${widget.title}" widget and want to change it: `,
+      { widget_id: widget.id, widget_title: widget.title, widget_spec: widget.spec },
+    );
+  };
 
   const refresh = useCallback(() => {
     if (document.visibilityState !== 'visible') return;
@@ -143,6 +163,13 @@ function WidgetDetail({ widgetId }: { widgetId: string }) {
         </div>
         {widget.is_owner && (
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={editWithAI}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:border-emerald-300 hover:text-emerald-600 flex items-center gap-1.5"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+              Edit with AI
+            </button>
             <button
               onClick={doPublish}
               disabled={busy}

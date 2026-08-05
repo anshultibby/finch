@@ -38,6 +38,8 @@ interface NavigationContextType {
   setChatDrawerOpen: (open: boolean) => void;
   chatContext?: { symbol?: string; prefill?: string; prefillLabel?: string; pageContext?: Record<string, any> };
   openChatAbout: (symbol: string, prefill?: string, pageContext?: Record<string, any>) => void;
+  // Open the chat drawer to edit a widget — pageContext carries the widget id + spec.
+  openWidgetChat: (prefill: string, pageContext: Record<string, any>) => void;
 
   // Chat page (full-page AI workspace)
   currentChatId: string | null;
@@ -82,6 +84,11 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setChatDrawerOpen(true);
   }, []);
 
+  const openWidgetChat = useCallback((prefill: string, pageContext: Record<string, any>) => {
+    setChatContext({ prefill, pageContext });
+    setChatDrawerOpen(true);
+  }, []);
+
   const startNewChat = useCallback(() => {
     setCurrentChatId(null);
     setChatContext(undefined);
@@ -114,6 +121,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       setChatDrawerOpen,
       chatContext,
       openChatAbout,
+      openWidgetChat,
       currentChatId,
       setCurrentChatId,
       startNewChat,
