@@ -10,7 +10,7 @@ See docs/widgets/spec.md.
 from typing import Any, Dict, List, Literal, Optional, Union
 from typing_extensions import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -144,6 +144,50 @@ Transform = Annotated[
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Interactive controls — client-side filter/sort/search over a table tile's
+# rows. The viewer manipulates these live; no backend refetch. v1 targets
+# `table` tiles (the filtering use case). See docs/widgets/spec.md.
+# ──────────────────────────────────────────────────────────────────────────
+class RangeControl(_Strict):
+    id: str = Field(..., min_length=1, max_length=64)
+    type: Literal["range"]
+    label: str
+    column: str  # numeric column to threshold
+    min: Optional[float] = None
+    max: Optional[float] = None
+    step: Optional[float] = None
+
+
+class SelectControl(_Strict):
+    id: str = Field(..., min_length=1, max_length=64)
+    type: Literal["select"]
+    label: str
+    column: str
+    options: Optional[List[str]] = None  # None → derive distinct values from data
+
+
+class SearchControl(_Strict):
+    id: str = Field(..., min_length=1, max_length=64)
+    type: Literal["search"]
+    label: str
+    columns: List[str] = Field(..., min_length=1)  # columns to match the query against
+
+
+class SortControl(_Strict):
+    id: str = Field(..., min_length=1, max_length=64)
+    type: Literal["sort"]
+    label: str
+    columns: List[str] = Field(..., min_length=1)
+    default_desc: bool = True
+
+
+Control = Annotated[
+    Union[RangeControl, SelectControl, SearchControl, SortControl],
+    Field(discriminator="type"),
+]
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Tile + Spec
 # ──────────────────────────────────────────────────────────────────────────
 class Tile(_Strict):
@@ -156,6 +200,17 @@ class Tile(_Strict):
     # Display-only, tile-type-specific; kept permissive on purpose (low risk,
     # avoids over-constraining the render layer).
     options: Optional[Dict[str, Any]] = None
+    # Interactive filter/sort controls (table tiles only in v1).
+    controls: Optional[List[Control]] = Field(None, max_length=6)
+
+    @model_validator(mode="after")
+    def _controls_only_on_tables(self):
+        if self.controls and self.type != "table":
+            raise ValueError(
+                f"Tile '{self.id}': controls are only supported on 'table' tiles "
+                f"(this tile is '{self.type}')."
+            )
+        return self
 
 
 class RefreshPolicy(_Strict):

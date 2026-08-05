@@ -1,12 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import WidgetChart from './WidgetChart';
 import Sparkline from './Sparkline';
+import { TableControls, applyControls, initControlState, type ControlState } from './TableControls';
 import type {
-  Tile, TileData, SeriesData, TableData, NumberData, OddsData, NewsData, MarkdownData,
+  Tile, TileData, Control, SeriesData, TableData, NumberData, OddsData, NewsData, MarkdownData,
 } from './types';
 
 const num = (v: number | null | undefined, digits = 2) =>
@@ -109,7 +110,12 @@ function NewsTile({ data, options }: { data: NewsData; options?: Record<string, 
   );
 }
 
-function TableTile({ data, options }: { data: TableData; options?: Record<string, any> }) {
+function TableTile({ data, options, controls }: { data: TableData; options?: Record<string, any>; controls?: Control[] }) {
+  const hasControls = !!controls?.length;
+  // Filter state persists across data refreshes; initialized once from first data.
+  const [state, setState] = useState<ControlState>(() => (hasControls ? initControlState(data, controls!) : {}));
+  const shown = hasControls ? applyControls(data, controls!, state) : data;
+
   let cols = data.columns || [];
   let colIdx = cols.map((_, i) => i);
   if (options?.columns?.length) {
@@ -118,7 +124,16 @@ function TableTile({ data, options }: { data: TableData; options?: Record<string
   }
   const pctCol = data.columns.findIndex((c) => c.includes('pct') || c.includes('change'));
   return (
-    <div className="overflow-x-auto -mx-1">
+    <div className="flex flex-col h-full">
+      {hasControls && (
+        <TableControls
+          data={data}
+          controls={controls!}
+          state={state}
+          onChange={(id, value) => setState((s) => ({ ...s, [id]: value }))}
+        />
+      )}
+      <div className="overflow-x-auto overflow-y-auto -mx-1 flex-1">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-[11px] uppercase tracking-wide text-gray-400 text-left">
@@ -126,7 +141,7 @@ function TableTile({ data, options }: { data: TableData; options?: Record<string
           </tr>
         </thead>
         <tbody>
-          {data.rows.map((row, r) => (
+          {shown.rows.map((row, r) => (
             <tr key={r} className="border-t border-gray-100">
               {colIdx.map((ci: number, c: number) => {
                 const val = row[ci];
@@ -139,8 +154,12 @@ function TableTile({ data, options }: { data: TableData; options?: Record<string
               })}
             </tr>
           ))}
+          {shown.rows.length === 0 && (
+            <tr><td colSpan={cols.length} className="px-1 py-4 text-center text-xs text-gray-400">No matches</td></tr>
+          )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -164,7 +183,7 @@ export function TileBody({ tile, data }: { tile: Tile; data?: TileData }) {
     case 'number': return <StatTile data={data} options={tile.options} />;
     case 'odds': return <OddsTile data={data} />;
     case 'news': return <NewsTile data={data} options={tile.options} />;
-    case 'table': return <TableTile data={data} options={tile.options} />;
+    case 'table': return <TableTile data={data} options={tile.options} controls={tile.controls} />;
     case 'markdown': return <TextTile data={data} />;
     default: return <ErrorTile message="unknown shape" />;
   }

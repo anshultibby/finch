@@ -1,6 +1,6 @@
 # Finch Widgets — Design Spec v1
 
-**Status:** implemented (Aug 5 2026) — all 6 phases coded and verified offline (28 pytest pass; data service validated against live FMP/FRED/Kalshi; frontend typechecks + production-builds; app boots with routes mounted). **One gated step remains: `alembic upgrade head` to apply migration 089** (not run unattended against the hosted Supabase DB), then seed + prod E2E. See §7.
+**Status:** implemented & deployed (Aug 5 2026). Migration 089 applied; seeded + shipped to prod. Follow-ups shipped: per-tile source citations, scrollable panel, **Visualizations feature removed** (widgets replace it), and **interactive table controls** (range/select/search/sort filters applied client-side — see §11). 31 pytest pass; frontend production-builds.
 **Goal:** Finch specializes in agent-generated financial widgets. A user (or Anshul) types one sentence ("make me a Strait of Hormuz tracker") and gets a live, cloneable, publicly shareable dashboard widget. Topical widgets are the acquisition loop (post on Reddit → public live page → "Clone this" → signup); personal portfolio/watchlist widgets are the retention loop.
 
 ---
@@ -342,3 +342,14 @@ Widgets get a notion of alerts — "when key stuff happens, Finch notifies you."
 - **Kalshi ticker discovery**: agent finds contract tickers via the existing kalshi skill in-sandbox (default), vs a backend search param on the kalshi source. Default: skill-side.
 - **Gallery in-app** (browse others' widgets inside Finch, not just via links): trivially enabled by `GET /widgets/gallery` — v1 ships the endpoint (agent needs it), UI shelf can wait.
 - **Slug format**: `kebab-title-{4 random chars}` — readable for Reddit, unguessable enough for unlisted-ish behavior pre-publish. Sweep is what protects privacy, not the slug.
+
+## 11. Interactive controls (shipped Aug 5 2026)
+
+Table tiles can carry `controls` — live filter/sort/search the viewer manipulates in the browser (no backend refetch). This is the "template variables" idea from the Grafana research, scoped to client-side table filtering for v1.
+
+- Spec: `tile.controls: [Control]` (≤6), validated **table-tiles-only** (a control on any other tile type is rejected at create time). Types: `range` (numeric column threshold), `select` (dropdown; options provided or derived from distinct column values), `search` (text match over columns), `sort` (column + direction).
+- Backend: schema/validation only (`schemas/widget.py`). Controls carry no data-fetch — they operate on already-fetched rows.
+- Frontend: `TableControls.tsx` (`applyControls` pure fn + control-bar UI); `TableTile` holds control state (persists across polls) and renders filtered rows. Controls reference **column names**, so the table's query must produce those columns (usually an `inline` table the agent computed, e.g. earnings with `market_cap`, `iv`, `expected_move`).
+- This is how "an earnings table I can filter by market cap / IV and sort by expected move" works: agent computes the table once (inline) + attaches controls; the viewer re-slices. Demo widget: `earnings-expected-move-*`.
+
+**Deferred (v2):** widget-level controls that drive multiple tiles (Koyfin link-groups); server-side variables that re-parameterize queries and refetch (change symbol/range live); a live options/IV/earnings data source so expected-move is live rather than an inline snapshot.

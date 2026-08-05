@@ -111,6 +111,29 @@ Layout is automatic — tiles flow into a grid by `size` (sm=small, md=default, 
 - `table`: `columns: [str]` (subset/order), `compact`
 - `news`: `compact`
 
+### Interactive controls (table tiles only)
+
+Add `controls` to a **table** tile to give the viewer live filter/sort/search — they re-slice the rows in the browser, no reload. Controls reference the table's **column names**, so make sure the table's query produces those columns (usually via an `inline` table you computed, e.g. an earnings table with `symbol, market_cap, iv, expected_move`).
+
+```jsonc
+{
+  "id": "earnings", "type": "table", "size": "full",
+  "query": { "source": "inline", "shape": "table",
+             "data": { "columns": ["symbol","market_cap","iv","expected_move"], "rows": [ ... ] } },
+  "controls": [
+    { "id": "mcap", "type": "range",  "label": "Market cap ($B)", "column": "market_cap" },
+    { "id": "iv",   "type": "range",  "label": "Implied vol %",   "column": "iv" },
+    { "id": "find", "type": "search", "label": "Search",          "columns": ["symbol"] },
+    { "id": "by",   "type": "sort",   "label": "Sort by",         "columns": ["expected_move","market_cap","iv"] },
+    { "id": "sec",  "type": "select", "label": "Sector",          "column": "sector" }
+  ]
+}
+```
+
+Control types: `range` (numeric column, min/max — optional bounds default to the data's range), `select` (dropdown; `options` optional, else distinct values from the column), `search` (text match over `columns`), `sort` (dropdown of `columns` + direction). Up to 6 per tile. Controls are **table-only** — a control on any other tile type is rejected at create time.
+
+This is how you build "an earnings table I can filter by market cap / IV / date and sort by expected move": compute the table once (inline), attach controls, and the viewer does the rest.
+
 ## Playbook: turn a theme into instruments
 
 This mapping quality is the product. For an event/theme, assemble tiles across these angles:

@@ -4,6 +4,13 @@
 export type TileType = 'chart' | 'stat' | 'odds' | 'news' | 'table' | 'text';
 export type TileSize = 'sm' | 'md' | 'lg' | 'full';
 
+// Interactive controls — client-side filter/sort/search over a table tile.
+export type Control =
+  | { id: string; type: 'range'; label: string; column: string; min?: number; max?: number; step?: number }
+  | { id: string; type: 'select'; label: string; column: string; options?: string[] }
+  | { id: string; type: 'search'; label: string; columns: string[] }
+  | { id: string; type: 'sort'; label: string; columns: string[]; default_desc?: boolean };
+
 export interface Tile {
   id: string;
   type: TileType;
@@ -12,6 +19,7 @@ export interface Tile {
   query: Record<string, any>;
   transforms?: Record<string, any>[];
   options?: Record<string, any>;
+  controls?: Control[];
 }
 
 export interface WidgetSpec {

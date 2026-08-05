@@ -69,6 +69,38 @@ def test_tile_ids_unique_helper():
     assert dup.tile_ids_unique() is False
 
 
+def test_controls_on_table_parse():
+    WidgetSpec(spec_version=1, tiles=[{
+        "id": "t", "type": "table",
+        "query": {"source": "inline", "shape": "table", "data": {"columns": ["s", "mcap"], "rows": []}},
+        "controls": [
+            {"id": "m", "type": "range", "label": "Cap", "column": "mcap", "min": 0, "max": 100},
+            {"id": "q", "type": "search", "label": "Find", "columns": ["s"]},
+            {"id": "so", "type": "sort", "label": "Sort", "columns": ["mcap"]},
+            {"id": "se", "type": "select", "label": "Sector", "column": "sector"},
+        ],
+    }])
+
+
+def test_controls_rejected_on_non_table():
+    with pytest.raises(ValidationError) as e:
+        WidgetSpec(spec_version=1, tiles=[{
+            "id": "c", "type": "chart",
+            "query": {"source": "series", "symbols": [{"symbol": "AAPL"}]},
+            "controls": [{"id": "x", "type": "range", "label": "L", "column": "v"}],
+        }])
+    assert "table" in str(e.value)
+
+
+def test_bad_control_type_rejected():
+    with pytest.raises(ValidationError):
+        WidgetSpec(spec_version=1, tiles=[{
+            "id": "t", "type": "table",
+            "query": {"source": "inline", "shape": "table", "data": {}},
+            "controls": [{"id": "x", "type": "slider", "label": "L", "column": "v"}],
+        }])
+
+
 def test_inline_and_binding_sources_parse():
     WidgetSpec(spec_version=1, tiles=[
         {"id": "p", "type": "table", "query": {"source": "user_portfolio"}},
