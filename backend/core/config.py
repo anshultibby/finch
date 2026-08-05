@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     # =========================================================================
     AGENT_LLM_MODEL: str = Field(
-        default=Models.CLAUDE_OPUS_4_8,
+        default=Models.CLAUDE_SONNET_4_6,
         description="LLM model for the agent"
     )
     SUBAGENT_LLM_MODEL: str = Field(
@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     SUBAGENT_MAX_PER_CHAT: int = Field(
         default=2,
         description="Max sub-agents the delegate tool may spawn per chat (cost guard)"
+    )
+    LLM_NUM_RETRIES: int = Field(
+        default=3,
+        description="How many times LiteLLM retries a transient LLM error (429 "
+                    "rate limit, 529/503 overload, timeout) with exponential "
+                    "backoff before giving up. Honors provider Retry-After headers."
+    )
+    LLM_TIMEOUT_SECONDS: Optional[float] = Field(
+        default=120.0,
+        description="Per-request timeout (seconds) passed to LiteLLM. "
+                    "None = library default."
     )
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
@@ -219,8 +230,12 @@ class Settings(BaseSettings):
     # Context Management
     # =========================================================================
     CONTEXT_WINDOW_TOKENS: int = Field(
-        default=200000,
-        description="Context window size of the primary model in tokens"
+        default=800000,
+        description="Working context budget in tokens. Opus 4.8 and Sonnet 4.6 "
+                    "both support a 1M-token window by default (no beta header, "
+                    "no long-context premium); we cap at 800K to leave headroom "
+                    "for the final tool-loop call and output tokens before the "
+                    "hard 1M limit."
     )
     CONTEXT_PRUNE_ENABLED: bool = Field(
         default=True,

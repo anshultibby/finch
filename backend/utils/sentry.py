@@ -93,3 +93,41 @@ def capture_tool_exception(exc: BaseException, *, tool_name: str,
             sentry_sdk.capture_exception(exc)
     except Exception:
         logger.debug("capture_tool_exception failed", exc_info=True)
+
+
+def capture_agent_exception(exc: BaseException, *, chat_id: str = "", user_id: str = "",
+                            model: str = "", category: str = "", phase: str = "agent_loop") -> None:
+    """
+    Send an agent-loop / LLM exception to Sentry with useful tags.
+
+    The interactive chat path catches LLM errors (rate limits, overloads,
+    timeouts) in base_agent and yields them to the client as an SSE `error`
+    event — so the HTTP request returns 200 and Sentry's request-handler
+    auto-instrumentation never sees them. Call this from that except block so
+    those failures still become grouped, alertable Sentry issues.
+
+    `category` (from llm_handler.classify_llm_error) drives the fingerprint so
+    all e.g. rate-limit failures collapse into one issue.
+
+    Best-effort; never raises. No-op when Sentry is disabled.
+    """
+    if not _initialized:
+        return
+    try:
+        import sentry_sdk
+        with sentry_sdk.new_scope() as scope:
+            etype = type(exc).__name__
+            scope.set_tag("error_phase", phase)
+            scope.set_tag("llm_error_type", etype)
+            if category:
+                scope.set_tag("llm_error_category", category)
+            if model:
+                scope.set_tag("llm_model", model)
+            scope.set_context("agent_call", {
+                "chat_id": chat_id, "user_id": user_id, "model": model,
+                "category": category, "phase": phase,
+            })
+            scope.fingerprint = ["agent", phase, category or etype]
+            sentry_sdk.capture_exception(exc)
+    except Exception:
+        logger.debug("capture_agent_exception failed", exc_info=True)

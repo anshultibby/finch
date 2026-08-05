@@ -428,13 +428,33 @@ class BaseAgent:
             )
             
         except Exception as e:
+            from utils.sentry import capture_agent_exception
+            from modules.agent.llm_handler import classify_llm_error, friendly_llm_error_message
+
+            category = classify_llm_error(e)
             error_msg = f"{type(e).__name__}: {str(e)}" if str(e) else f"{type(e).__name__} (no message)"
-            logger.error(f"Error in process_message_stream: {error_msg}")
+            logger.error(f"Error in process_message_stream [{category}]: {error_msg}")
             logger.error(f"Traceback:\n{traceback_module.format_exc()}")
-            
+
+            # Interactive-chat LLM failures are caught here and yielded as an SSE
+            # event, so the HTTP request returns 200 and Sentry's request-handler
+            # instrumentation never sees them. Report explicitly so rate limits /
+            # overloads / timeouts become grouped, alertable Sentry issues.
+            capture_agent_exception(
+                e,
+                chat_id=self.context.chat_id,
+                user_id=self.context.user_id,
+                model=self.model,
+                category=category,
+                phase="process_message_stream",
+            )
+
+            # Show users friendly copy for known-transient errors; keep the raw
+            # message for everything else. Full traceback always goes in details.
+            user_message = friendly_llm_error_message(category) or str(e)
             yield SSEEvent(
                 event="error",
-                data=ErrorEvent(error=str(e), details=traceback_module.format_exc()).model_dump()
+                data=ErrorEvent(error=user_message, details=traceback_module.format_exc()).model_dump()
             )
             yield SSEEvent(
                 event="done",

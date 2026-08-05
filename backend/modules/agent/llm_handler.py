@@ -30,6 +30,54 @@ tracer = get_tracer(__name__)
 # `_get_model_pricing` is imported above as `get_pricing`.
 
 
+# ---------------------------------------------------------------------------
+# Transient-error classification (for logging, Sentry grouping, user messages)
+# ---------------------------------------------------------------------------
+def classify_llm_error(exc: BaseException) -> str:
+    """Coarse category for an LLM exception.
+
+    Returns one of: rate_limit | overloaded | timeout | connection |
+    context_window | auth | bad_request | server_error | other. Matched on the
+    exception class name (LiteLLM re-exports OpenAI-style classes) and any
+    `status_code`, so it works across providers without importing litellm here.
+    """
+    name = type(exc).__name__.lower()
+    code = getattr(exc, "status_code", None)
+    if "ratelimit" in name or code == 429:
+        return "rate_limit"
+    if "overloaded" in name or "serviceunavailable" in name or code in (503, 529):
+        return "overloaded"
+    if "timeout" in name or code == 408:
+        return "timeout"
+    if "apiconnection" in name or "connectionerror" in name:
+        return "connection"
+    if "contextwindow" in name:
+        return "context_window"
+    if "authentication" in name or code in (401, 403):
+        return "auth"
+    if "badrequest" in name or code == 400:
+        return "bad_request"
+    if "internalserver" in name or (isinstance(code, int) and 500 <= code < 600):
+        return "server_error"
+    return "other"
+
+
+# User-facing copy per category — shown in the chat instead of a raw stack trace.
+# Categories not listed here fall back to the raw error message.
+_FRIENDLY_LLM_ERRORS = {
+    "rate_limit": "The AI provider is rate-limiting us right now. Please try again in a moment.",
+    "overloaded": "The AI provider is temporarily overloaded. Please try again in a moment.",
+    "timeout": "That request took too long and timed out. Please try again — a shorter or split-up request may help.",
+    "connection": "We had trouble reaching the AI provider. Please try again.",
+    "context_window": "This conversation got too long for the model. Start a new chat to continue where you left off.",
+}
+
+
+def friendly_llm_error_message(category: str) -> Optional[str]:
+    """Human-friendly chat message for a transient error category, or None."""
+    return _FRIENDLY_LLM_ERRORS.get(category)
+
+
 class UsageStats(BaseModel):
     """Token usage statistics for a single LLM call."""
     prompt_tokens: int = 0
@@ -243,7 +291,14 @@ class LLMHandler:
         model = kwargs.get("model", "unknown")
         is_streaming = kwargs.get("stream", False)
         message_count = len(kwargs.get("messages", []))
-        
+
+        # Transient-error resilience: LiteLLM retries rate limits (429), overloads
+        # (529/503), and timeouts with exponential backoff, honoring provider
+        # Retry-After headers. Callers may override by passing their own values.
+        kwargs.setdefault("num_retries", Config.LLM_NUM_RETRIES)
+        if Config.LLM_TIMEOUT_SECONDS is not None:
+            kwargs.setdefault("timeout", Config.LLM_TIMEOUT_SECONDS)
+
         # Start tracing
         with tracer.start_as_current_span(f"llm.call") as span:
             add_span_attributes({
@@ -269,7 +324,8 @@ class LLMHandler:
                     
             except Exception as e:
                 record_exception(e)
-                logger.error(f"LLM call failed: {e}")
+                category = classify_llm_error(e)
+                logger.error(f"LLM call failed after retries [{category}] {type(e).__name__}: {e}")
                 raise
     
     def _handle_non_streaming(self, response: Any, kwargs: Dict[str, Any], timestamp: str) -> Any:
