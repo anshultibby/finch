@@ -304,47 +304,11 @@ window.finch={{_cb:{{}},fetch(url,body){{return new Promise((resolve,reject)=>{{
 
 
 async def _maybe_sync_visualization(filename: str, content: str, context: AgentContext):
-    """If filename matches visualizations/*.html or *.js, upsert into visualizations table.
-
-    For .js files: auto-wrap in HTML shell, derive title from filename, store with .html extension.
-    For .html files: extract title from <title> tag, store as-is.
-    """
-    is_html = _VISUALIZATION_HTML_PATTERN.match(filename)
-    is_js = _VISUALIZATION_JS_PATTERN.match(filename)
-    if not is_html and not is_js:
-        return
-
-    if is_js:
-        basename = re.sub(r"\.js$", "", filename.rsplit("/", 1)[-1], flags=re.IGNORECASE)
-        title = basename.replace("_", " ").replace("-", " ").title()
-        html_content = _wrap_js_in_html(content, title)
-        db_filename = re.sub(r"\.js$", ".html", filename, flags=re.IGNORECASE)
-    else:
-        title = _extract_html_title(content)
-        html_content = content
-        db_filename = filename
-
-    try:
-        from core.database import get_db_session
-        from sqlalchemy import text
-        chat_id = (context.data or {}).get("chat_id")
-        async with get_db_session() as db:
-            await db.execute(
-                text(
-                    "INSERT INTO visualizations (id, user_id, chat_id, title, filename, html_content, created_at, updated_at) "
-                    "VALUES (gen_random_uuid(), :user_id, :chat_id, :title, :filename, :html_content, now(), now()) "
-                    "ON CONFLICT ON CONSTRAINT uq_viz_user_filename DO UPDATE SET "
-                    "html_content = EXCLUDED.html_content, title = EXCLUDED.title, "
-                    "chat_id = COALESCE(EXCLUDED.chat_id, visualizations.chat_id), updated_at = now() "
-                    "WHERE visualizations.html_content IS DISTINCT FROM EXCLUDED.html_content "
-                    "OR visualizations.title IS DISTINCT FROM EXCLUDED.title"
-                ),
-                {"user_id": context.user_id, "chat_id": chat_id, "title": title, "filename": db_filename, "html_content": html_content},
-            )
-            await db.commit()
-        logger.info(f"Auto-synced visualization '{filename}' → '{db_filename}' for user {context.user_id}")
-    except Exception as e:
-        logger.warning(f"Visualization sync failed for {filename} (non-fatal): {e}")
+    """No-op. The Visualizations feature was replaced by Widgets — the agent now
+    builds dashboards via the widgets skill (backend/skills/widgets), so writing
+    to visualizations/*.html no longer syncs anything. The visualizations table
+    is retained for existing data but no new rows are written."""
+    return
 
 
 def _sandbox_path(filename: str, context: AgentContext) -> str:

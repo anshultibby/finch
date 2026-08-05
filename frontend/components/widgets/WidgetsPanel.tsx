@@ -20,14 +20,14 @@ function WidgetList() {
   }, []);
 
   if (widgets === null) {
-    return <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    return <div className="h-full overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 auto-rows-min">
       {[0, 1, 2].map((i) => <div key={i} className="h-28 rounded-xl bg-gray-100 animate-pulse" />)}
     </div>;
   }
 
   if (widgets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center px-6">
+      <div className="h-full flex flex-col items-center justify-center py-24 text-center px-6">
         <div className="text-4xl mb-3">📊</div>
         <div className="text-lg font-semibold text-gray-900">No widgets yet</div>
         <p className="text-sm text-gray-500 mt-1 max-w-sm">
@@ -38,7 +38,7 @@ function WidgetList() {
   }
 
   return (
-    <div className="p-4 sm:p-6">
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {widgets.map((w, i) => (
           <button
@@ -129,7 +129,7 @@ function WidgetDetail({ widgetId }: { widgetId: string }) {
   if (!widget) return <div className="p-6"><div className="h-8 w-48 bg-gray-100 rounded animate-pulse" /></div>;
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 max-w-6xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-5">
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={goBack} className="text-gray-400 hover:text-gray-600 shrink-0" aria-label="Back">

@@ -274,24 +274,6 @@ export interface Resource {
   created_at: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Visualization Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface Visualization {
-  id: string;
-  user_id: string;
-  chat_id: string | null;
-  title: string | null;
-  description: string | null;
-  filename: string;
-  category: string | null;
-  tags: string[];
-  is_public: boolean;
-  share_token: string | null;
-  created_at: string;
-  updated_at: string;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API Response Types

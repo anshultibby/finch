@@ -50,7 +50,7 @@ test.describe('UX audit — desktop sweep', () => {
 
     // 3. Sidebar nav views
     for (const [name, shot] of [
-      ['Visualizations', '03-visualizations'],
+      ['Widgets', '03-widgets'],
       ['Memory Store', '04-memory-store'],
     ] as const) {
       const btn = page.getByRole('button', { name }).first();

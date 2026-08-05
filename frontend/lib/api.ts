@@ -1369,49 +1369,6 @@ export const analysisApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Visualizations API
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const visualizationsApi = {
-  list: async () => {
-    const response = await api.get('/api/visualizations');
-    return response.data;
-  },
-  get: async (id: string) => {
-    const response = await api.get(`/api/visualizations/${id}`);
-    return response.data;
-  },
-  getRenderHtml: async (id: string) => {
-    const response = await api.get(`/api/visualizations/${id}/render`, { responseType: 'text' });
-    return response.data as string;
-  },
-  update: async (id: string, data: { title?: string; description?: string; category?: string; tags?: string[] }) => {
-    const response = await api.patch(`/api/visualizations/${id}`, data);
-    return response.data;
-  },
-  delete: async (id: string) => {
-    const response = await api.delete(`/api/visualizations/${id}`);
-    return response.data;
-  },
-  runScript: async (script: string) => {
-    const response = await api.post('/api/visualizations/run-script', { script });
-    return response.data;
-  },
-  toggleShare: async (id: string) => {
-    const response = await api.post(`/api/visualizations/${id}/share`);
-    return response.data as { is_public: boolean; share_token: string | null };
-  },
-  getShared: async (shareToken: string) => {
-    const response = await api.get(`/api/visualizations/shared/${shareToken}`);
-    return response.data;
-  },
-  getSharedHtml: async (shareToken: string) => {
-    const response = await api.get(`/api/visualizations/shared/${shareToken}/render`, { responseType: 'text' });
-    return response.data as string;
-  },
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Widgets API — declarative financial dashboard cards. See docs/widgets/spec.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Widget, WidgetSummary, WidgetSpec, WidgetData } from '@/components/widgets/types';

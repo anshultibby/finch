@@ -135,6 +135,8 @@ This mapping quality is the product. For an event/theme, assemble tiles across t
 3. **Don't publish unless asked.** Publishing creates a public URL. Only call `/publish` when the user explicitly wants to share. Personal-data tiles are safe to publish — they're symbolic and show a "connect your portfolio" state to logged-out viewers, rebinding to whoever clones the widget.
 4. **Kalshi tickers must be real.** Look them up; a guessed ticker fails.
 
+Every tile is automatically labeled with its data source (FMP, Kalshi, FRED, etc.) and last-updated time — you don't add citations, they're built in. You can reassure users that widgets show where every number comes from.
+
 ## Example: single-stock widget
 
 ```json

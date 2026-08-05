@@ -64,16 +64,19 @@ export interface PublicWidget {
 }
 
 // ── data shapes (returned by /data and /shared/{slug}/data) ────────────────
+export interface DataSource { label: string; url?: string }
 export interface SeriesPoint { t: string; v: number | null }
 export interface SeriesData {
   shape: 'series';
   series: { label: string; points: SeriesPoint[] }[];
+  source?: DataSource;
   asof?: string;
 }
 export interface TableData {
   shape: 'table';
   columns: string[];
   rows: (string | number | null)[][];
+  source?: DataSource;
   asof?: string;
 }
 export interface NumberData {
@@ -83,6 +86,7 @@ export interface NumberData {
   delta?: number | null;
   delta_pct?: number | null;
   sparkline?: number[];
+  source?: DataSource;
   asof?: string;
 }
 export interface OddsData {
@@ -91,14 +95,16 @@ export interface OddsData {
   title?: string;
   close_date?: string | null;
   history?: SeriesPoint[];
+  source?: DataSource;
   asof?: string;
 }
 export interface NewsData {
   shape: 'news';
   items: { title: string; url?: string; source?: string; published_at?: string; image?: string }[];
+  source?: DataSource;
   asof?: string;
 }
-export interface MarkdownData { shape: 'markdown'; text: string; asof?: string }
+export interface MarkdownData { shape: 'markdown'; text: string; source?: DataSource; asof?: string }
 export interface EmptyData { shape: 'empty'; reason: string }
 export interface ErrorData { shape: 'error'; message: string }
 

@@ -875,7 +875,6 @@ export default function ChatView({
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
                       onFileClick={(filename) => setSelectedFile(filename)}
-                      onVisualizationClick={(filename) => navigateTo({ type: 'visualizations', vizId: filename })}
                       onSendMessage={(text) => handleSendMessage(text)}
                       onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                       onEditMessage={msg.role === 'user' && !isLoading && currentChatId ? (newContent) => handleEditMessage(i, newContent) : undefined}
@@ -897,7 +896,6 @@ export default function ChatView({
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     onFileClick={(filename) => setSelectedFile(filename)}
-                    onVisualizationClick={(filename) => navigateTo({ type: 'visualizations', vizId: filename })}
                     onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                     isStreaming={true}
                     startTime={streamStartTime}

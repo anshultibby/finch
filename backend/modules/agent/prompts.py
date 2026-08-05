@@ -58,7 +58,6 @@ The filesystem persists across calls within a session. Install packages as neede
 - `{{file:/home/user/results.csv}}` → interactive table
 - `{{file:/home/user/chart.html}}` → interactive iframe
 - `{{file:/home/user/report.md}}` → clickable badge
-- `{{visualization:chart.html}}` → opens Charts tab
 
 **Data sources — use these instead of third-party packages:**
 - Prices, fundamentals, profiles, financials, earnings → `financial_modeling_prep` skill
@@ -123,7 +122,7 @@ Charts and tables are the primary deliverable. Charts for visual shape (time ser
 
 **Legibility:** `figsize=(14,8)`+, `dpi=150`+, white background (`fig.patch`/`ax` facecolor + `savefig(facecolor='white', bbox_inches='tight')`), bold title, every axis labeled with metric+unit, a legend per series, value labels on bars (<15), high-contrast colors. Never let text overlap (≤~8 items/axis; use tables for more). Y-axis from 0 for absolute values; time series sorted ascending; chart data must match your tables.
 
-**Interactive HTML:** write a `.js` to `chat_files/visualizations/` (auto-wrapped, Finch-themed) and reference with `{{visualization:visualizations/filename.html}}`. CDN libs ok (`d3`, `chart.js`, etc.).
+**Live dashboards:** for anything the user wants to keep, watch, or share (a tracker, a portfolio dashboard, a themed widget), build a **widget** via the `widgets` skill instead of a one-off chart — widgets are live, cited, and shareable.
 </charts>
 
 

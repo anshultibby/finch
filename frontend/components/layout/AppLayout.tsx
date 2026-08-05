@@ -13,7 +13,6 @@ import TickerLogo from '@/components/ui/TickerLogo';
 import StockPage from '@/components/stock/StockPage';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
-import VisualizationsPanel from '@/components/VisualizationsPanel';
 import WidgetsPanel from '@/components/widgets/WidgetsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
 import JobsPanel from '@/components/JobsPanel';
@@ -29,7 +28,6 @@ function viewLabel(view: View): string {
     case 'home': return 'Dashboard';
     case 'stock': return view.symbol;
     case 'chat': return 'Chat';
-    case 'visualizations': return 'Visualizations';
     case 'widgets': return 'Widgets';
     case 'memory-store': return 'Memory Store';
     case 'jobs': return 'Automations';
@@ -326,8 +324,6 @@ function AppLayoutInner() {
         return <HomePage />;
       case 'stock':
         return <StockPage symbol={currentView.symbol} initialTab={currentView.tab} />;
-      case 'visualizations':
-        return <VisualizationsPanel vizId={currentView.vizId} />;
       case 'widgets':
         return <WidgetsPanel widgetId={currentView.widgetId} />;
       case 'memory-store':

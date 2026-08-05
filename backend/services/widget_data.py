@@ -39,6 +39,14 @@ _locks: Dict[str, asyncio.Lock] = {}
 
 KALSHI_MARKET_URL = "https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}"
 
+# Where each tile's numbers come from, so a viewer can double-check the source.
+SRC_FMP = {"label": "Financial Modeling Prep", "url": "https://site.financialmodelingprep.com"}
+SRC_FRED = {"label": "FRED · St. Louis Fed", "url": "https://fred.stlouisfed.org"}
+SRC_KALSHI = {"label": "Kalshi", "url": "https://kalshi.com"}
+SRC_INLINE = {"label": "Computed in-app (snapshot)"}
+SRC_PORTFOLIO = {"label": "Your connected accounts"}
+SRC_WATCHLIST = {"label": "Your watchlist"}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -108,6 +116,7 @@ async def _fetch_quote_table(symbols: List[str]) -> dict:
         "shape": "table",
         "columns": ["symbol", "name", "price", "change", "change_pct"],
         "rows": rows,
+        "source": SRC_FMP,
         "asof": _now().isoformat(),
     }
 
@@ -126,6 +135,7 @@ async def _fetch_quote_number(symbol: str) -> dict:
         "value": price,
         "delta": round(float(change), 2) if change is not None else None,
         "delta_pct": round(float(change_pct), 2) if change_pct is not None else None,
+        "source": SRC_FMP,
         "asof": _now().isoformat(),
     }
 
@@ -153,7 +163,7 @@ async def _fetch_series(symbols: List[dict], rng: str) -> dict:
             if p.get("close") is not None
         ]
         series.append({"label": label, "points": _downsample(pts)})
-    return {"shape": "series", "series": series, "asof": _now().isoformat()}
+    return {"shape": "series", "series": series, "source": SRC_FMP, "asof": _now().isoformat()}
 
 
 async def _fetch_news(query: Optional[str], symbols: Optional[List[str]], limit: int) -> dict:
@@ -188,7 +198,7 @@ async def _fetch_news(query: Optional[str], symbols: Optional[List[str]], limit:
             "published_at": n.get("publishedDate"),
             "image": n.get("image"),
         })
-    return {"shape": "news", "items": items, "asof": _now().isoformat()}
+    return {"shape": "news", "items": items, "source": SRC_FMP, "asof": _now().isoformat()}
 
 
 async def _fetch_kalshi(ticker: str) -> dict:
@@ -205,12 +215,14 @@ async def _fetch_kalshi(ticker: str) -> dict:
         prob = (yes_bid + yes_ask) / 200.0
     else:
         prob = None
+    series_ticker = ticker.split("-")[0] if ticker else ""
     return {
         "shape": "odds",
         "prob": prob,
         "title": market.get("title") or market.get("subtitle") or ticker,
         "close_date": market.get("close_time"),
         "history": [],  # per-candle history is a v2 add
+        "source": {"label": "Kalshi", "url": f"https://kalshi.com/markets/{series_ticker}" if series_ticker else "https://kalshi.com"},
         "asof": _now().isoformat(),
     }
 
@@ -226,6 +238,7 @@ async def _fetch_fred(series_id: str, rng: Optional[str]) -> dict:
     return {
         "shape": "series",
         "series": [{"label": series_id.upper(), "points": _downsample(pts)}],
+        "source": {"label": "FRED · St. Louis Fed", "url": f"https://fred.stlouisfed.org/series/{series_id.upper()}"},
         "asof": _now().isoformat(),
     }
 
@@ -264,6 +277,7 @@ async def _fetch_portfolio_table(viewer_user_id: Optional[str]) -> dict:
         "shape": "table",
         "columns": ["symbol", "value", "change_pct"],
         "rows": rows,
+        "source": SRC_PORTFOLIO,
         "asof": _now().isoformat(),
     }
 
@@ -285,13 +299,13 @@ def _inline_payload(query: dict) -> dict:
     data = query.get("data")
     asof = query.get("asof") or _now().isoformat()
     if shape == "markdown":
-        return {"shape": "markdown", "text": data if isinstance(data, str) else str(data), "asof": asof}
+        return {"shape": "markdown", "text": data if isinstance(data, str) else str(data), "source": SRC_INLINE, "asof": asof}
     if shape == "number":
-        return {"shape": "number", **(data if isinstance(data, dict) else {"value": data}), "asof": asof}
+        return {"shape": "number", **(data if isinstance(data, dict) else {"value": data}), "source": SRC_INLINE, "asof": asof}
     if shape == "series":
-        return {"shape": "series", "series": data, "asof": asof}
+        return {"shape": "series", "series": data, "source": SRC_INLINE, "asof": asof}
     if shape == "table":
-        payload = {"shape": "table", "asof": asof}
+        payload = {"shape": "table", "source": SRC_INLINE, "asof": asof}
         payload.update(data if isinstance(data, dict) else {"rows": data, "columns": []})
         return payload
     return {"shape": "error", "message": f"unknown inline shape '{shape}'"}

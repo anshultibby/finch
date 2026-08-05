@@ -25,7 +25,6 @@ interface ChatMessageProps {
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
   onFileClick?: (filename: string) => void;
-  onVisualizationClick?: (filename: string) => void;
   onSendMessage?: (msg: string) => void;
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
   onEditMessage?: (newContent: string) => void;
@@ -694,6 +693,9 @@ function InlineStatus({ body }: { body: string }) {
   );
 }
 
+// `visualization` is kept in the tag grammar only so legacy messages have their
+// old {{visualization:...}} tags consumed and dropped (see the no-op branch
+// below) rather than shown as literal text. The feature itself is gone (Widgets).
 const CURLY_TAG_RE = /\{\{(file|visualization|image|buttons|info_card|progress|status):([^}]+)\}\}/g;
 const HAS_CURLY_TAGS_RE = /\{\{(file|visualization|image|buttons|info_card|progress|status):/;
 
@@ -701,7 +703,6 @@ const parseFileReferences = (
   content: string,
   chatId: string | undefined,
   onFileClick?: (filename: string) => void,
-  onVisualizationClick?: (filename: string) => void,
   onSendMessage?: (msg: string) => void,
 ): React.ReactNode[] => {
   const parts: React.ReactNode[] = [];
@@ -732,23 +733,8 @@ const parseFileReferences = (
         />
       );
     } else if (markerType === 'visualization') {
-      // Render as a clickable chip that navigates to the Charts panel
-      const displayName = filename.replace(/\.(html|js)$/i, '').replace(/[_-]/g, ' ');
-      parts.push(
-        <button
-          key={`viz-${match.index}`}
-          onClick={() => onVisualizationClick?.(filename)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 my-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium border border-indigo-200 transition-colors cursor-pointer group"
-        >
-          <svg className="w-4 h-4 text-indigo-500 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-          </svg>
-          {displayName}
-          <svg className="w-3 h-3 text-indigo-400 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      );
+      // Visualizations were replaced by Widgets — drop the legacy tag silently
+      // (old messages may still contain it).
     } else if (markerType === 'buttons') {
       parts.push(<InlineButtons key={`btn-${match.index}`} body={filename} onSend={onSendMessage} />);
     } else if (markerType === 'info_card') {
@@ -903,7 +889,7 @@ function MessageActions({ actions, alwaysVisible, onFeedback, feedbackGiven, set
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, chatId, userId, onSelectTool, onFileClick, onVisualizationClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, todos }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, chatId, userId, onSelectTool, onFileClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, todos }: ChatMessageProps) {
   const isUser = role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -918,7 +904,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
     HAS_CURLY_TAGS_RE.test(content) ||
     /\[(file|visualization|image):\s*[^\]]+\]/.test(content)
   );
-  const parsedContent = hasSpecialTags ? parseFileReferences(content, chatId, onFileClick, onVisualizationClick, onSendMessage) : null;
+  const parsedContent = hasSpecialTags ? parseFileReferences(content, chatId, onFileClick, onSendMessage) : null;
   const mdComponents = React.useMemo(() => makeMarkdownComponents(chatId, onFileClick), [chatId, onFileClick]);
 
   useEffect(() => {

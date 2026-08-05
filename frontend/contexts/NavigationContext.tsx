@@ -10,7 +10,6 @@ export type View =
   | { type: 'home' }
   | { type: 'stock'; symbol: string; tab?: string }
   | { type: 'chat' }
-  | { type: 'visualizations'; vizId?: string }
   | { type: 'widgets'; widgetId?: string }
   | { type: 'memory-store' }
   | { type: 'jobs' };

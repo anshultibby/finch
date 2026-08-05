@@ -12,7 +12,7 @@ import { snap, watchHealth } from './helpers/ux';
 // sidebar) or the title tooltip (collapsed) — getByRole handles both.
 const NAV = [
   { name: 'Dashboard', shot: 'dashboard' },
-  { name: 'Visualizations', shot: 'visualizations' },
+  { name: 'Widgets', shot: 'widgets' },
   { name: 'Memory Store', shot: 'memory-store' },
 ] as const;
 
