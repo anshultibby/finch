@@ -18,6 +18,7 @@ from .account import router as account_router
 from .trades import router as trades_router
 from .apple_notifications import router as apple_notifications_router
 from .casparser import router as casparser_router
+from .widget import router as widget_router
 
 __all__ = [
     "chat_router",
@@ -37,5 +38,6 @@ __all__ = [
     "trades_router",
     "apple_notifications_router",
     "casparser_router",
+    "widget_router",
 ]
 

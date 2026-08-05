@@ -735,6 +735,96 @@ export const accountApi = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Kalshi bot (admin-only for now)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface KalshiBotConfig {
+  enabled: boolean;
+  dry_run: boolean;
+  strategy_id: string;
+  per_trade_cap_usd: number;
+  daily_loss_cap_usd: number;
+  halted: boolean;
+  halt_reason: string | null;
+}
+
+export interface KalshiStrategyInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface KalshiTradeRow {
+  id: number;
+  ticker: string;
+  side: string | null;
+  action: string | null;
+  count: number | null;
+  price: number | null;
+  dry_run: boolean | null;
+  status: string | null;
+  note: string | null;
+  settled: boolean;
+  result: string | null;
+  won: boolean | null;
+  fee: number | null;
+  realized_pnl: number | null;
+  created_at: string;
+}
+
+export interface KalshiObservationRow {
+  id: number;
+  strategy: string;
+  ticker: string;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface KalshiBotSummary {
+  total_trades: number;
+  settled_trades: number;
+  win_rate: number | null;
+  net_realized_pnl: number;
+  capital_at_risk_today: number;
+  balance_usd: number | null;
+}
+
+export const kalshiBotApi = {
+  getStrategies: async (): Promise<KalshiStrategyInfo[]> => {
+    const response = await api.get<KalshiStrategyInfo[]>('/kalshi-bot/strategies');
+    return response.data;
+  },
+  getStatus: async (): Promise<KalshiBotConfig> => {
+    const response = await api.get<KalshiBotConfig>('/kalshi-bot/status');
+    return response.data;
+  },
+  updateConfig: async (updates: Partial<KalshiBotConfig>): Promise<KalshiBotConfig> => {
+    const response = await api.post<KalshiBotConfig>('/kalshi-bot/config', updates);
+    return response.data;
+  },
+  halt: async (reason?: string): Promise<KalshiBotConfig> => {
+    const response = await api.post<KalshiBotConfig>('/kalshi-bot/halt', { reason });
+    return response.data;
+  },
+  resume: async (): Promise<KalshiBotConfig> => {
+    const response = await api.post<KalshiBotConfig>('/kalshi-bot/resume');
+    return response.data;
+  },
+  getSummary: async (): Promise<KalshiBotSummary> => {
+    const response = await api.get<KalshiBotSummary>('/kalshi-bot/summary');
+    return response.data;
+  },
+  getTrades: async (limit = 100): Promise<KalshiTradeRow[]> => {
+    const response = await api.get<KalshiTradeRow[]>('/kalshi-bot/trades', { params: { limit } });
+    return response.data;
+  },
+  getObservations: async (limit = 100): Promise<KalshiObservationRow[]> => {
+    const response = await api.get<KalshiObservationRow[]>('/kalshi-bot/observations', { params: { limit } });
+    return response.data;
+  },
+};
+
 export const apiKeysApi = {
   getApiKeys: async (userId: string): Promise<ApiKeysResponse> => {
     const response = await api.get<ApiKeysResponse>(`/api-keys/${userId}`);
@@ -1318,6 +1408,41 @@ export const visualizationsApi = {
   getSharedHtml: async (shareToken: string) => {
     const response = await api.get(`/api/visualizations/shared/${shareToken}/render`, { responseType: 'text' });
     return response.data as string;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Widgets API — declarative financial dashboard cards. See docs/widgets/spec.md.
+// ─────────────────────────────────────────────────────────────────────────────
+import type { Widget, WidgetSummary, WidgetSpec, WidgetData } from '@/components/widgets/types';
+
+export const widgetsApi = {
+  list: async (): Promise<WidgetSummary[]> => (await api.get('/widgets')).data,
+  gallery: async (params?: { q?: string; sort?: 'recent' | 'popular' }): Promise<WidgetSummary[]> =>
+    (await api.get('/widgets/gallery', { params })).data,
+  get: async (id: string): Promise<Widget> => (await api.get(`/widgets/${id}`)).data,
+  create: async (body: {
+    title: string; description?: string; emoji?: string; tags?: string[]; spec: WidgetSpec;
+  }): Promise<Widget> => (await api.post('/widgets', body)).data,
+  update: async (
+    id: string,
+    body: { title?: string; description?: string; emoji?: string; tags?: string[]; spec?: WidgetSpec },
+  ): Promise<Widget> => (await api.patch(`/widgets/${id}`, body)).data,
+  delete: async (id: string) => (await api.delete(`/widgets/${id}`)).data,
+  publish: async (id: string, unpublish = false): Promise<Widget> =>
+    (await api.post(`/widgets/${id}/publish`, { unpublish })).data,
+  clone: async (id: string): Promise<Widget> => (await api.post(`/widgets/${id}/clone`)).data,
+  getData: async (id: string): Promise<WidgetData> => (await api.get(`/widgets/${id}/data`)).data,
+  // Public (no auth) — used by the share page.
+  getShared: async (slug: string) => {
+    const res = await fetch(`${API_BASE_URL}/widgets/shared/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.json();
+  },
+  getSharedData: async (slug: string): Promise<WidgetData> => {
+    const res = await fetch(`${API_BASE_URL}/widgets/shared/${encodeURIComponent(slug)}/data`, { cache: 'no-store' });
+    if (!res.ok) return {};
+    return res.json();
   },
 };
 

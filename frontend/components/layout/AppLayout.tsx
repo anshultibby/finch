@@ -14,10 +14,11 @@ import StockPage from '@/components/stock/StockPage';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
 import VisualizationsPanel from '@/components/VisualizationsPanel';
+import WidgetsPanel from '@/components/widgets/WidgetsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
 import JobsPanel from '@/components/JobsPanel';
 import CreditsModal from '@/components/CreditsModal';
-import { marketApi } from '@/lib/api';
+import { marketApi, widgetsApi } from '@/lib/api';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Top Bar — breadcrumbs + search
@@ -29,6 +30,7 @@ function viewLabel(view: View): string {
     case 'stock': return view.symbol;
     case 'chat': return 'Chat';
     case 'visualizations': return 'Visualizations';
+    case 'widgets': return 'Widgets';
     case 'memory-store': return 'Memory Store';
     case 'jobs': return 'Automations';
     default: return '';
@@ -300,6 +302,21 @@ function AppLayoutInner() {
 
   const sidebarRef = useRef<AppSidebarRef>(null);
 
+  // Clone-on-arrival: a visitor who clicked "Clone this widget" on a public
+  // share page lands at /?clone=<id> after auth. Clone it into their account
+  // and open it, then strip the param.
+  const cloneHandled = useRef(false);
+  useEffect(() => {
+    if (cloneHandled.current || !user) return;
+    const cloneId = new URLSearchParams(window.location.search).get('clone');
+    if (!cloneId) return;
+    cloneHandled.current = true;
+    window.history.replaceState({}, '', window.location.pathname);
+    widgetsApi.clone(cloneId)
+      .then((w) => navigateTo({ type: 'widgets', widgetId: w.id }))
+      .catch(() => navigateTo({ type: 'widgets' }));
+  }, [user, navigateTo]);
+
   if (!user) return null;
 
   // Render current view (excluding chat — chat is always mounted for stream persistence)
@@ -311,6 +328,8 @@ function AppLayoutInner() {
         return <StockPage symbol={currentView.symbol} initialTab={currentView.tab} />;
       case 'visualizations':
         return <VisualizationsPanel vizId={currentView.vizId} />;
+      case 'widgets':
+        return <WidgetsPanel widgetId={currentView.widgetId} />;
       case 'memory-store':
         return <MemoryStorePanel />;
       case 'jobs':

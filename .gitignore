@@ -16,6 +16,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 develop-eggs/
@@ -61,6 +62,9 @@ Thumbs.db
 backend/resources/
 backend/chat_logs/
 
+# kalshi-bot local state (trade ledger, kill switch)
+kalshi-bot/data/
+
 
 # Playwright MCP browser-test artifacts
 .playwright-mcp/
@@ -70,3 +74,4 @@ backend/chat_logs/
 
 # EAS / mobile build artifacts
 frontend-mobile/build-*.tar.gz
+kalshi-bot/logs/

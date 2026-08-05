@@ -1,0 +1,29 @@
+{
+  "title": "Strait of Hormuz Tracker",
+  "description": "Oil benchmarks, closure odds, tanker & defense names, and live headlines for the Hormuz situation.",
+  "emoji": "🛢️",
+  "tags": ["oil", "geopolitics", "energy"],
+  "spec": {
+    "spec_version": 1,
+    "tiles": [
+      {"id": "oil", "type": "chart", "title": "Brent vs WTI", "size": "lg",
+       "query": {"source": "series", "symbols": [{"symbol": "BZUSD", "label": "Brent"}, {"symbol": "CLUSD", "label": "WTI"}], "range": "3M"},
+       "options": {"chart_type": "line"}},
+      {"id": "odds", "type": "odds", "title": "Strait closure by Sep 30", "size": "sm",
+       "query": {"source": "kalshi", "ticker": "KXHORMUZ-26SEP30"}},
+      {"id": "brent-stat", "type": "stat", "title": "Brent", "size": "sm",
+       "query": {"source": "quote", "symbols": ["BZUSD"]}},
+      {"id": "tankers", "type": "chart", "title": "Tankers & defense, indexed", "size": "md",
+       "query": {"source": "series", "symbols": [{"symbol": "FRO"}, {"symbol": "STNG"}, {"symbol": "LMT"}, {"symbol": "RTX"}], "range": "1M"},
+       "transforms": [{"op": "normalize", "base": 100}]},
+      {"id": "movers", "type": "table", "title": "Related names", "size": "md",
+       "query": {"source": "quote", "symbols": ["FRO", "STNG", "TNK", "LMT", "RTX", "NOC", "XOM", "OXY"]},
+       "transforms": [{"op": "sort", "by": "change_pct", "desc": true}]},
+      {"id": "news", "type": "news", "title": "Latest", "size": "md",
+       "query": {"source": "news", "query": "Strait of Hormuz oil", "limit": 8}},
+      {"id": "context", "type": "text", "size": "full",
+       "query": {"source": "inline", "shape": "markdown", "data": "**Why this matters:** roughly 20% of global oil supply transits the Strait of Hormuz. Escalation risk shows up first in Brent–WTI spread, tanker rates, and defense names.", "asof": "2026-08-04T12:00:00Z"}}
+    ],
+    "refresh": {"interval_seconds": 60}
+  }
+}

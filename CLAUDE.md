@@ -84,6 +84,7 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | "While you were gone" recap + agent ledger | ✅ | ✅ | `/activity/recap`; `agent_events` table; mobile full ledger at `/activity` |
 | In-app trade approval (hold-to-approve) | ✅ | ✅ | `/trades/pending` + approve/reject; email links remain as fallback |
 | Heartbeat (agentic portfolio/news watch) | ✅ | ✅ | Settings toggle + interval; spends credits (not comped); Pro = minute-level interval, free = daily |
+| Widgets (agent-built live dashboards) | ✅ | ❌ | Declarative JSON spec + fixed tile renderer; `/widgets` API + `skills/widgets`; public share page `/share/widget/[slug]` w/ OG + clone CTA; view-driven refresh cache. Mobile parity pending. See `docs/widgets/spec.md` |
 | Portfolio "Today" AI digest | ✅ | ✅ | `/insights/portfolio-digest`; watchlist fallback |
 | Smart move alerts (push + why) | — | ✅ | `services/market_monitor.py`; push is mobile-only |
 | App icon badge (unread) | — | ✅ | Mobile-only by nature |
