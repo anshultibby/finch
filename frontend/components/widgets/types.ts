@@ -1,7 +1,7 @@
 // Widget spec + data-shape types. Mirrors backend/schemas/widget.py and the
 // data shapes in services/widget_data.py. See docs/widgets/spec.md.
 
-export type TileType = 'chart' | 'stat' | 'odds' | 'news' | 'table' | 'text';
+export type TileType = 'chart' | 'stat' | 'odds' | 'news' | 'table' | 'text' | 'chart_spec';
 export type TileSize = 'sm' | 'md' | 'lg' | 'full';
 
 // Interactive controls — client-side filter/sort/search over a table tile.
@@ -16,11 +16,13 @@ export interface Tile {
   type: TileType;
   title?: string;
   size?: TileSize;
-  query: Record<string, any>;
+  query?: Record<string, any>; // optional for self-contained chart_spec tiles
   transforms?: Record<string, any>[];
-  options?: Record<string, any>;
+  options?: Record<string, any>; // chart_spec: options.figure = Plotly {data, layout}
   controls?: Control[];
 }
+
+export interface StaticData { shape: 'static' }
 
 export interface WidgetSpec {
   spec_version: number;

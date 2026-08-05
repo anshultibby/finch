@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # ──────────────────────────────────────────────────────────────────────────
 # Enums (string literals — LLM-friendly, easy to validate)
 # ──────────────────────────────────────────────────────────────────────────
-TileType = Literal["chart", "stat", "odds", "news", "table", "text"]
+TileType = Literal["chart", "stat", "odds", "news", "table", "text", "chart_spec"]
 TileSize = Literal["sm", "md", "lg", "full"]
 Range = Literal["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y"]
 InlineShape = Literal["series", "table", "number", "markdown"]
@@ -195,21 +195,33 @@ class Tile(_Strict):
     type: TileType
     title: Optional[str] = None
     size: TileSize = "md"
-    query: Query
+    # Optional so a `chart_spec` tile can be self-contained (data baked into the
+    # figure). Every other tile type requires a query (validated below).
+    query: Optional[Query] = None
     transforms: Optional[List[Transform]] = None
     # Display-only, tile-type-specific; kept permissive on purpose (low risk,
-    # avoids over-constraining the render layer).
+    # avoids over-constraining the render layer). For `chart_spec`, holds
+    # `figure` = a Plotly {data, layout} spec.
     options: Optional[Dict[str, Any]] = None
     # Interactive filter/sort controls (table tiles only in v1).
     controls: Optional[List[Control]] = Field(None, max_length=6)
 
     @model_validator(mode="after")
-    def _controls_only_on_tables(self):
+    def _validate(self):
         if self.controls and self.type != "table":
             raise ValueError(
                 f"Tile '{self.id}': controls are only supported on 'table' tiles "
                 f"(this tile is '{self.type}')."
             )
+        if self.type == "chart_spec":
+            fig = (self.options or {}).get("figure")
+            if not isinstance(fig, dict) or "data" not in fig:
+                raise ValueError(
+                    f"Tile '{self.id}': a chart_spec tile needs options.figure with a "
+                    f"Plotly `data` array (and optional `layout`)."
+                )
+        elif self.query is None:
+            raise ValueError(f"Tile '{self.id}': a '{self.type}' tile requires a query.")
         return self
 
 

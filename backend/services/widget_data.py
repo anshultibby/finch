@@ -418,7 +418,12 @@ async def _resolve_query(query: dict, viewer_user_id: Optional[str]) -> dict:
 
 
 async def _resolve_tile(tile: dict, viewer_user_id: Optional[str]) -> dict:
-    payload = await _resolve_query(tile.get("query", {}), viewer_user_id)
+    query = tile.get("query")
+    if not query:
+        # Self-contained tile (e.g. a chart_spec figure with data baked in) —
+        # nothing to fetch. The renderer uses tile.options directly.
+        return {"shape": "static"}
+    payload = await _resolve_query(query, viewer_user_id)
     if payload.get("shape") in ("error", "empty"):
         return payload
     for tf in tile.get("transforms") or []:

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import WidgetChart from './WidgetChart';
+import PlotlyTile from './PlotlyTile';
 import Sparkline from './Sparkline';
 import { TableControls, applyControls, initControlState, type ControlState } from './TableControls';
 import type {
@@ -174,6 +175,16 @@ function TextTile({ data }: { data: MarkdownData }) {
 
 // ── dispatcher ──────────────────────────────────────────────────────────────
 export function TileBody({ tile, data }: { tile: Tile; data?: TileData }) {
+  // chart_spec keys off the tile (Plotly figure in options), not the data shape.
+  // A self-contained figure needs no data; a bound one uses the resolved data.
+  if (tile.type === 'chart_spec') {
+    const figure = tile.options?.figure;
+    const hasQuery = !!tile.query;
+    if (hasQuery && !data) return <div className="animate-pulse h-full min-h-[200px] bg-gray-100 rounded" />;
+    if (data?.shape === 'error') return <ErrorTile message={(data as any).message} />;
+    return <PlotlyTile figure={figure} data={data} height={tile.options?.height} />;
+  }
+
   if (!data) return <div className="animate-pulse h-full min-h-[80px] bg-gray-100 rounded" />;
   if (data.shape === 'error') return <ErrorTile message={(data as any).message} />;
   if (data.shape === 'empty') return <EmptyTile reason={(data as any).reason} />;

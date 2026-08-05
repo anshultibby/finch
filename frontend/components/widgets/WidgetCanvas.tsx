@@ -46,7 +46,7 @@ export default function WidgetCanvas({ spec, data }: { spec: WidgetSpec; data?: 
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {tiles.map((tile) => {
         const size = (tile.size || 'md') as TileSize;
-        const isTall = size === 'lg' || size === 'full' || tile.type === 'chart' || tile.type === 'news';
+        const isTall = size === 'lg' || size === 'full' || tile.type === 'chart' || tile.type === 'chart_spec' || tile.type === 'news';
         return (
           <div
             key={tile.id}
