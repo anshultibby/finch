@@ -62,14 +62,16 @@ Auth is automatic. If a create fails with a 422, the body names the offending ti
 ```jsonc
 {
   "id": "oil",                 // unique within the widget, slug-like
-  "type": "chart",             // chart | stat | odds | news | table | text
+  "type": "chart",             // chart | stat | odds | news | table | text | chart_spec
   "title": "Brent vs WTI",     // optional
   "size": "lg",                // sm | md | lg | full  (default md)
-  "query": { ... },            // exactly one data source (below)
+  "query": { ... },            // one data source (below); optional for a self-contained chart_spec
   "transforms": [ ... ],       // optional, ordered (below)
-  "options": { ... }           // optional display options
+  "options": { ... }           // optional display options; chart_spec puts its Plotly figure here
 }
 ```
+
+Tile types: `chart` (built-in line/area, fast, the default for time series), `stat` (a number + delta), `odds` (Kalshi probability), `news`, `table`, `text` (markdown), and **`chart_spec`** (a full Plotly figure — reach for this when the built-in `chart` can't express what you want: bars, grouped/stacked bars, scatter, heatmap, candlestick, box, histogram, treemap, dual-axis, small multiples).
 
 Layout is automatic — tiles flow into a grid by `size` (sm=small, md=default, lg=wide, full=full width). No coordinates.
 
@@ -134,6 +136,38 @@ Control types: `range` (numeric column, min/max — optional bounds default to t
 
 This is how you build "an earnings table I can filter by market cap / IV / date and sort by expected move": compute the table once (inline), attach controls, and the viewer does the rest.
 
+### Rich charts — `chart_spec` (Plotly)
+
+When the built-in `chart` tile isn't enough, use a `chart_spec` tile: `options.figure` is a **Plotly figure** (`{ "data": [ ...traces ], "layout": { ... } }`). This gives you almost any chart type as pure JSON. Finch applies a clean house theme automatically — **keep your `layout` minimal** (a title, axis titles, `barmode` if needed); don't set colors, fonts, or backgrounds, and don't set width/height. One chart per tile.
+
+Two ways to feed it data:
+
+**A) Self-contained** (no `query`) — bake the numbers into the traces. Best for anything you computed in the sandbox. It's a snapshot.
+```json
+{"id":"sectors","type":"chart_spec","size":"lg","title":"Sector performance",
+ "options":{"figure":{"data":[{"type":"bar","x":["Tech","Energy","Health"],"y":[2.1,-0.8,1.3]}],
+                      "layout":{"yaxis":{"title":"% today"}}}}}
+```
+
+**B) Bound to live data** (with a `query`) — put `$`-refs in the traces and Finch substitutes the resolved, cached, auto-refreshing data:
+- `$t` → shared time axis · `$series.LABEL` → that series' values (for a `series` query)
+- `$col.NAME` → that column's values (for a `quote`/`table` query)
+```json
+{"id":"scatter","type":"chart_spec","size":"lg","title":"Risk vs return",
+ "query":{"source":"quote","symbols":["AAPL","MSFT","NVDA","TSLA"]},
+ "options":{"figure":{"data":[{"type":"scatter","mode":"markers+text","x":"$col.change_pct","y":"$col.price","text":"$col.symbol"}]}}}
+```
+Prefer **B** whenever the data exists as a source — a bound chart_spec stays live and cited, a self-contained one is frozen.
+
+### Editing a widget from chat
+
+The user can open a chat from a widget's page to change it. When you get a message and the **page_context contains a `widget_id`**, they want to edit *that* widget:
+1. `GET /widgets/{widget_id}` to see the current spec (also provided as `page_context.widget_spec`).
+2. Make the change they asked for — add/remove/reorder tiles, swap a `chart` for a `chart_spec`, adjust symbols, ranges, transforms, or controls.
+3. `PATCH /widgets/{widget_id}` with the full updated `spec`.
+4. Verify with `GET /widgets/{widget_id}/data` (every tile a real shape, no `error`), then tell them what you changed in one line. The page updates on its own — don't ask them to reload.
+Make the smallest change that satisfies the request; preserve the rest of the spec.
+
 ## Playbook: turn a theme into instruments
 
 This mapping quality is the product. For an event/theme, assemble tiles across these angles:
@@ -146,10 +180,17 @@ This mapping quality is the product. For an event/theme, assemble tiles across t
 
 ## Composition taste
 
-- 4–8 tiles. Lead with the hero chart at `size: lg`.
+- 4–8 tiles. **Lead with a hero chart at `size: lg`** — it's the first thing the eye lands on, so make it the most informative view (a comparison, a trend, a distribution), not a lone price line.
 - One `odds` tile beats three. One clear comparison chart beats five single-stock charts.
 - Always include a news tile for event/topical widgets.
 - For a **portfolio** widget: `user_portfolio` table + a `series` of the user's index (or SPY) + a portfolio-relevant news tile.
+
+**Make charts delightful (this is what users remember):**
+- Pick the chart that reveals the point: comparison → normalized multi-line or grouped bars; composition → stacked bar or treemap; relationship → scatter; distribution → histogram/box; single asset over time → area. Use `chart_spec` when `chart` can't say it.
+- Always **normalize** multi-symbol comparisons (different price levels aren't comparable raw).
+- Title every chart with the takeaway, not the mechanic ("Tankers & defense outperforming since escalation", not "Normalized prices").
+- Label axes with units. Keep it to one idea per chart. Give a topical widget a closing `text` tile with one or two sentences of "why this matters".
+- Give the widget a fitting emoji and a description that reads like a headline.
 
 ## Hard rules
 

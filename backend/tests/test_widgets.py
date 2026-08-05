@@ -69,6 +69,33 @@ def test_tile_ids_unique_helper():
     assert dup.tile_ids_unique() is False
 
 
+def test_chart_spec_self_contained_parses():
+    WidgetSpec(spec_version=1, tiles=[{
+        "id": "p", "type": "chart_spec", "size": "lg",
+        "options": {"figure": {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {}}},
+    }])  # no query is fine for chart_spec
+
+
+def test_chart_spec_bound_to_query_parses():
+    WidgetSpec(spec_version=1, tiles=[{
+        "id": "s", "type": "chart_spec",
+        "query": {"source": "quote", "symbols": ["AAPL", "MSFT"]},
+        "options": {"figure": {"data": [{"type": "scatter", "x": "$col.price", "y": "$col.change_pct"}]}},
+    }])
+
+
+def test_chart_spec_requires_figure():
+    with pytest.raises(ValidationError) as e:
+        WidgetSpec(spec_version=1, tiles=[{"id": "x", "type": "chart_spec", "options": {}}])
+    assert "figure" in str(e.value)
+
+
+def test_non_chart_spec_requires_query():
+    with pytest.raises(ValidationError) as e:
+        WidgetSpec(spec_version=1, tiles=[{"id": "y", "type": "chart"}])
+    assert "requires a query" in str(e.value)
+
+
 def test_controls_on_table_parse():
     WidgetSpec(spec_version=1, tiles=[{
         "id": "t", "type": "table",

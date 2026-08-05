@@ -120,6 +120,6 @@ export interface ErrorData { shape: 'error'; message: string }
 
 export type TileData =
   | SeriesData | TableData | NumberData | OddsData
-  | NewsData | MarkdownData | EmptyData | ErrorData;
+  | NewsData | MarkdownData | EmptyData | ErrorData | StaticData;
 
 export type WidgetData = Record<string, TileData>;
