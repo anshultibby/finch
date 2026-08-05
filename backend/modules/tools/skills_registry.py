@@ -32,7 +32,7 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     "SNAPTRADE_CLIENT_ID":    ("SNAPTRADE","system"),
     "SNAPTRADE_CONSUMER_KEY": ("SNAPTRADE","system"),
     "OPENAI_API_KEY":         ("OPENAI",   "system"),
-    "ORATS_API_KEY":          ("ORATS",    "system"),
+    "MARKETDATA_API_KEY":     ("MARKETDATA", "system"),
     "GEMINI_API_KEY":         ("GEMINI",   "system"),
 
     # User keys — each user provides their own via Settings > API Keys

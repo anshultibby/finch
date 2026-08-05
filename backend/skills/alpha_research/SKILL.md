@@ -13,7 +13,7 @@ metadata:
 
 # Alpha Research Skill
 
-Research-backed framework and data building blocks for finding trading opportunities. Combines existing data sources (FMP, ORATS, Polygon) — no new API keys needed.
+Research-backed framework and data building blocks for finding trading opportunities. Combines existing data sources (FMP, MarketData.app, Polygon) — no new API keys needed.
 
 Two layers:
 1. **Framework** — structured research on where alpha comes from, for reasoning about whether an opportunity has a real edge
@@ -175,13 +175,13 @@ framework = get_alpha_framework()
 
 ## Extending: Write Your Own Analysis Functions
 
-The functions here are starting points, not a complete set. You should write your own analysis functions on the fly when the situation calls for it. You have full access to all other skills (FMP, Polygon, ORATS, etc.) and can combine them however makes sense.
+The functions here are starting points, not a complete set. You should write your own analysis functions on the fly when the situation calls for it. You have full access to all other skills (FMP, Polygon, MarketData.app, etc.) and can combine them however makes sense.
 
 Examples of functions you might write ad hoc:
 - Sector rotation detector using cross-asset data + FMP sector performance
 - Earnings revision momentum tracker using FMP analyst estimates over time
 - Congressional trading signal using FMP senate/house trading data + earnings timing
-- Options skew analyzer combining ORATS IV surface with FMP fundamentals
+- Options positioning analyzer combining MarketData.app Greeks/IV with FMP fundamentals
 - Custom stock screener combining multiple FMP endpoints with your own filters
 - Correlation/pair analysis using Polygon historical prices
 

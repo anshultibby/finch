@@ -103,43 +103,46 @@ def get_peer_reactions(symbol: str, since_date: str):
 
 def get_iv_context(symbol: str):
     """
-    Get IV context for a stock: current IV rank, vol risk premium,
-    implied earnings move, historical vol metrics.
+    Get IV context for a stock: current at-the-money implied volatility (~30 DTE).
 
     Returns:
-        dict: iv_rank_1y, current_iv, iv30d, realized_vol_20d,
-        vol_risk_premium, implied_earnings_move, contango
-        Returns None if ORATS is unavailable.
+        dict: current_iv, iv30d (raw ATM IV from the live options chain).
+        Returns None if options data is unavailable.
+
+    NOTE: iv_rank_1y, iv60d, realized_vol_20d, vol_risk_premium,
+    implied_earnings_move, and contango required ORATS, which has been removed
+    in favor of MarketData.app. They are returned as None for backward
+    compatibility — MarketData.app provides raw IV/Greeks but no vol-analytics
+    (IV rank/percentile, surface, term structure, realized vol).
     """
     try:
-        from skills.orats.scripts.options import get_iv_rank, get_summary
+        from skills.marketdata.scripts.options import get_options_chain
     except ImportError:
         return None
 
-    result = {}
+    try:
+        chain = get_options_chain(symbol, dte=30, side="call", delta=".35-.65")
+    except Exception:
+        return None
+    if not chain:
+        return None
 
-    summary = get_summary(symbol)
-    if summary and not (isinstance(summary, dict) and "error" in summary):
-        result["iv30d"] = summary.get("iv30d")
-        result["iv60d"] = summary.get("iv60d")
-        result["realized_vol_20d"] = summary.get("orHv20d")
-        result["implied_earnings_move"] = summary.get("impliedMove") or summary.get("impliedEarningsMove")
-        result["contango"] = summary.get("contango")
+    # Closest to at-the-money = delta nearest 0.50.
+    atm = min(chain, key=lambda c: abs((c.get("delta") or 0) - 0.50))
+    iv = atm.get("iv")
+    if iv is None:
+        return None
 
-        iv30 = summary.get("iv30d")
-        hv20 = summary.get("orHv20d") or summary.get("hv20d")
-        if iv30 and hv20:
-            result["vol_risk_premium"] = round(iv30 - hv20, 4)
-
-    iv_data = get_iv_rank(symbol)
-    if iv_data and not (isinstance(iv_data, dict) and "error" in iv_data):
-        history = iv_data.get("history", [])
-        if history:
-            latest = history[-1]
-            result["iv_rank_1y"] = latest.get("ivRank1y") or latest.get("ivPct1y")
-            result["current_iv"] = latest.get("iv")
-
-    return result if result else None
+    return {
+        "current_iv": iv,
+        "iv30d": iv,
+        "iv_rank_1y": None,
+        "iv60d": None,
+        "realized_vol_20d": None,
+        "vol_risk_premium": None,
+        "implied_earnings_move": None,
+        "contango": None,
+    }
 
 
 def get_historical_moves_around_earnings(symbol: str, n_quarters: int = 8):

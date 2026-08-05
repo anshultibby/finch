@@ -94,7 +94,7 @@ When the user asks to research a stock that already has notes:
 
 ## Using data from other skills
 
-Pull data from FMP, Polygon, ORATS, etc. to inform your analysis:
+Pull data from FMP, Polygon, MarketData.app, etc. to inform your analysis:
 
 ```python
 # Fetch fundamentals

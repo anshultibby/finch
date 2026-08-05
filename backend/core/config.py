@@ -105,9 +105,9 @@ class Settings(BaseSettings):
         default=None,
         description="CASParser API key for Indian demat account holdings via CDSL OTP flow"
     )
-    ORATS_API_KEY: Optional[str] = Field(
+    MARKETDATA_API_KEY: Optional[str] = Field(
         default=None,
-        description="ORATS API key for options data (chain, IV rank, historical metrics)"
+        description="MarketData.app API key for options data (real-time & historical chains, Greeks, IV)"
     )
     SERPER_API_KEY: Optional[str] = Field(
         default=None,
