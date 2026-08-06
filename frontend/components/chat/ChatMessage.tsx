@@ -143,16 +143,21 @@ function SandboxImage({
 
 const CITE_BADGE_RE = /^\d+$/;
 
-function extractCitations(md: string): Map<number, string> {
-  const refs = new Map<number, string>();
+type Citation = { url: string; label?: string };
+
+function extractCitations(md: string): Map<number, Citation> {
+  const refs = new Map<number, Citation>();
   const linked = /\[\^(\d+)\]\((https?:\/\/[^)]+)\)/g;
   let m;
   while ((m = linked.exec(md)) !== null) {
-    refs.set(parseInt(m[1]), m[2]);
+    refs.set(parseInt(m[1]), { url: m[2] });
   }
-  const defs = /^\[\^(\d+)\]:\s*(https?:\/\/\S+)/gm;
+  // Footnote definitions. The URL may be bare (`[^1]: https://…`) or wrapped in
+  // a markdown link (`[^1]: [Gotrade, May 13](https://…)`) — the model uses both.
+  const defs = /^\[\^(\d+)\]:\s*(?:\[([^\]]*)\]\()?(https?:\/\/[^)\s]+)/gm;
   while ((m = defs.exec(md)) !== null) {
-    if (!refs.has(parseInt(m[1]))) refs.set(parseInt(m[1]), m[2]);
+    const n = parseInt(m[1]);
+    if (!refs.has(n)) refs.set(n, { url: m[3], label: m[2]?.trim() || undefined });
   }
   return refs;
 }
@@ -176,13 +181,13 @@ function citationDomain(url: string): string {
   } catch { return url; }
 }
 
-function CitationReferences({ citations }: { citations: Map<number, string> }) {
+function CitationReferences({ citations }: { citations: Map<number, Citation> }) {
   if (citations.size === 0) return null;
   const sorted = Array.from(citations.entries()).sort((a, b) => a[0] - b[0]);
   return (
     <div className="mt-3 pt-2 border-t border-gray-200">
       <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {sorted.map(([num, url]) => (
+        {sorted.map(([num, { url, label }]) => (
           <a
             key={num}
             id={`cite-${num}`}
@@ -192,7 +197,7 @@ function CitationReferences({ citations }: { citations: Map<number, string> }) {
             className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors group/ref scroll-mt-24"
           >
             <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full shrink-0">{num}</span>
-            <span className="group-hover/ref:underline truncate max-w-[200px]">{citationDomain(url)}</span>
+            <span className="group-hover/ref:underline truncate max-w-[200px]">{label || citationDomain(url)}</span>
           </a>
         ))}
       </div>
@@ -899,7 +904,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
   const editRef = React.useRef<HTMLTextAreaElement>(null);
   const contentCleaned = !isUser && rawContent ? rawContent.replace(/\n{3,}/g, '\n\n').trim() : rawContent;
   const content = !isUser && contentCleaned ? preprocessCitations(contentCleaned) : contentCleaned;
-  const citations = React.useMemo(() => !isUser && contentCleaned ? extractCitations(contentCleaned) : new Map<number, string>(), [isUser, contentCleaned]);
+  const citations = React.useMemo(() => !isUser && contentCleaned ? extractCitations(contentCleaned) : new Map<number, Citation>(), [isUser, contentCleaned]);
   const hasSpecialTags = !isUser && content && (
     HAS_CURLY_TAGS_RE.test(content) ||
     /\[(file|visualization|image):\s*[^\]]+\]/.test(content)
