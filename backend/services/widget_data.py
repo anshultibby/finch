@@ -100,6 +100,7 @@ def _range_to_days(rng: str) -> int:
         return (_now() - datetime(_now().year, 1, 1, tzinfo=timezone.utc)).days + 1
     return {
         "1D": 2, "5D": 6, "1M": 31, "3M": 93, "6M": 186, "1Y": 366, "5Y": 1830,
+        "10Y": 3660, "MAX": 20000,  # long history is the story ("since 1980")
     }.get(rng, 93)
 
 

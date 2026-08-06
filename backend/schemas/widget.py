@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # ──────────────────────────────────────────────────────────────────────────
 TileType = Literal["chart", "stat", "odds", "news", "table", "text", "chart_spec"]
 TileSize = Literal["sm", "md", "lg", "full"]
-Range = Literal["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y"]
+Range = Literal["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "10Y", "MAX"]
 InlineShape = Literal["series", "table", "number", "markdown"]
 
 # Data sources allowed in a *published* (public) widget. All of these are
