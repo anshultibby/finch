@@ -166,7 +166,12 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
     colIdx = options.columns.map((c: string) => cols.indexOf(c)).filter((i: number) => i >= 0);
     cols = colIdx.map((i: number) => data.columns[i]);
   }
-  const pctCol = data.columns.findIndex((c) => c.includes('pct') || c.includes('change'));
+  // Prefer an explicit percent column; only fall back to 'change' if no pct
+  // column exists (matching 'change' first painted dollar changes as %).
+  const pctColExplicit = data.columns.findIndex((c) => c.includes('pct') || c.includes('percent'));
+  const pctCol = pctColExplicit >= 0
+    ? pctColExplicit
+    : data.columns.findIndex((c) => c.includes('change'));
   // Diverging wash scale for the change column (max |value| over shown rows).
   const maxAbsPct =
     pctCol >= 0
