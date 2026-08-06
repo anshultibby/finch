@@ -46,11 +46,15 @@ export default function WidgetCanvas({ spec, data }: { spec: WidgetSpec; data?: 
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {tiles.map((tile) => {
         const size = (tile.size || 'md') as TileSize;
-        const isTall = size === 'lg' || size === 'full' || tile.type === 'chart' || tile.type === 'chart_spec' || tile.type === 'news';
+        // Height follows tile TYPE, not size — `size` only controls width. Only
+        // visual tiles get a tall min-height; text hugs its content (so a
+        // full-width one-line note isn't stretched into a big empty card).
+        const tall = tile.type === 'chart' || tile.type === 'chart_spec' || tile.type === 'news' || tile.type === 'table';
+        const minH = tile.type === 'text' ? '' : tall ? 'min-h-[240px]' : 'min-h-[110px]';
         return (
           <div
             key={tile.id}
-            className={`${COL_SPAN[size]} bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col ${isTall ? 'min-h-[240px]' : 'min-h-[120px]'}`}
+            className={`${COL_SPAN[size]} bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col ${minH}`}
           >
             {tile.title && (
               <div className="text-sm font-semibold text-gray-900 mb-3 shrink-0">{tile.title}</div>
