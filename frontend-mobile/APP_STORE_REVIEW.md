@@ -9,7 +9,7 @@ Connect — they live in the gitignored env files as `E2E_EMAIL` / `E2E_PASSWORD
 - **Username:** `<E2E_EMAIL>`
 - **Password:** `<E2E_PASSWORD>`
 
-## What to Test (v1.0.1)
+## What to Test (v1.0.0)
 - **Sign in with Apple** — first option on the login screen (Guideline 4.8).
 - **Guest browsing** — launch without signing in: Markets, Earnings, news, and
   full stock research are freely accessible; account-based features (Watchlist,

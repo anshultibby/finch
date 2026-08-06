@@ -2,7 +2,7 @@
   "expo": {
     "name": "Finch",
     "slug": "finch",
-    "version": "1.0.1",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "finch",
@@ -16,7 +16,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ai.finchapp.mobile",
-      "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow Finch to access your camera to take photos for chat attachments.",
@@ -41,8 +40,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#fafaf9"
       },
-      "package": "ai.finchapp.mobile",
-      "versionCode": 2
+      "package": "ai.finchapp.mobile"
     },
     "web": {
       "bundler": "metro",
