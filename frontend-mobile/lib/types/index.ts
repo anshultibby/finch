@@ -636,21 +636,120 @@ export interface TradeLog {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Visualizations
+// Widgets — agent-built live financial dashboards (parity with web; see
+// docs/widgets/spec.md). Declarative JSON spec + fixed tile renderer.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface Visualization {
+export type TileType = 'chart' | 'stat' | 'odds' | 'news' | 'table' | 'text' | 'chart_spec';
+export type TileSize = 'sm' | 'md' | 'lg' | 'full';
+
+// Interactive controls live on table tiles only (client-side filter/sort/search).
+export type Control =
+  | { id: string; type: 'range'; label: string; column: string; min?: number; max?: number; step?: number }
+  | { id: string; type: 'select'; label: string; column: string; options?: string[] }
+  | { id: string; type: 'search'; label: string; columns: string[] }
+  | { id: string; type: 'sort'; label: string; columns: string[]; default_desc?: boolean };
+
+export interface Tile {
+  id: string;
+  type: TileType;
+  title?: string;
+  size?: TileSize;
+  query?: Record<string, any>;
+  transforms?: Record<string, any>[];
+  options?: Record<string, any>; // chart_spec: options.figure holds a Plotly {data, layout}
+  controls?: Control[];
+}
+
+export interface WidgetSpec {
+  spec_version: number;
+  tiles: Tile[];
+  refresh?: { interval_seconds: number };
+}
+
+export interface Widget {
   id: string;
   user_id: string;
-  chat_id: string | null;
-  title: string | null;
-  description: string | null;
-  filename: string;
-  category: string | null;
-  tags: string[];
-  is_public: boolean;
-  share_token: string | null;
+  title: string;
+  description?: string | null;
+  emoji?: string | null;
+  tags?: string[] | null;
+  spec: WidgetSpec;
+  visibility: 'private' | 'public';
+  slug?: string | null;
+  cloned_from?: string | null;
+  view_count: number;
+  clone_count: number;
+  is_owner: boolean;
   created_at: string;
   updated_at: string;
 }
+
+export interface WidgetSummary {
+  id: string;
+  title: string;
+  description?: string | null;
+  emoji?: string | null;
+  tags?: string[] | null;
+  visibility: 'private' | 'public';
+  slug?: string | null;
+  view_count: number;
+  clone_count: number;
+  created_at: string;
+}
+
+// Per-tile data shapes — the backend contract from GET /widgets/{id}/data.
+export interface SeriesPoint { t: string; v: number | null }
+export interface SeriesData {
+  shape: 'series';
+  series: { label: string; points: SeriesPoint[] }[];
+  source?: { label: string; url?: string };
+  asof?: string;
+}
+export interface TableData {
+  shape: 'table';
+  columns: string[];
+  rows: (string | number | null)[][];
+  source?: { label: string; url?: string };
+  asof?: string;
+}
+export interface NumberData {
+  shape: 'number';
+  label?: string;
+  value: number | null;
+  delta?: number | null;
+  delta_pct?: number | null;
+  sparkline?: number[];
+  source?: { label: string; url?: string };
+  asof?: string;
+}
+export interface OddsData {
+  shape: 'odds';
+  prob: number | null;
+  title?: string;
+  close_date?: string | null;
+  history?: SeriesPoint[];
+  source?: { label: string; url?: string };
+  asof?: string;
+}
+export interface NewsData {
+  shape: 'news';
+  items: { title: string; url?: string; source?: string; published_at?: string; image?: string }[];
+  source?: { label: string; url?: string };
+  asof?: string;
+}
+export interface MarkdownData {
+  shape: 'markdown';
+  text: string;
+  source?: { label: string; url?: string };
+  asof?: string;
+}
+export interface EmptyData { shape: 'empty'; reason: string }
+export interface ErrorData { shape: 'error'; message: string }
+export interface StaticData { shape: 'static' }
+
+export type TileData =
+  | SeriesData | TableData | NumberData | OddsData | NewsData | MarkdownData
+  | EmptyData | ErrorData | StaticData;
+export type WidgetData = Record<string, TileData>; // tile.id → resolved data
 

@@ -7,7 +7,7 @@ import { useDrawer } from '@/contexts/DrawerContext';
 import { chatApi } from '@/lib/api';
 import {
   X, SquarePen, Search, Star, BarChart3, Wallet, Settings,
-  ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2, LogIn,
+  ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2, LogIn, LayoutGrid,
 } from 'lucide-react-native';
 import FinchLogo from '@/components/FinchLogo';
 import { COLORS } from '@/lib/constants';
@@ -144,6 +144,7 @@ export default function Sidebar() {
     { icon: BarChart3, label: 'Markets', onPress: () => go('/(tabs)?tab=markets') },
     { icon: Star, label: 'Watchlist', onPress: () => go('/(tabs)?tab=watchlist') },
     { icon: Wallet, label: 'Portfolio', onPress: () => go('/(tabs)?tab=portfolio') },
+    { icon: LayoutGrid, label: 'Widgets', onPress: () => go('/widgets') },
   ];
 
   return (

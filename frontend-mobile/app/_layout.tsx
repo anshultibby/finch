@@ -53,6 +53,26 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="widgets/index"
+          options={{
+            headerShown: true,
+            headerTitle: 'Widgets',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="widgets/[id]"
+          options={{
+            headerShown: true,
+            headerTitle: 'Widget',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
           name="privacy"
           options={{
             headerShown: true,

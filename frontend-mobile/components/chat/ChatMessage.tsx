@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Markdown from 'react-native-markdown-display';
@@ -7,8 +7,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import type { Message } from '@/lib/types';
 import ToolCallCard from './ToolCallCard';
-import { VisualizationChip } from './VisualizationPreview';
-import { parseMessageParts } from '@/lib/messageMarkers';
+import { stripLegacyMarkers } from '@/lib/messageMarkers';
 import { chatApi } from '@/lib/api';
 
 const mdStyles = {
@@ -52,8 +51,6 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
 
-  const parts = useMemo(() => parseMessageParts(message.content || ''), [message.content]);
-
   const handleCopy = async () => {
     if (!message.content) return;
     if (Platform.OS === 'web') {
@@ -95,13 +92,7 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
         </View>
       ) : message.content ? (
         <View className="w-full">
-          {parts.map((part, i) =>
-            part.type === 'visualization' ? (
-              <VisualizationChip key={`viz-${i}`} filename={part.filename} />
-            ) : (
-              <Markdown key={`md-${i}`} style={mdStyles} rules={mdRules}>{part.value}</Markdown>
-            )
-          )}
+          <Markdown style={mdStyles} rules={mdRules}>{stripLegacyMarkers(message.content)}</Markdown>
           {/* Message Actions */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, marginBottom: 4 }}>
             <TouchableOpacity onPress={handleCopy} style={{ padding: 6, borderRadius: 6 }} activeOpacity={0.6}>

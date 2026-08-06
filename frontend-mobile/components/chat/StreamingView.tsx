@@ -12,8 +12,7 @@ import Markdown from 'react-native-markdown-display';
 import type { ToolCallStatus, TodoItem } from '@/lib/types';
 import ToolCallCard from './ToolCallCard';
 import TodoChecklist from './TodoChecklist';
-import { VisualizationChip } from './VisualizationPreview';
-import { parseMessageParts } from '@/lib/messageMarkers';
+import { stripLegacyMarkers } from '@/lib/messageMarkers';
 
 const streamMdStyles = {
   body: { color: '#374151', fontSize: 14, lineHeight: 21, fontFamily: 'DMSans' },
@@ -70,13 +69,7 @@ export default function StreamingView({ text, tools, todos = [], thinkingText = 
       {thinkingText.length > 0 && <ThinkingLine text={thinkingText} />}
       {text.length > 0 && (
         <View className="w-full">
-          {parseMessageParts(text).map((part, i) =>
-            part.type === 'visualization' ? (
-              <VisualizationChip key={`viz-${i}`} filename={part.filename} />
-            ) : (
-              <Markdown key={`md-${i}`} style={streamMdStyles} rules={streamRules}>{part.value}</Markdown>
-            )
-          )}
+          <Markdown style={streamMdStyles} rules={streamRules}>{stripLegacyMarkers(text)}</Markdown>
         </View>
       )}
       {text.length === 0 && tools.length === 0 && thinkingText.length === 0 && todos.length === 0 && (

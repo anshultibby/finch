@@ -36,7 +36,10 @@ import type {
   ApiKeysResponse,
   ApiKeyResponse,
   TestApiKeyResponse,
-  Visualization,
+  Widget,
+  WidgetSummary,
+  WidgetSpec,
+  WidgetData,
 } from './types';
 
 import { Platform } from 'react-native';
@@ -704,14 +707,31 @@ export const notificationsApi = {
   },
 };
 
-export const visualizationsApi = {
-  list: async (): Promise<{ visualizations: Visualization[] }> => {
-    const response = await api.get('/api/visualizations');
-    return response.data;
+// Widgets — agent-built live dashboards. Mirrors frontend/lib/api.ts widgetsApi.
+// Auth is attached automatically by the axios interceptor; the shared endpoints
+// are public but sending the bearer is harmless.
+export const widgetsApi = {
+  list: async (): Promise<WidgetSummary[]> => (await api.get('/widgets')).data,
+  gallery: async (params?: { q?: string; sort?: 'recent' | 'popular' }): Promise<WidgetSummary[]> =>
+    (await api.get('/widgets/gallery', { params })).data,
+  get: async (id: string): Promise<Widget> => (await api.get(`/widgets/${id}`)).data,
+  create: async (body: {
+    title: string; description?: string; emoji?: string; tags?: string[]; spec: WidgetSpec;
+  }): Promise<Widget> => (await api.post('/widgets', body)).data,
+  update: async (
+    id: string,
+    body: { title?: string; description?: string; emoji?: string; tags?: string[]; spec?: WidgetSpec },
+  ): Promise<Widget> => (await api.patch(`/widgets/${id}`, body)).data,
+  delete: async (id: string) => (await api.delete(`/widgets/${id}`)).data,
+  publish: async (id: string, unpublish = false): Promise<Widget> =>
+    (await api.post(`/widgets/${id}/publish`, { unpublish })).data,
+  clone: async (id: string): Promise<Widget> => (await api.post(`/widgets/${id}/clone`)).data,
+  getData: async (id: string): Promise<WidgetData> => (await api.get(`/widgets/${id}/data`)).data,
+  getShared: async (slug: string): Promise<Widget | null> => {
+    try { return (await api.get(`/widgets/shared/${encodeURIComponent(slug)}`)).data; } catch { return null; }
   },
-  getRenderHtml: async (id: string): Promise<string> => {
-    const response = await api.get(`/api/visualizations/${id}/render`, { responseType: 'text' });
-    return response.data as string;
+  getSharedData: async (slug: string): Promise<WidgetData> => {
+    try { return (await api.get(`/widgets/shared/${encodeURIComponent(slug)}/data`)).data; } catch { return {}; }
   },
 };
 
