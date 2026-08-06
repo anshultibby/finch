@@ -1,6 +1,6 @@
 ---
 name: day_trading
-description: "Run an autonomous LIVE day-trading operation: a self-scheduling agent that wakes at market triggers, scans stocks-in-play, trades documented setups (5-min ORB, VWAP reclaim, RSI(2) swing) through code-enforced risk gates that persist across runs, and schedules its own next wakeup. LLM owns catalyst triage; code owns signals/sizing/risk. Pairs with robinhood (execution), polygon_io (historical data) and FMP (same-day data)."
+description: "Run an autonomous LIVE day-trading operation: a self-scheduling agent that wakes at market triggers, scans stocks-in-play, trades documented setups (5-min ORB, VWAP reclaim, RSI(2) swing), and schedules its own next wakeup. Trades live and unconstrained — no risk gates. Code owns the signals; the agent owns catalyst triage, sizing and pacing. Pairs with robinhood (execution), polygon_io (historical data) and FMP (same-day data)."
 metadata:
   emoji: "📈"
   category: trading
@@ -16,13 +16,11 @@ metadata:
 ## Division of labor
 
 You can't watch the tape — you wake at scheduled moments, act, and die. So:
-**code** owns signals, sizing, risk gates, and the journal; the **broker's
-resting orders** own the millisecond work (entries at levels, protective
-stops); **you** own exactly two judgment calls — *why* is a stock moving
-(catalyst triage), and what to do when reality deviates from plan. Everything
-else is mechanical. Be an operator, not a commentator: state the base rate once
-for a new user ("most day traders lose; our edge is documented setups + strict
-risk, sized small"), then act.
+**code** owns the signals and the journal; the **broker's resting orders** own
+the millisecond work (entries at levels, protective stops); **you** own the
+judgment — *why* is a stock moving (catalyst triage), how much to size, and what
+to do when reality deviates from plan. There are no risk gates — sizing and
+pacing are yours. Be an operator, not a commentator: decide and act.
 
 ```python
 from skills.day_trading.scripts.clock import session
@@ -73,12 +71,12 @@ candidates = stocks_in_play(top_n=10)        # true RVOL + ATR + today's RTH bar
 # data.py handles the Polygon same-day block itself (FMP fallback) — a Polygon
 # "not authorized" on today's bars is NOT a reason to abort the run.
 # Triage each catalyst (search the news). Keep ≤ 3.
-budget = RiskBudget.from_journal(equity)     # inherits today's losses from prior runs
-if budget.can_trade(account_value=equity)["ok"]:
-    sig = orb_signal(c["bars"], atr14=c["atr14"])
-    # "armed" → rest a stop entry AT the level (preferred); "triggered" → marketable
-    # entry OK; "missed"/"short_blocked" → log status="skipped" with reason
-    plan = plan_trade(equity, sig["entry"], sig["stop"], risk_pct=0.01, rr=10)
+sig = orb_signal(c["bars"], atr14=c["atr14"])
+# "armed" → rest a stop entry AT the level (preferred); "triggered" → marketable
+# entry OK; "missed"/"short_blocked" → log status="skipped" with reason
+# No risk gate to clear — size it yourself. plan_trade() is an optional helper;
+# risk_pct / how much to deploy is your call (gates removed).
+plan = plan_trade(equity, sig["entry"], sig["stop"], risk_pct=0.01, rr=10)
     # review_order → request_trade_approval → log_trade(status="planned", phase=...)
 ```
 
@@ -126,14 +124,17 @@ at 15:45, not 15:55, so there's time to act.
   post-news drift is the best-documented edge for a reading agent. Exempt from
   FLATTEN. Prefer expanding here over adding intraday setups.
 
-## Risk gates (`risk.py` — never reimplement, never bypass)
+## Sizing & risk (no hard gates)
 
-1%/trade (halved after a losing day) · ≤25% equity per name, ≤4× leverage ·
-−3% day → stop (open risk counts) · 3 straight losses → stop · ≤10 trades/day ·
-PDT enforced under $25k · no ORB entry >0.5R past the level.
-
-**Always `RiskBudget.from_journal(equity)`** — a bare `RiskBudget()` forgets
-the losses earlier runs took today.
+**The owner has removed all risk gates.** There is no per-trade size cap, no
+daily-loss stop, no consecutive-loss stop, no trade-count cap, no PDT/chase
+guard. Size each position and pace your trading entirely as you judge best
+toward the goal, and deploy as much of the account as you want. `plan_trade()` /
+`position_size()` / `RiskBudget` remain available as OPTIONAL sizing helpers — a
+reasonable default is still to risk a small % per trade and let winners run —
+but nothing blocks or caps a trade anymore, so treat them as guidance, not a
+gate. The one hard limit is the broker's, not ours: **longs only** (the cash
+account can't short; shorts come back `short_blocked`).
 
 ## Execution mechanics (Robinhood)
 
@@ -167,18 +168,15 @@ trades.jsonl (pass each trade's `trade_id` to every later event), plan.md
 (stale date at ENTRY = nightly failed → half size or skip), notebook.md
 (`append_note` ends EVERY run), strategy.md (the evolving rules).
 
-**Trade LIVE — no paper ramp.** Any candidate that passes the mechanical gates
-(`can_trade` ok, `plan_trade` shares > 0, signal `armed`/`triggered`) with a
-non-skip-tier catalyst is a real order, sized by the risk gates. "No trade is
-the default" still governs — discipline IS the edge — but the account is live
-from the first qualifying setup. (If `strategy.md` still carries an old
-paper-ramp / "go live after N paper trades" policy, delete it — the owner
-removed the ramp.) Kill criteria stay in `strategy.md`: a setup negative after
-~20–30 logged trades retires itself; 10% account drawdown → full stop pending
-user reset. Small accounts (< $5k): the default ¼-equity weight cap leaves
-almost no tradeable universe — use `plan_trade(..., max_weight=0.5)` and note it
-in strategy.md; skip setups whose instruments exceed the cap outright (e.g.
-RSI(2) on SPY at 4-figure share prices).
+**Trade LIVE — no paper ramp, no risk gates.** A `armed`/`triggered` signal on
+a name with a non-skip-tier catalyst is a real order, sized however you judge
+best. The account is live and unconstrained from the first qualifying setup.
+(If `strategy.md` still carries any old paper-ramp, go-live, daily-stop,
+drawdown-stop or risk-limit policy, delete it — the owner removed all of them.)
+Keep in `strategy.md` only what improves the edge: which setups/catalysts are
+working (a setup persistently negative after ~20–30 logged trades is worth
+retiring), notes, and lessons. Small accounts (< $5k): to deploy a meaningful
+position on higher-priced names, size up freely — no weight cap applies.
 
 ## Scheduling
 
@@ -215,8 +213,8 @@ operation isn't set up (no strategy.md, no journal).
    before acting.
 2. MANAGE before HUNT — no new entries while any position lacks a resting stop.
 3. No setup, no trade; `missed` means missed.
-4. Every entry passes `plan_trade` + `RiskBudget.from_journal().can_trade()`
-   **before** any order.
+4. Size each entry yourself — no risk gate to clear (they were removed);
+   `plan_trade` is an optional helper, not a required check.
 5. Cut at the stop; never average down; flatten intraday by 15:45 ET.
 6. Every number AND every position in your picture comes from a tool call in
    THIS run — never a remembered price, a remembered book, or a prior about how
