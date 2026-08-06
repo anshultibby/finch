@@ -194,7 +194,7 @@ function WidgetDetail({ widgetId }: { widgetId: string }) {
         </div>
       )}
 
-      <WidgetCanvas spec={widget.spec} data={data} />
+      <WidgetCanvas spec={widget.spec} data={data} meta={{ title: widget.title, emoji: widget.emoji, slug: widget.slug }} />
     </div>
   );
 }

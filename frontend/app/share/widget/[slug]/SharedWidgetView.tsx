@@ -73,7 +73,7 @@ export default function SharedWidgetView({ widget, slug }: { widget: PublicWidge
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         {widget.description && <p className="text-sm text-gray-500 mb-5 max-w-2xl">{widget.description}</p>}
-        <WidgetCanvas spec={widget.spec} data={data} />
+        <WidgetCanvas spec={widget.spec} data={data} meta={{ title: widget.title, emoji: widget.emoji, slug: widget.slug }} />
       </main>
 
       {/* bottom banner */}
