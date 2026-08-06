@@ -1,6 +1,6 @@
 ---
 name: day_trading
-description: "Run a disciplined day-trading operation: scheduled decision points (plan → entry → manage → flatten), backtested setups (5-min ORB on stocks-in-play, VWAP reclaim, RSI(2) swing), code-enforced risk gates that persist across runs, and LLM catalyst triage. Pairs with robinhood (execution), polygon_io (historical data) and FMP (same-day data). Routes trades through email approval by default."
+description: "Run an autonomous LIVE day-trading operation: a self-scheduling agent that wakes at market triggers, scans stocks-in-play, trades documented setups (5-min ORB, VWAP reclaim, RSI(2) swing) through code-enforced risk gates that persist across runs, and schedules its own next wakeup. LLM owns catalyst triage; code owns signals/sizing/risk. Pairs with robinhood (execution), polygon_io (historical data) and FMP (same-day data)."
 metadata:
   emoji: "📈"
   category: trading
@@ -29,8 +29,6 @@ from skills.day_trading.scripts.clock import session
 from skills.day_trading.scripts.data import stocks_in_play, rth_today_bars
 from skills.day_trading.scripts.setups import orb_signal, vwap_state, connors_rsi2_signal
 from skills.day_trading.scripts.risk import RiskBudget, plan_trade
-from skills.day_trading.scripts.backtest import (StrategySpec, backtest_orb,
-                                                 research_strategies, is_viable)
 from skills.day_trading.scripts import journal
 from skills.robinhood.scripts.trading import (connection_status, portfolio_snapshot,
                                               get_quotes, get_orders, review_order, cancel_order)
@@ -38,11 +36,16 @@ from skills.finch_api.scripts import schedule_job, request_trade_approval  # app
 ```
 The scripts' docstrings are the reference — read them; don't reimplement them.
 
-## The trading day = four scheduled decision points
+## How a trading day flows (reference — your wakeup goal drives)
 
-**Every run opens the same way:** `session()` (ET-correct clock — never the
-server's; exit if not a trading day / closed) → `journal.session_state()` (your
-memory: open positions, pending orders, today's P&L, plan, notebook) →
+You're an autonomous agent pursuing a goal, not a script executing fixed steps.
+Your **wakeup message is your instruction**; the phases below (plan → entry →
+manage → flatten) are the proven rhythm to draw on and the tools to use at each
+— not a mandatory sequence. Judge what the moment needs.
+
+**Whatever you do, every run opens the same way:** `session()` (ET-correct clock
+— never the server's; exit if not a trading day / closed) → `journal.session_state()`
+(your memory: open positions, pending orders, today's P&L, plan, notebook) →
 `connection_status()` + `portfolio_snapshot()` → reconcile journal vs broker
 and fix drift in the journal first.
 
@@ -110,38 +113,6 @@ cancel every resting day-trade order. Risk-reducing, so place directly if the
 user opted into unattended trading for this job; otherwise the approval email —
 at 15:45, not 15:55, so there's time to act.
 
-## RESEARCH — find & validate a strategy before trading it (on demand / weekly)
-
-Don't trade a setup on faith in its citation — **prove it has an edge on this
-account's universe, then promote the winner.** A strategy is a validated
-`StrategySpec`, not a guess. Run this when there's no validated spec in
-`strategy.md`, when results drift, or on a weekly cadence:
-
-```python
-# 1. Propose a few candidate specs (vary the knobs that matter).
-specs = [
-    StrategySpec(),                                   # the documented baseline
-    StrategySpec(stop_atr_mult=0.20, rr=4.0),         # wider stop, nearer target
-    StrategySpec(min_abs_gap_pct=4.0, top_n=6),       # only the strongest gaps
-]
-# 2. Backtest all over the SAME recent window and rank by expectancy.
-report = research_strategies("2026-05-01", "2026-06-30", specs, equity=1000)
-best = report["best_viable"]        # None if nothing clears is_viable()
-```
-
-`backtest_orb` / `research_strategies` reuse the LIVE signal, sizing and risk
-code, so a backtest is a faithful replay — but read the "known limitations" in
-`backtest.py` (modelled fills, a coarser historical in-play universe) and state
-them when you report. `is_viable()` is deliberately strict: **n ≥ 30, positive
-expectancy_R, profit factor > 1, drawdown ≤ 25%.** "Not viable" is the common,
-correct answer — when nothing clears, say so and keep trading paper / stay flat;
-never promote a strategy that only looked good on a handful of trades.
-
-**Promote:** write the winning spec (its exact params) and its scorecard into
-`strategy.md` as the operation's current strategy; ENTRY then trades those
-params. Note the Polygon-tier rate limits — pace multi-day runs and never imply
-more coverage than you paid for.
-
 ## Setups (full rules in `setups.py` docstrings)
 
 - **ORB on stocks-in-play** (flagship): ~17% win rate, winners dwarf losers —
@@ -189,26 +160,24 @@ worthless-expiry is not an exit plan. Equity remains the default vehicle —
 options only when the catalyst is top-tier and defined-premium risk genuinely
 beats a stopped stock position.
 
-## Memory, paper ramp, kill criteria
+## Memory & kill criteria
 
 Persistent store `/home/user/store/day_trading/` (see `journal.py`):
 trades.jsonl (pass each trade's `trade_id` to every later event), plan.md
 (stale date at ENTRY = nightly failed → half size or skip), notebook.md
 (`append_note` ends EVERY run), strategy.md (the evolving rules).
 
-New user → paper first (`paper=True` in log_trade extras, skip the order
-step). The ramp is measured in **logged paper trades, not sessions** — target
-~10, then go live once the user has seen the stats. Paper trades are free:
-during the ramp, a candidate that passes the mechanical gates (`can_trade` ok,
-`plan_trade` shares > 0, signal `armed`/`triggered`) and whose catalyst is not
-skip-tier MUST be taken on paper and managed honestly through MANAGE/FLATTEN.
-"No trade is the default" governs live money; a paper ramp that logs zero
-trades for weeks is over-filtering, teaches nothing, and never ends. Kill
-criteria go in `strategy.md` before trade one: a setup negative after ~20–30
-logged trades retires itself; 10% account drawdown → full stop pending user
-reset. Small accounts (< $5k): the default ¼-equity weight cap leaves almost
-no tradeable universe — use `plan_trade(..., max_weight=0.5)` and note it in
-strategy.md; skip setups whose instruments exceed the cap outright (e.g.
+**Trade LIVE — no paper ramp.** Any candidate that passes the mechanical gates
+(`can_trade` ok, `plan_trade` shares > 0, signal `armed`/`triggered`) with a
+non-skip-tier catalyst is a real order, sized by the risk gates. "No trade is
+the default" still governs — discipline IS the edge — but the account is live
+from the first qualifying setup. (If `strategy.md` still carries an old
+paper-ramp / "go live after N paper trades" policy, delete it — the owner
+removed the ramp.) Kill criteria stay in `strategy.md`: a setup negative after
+~20–30 logged trades retires itself; 10% account drawdown → full stop pending
+user reset. Small accounts (< $5k): the default ¼-equity weight cap leaves
+almost no tradeable universe — use `plan_trade(..., max_weight=0.5)` and note it
+in strategy.md; skip setups whose instruments exceed the cap outright (e.g.
 RSI(2) on SPY at 4-figure share prices).
 
 ## Scheduling
