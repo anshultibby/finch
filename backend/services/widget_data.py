@@ -157,15 +157,24 @@ async def _fetch_quote_number(symbol: str) -> dict:
 
 
 async def _fetch_series(symbols: List[dict], rng: str) -> dict:
+    # Per-symbol fetches on purpose: FMP's batch endpoint silently caps the
+    # window (~1Y), which made a "5Y" two-symbol ratio chart quietly show one
+    # year. Individual requests honor the full range and cache per symbol.
     from skills.financial_modeling_prep.scripts.market.historical_prices import (
-        get_batch_historical_prices,
+        get_historical_prices,
     )
 
     days = _range_to_days(rng)
     to_date = _now().date().isoformat()
     from_date = (_now().date() - timedelta(days=days)).isoformat()
-    syms = [s["symbol"] for s in symbols]
-    batch = await asyncio.to_thread(get_batch_historical_prices, syms, from_date, to_date)
+
+    def _fetch_all() -> dict:
+        return {
+            s["symbol"]: get_historical_prices(s["symbol"], from_date=from_date, to_date=to_date)
+            for s in symbols
+        }
+
+    batch = await asyncio.to_thread(_fetch_all)
 
     series = []
     for s in symbols:
@@ -552,7 +561,10 @@ async def _resolve_multi(tile: dict, viewer_user_id: Optional[str]) -> dict:
     # partial data beats a blank tile).
     series: List[dict] = []
     for name, payload in results.items():
-        series.extend(_part_series(name, payload))
+        entries = _part_series(name, payload)
+        if len(entries) == 1:
+            entries = [{**entries[0], "label": name}]  # part name IS the intended label
+        series.extend(entries)
     payload = {
         "shape": "series",
         "series": series,
