@@ -17,7 +17,8 @@ export default function ModelPicker({ models, value, onChange, disabled }: Model
 
   if (!models || models.length === 0) return null;
 
-  const selected = models.find(m => m.id === value) ?? models[0];
+  const selected =
+    models.find(m => m.id === value) ?? models.find(m => m.default) ?? models[0];
 
   return (
     <>

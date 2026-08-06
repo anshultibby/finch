@@ -27,7 +27,8 @@ export default function ModelPicker({ models, value, onChange, disabled }: Model
 
   if (!models || models.length === 0) return null;
 
-  const selected = models.find(m => m.id === value) ?? models[0];
+  const selected =
+    models.find(m => m.id === value) ?? models.find(m => m.default) ?? models[0];
   // claude.ai-style short label: "Opus 4.8" rather than "Claude Opus 4.8"
   const shortLabel = (selected?.label ?? 'Model').replace(/^Claude\s+/, '');
 
