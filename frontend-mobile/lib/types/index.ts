@@ -311,6 +311,8 @@ export interface ModelOption {
   id: string;
   label: string;
   provider?: string;
+  /** True for the model the backend uses when no override is sent. */
+  default?: boolean;
 }
 
 export interface GenerateTitleResponse {

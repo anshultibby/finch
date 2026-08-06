@@ -52,6 +52,7 @@ export default function WidgetChart({
       height,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
+        attributionLogo: false,
         textColor: '#9ca3af', // muted axis ink
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: 11,

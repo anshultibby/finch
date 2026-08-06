@@ -17,21 +17,46 @@ const Plot = dynamic(() => import('react-plotly.js'), {
 //   $series.LABEL   → that series' values      (series payloads)
 //   $col.NAME       → that column's values     (table payloads)
 //   $value          → the number               (number payloads)
+function lutFor(data: any, prefix: string, lut: Record<string, any>) {
+  if (data.shape === 'series') {
+    const series = data.series || [];
+    if (series[0]) lut[`${prefix}t`] = series[0].points.map((p: any) => p.t);
+    for (const s of series) {
+      const vals = s.points.map((p: any) => p.v);
+      const times = s.points.map((p: any) => p.t);
+      lut[`${prefix}series.${s.label}`] = vals;
+      // Accept the natural extrapolations LLMs write: .v for values, .t for
+      // that series' own timestamps (observed in the wild: $series.Nvidia.t).
+      lut[`${prefix}series.${s.label}.v`] = vals;
+      lut[`${prefix}series.${s.label}.t`] = times;
+    }
+  } else if (data.shape === 'table') {
+    (data.columns || []).forEach((c: string, i: number) => {
+      lut[`${prefix}col.${c}`] = data.rows.map((r: any[]) => r[i]);
+    });
+  } else if (data.shape === 'number') {
+    lut[`${prefix}value`] = data.value;
+  } else if (data.shape === 'odds') {
+    lut[`${prefix}t`] = (data.history || []).map((p: any) => p.t);
+    lut[`${prefix}odds`] = (data.history || []).map((p: any) => p.v);
+    lut[`${prefix}value`] = data.prob != null ? data.prob * 100 : null;
+  }
+}
+
 function bindFigure(figure: any, data?: TileData): any {
   if (!figure) return { data: [], layout: {} };
   if (!data || data.shape === 'static' || data.shape === 'error' || data.shape === 'empty') {
     return figure;
   }
   const lut: Record<string, any> = {};
-  if (data.shape === 'series') {
-    const series = (data as any).series || [];
-    if (series[0]) lut['$t'] = series[0].points.map((p: any) => p.t);
-    for (const s of series) lut[`$series.${s.label}`] = s.points.map((p: any) => p.v);
-  } else if (data.shape === 'table') {
-    const t = data as any;
-    (t.columns || []).forEach((c: string, i: number) => { lut[`$col.${c}`] = t.rows.map((r: any[]) => r[i]); });
-  } else if (data.shape === 'number') {
-    lut['$value'] = (data as any).value;
+  if (data.shape === 'multi') {
+    // Multi-source: namespaced refs — $partname.t / $partname.series.LABEL /
+    // $partname.col.NAME / $partname.odds / $partname.value
+    for (const [name, part] of Object.entries((data as any).parts || {})) {
+      lutFor(part, `$${name}.`, lut);
+    }
+  } else {
+    lutFor(data as any, '$', lut);
   }
   const sub = (v: any): any => {
     if (typeof v === 'string' && v.startsWith('$')) return v in lut ? lut[v] : v;

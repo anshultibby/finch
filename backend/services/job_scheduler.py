@@ -418,15 +418,6 @@ async def run_job(job: Job) -> None:
         if not await is_user_active(job.user_id):
             await _skip_inactive(job)
             return
-    if job.system_key == "day_trading_nightly":
-        # Provision tomorrow's intraday decision points BEFORE the agent runs —
-        # the LLM's own schedule_job() path dies whenever the user token can't
-        # be refreshed, and a missed night means a dark trading day.
-        try:
-            from services.system_jobs import ensure_day_trading_intraday
-            await ensure_day_trading_intraday(job.user_id)
-        except Exception as e:
-            logger.error(f"Intraday provisioning for {job.user_id} failed: {e}")
     try:
         from modules.chat_service import ChatService
         from services.job_auth import get_access_token

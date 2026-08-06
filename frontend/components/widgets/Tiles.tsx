@@ -24,6 +24,16 @@ const compact = (v: number | null | undefined, prefix = '') => {
   return `${prefix}${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 };
 
+// Table cells: integers stay integers (a year is 2026, not 2,026.00); 4-digit
+// integers skip the thousands comma; other numbers get 2 decimals.
+const fmtCell = (v: number, isPct: boolean) => {
+  if (Number.isInteger(v)) {
+    const s = v >= 1000 && v <= 9999 ? String(v) : v.toLocaleString();
+    return s + (isPct ? '%' : '');
+  }
+  return num(v) + (isPct ? '%' : '');
+};
+
 const deltaClass = (v: number | null | undefined) =>
   v == null ? 'text-gray-400' : v >= 0 ? 'text-emerald-600' : 'text-red-500';
 
@@ -166,7 +176,12 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
     colIdx = options.columns.map((c: string) => cols.indexOf(c)).filter((i: number) => i >= 0);
     cols = colIdx.map((i: number) => data.columns[i]);
   }
-  const pctCol = data.columns.findIndex((c) => c.includes('pct') || c.includes('change'));
+  // Prefer an explicit percent column; only fall back to 'change' if no pct
+  // column exists (matching 'change' first painted dollar changes as %).
+  const pctColExplicit = data.columns.findIndex((c) => c.includes('pct') || c.includes('percent'));
+  const pctCol = pctColExplicit >= 0
+    ? pctColExplicit
+    : data.columns.findIndex((c) => c.includes('change'));
   // Diverging wash scale for the change column (max |value| over shown rows).
   const maxAbsPct =
     pctCol >= 0
@@ -201,7 +216,7 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
                     className={`px-1.5 py-1.5 font-numeric ${isPct ? deltaClass(val as number) + ' font-medium rounded' : 'text-gray-800'} ${c === 0 ? 'font-medium' : ''}`}
                     style={isPct ? { background: divergingWash(val as number, maxAbsPct) } : undefined}
                   >
-                    {typeof val === 'number' ? num(val) + (isPct ? '%' : '') : (val ?? '—')}
+                    {typeof val === 'number' ? fmtCell(val, isPct) : (val ?? '—')}
                   </td>
                 );
               })}

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # ──────────────────────────────────────────────────────────────────────────
 TileType = Literal["chart", "stat", "odds", "news", "table", "text", "chart_spec"]
 TileSize = Literal["sm", "md", "lg", "full"]
-Range = Literal["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y"]
+Range = Literal["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "10Y", "MAX"]
 InlineShape = Literal["series", "table", "number", "markdown"]
 
 # Data sources allowed in a *published* (public) widget. All of these are
@@ -190,6 +190,13 @@ Control = Annotated[
 # ──────────────────────────────────────────────────────────────────────────
 # Tile + Spec
 # ──────────────────────────────────────────────────────────────────────────
+class NamedQuery(_Strict):
+    """One part of a multi-source tile: a query plus its own transforms
+    (e.g. normalize the price part but leave the odds part in percent)."""
+    query: Query
+    transforms: Optional[List[Transform]] = None
+
+
 class Tile(_Strict):
     id: str = Field(..., min_length=1, max_length=64)
     type: TileType
@@ -198,6 +205,9 @@ class Tile(_Strict):
     # Optional so a `chart_spec` tile can be self-contained (data baked into the
     # figure). Every other tile type requires a query (validated below).
     query: Optional[Query] = None
+    # Multi-source: named sub-queries combined into ONE chart (chart/chart_spec
+    # only). Kalshi odds merge in as a probability-percent line.
+    queries: Optional[Dict[str, NamedQuery]] = Field(None, max_length=4)
     transforms: Optional[List[Transform]] = None
     # Display-only, tile-type-specific; kept permissive on purpose (low risk,
     # avoids over-constraining the render layer). For `chart_spec`, holds
@@ -213,6 +223,16 @@ class Tile(_Strict):
                 f"Tile '{self.id}': controls are only supported on 'table' tiles "
                 f"(this tile is '{self.type}')."
             )
+        if self.queries is not None:
+            if self.type not in ("chart", "chart_spec"):
+                raise ValueError(
+                    f"Tile '{self.id}': multi-source `queries` are only supported on "
+                    f"'chart' and 'chart_spec' tiles (this tile is '{self.type}')."
+                )
+            if self.query is not None:
+                raise ValueError(f"Tile '{self.id}': use `query` OR `queries`, not both.")
+            if not self.queries:
+                raise ValueError(f"Tile '{self.id}': `queries` must not be empty.")
         if self.type == "chart_spec":
             fig = (self.options or {}).get("figure")
             if not isinstance(fig, dict) or "data" not in fig:
@@ -220,7 +240,7 @@ class Tile(_Strict):
                     f"Tile '{self.id}': a chart_spec tile needs options.figure with a "
                     f"Plotly `data` array (and optional `layout`)."
                 )
-        elif self.query is None:
+        elif self.query is None and self.queries is None:
             # Ergonomic shorthand: a text tile with its markdown in options
             # ({"type":"text","options":{"text":"..."}}) is the natural way an
             # LLM writes it — synthesize the inline query instead of erroring.

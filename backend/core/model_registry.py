@@ -216,9 +216,18 @@ SELECTABLE_MODELS: List[Dict[str, str]] = [
 _SELECTABLE_IDS = {m["id"] for m in SELECTABLE_MODELS}
 
 
-def selectable_models() -> List[Dict[str, str]]:
-    """Return the list of user-selectable models for the chat picker."""
-    return [dict(m) for m in SELECTABLE_MODELS]
+def selectable_models() -> List[Dict[str, Any]]:
+    """Return the list of user-selectable models for the chat picker.
+
+    The entry matching Config.AGENT_LLM_MODEL is flagged `default: True` so the
+    picker can show what actually runs when the user hasn't chosen a model.
+    """
+    from core.config import Config  # local import to avoid a config cycle
+
+    return [
+        {**m, "default": m["id"] == Config.AGENT_LLM_MODEL}
+        for m in SELECTABLE_MODELS
+    ]
 
 
 def is_selectable(model: Optional[str]) -> bool:

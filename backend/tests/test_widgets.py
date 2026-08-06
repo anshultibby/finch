@@ -304,3 +304,48 @@ def test_text_tile_without_query_or_text_errors_with_hint():
     with pytest.raises(ValidationError) as e:
         WidgetSpec(spec_version=1, tiles=[{"id": "t", "type": "text"}])
     assert "options.text" in str(e.value)
+
+
+# ── multi-source tiles ───────────────────────────────────────────────────────
+def test_multi_source_chart_parses():
+    WidgetSpec(spec_version=1, tiles=[{
+        "id": "hero", "type": "chart",
+        "queries": {
+            "odds": {"query": {"source": "kalshi", "ticker": "X"}},
+            "px": {"query": {"source": "series", "symbols": [{"symbol": "KRE"}]},
+                    "transforms": [{"op": "normalize", "base": 100}]},
+        },
+    }])
+
+
+def test_multi_source_rejected_on_table():
+    with pytest.raises(ValidationError) as e:
+        WidgetSpec(spec_version=1, tiles=[{
+            "id": "t", "type": "table",
+            "queries": {"a": {"query": {"source": "quote", "symbols": ["AAPL"]}}},
+        }])
+    assert "chart" in str(e.value)
+
+
+def test_multi_source_query_xor_queries():
+    with pytest.raises(ValidationError):
+        WidgetSpec(spec_version=1, tiles=[{
+            "id": "c", "type": "chart",
+            "query": {"source": "quote", "symbols": ["AAPL"]},
+            "queries": {"a": {"query": {"source": "quote", "symbols": ["MSFT"]}}},
+        }])
+
+
+def test_publish_sweep_checks_subqueries():
+    with pytest.raises(PublishError):
+        assert_publishable({"tiles": [{"id": "m", "queries": {
+            "bad": {"query": {"source": "secret_db"}}}}]})
+
+
+def test_part_series_converts_odds_history():
+    entries = wd._part_series("Cut odds", {
+        "shape": "odds", "prob": 0.25,
+        "history": [{"t": "2026-08-01", "v": 24.0}, {"t": "2026-08-02", "v": 25.0}],
+    })
+    assert entries == [{"label": "Cut odds", "points": [
+        {"t": "2026-08-01", "v": 24.0}, {"t": "2026-08-02", "v": 25.0}]}]
