@@ -37,15 +37,18 @@ def assert_publishable(spec: Dict[str, Any]) -> None:
     rejected with a per-tile reason the caller can surface to the agent.
     """
     for tile in spec.get("tiles", []):
-        query = tile.get("query")
-        if query is None:
-            continue  # self-contained (e.g. a chart_spec with data baked in) — safe
-        source = query.get("source")
-        if source not in PUBLIC_SAFE_SOURCES:
-            raise PublishError(
-                f"Tile '{tile.get('id')}' uses data source '{source}', which "
-                f"cannot be published publicly."
-            )
+        queries = [tile.get("query")] if tile.get("query") else [
+            part.get("query") for part in (tile.get("queries") or {}).values()
+        ]
+        for query in queries:
+            if query is None:
+                continue  # self-contained (e.g. a chart_spec with data baked in) — safe
+            source = query.get("source")
+            if source not in PUBLIC_SAFE_SOURCES:
+                raise PublishError(
+                    f"Tile '{tile.get('id')}' uses data source '{source}', which "
+                    f"cannot be published publicly."
+                )
 
 
 async def create_widget(

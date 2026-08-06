@@ -17,12 +17,20 @@ export interface Tile {
   title?: string;
   size?: TileSize;
   query?: Record<string, any>; // optional for self-contained chart_spec tiles
+  // Multi-source: named sub-queries merged into one chart (chart/chart_spec).
+  queries?: Record<string, { query: Record<string, any>; transforms?: Record<string, any>[] }>;
   transforms?: Record<string, any>[];
   options?: Record<string, any>; // chart_spec: options.figure = Plotly {data, layout}
   controls?: Control[];
 }
 
 export interface StaticData { shape: 'static' }
+export interface MultiData {
+  shape: 'multi';
+  parts: Record<string, TileData>;
+  source?: DataSource;
+  asof?: string;
+}
 
 export interface WidgetSpec {
   spec_version: number;
@@ -120,6 +128,6 @@ export interface ErrorData { shape: 'error'; message: string }
 
 export type TileData =
   | SeriesData | TableData | NumberData | OddsData
-  | NewsData | MarkdownData | EmptyData | ErrorData | StaticData;
+  | NewsData | MarkdownData | EmptyData | ErrorData | StaticData | MultiData;
 
 export type WidgetData = Record<string, TileData>;

@@ -39,6 +39,22 @@ _locks: Dict[str, asyncio.Lock] = {}
 
 KALSHI_MARKET_URL = "https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}"
 
+
+def _candle_close_pct(c: dict) -> Optional[float]:
+    """Closing probability (percent) from a Kalshi candlestick. Handles both the
+    legacy integer-cents fields and the current string `*_dollars` fields."""
+    for group in ("price", "yes_bid"):
+        g = c.get(group) or {}
+        if g.get("close") is not None:
+            return float(g["close"])  # legacy: cents == percent
+        dollars = g.get("close_dollars")
+        if dollars is not None:
+            try:
+                return float(dollars) * 100.0
+            except (TypeError, ValueError):
+                continue
+    return None
+
 # Where each tile's numbers come from, so a viewer can double-check the source.
 SRC_FMP = {"label": "Financial Modeling Prep", "url": "https://site.financialmodelingprep.com"}
 SRC_FRED = {"label": "FRED · St. Louis Fed", "url": "https://fred.stlouisfed.org"}
@@ -174,19 +190,24 @@ async def _fetch_news(query: Optional[str], symbols: Optional[List[str]], limit:
         data = await asyncio.to_thread(fmp, f"/stock_news?tickers={','.join(symbols)}&limit={limit}")
         raw = data if isinstance(data, list) else []
     else:
-        # Thematic query: pull the latest news and keyword-filter by title/text.
-        # (/general_news is empty on our FMP plan; /stock_news carries the feed.)
-        data = await asyncio.to_thread(fmp, "/stock_news?limit=100")
+        # Thematic query: pull the latest news and keyword-filter. Title-first
+        # matching, and NO fallback to unfiltered news — an empty news tile
+        # beats a tile full of unrelated earnings transcripts (which is what
+        # the old `filtered or raw` fallback produced).
+        data = await asyncio.to_thread(fmp, "/stock_news?limit=200")
         raw = data if isinstance(data, list) else []
         if query:
-            terms = [t for t in query.lower().split() if len(t) > 2]
-            filtered = [
-                n for n in raw
-                if isinstance(n, dict) and any(
-                    t in (n.get("title", "") + " " + n.get("text", "")).lower() for t in terms
-                )
-            ]
-            raw = filtered or raw  # fall back to latest if nothing matches
+            terms = [t for t in query.lower().split() if len(t) > 3]
+            def _matches(n: dict, fields: str) -> bool:
+                return any(t in fields for t in terms)
+            by_title = [n for n in raw if isinstance(n, dict) and _matches(n, n.get("title", "").lower())]
+            if len(by_title) < 3:
+                by_text = [
+                    n for n in raw
+                    if isinstance(n, dict) and n not in by_title and _matches(n, (n.get("text") or "").lower())
+                ]
+                by_title.extend(by_text)
+            raw = by_title
 
     for n in raw[:limit]:
         if not isinstance(n, dict) or not n.get("title"):
@@ -202,26 +223,86 @@ async def _fetch_news(query: Optional[str], symbols: Optional[List[str]], limit:
 
 
 async def _fetch_kalshi(ticker: str) -> dict:
-    url = KALSHI_MARKET_URL.format(ticker=ticker)
+    """Live odds + a daily probability history from Kalshi candlesticks.
+
+    A market with no live quote AND no traded history returns an `error` shape
+    on purpose — an untraded market is a dead tile, and the agent's
+    verify-before-done loop must catch it (this bit the midterms widget:
+    CONTROL*-2026 markets exist but have zero volume).
+    """
+    series_ticker = ticker.split("-")[0] if ticker else ""
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(url)
+        resp = await client.get(KALSHI_MARKET_URL.format(ticker=ticker))
         resp.raise_for_status()
         market = resp.json().get("market", {})
-    last = market.get("last_price")
-    yes_bid, yes_ask = market.get("yes_bid"), market.get("yes_ask")
+
+        # Daily candles, last 90 days → probability history in percent.
+        # NOTE: Kalshi's public API stopped returning live quote fields on the
+        # market GET (metadata only) and moved candle prices to string
+        # `*_dollars` fields — candles are now the ONLY public price source.
+        history: List[dict] = []
+        try:
+            end_ts = int(time.time())
+            candles_url = (
+                f"https://api.elections.kalshi.com/trade-api/v2/series/{series_ticker}"
+                f"/markets/{ticker}/candlesticks"
+            )
+            c_resp = await client.get(
+                candles_url,
+                params={"start_ts": end_ts - 90 * 86400, "end_ts": end_ts, "period_interval": 1440},
+            )
+            if c_resp.status_code == 200:
+                for c in c_resp.json().get("candlesticks", []):
+                    close = _candle_close_pct(c)
+                    ts = c.get("end_period_ts")
+                    if close is not None and ts:
+                        history.append({
+                            "t": datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat(),
+                            "v": close,  # percent
+                        })
+        except Exception:
+            logger.warning("kalshi candlesticks fetch failed for %s", ticker)
+
+    def _cents(key: str) -> Optional[float]:
+        """Read a price as percent from either legacy cents or `*_dollars`."""
+        v = market.get(key)
+        if v is not None:
+            return float(v)
+        dollars = market.get(f"{key}_dollars")
+        if dollars is not None:
+            try:
+                return float(dollars) * 100.0
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    last = _cents("last_price")
+    yes_bid, yes_ask = _cents("yes_bid"), _cents("yes_ask")
     if last is not None:
         prob = last / 100.0
     elif yes_bid is not None and yes_ask is not None:
         prob = (yes_bid + yes_ask) / 200.0
+    elif history:
+        prob = history[-1]["v"] / 100.0  # fall back to last traded close
     else:
         prob = None
-    series_ticker = ticker.split("-")[0] if ticker else ""
+
+    if prob is None:
+        return {
+            "shape": "error",
+            "message": (
+                f"Kalshi market '{ticker}' has no live quote and no traded history — "
+                f"it exists but is not actively traded. Find a market with volume "
+                f"(check `volume > 0` and `last_price` before using a ticker)."
+            ),
+        }
+
     return {
         "shape": "odds",
         "prob": prob,
         "title": market.get("title") or market.get("subtitle") or ticker,
         "close_date": market.get("close_time"),
-        "history": [],  # per-candle history is a v2 add
+        "history": history,
         "source": {"label": "Kalshi", "url": f"https://kalshi.com/markets/{series_ticker}" if series_ticker else "https://kalshi.com"},
         "asof": _now().isoformat(),
     }
@@ -417,7 +498,71 @@ async def _resolve_query(query: dict, viewer_user_id: Optional[str]) -> dict:
     return {"shape": "error", "message": f"unknown source '{source}'"}
 
 
+def _part_series(name: str, payload: dict) -> List[dict]:
+    """Convert a resolved part payload into series entries for a merged chart.
+    Odds become a probability-percent line named after the part."""
+    if payload.get("shape") == "series":
+        return payload.get("series", [])
+    if payload.get("shape") == "odds":
+        return [{"label": name, "points": payload.get("history", [])}]
+    return []
+
+
+def _merged_source(parts: Dict[str, dict]) -> Optional[dict]:
+    labels: List[str] = []
+    for p in parts.values():
+        lbl = (p.get("source") or {}).get("label")
+        if lbl and lbl not in labels:
+            labels.append(lbl)
+    return {"label": " + ".join(labels)} if labels else None
+
+
+async def _resolve_multi(tile: dict, viewer_user_id: Optional[str]) -> dict:
+    """Multi-source tile: named sub-queries, each with optional per-part
+    transforms, combined into one payload. This is what lets one chart mix
+    Kalshi odds, price series, and FRED data."""
+    named = tile.get("queries") or {}
+
+    async def one(name: str, part: dict) -> tuple:
+        payload = await _resolve_query(part.get("query", {}), viewer_user_id)
+        if payload.get("shape") not in ("error", "empty"):
+            for tf in part.get("transforms") or []:
+                payload = _apply_transform(payload, tf)
+                if payload.get("shape") == "error":
+                    break
+        return name, payload
+
+    results = dict(await asyncio.gather(*(one(n, p) for n, p in named.items())))
+
+    errors = {n: p for n, p in results.items() if p.get("shape") == "error"}
+    if errors and len(errors) == len(results):
+        first = next(iter(errors.values()))
+        return {"shape": "error", "message": f"all sources failed — {first.get('message', '')}"}
+
+    if tile.get("type") == "chart_spec":
+        return {"shape": "multi", "parts": results, "source": _merged_source(results), "asof": _now().isoformat()}
+
+    # chart: flatten every part into one series list (failed parts are dropped;
+    # partial data beats a blank tile).
+    series: List[dict] = []
+    for name, payload in results.items():
+        series.extend(_part_series(name, payload))
+    payload = {
+        "shape": "series",
+        "series": series,
+        "source": _merged_source(results),
+        "asof": _now().isoformat(),
+    }
+    for tf in tile.get("transforms") or []:
+        payload = _apply_transform(payload, tf)
+        if payload.get("shape") == "error":
+            break
+    return payload
+
+
 async def _resolve_tile(tile: dict, viewer_user_id: Optional[str]) -> dict:
+    if tile.get("queries"):
+        return await _resolve_multi(tile, viewer_user_id)
     query = tile.get("query")
     if not query:
         # Self-contained tile (e.g. a chart_spec figure with data baked in) —

@@ -141,6 +141,25 @@ Control types: `range` (numeric column, min/max — optional bounds default to t
 
 This is how you build "an earnings table I can filter by market cap / IV / date and sort by expected move": compute the table once (inline), attach controls, and the viewer does the rest.
 
+### Multi-source plots — the signature move
+
+One chart can combine **multiple data sources** via `queries` (instead of `query`) on a `chart` or `chart_spec` tile: named parts, each with its own query and its own transforms. Kalshi odds merge in as a probability-percent line (their daily history). This is what makes a widget look like nothing else on the internet — odds and prices and macro in ONE plot:
+
+```json
+{"id": "hero", "type": "chart", "title": "Rate-cut odds vs the 2-year yield", "size": "full",
+ "queries": {
+   "Cut odds (%)": {"query": {"source": "kalshi", "ticker": "KXFEDDECISION-26SEP-C25"}},
+   "2Y yield": {"query": {"source": "fred", "series_id": "DGS2", "range": "3M"}},
+   "Regional banks": {"query": {"source": "series", "symbols": [{"symbol": "KRE"}], "range": "3M"},
+                       "transforms": [{"op": "normalize", "base": 100}]}
+ },
+ "options": {"markers": [{"t": "2026-09-17", "label": "FOMC"}]}}
+```
+
+Scale discipline (no dual axes, ever): put comparable things on one scale — odds are 0–100, so `normalize` price parts to base 100 and leave yields raw only if their range is similar; otherwise normalize them too. In `chart_spec`, multi-source refs are namespaced by part name: `$partname.t`, `$partname.series.LABEL`, `$partname.col.NAME`, `$partname.odds`, `$partname.value`.
+
+**Default to a multi-source hero for event widgets.** "Odds of X vs the assets that care about X" is the widget nobody else can make.
+
 ### Rich charts — `chart_spec` (Plotly)
 
 When the built-in `chart` tile isn't enough, use a `chart_spec` tile: `options.figure` is a **Plotly figure** (`{ "data": [ ...traces ], "layout": { ... } }`). This gives you almost any chart type as pure JSON. Finch applies a clean house theme automatically — **keep your `layout` minimal** (a title, axis titles, `barmode` if needed); don't set colors, fonts, or backgrounds, and don't set width/height. One chart per tile.
@@ -179,7 +198,24 @@ This mapping quality is the product. For an event/theme, assemble tiles across t
 
 1. **The direct asset** — the commodity/index/crypto the theme is *about* (oil → `BZUSD`/`CLUSD`; a rate decision → `DGS10` via fred).
 2. **Proxy equities** — who profits or suffers. Name 4–8 tickers (Hormuz → tankers `FRO STNG TNK`, defense `LMT RTX NOC`, majors `XOM OXY`). Put them in a `series` chart with `normalize`, and/or a `quote` table sorted by `change_pct`.
-3. **A prediction market** — if a Kalshi contract exists for the event, add an `odds` tile. Find the ticker first (use the kalshi skill / search); don't guess — a wrong ticker 404s.
+3. **A prediction market** — if a Kalshi contract exists for the event, add an `odds` tile. **A ticker must be real AND actively traded** — many listed markets have zero volume and render as dead tiles. Find candidates in one step and check liquidity:
+```python
+import urllib.request, json
+def kalshi_candidates(keyword):
+    """Active markets matching a keyword, most liquid first. NOTE: Kalshi's
+    public API uses string *_dollars price fields (last_price_dollars,
+    liquidity_dollars) — the old integer last_price/volume fields are gone."""
+    out=[]; cursor=''
+    for _ in range(6):
+        url='https://api.elections.kalshi.com/trade-api/v2/markets?status=open&limit=1000'+(f'&cursor={cursor}' if cursor else '')
+        d=json.load(urllib.request.urlopen(url))
+        out += [m for m in d.get('markets',[]) if keyword.lower() in (m.get('title','')+' '+m.get('ticker','')).lower()]
+        cursor=d.get('cursor')
+        if not cursor: break
+    out.sort(key=lambda m: -float(m.get('liquidity_dollars') or 0))
+    return [(m['ticker'], m.get('liquidity_dollars'), m.get('last_price_dollars'), m.get('title')) for m in out[:10]]
+```
+Only use a ticker whose `last_price_dollars` is non-null (traded). If no traded market exists for the theme, **skip the odds tile** — don't ship a dead one. (The widget's own data check is the final gate: a dead market comes back as an `error` shape.)
 4. **News** — a `news` tile with a tight `query` (or `symbols`).
 5. **Context** — one `text`/`inline` markdown tile: one or two sentences on why this matters.
 
@@ -201,7 +237,7 @@ A widget that goes viral looks like a designed infographic with one opinionated 
 ## Hard rules
 
 1. **Search the gallery first.** `GET /widgets/gallery?q=<theme>`. If a good public widget exists, offer to clone/remix it instead of rebuilding.
-2. **Verify data before declaring done.** After create, `GET /widgets/{id}/data` and check every tile's `shape` — if any tile is `"error"` (or a chart/table is empty), fix the symbol/ticker and `PATCH` the spec, then re-check. Never tell the user a widget is ready while a tile is broken. (A `user_portfolio`/`user_watchlist` tile returning `empty` is expected when the user hasn't connected an account — that's fine.)
+2. **Verify VALUES, not just shapes.** After create, `GET /widgets/{id}/data` and check every tile: no `"error"` shapes, series have non-empty points, tables have rows, and odds have a non-null `prob`. If a tile is broken, fix it and `PATCH`, then re-check. Never tell the user a widget is ready while a tile is broken — and **never state a number (odds, price, change) in your reply unless it came from this data check**. Quoting odds the widget doesn't show is worse than no number.
 3. **Don't publish unless asked.** Publishing creates a public URL. Only call `/publish` when the user explicitly wants to share. Personal-data tiles are safe to publish — they're symbolic and show a "connect your portfolio" state to logged-out viewers, rebinding to whoever clones the widget.
 4. **Kalshi tickers must be real.** Look them up; a guessed ticker fails.
 
