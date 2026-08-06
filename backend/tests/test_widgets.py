@@ -292,3 +292,15 @@ def test_one_bad_tile_does_not_blank_widget():
     out = asyncio.run(go())
     assert out["ok"]["shape"] == "markdown"
     assert out["bad"]["shape"] == "error"
+
+
+def test_text_tile_shorthand_synthesizes_inline_query():
+    s = WidgetSpec(spec_version=1, tiles=[{"id": "t", "type": "text", "options": {"text": "**hi**"}}])
+    q = s.tiles[0].query
+    assert q is not None and q.source == "inline" and q.data == "**hi**"
+
+
+def test_text_tile_without_query_or_text_errors_with_hint():
+    with pytest.raises(ValidationError) as e:
+        WidgetSpec(spec_version=1, tiles=[{"id": "t", "type": "text"}])
+    assert "options.text" in str(e.value)

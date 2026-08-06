@@ -34,6 +34,13 @@ router = APIRouter(prefix="/widgets", tags=["widgets"])
 # ──────────────────────────────────────────────────────────────────────────
 # Serialization
 # ──────────────────────────────────────────────────────────────────────────
+def _share_url(w: Widget) -> Optional[str]:
+    if w.visibility != "public" or not w.slug:
+        return None
+    from core.config import Config
+    return f"{Config.FRONTEND_URL.rstrip('/')}/share/widget/{w.slug}"
+
+
 def _to_response(w: Widget, viewer_id: str) -> WidgetResponse:
     return WidgetResponse(
         id=w.id,
@@ -49,6 +56,7 @@ def _to_response(w: Widget, viewer_id: str) -> WidgetResponse:
         view_count=w.view_count,
         clone_count=w.clone_count,
         is_owner=(w.user_id == viewer_id),
+        share_url=_share_url(w),
         created_at=w.created_at.isoformat(),
         updated_at=w.updated_at.isoformat(),
     )

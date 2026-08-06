@@ -42,7 +42,8 @@ hits = finch_api("GET", "/widgets/gallery", params={"q": "oil"})
 finch_api("POST", f"/widgets/{src_id}/clone")
 
 # publish (mint a public share URL) — only when the user asks
-pub = finch_api("POST", f"/widgets/{widget_id}/publish")   # -> {"slug": ...}
+pub = finch_api("POST", f"/widgets/{widget_id}/publish")
+share_url = pub["share_url"]   # the EXACT public URL — always quote this verbatim, never construct your own
 ```
 
 Auth is automatic. If a create fails with a 422, the body names the offending tile/field — fix it and retry; the validation is strict on purpose (`extra="forbid"`, strict enums).
@@ -108,9 +109,13 @@ Layout is automatic — tiles flow into a grid by `size` (sm=small, md=default, 
 
 ### Options (optional, per type)
 
-- `chart`: `chart_type: line|area`, `y_format: pct|currency|number`, `show_legend`
-- `stat`: `format: currency|pct|number`, `show_sparkline`
-- `table`: `columns: [str]` (subset/order), `compact`
+- `chart`: `y_format: pct|currency|number`, `show_legend`, and **annotations**:
+  - `reference_lines: [{"value": 4.5, "label": "Fed target"}]` — quiet dashed horizontal lines
+  - `markers: [{"t": "2026-09-17", "label": "FOMC"}]` — event dots on the chart with a label
+  Single-series charts render as an area with a soft wash; multi-series as clean comparison lines with last-value + change shown in the legend. Use annotations on the hero chart — a dated event marker or a threshold line is what turns a line chart into a story.
+- `stat`: `format: currency|pct|number`, `show_sparkline` (renders as a big hero number + delta pill)
+- `odds`: renders as a big % + probability meter automatically
+- `table`: `columns: [str]` (subset/order); change/% columns get a red↔green heat wash automatically
 - `news`: `compact`
 
 ### Interactive controls (table tiles only)
@@ -178,19 +183,20 @@ This mapping quality is the product. For an event/theme, assemble tiles across t
 4. **News** — a `news` tile with a tight `query` (or `symbols`).
 5. **Context** — one `text`/`inline` markdown tile: one or two sentences on why this matters.
 
-## Composition taste
+## Composition taste — think "poster", not "dashboard"
 
-- 4–8 tiles. **Lead with a hero chart at `size: lg`** — it's the first thing the eye lands on, so make it the most informative view (a comparison, a trend, a distribution), not a lone price line.
-- One `odds` tile beats three. One clear comparison chart beats five single-stock charts.
-- Always include a news tile for event/topical widgets.
-- For a **portfolio** widget: `user_portfolio` table + a `series` of the user's index (or SPY) + a portfolio-relevant news tile.
+A widget that goes viral looks like a designed infographic with one opinionated centerpiece — NOT a grid of eight equal rectangles. Compose like a poster:
 
-**Make charts delightful (this is what users remember):**
-- Pick the chart that reveals the point: comparison → normalized multi-line or grouped bars; composition → stacked bar or treemap; relationship → scatter; distribution → histogram/box; single asset over time → area. Use `chart_spec` when `chart` can't say it.
-- Always **normalize** multi-symbol comparisons (different price levels aren't comparable raw).
-- Title every chart with the takeaway, not the mechanic ("Tankers & defense outperforming since escalation", not "Normalized prices").
-- Label axes with units. Keep it to one idea per chart. Give a topical widget a closing `text` tile with one or two sentences of "why this matters".
-- Give the widget a fitting emoji and a description that reads like a headline.
+1. **One hero visual** (`size: lg` or `full`, first) that makes THE point on its own — annotated with `markers` (the event) or `reference_lines` (the threshold). Someone seeing only a screenshot of this one tile should get the story.
+2. **2–4 supporting tiles** — a big stat or odds meter, a heat-washed movers table, a news feed. Fewer, bolder tiles beat many small ones. 3–6 tiles total is the sweet spot; 8 is the max, not the target.
+3. **A one-line caption** (`text` tile, last) — why this matters, in two sentences max.
+
+**Chart craft:**
+- Pick the form that reveals the point: comparison → normalized multi-line; composition → stacked bar/treemap (`chart_spec`); relationship → scatter (`chart_spec`); distribution → histogram (`chart_spec`); single asset → area.
+- Always **normalize** multi-symbol comparisons. Never two y-axes — index to 100 instead.
+- **Annotate the hero**: mark the event date, the decision day, the threshold price. An unannotated line chart is a commodity; an annotated one is a story.
+- Title with the takeaway, not the mechanic ("Tankers outperforming since escalation", not "Normalized prices"). Axis units always.
+- Give the widget a fitting emoji and a description that reads like a headline — it's the share-card text.
 
 ## Hard rules
 

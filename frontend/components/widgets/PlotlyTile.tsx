@@ -47,19 +47,38 @@ function bindFigure(figure: any, data?: TileData): any {
 }
 
 // Finch chart theme — applied under the LLM's layout so charts read as one
-// system (transparent bg, emerald-led colorway, quiet gridlines).
+// system (transparent bg, validated emerald-led colorway, hairline gridlines).
 const THEME_LAYOUT = {
   autosize: true,
   margin: { l: 44, r: 16, t: 28, b: 36 },
   font: { family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', size: 11, color: '#57534e' },
   paper_bgcolor: 'transparent',
   plot_bgcolor: 'transparent',
-  colorway: ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#0ea5e9', '#ec4899', '#14b8a6'],
+  colorway: ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#0ea5e9', '#ec4899'],
+  bargap: 0.3,
   xaxis: { gridcolor: '#f3f4f6', zerolinecolor: '#e5e7eb', automargin: true },
   yaxis: { gridcolor: '#f3f4f6', zerolinecolor: '#e5e7eb', automargin: true },
   legend: { orientation: 'h', y: -0.2, font: { size: 10 } },
   hoverlabel: { bgcolor: '#1c1917', font: { color: '#fff', size: 11 } },
 };
+
+// Mark hygiene applied per trace: 2px surface gap on bars (white outline), 2px
+// lines, ≥8px markers with a white surface ring.
+function applyMarkSpecs(traces: any[]): any[] {
+  return traces.map((t) => {
+    const out = { ...t };
+    if (t.type === 'bar') {
+      out.marker = { line: { color: '#ffffff', width: 2 }, ...(t.marker || {}) };
+    }
+    if (t.type === 'scatter' || t.type === 'scattergl' || !t.type) {
+      if (t.mode?.includes('lines')) out.line = { width: 2, ...(t.line || {}) };
+      if (t.mode?.includes('markers')) {
+        out.marker = { size: 9, line: { color: '#ffffff', width: 2 }, ...(t.marker || {}) };
+      }
+    }
+    return out;
+  });
+}
 
 export default function PlotlyTile({ figure, data, height = 260 }: { figure: any; data?: TileData; height?: number }) {
   const bound = useMemo(() => bindFigure(figure, data), [figure, data]);
@@ -72,7 +91,7 @@ export default function PlotlyTile({ figure, data, height = 260 }: { figure: any
 
   return (
     <Plot
-      data={bound.data}
+      data={applyMarkSpecs(bound.data)}
       layout={layout as any}
       config={{ displaylogo: false, displayModeBar: false, responsive: true } as any}
       useResizeHandler

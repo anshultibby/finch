@@ -221,7 +221,19 @@ class Tile(_Strict):
                     f"Plotly `data` array (and optional `layout`)."
                 )
         elif self.query is None:
-            raise ValueError(f"Tile '{self.id}': a '{self.type}' tile requires a query.")
+            # Ergonomic shorthand: a text tile with its markdown in options
+            # ({"type":"text","options":{"text":"..."}}) is the natural way an
+            # LLM writes it — synthesize the inline query instead of erroring.
+            text = (self.options or {}).get("text") or (self.options or {}).get("markdown")
+            if self.type == "text" and isinstance(text, str) and text:
+                self.query = InlineQuery(source="inline", shape="markdown", data=text)
+            else:
+                hint = (
+                    ' For a text tile, either set options.text or use '
+                    '{"source":"inline","shape":"markdown","data":"..."}.'
+                    if self.type == "text" else ""
+                )
+                raise ValueError(f"Tile '{self.id}': a '{self.type}' tile requires a query.{hint}")
         return self
 
 
@@ -276,6 +288,7 @@ class WidgetResponse(BaseModel):
     view_count: int
     clone_count: int
     is_owner: bool = True
+    share_url: Optional[str] = None  # full public URL once published
     created_at: str
     updated_at: str
 

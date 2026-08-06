@@ -14,8 +14,27 @@ import type {
 const num = (v: number | null | undefined, digits = 2) =>
   v == null ? '—' : v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
+// Auto-compact for big standalone figures: 1,284 / 12.9K / $4.2M.
+const compact = (v: number | null | undefined, prefix = '') => {
+  if (v == null) return '—';
+  const a = Math.abs(v);
+  if (a >= 1e9) return `${prefix}${(v / 1e9).toFixed(1)}B`;
+  if (a >= 1e6) return `${prefix}${(v / 1e6).toFixed(1)}M`;
+  if (a >= 1e4) return `${prefix}${(v / 1e3).toFixed(1)}K`;
+  return `${prefix}${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+};
+
 const deltaClass = (v: number | null | undefined) =>
   v == null ? 'text-gray-400' : v >= 0 ? 'text-emerald-600' : 'text-red-500';
+
+// Diverging wash for change columns: emerald↔red through the surface, intensity
+// scales with magnitude, text stays in ink (the wash is background only).
+const divergingWash = (v: number, maxAbs: number) => {
+  if (!maxAbs) return undefined;
+  const t = Math.min(Math.abs(v) / maxAbs, 1);
+  const alpha = 0.05 + t * 0.16;
+  return v >= 0 ? `rgba(16,185,129,${alpha})` : `rgba(239,68,68,${alpha})`;
+};
 
 // ── states ──────────────────────────────────────────────────────────────────
 function EmptyTile({ reason }: { reason: string }) {
@@ -42,6 +61,8 @@ function ChartTile({ data, options }: { data: SeriesData; options?: Record<strin
       yFormat={options?.y_format || 'number'}
       showLegend={options?.show_legend !== false}
       height={options?.height || 220}
+      referenceLines={options?.reference_lines}
+      markers={options?.markers}
     />
   );
 }
@@ -50,20 +71,29 @@ function StatTile({ data, options }: { data: NumberData; options?: Record<string
   const fmt = options?.format;
   const prefix = fmt === 'currency' ? '$' : '';
   const suffix = fmt === 'pct' ? '%' : '';
+  const delta = data.delta_pct ?? data.delta;
   return (
     <div className="flex flex-col justify-center h-full">
-      {data.label && <div className="text-xs text-gray-500 mb-1 truncate">{data.label}</div>}
-      <div className="text-2xl font-bold font-numeric text-gray-900">
-        {prefix}{num(data.value)}{suffix}
+      {data.label && <div className="text-xs text-gray-500 mb-1.5 truncate">{data.label}</div>}
+      {/* Hero-figure treatment: big semibold, proportional figures (not tabular) */}
+      <div className="text-[2.5rem] leading-none font-semibold text-gray-900 tracking-tight">
+        {compact(data.value, prefix)}{suffix}
       </div>
-      {(data.delta != null || data.delta_pct != null) && (
-        <div className={`text-sm font-numeric mt-0.5 ${deltaClass(data.delta_pct ?? data.delta)}`}>
-          {(data.delta_pct ?? data.delta ?? 0) >= 0 ? '▲' : '▼'} {num(Math.abs(data.delta ?? 0))}
-          {data.delta_pct != null && ` (${num(Math.abs(data.delta_pct))}%)`}
+      {delta != null && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <span
+            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-medium ${
+              delta >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+            }`}
+          >
+            {delta >= 0 ? '▲' : '▼'} {data.delta != null ? num(Math.abs(data.delta)) : ''}
+            {data.delta_pct != null && ` (${num(Math.abs(data.delta_pct))}%)`}
+          </span>
+          <span className="text-[11px] text-gray-400">today</span>
         </div>
       )}
       {options?.show_sparkline !== false && data.sparkline && data.sparkline.length > 1 && (
-        <Sparkline data={data.sparkline} className="mt-2" width={120} height={32} />
+        <Sparkline data={data.sparkline} className="mt-3" width={140} height={36} />
       )}
     </div>
   );
@@ -74,13 +104,26 @@ function OddsTile({ data }: { data: OddsData }) {
   const close = data.close_date ? new Date(data.close_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null;
   return (
     <div className="flex flex-col justify-center h-full">
-      <div className="text-3xl font-bold font-numeric text-gray-900">{pct == null ? '—' : `${pct}%`}</div>
-      <div className="text-[11px] uppercase tracking-wide text-gray-400 mt-0.5">probability</div>
-      {data.title && <div className="text-xs text-gray-600 mt-2 line-clamp-2">{data.title}</div>}
-      {close && <div className="text-[11px] text-gray-400 mt-1">Closes {close}</div>}
-      {data.history && data.history.length > 1 && (
-        <Sparkline data={data.history.map((h) => h.v ?? 0)} className="mt-2" color="#6366f1" />
+      <div className="flex items-baseline gap-2">
+        {/* Hero figure */}
+        <div className="text-[2.75rem] leading-none font-semibold text-gray-900 tracking-tight">
+          {pct == null ? '—' : `${pct}%`}
+        </div>
+        <div className="text-[11px] uppercase tracking-wide text-gray-400">chance</div>
+      </div>
+      {/* Meter: emerald fill on a lighter step of the same ramp */}
+      {pct != null && (
+        <div className="mt-3 h-2 rounded-full bg-emerald-100 overflow-hidden">
+          <div className="h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${pct}%` }} />
+        </div>
       )}
+      {data.title && <div className="text-xs text-gray-600 mt-2.5 line-clamp-2 leading-snug">{data.title}</div>}
+      <div className="flex items-center gap-2 mt-1.5">
+        {close && <div className="text-[11px] text-gray-400">Resolves {close}</div>}
+        {data.history && data.history.length > 1 && (
+          <Sparkline data={data.history.map((h) => h.v ?? 0)} color="#6366f1" width={70} height={20} />
+        )}
+      </div>
     </div>
   );
 }
@@ -124,6 +167,11 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
     cols = colIdx.map((i: number) => data.columns[i]);
   }
   const pctCol = data.columns.findIndex((c) => c.includes('pct') || c.includes('change'));
+  // Diverging wash scale for the change column (max |value| over shown rows).
+  const maxAbsPct =
+    pctCol >= 0
+      ? Math.max(0, ...shown.rows.map((r) => (typeof r[pctCol] === 'number' ? Math.abs(r[pctCol] as number) : 0)))
+      : 0;
   return (
     <div className="flex flex-col h-full">
       {hasControls && (
@@ -138,7 +186,7 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
       <table className="w-full text-sm">
         <thead>
           <tr className="text-[11px] uppercase tracking-wide text-gray-400 text-left">
-            {cols.map((c) => <th key={c} className="font-medium px-1 py-1">{c.replace(/_/g, ' ')}</th>)}
+            {cols.map((c) => <th key={c} className="font-medium px-1.5 py-1">{c.replace(/_/g, ' ')}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -148,7 +196,11 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
                 const val = row[ci];
                 const isPct = ci === pctCol && typeof val === 'number';
                 return (
-                  <td key={c} className={`px-1 py-1.5 font-numeric ${isPct ? deltaClass(val as number) : 'text-gray-800'} ${c === 0 ? 'font-medium' : ''}`}>
+                  <td
+                    key={c}
+                    className={`px-1.5 py-1.5 font-numeric ${isPct ? deltaClass(val as number) + ' font-medium rounded' : 'text-gray-800'} ${c === 0 ? 'font-medium' : ''}`}
+                    style={isPct ? { background: divergingWash(val as number, maxAbsPct) } : undefined}
+                  >
                     {typeof val === 'number' ? num(val) + (isPct ? '%' : '') : (val ?? '—')}
                   </td>
                 );
