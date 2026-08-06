@@ -10,7 +10,7 @@ Currently: the nightly day-trading PLAN heartbeat, provisioned when the user
 connects a Robinhood agentic account.
 """
 import uuid
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -36,15 +36,22 @@ _NIGHTLY_UTC = time(22, 0)
 
 _NIGHTLY_MESSAGE = (
     "Nightly day-trading PLAN run (built-in automation — the user can pause this "
-    "in Automations). Read the day_trading skill and execute its PLAN decision "
-    "point exactly: session() guard (skip if today wasn't a trading day), "
-    "session_state(), reconcile journal vs broker, grade today's trades, apply "
-    "kill criteria via setup_stats(), pull tomorrow's earnings calendar (FMP) and "
-    "macro events (fred skill), set tomorrow's risk and rules of engagement, "
-    "write_plan(), append_note(). The backend pre-provisions the next trading "
-    "day's intraday ENTRY/MANAGE/FLATTEN one-offs before this run — verify with "
-    "list_jobs() and create only genuine gaps (if the jobs API is unavailable "
-    "this run, note it and move on; the jobs already exist). Place no orders. "
+    "in Automations). You are the anchor of a self-scheduling loop: plan after "
+    "the close, then schedule tomorrow's trading wakeups yourself. Read the "
+    "day_trading skill and execute its PLAN decision point exactly: session() "
+    "guard (skip if today wasn't a trading day), session_state(), reconcile "
+    "journal vs broker, grade today's trades, apply kill criteria via "
+    "setup_stats(), pull tomorrow's earnings calendar (FMP) and macro events "
+    "(fred skill), set tomorrow's risk and rules of engagement, write_plan(), "
+    "append_note(). Place no orders.\n"
+    "Then SCHEDULE tomorrow's chain with schedule_job() — convert each ET "
+    "decision time to UTC for tomorrow's DATE via the clock helpers (never a "
+    "remembered offset). Schedule the mandatory FLATTEN near the close FIRST (so "
+    "open positions still get closed even if an intraday run fails), then the "
+    "ENTRY wake at 09:36 ET. Keep each wake's message thin ('Execute the "
+    "day_trading skill's ENTRY decision point exactly') — the recipe lives in "
+    "SKILL.md, and each intraday run schedules the next wake it needs (MANAGE) "
+    "before it ends, self-chaining until FLATTEN. "
     "If the operation isn't set up (no strategy and no journal), keep it to a "
     "one-paragraph plan, schedule nothing, and stop — stay cheap."
 )
@@ -246,110 +253,6 @@ async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:
         await db.commit()
     logger.info(f"Heartbeat tripwire enqueued for {user_id}: {reason}")
     return True
-
-
-# ── intraday decision points ─────────────────────────────────────────────────
-# Historically the nightly PLAN run created the next day's ENTRY/MANAGE/FLATTEN
-# one-offs from inside the sandbox via schedule_job(). That made the whole
-# operation hang off FINCH_AUTH_TOKEN: one failed Supabase token refresh at
-# 22:00 UTC and the next session went dark (no ENTRY scan, no trading — the
-# 6/29 and 7/7 gaps). The backend now provisions them deterministically; the
-# PLAN run just verifies.
-
-_ET = ZoneInfo("America/New_York")
-
-_INTRADAY_POINTS = [
-    # (name, ET time, message) — FLATTEN moves to 12:45 on early-close days,
-    # and the 14:30 MANAGE is skipped (it would land after a 13:00 close).
-    ("Day trade — ENTRY 09:36 ET", time(9, 36), (
-        "Execute the day_trading skill's ENTRY decision point exactly (read "
-        "/home/user/skills/day_trading/SKILL.md first, then today's plan and "
-        "strategy.md via the journal). session() guard, session_state(), "
-        "reconcile journal vs broker, run stocks_in_play scan, triage catalysts, "
-        "apply RiskBudget.from_journal + plan_trade gates. Follow strategy.md's "
-        "current ramp/go-live policy. append_note to end.")),
-    ("Day trade — MANAGE 10:15 ET", time(10, 15), (
-        "Execute the day_trading skill's MANAGE decision point exactly (read "
-        "SKILL.md first). session(), session_state(), reconcile broker. Exits "
-        "before entries: every open position must have a resting stop. Take "
-        "winners at target / scale + breakeven; close invalidated theses. "
-        "append_note to end.")),
-    ("Day trade — MANAGE 14:30 ET", time(14, 30), (
-        "Execute the day_trading skill's MANAGE decision point exactly (read "
-        "SKILL.md first). session(), session_state(), reconcile broker. Manage "
-        "open positions/stops; lunch phase = no new entries. append_note to end.")),
-    ("Day trade — FLATTEN 15:45 ET", time(15, 45), (
-        "Execute the day_trading skill's FLATTEN decision point exactly (read "
-        "SKILL.md first). session(), session_state(), reconcile broker. Close "
-        "every open day-trade position and cancel every resting day-trade order "
-        "before the close. append_note to end.")),
-]
-
-
-def _next_trading_day_after(d: date) -> date:
-    from skills.day_trading.scripts.clock import is_trading_day
-    nxt = d + timedelta(days=1)
-    while not is_trading_day(nxt):
-        nxt += timedelta(days=1)
-    return nxt
-
-
-async def ensure_day_trading_intraday(user_id: str) -> int:
-    """Provision the next trading day's intraday decision-point one-offs
-    (ENTRY / MANAGE ×2 / FLATTEN) directly in the DB — no sandbox, no user
-    token. Idempotent: skips any point that already has a job that day (the
-    PLAN run may have created it first). Returns how many jobs were created.
-
-    Only acts for users whose day-trading operation is already live (some
-    'Day trade —' job exists); a brand-new user's first PLAN run bootstraps
-    day one itself, after which this takes over."""
-    from skills.day_trading.scripts.clock import NYSE_EARLY_CLOSES
-
-    now_et = datetime.now(_ET)
-    target = now_et.date() if now_et.time() < time(9, 30) else None
-    from skills.day_trading.scripts.clock import is_trading_day
-    if target is None or not is_trading_day(target):
-        target = _next_trading_day_after(now_et.date())
-    early = target.isoformat() in NYSE_EARLY_CLOSES
-
-    day_start = datetime.combine(target, time(0, 0), tzinfo=_ET).astimezone(timezone.utc)
-    day_end = datetime.combine(target, time(23, 59), tzinfo=_ET).astimezone(timezone.utc)
-
-    created = 0
-    async with get_db_session() as db:
-        seen = (await db.execute(
-            select(ScheduledJob.name, ScheduledJob.run_at).where(
-                ScheduledJob.user_id == user_id,
-                ScheduledJob.name.like("Day trade — %"))
-        )).all()
-        if not seen:
-            return 0  # operation not bootstrapped yet — leave it to the agent
-        existing_today = {n for n, ra in seen if day_start <= ra <= day_end}
-
-        for name, et_time, message in _INTRADAY_POINTS:
-            if early:
-                if et_time == time(14, 30):
-                    continue
-                if et_time == time(15, 45):
-                    name, et_time = "Day trade — FLATTEN 12:45 ET", time(12, 45)
-            # Same decision point already scheduled (by us or by a PLAN run)?
-            point = name.split("—")[1].strip().split(" ")[0]  # ENTRY/MANAGE/FLATTEN
-            hhmm = name.split("—")[1].strip().split(" ")[1]
-            if any(point in n and hhmm in n for n in existing_today):
-                continue
-            run_at = datetime.combine(target, et_time, tzinfo=_ET).astimezone(timezone.utc)
-            db.add(ScheduledJob(
-                id=uuid.uuid4().hex[:12], user_id=user_id, name=name,
-                message=message, run_at=run_at, recurrence=None, priority=5,
-                status="pending", context_paths=[],
-            ))
-            created += 1
-        if created:
-            await db.commit()
-    if created:
-        logger.info(f"Provisioned {created} intraday day-trading job(s) for "
-                    f"{user_id} on {target.isoformat()}")
-    return created
 
 
 async def ensure_day_trading_nightly(user_id: str) -> None:

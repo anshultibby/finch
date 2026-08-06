@@ -179,28 +179,32 @@ RSI(2) on SPY at 4-figure share prices).
 
 ## Scheduling
 
-The nightly PLAN is the only standing job — provisioned automatically as a
-built-in automation ("Nightly trading plan") when the user connects Robinhood;
-comped, pausable in Automations, not cancellable. Once the operation is live
-(any "Day trade —" job has ever existed), the **backend pre-provisions the
-next trading day's one-off jobs** whenever the nightly runs — ENTRY 09:36 ·
-MANAGE 10:15, 14:30 · FLATTEN 15:45 ET (12:45 on `early_close` days, 14:30
-skipped) — so a failed PLAN run or a missing sandbox auth token can no longer
-dark a session. Your job at PLAN: `list_jobs()` to verify, create only genuine
-gaps, and **bootstrap day one for a new operation** (the backend only takes
-over after the first day-trade job exists). If the jobs API is unauthenticated
-this run, note it and move on — the backend has you covered. Schedule nothing
-if the operation isn't set up (no strategy.md, no journal).
+**The nightly PLAN is the only standing job** — one recurring weekday
+automation ("Nightly trading plan"), provisioned when the user connects
+Robinhood; comped, pausable, not cancellable. Everything else is a one-off the
+loop schedules for itself: **PLAN schedules tomorrow's wakes → each wake
+schedules the next it needs → until FLATTEN.** The backend does no
+pre-provisioning; the agent owns its own cadence (`schedule_job`), and the
+weekday PLAN is the backstop that restarts the whole loop each morning even if
+a chain link fails.
+
+At PLAN, once the operation is live, schedule tomorrow's chain:
+1. **FLATTEN near the close FIRST** — a mandatory safety wake, so open positions
+   still get closed even if an intraday run dies. (12:45 ET on `early_close`
+   days, else 15:45 ET.)
+2. **ENTRY at 09:36 ET.** ENTRY then schedules MANAGE, MANAGE the next MANAGE —
+   each run schedules its own successor before it ends. Self-chaining is allowed
+   before 15:30 ET only; after that the standing FLATTEN and tomorrow's PLAN take
+   over.
 
 `schedule_job` takes UTC — fixed times drift an hour at DST changes and
-`weekdays` recurrence ignores holidays. That's why the intraday jobs are
-one-offs at freshly computed UTC times each night (convert that DATE's ET
-target via the clock helpers, never a remembered offset) and why every run
-opens with the `session()` guard. PLAN itself stays at 22:00 UTC (17:00–18:00
-ET; evening-ET times cross UTC midnight and break the weekdays recurrence —
-don't move it later). Job messages stay thin ("execute the day_trading skill's
-ENTRY decision point exactly") — the recipe lives here. Self-chaining allowed
-before 15:30 ET only.
+`weekdays` recurrence ignores holidays. So compute each one-off from that DATE's
+ET target via the clock helpers (never a remembered offset), and open every run
+with the `session()` guard. PLAN itself stays at 22:00 UTC (17:00–18:00 ET;
+evening-ET times cross UTC midnight and break the weekdays recurrence — don't
+move it later). Keep each wake's message thin ("execute the day_trading skill's
+ENTRY decision point exactly") — the recipe lives here. Schedule nothing if the
+operation isn't set up (no strategy.md, no journal).
 
 ## Hard rules
 
