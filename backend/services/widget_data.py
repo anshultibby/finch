@@ -157,22 +157,23 @@ async def _fetch_quote_number(symbol: str) -> dict:
 
 
 async def _fetch_series(symbols: List[dict], rng: str) -> dict:
-    # Per-symbol fetches on purpose: FMP's batch endpoint silently caps the
-    # window (~1Y), which made a "5Y" two-symbol ratio chart quietly show one
-    # year. Individual requests honor the full range and cache per symbol.
-    from skills.financial_modeling_prep.scripts.market.historical_prices import (
-        get_historical_prices,
-    )
+    # Per-symbol fetches straight through the FMP API helper. Deliberately NOT
+    # get_historical_prices/get_batch_historical_prices: the batch endpoint
+    # caps the window (~1Y) and had poisoned the shared file cache under the
+    # same (symbol, from, to) keys — a "5Y" chart quietly rendered one year.
+    # fmp()'s in-memory TTL cache is keyed by exact endpoint+params and safe.
+    from skills.financial_modeling_prep.scripts.api import fmp
 
     days = _range_to_days(rng)
     to_date = _now().date().isoformat()
     from_date = (_now().date() - timedelta(days=days)).isoformat()
 
     def _fetch_all() -> dict:
-        return {
-            s["symbol"]: get_historical_prices(s["symbol"], from_date=from_date, to_date=to_date)
-            for s in symbols
-        }
+        out = {}
+        for s in symbols:
+            r = fmp(f"/historical-price-full/{s['symbol']}", {"from": from_date, "to": to_date})
+            out[s["symbol"]] = {"prices": r.get("historical", [])} if isinstance(r, dict) else {"prices": []}
+        return out
 
     batch = await asyncio.to_thread(_fetch_all)
 
