@@ -67,15 +67,18 @@ _NIGHTLY_MESSAGE = (
     "Each run starts a FRESH chat, so your memory is what you persist: "
     "strategy.md, the journal, and the agent-events ledger — write down anything "
     "the next run needs.\n"
-    "Then SCHEDULE your next wakeup with schedule_job(): the next session's first "
-    "trading wake at 09:36 ET, plus a mandatory FLATTEN wake near the close as a "
-    "safety net (convert each ET time to UTC for that DATE via the clock helpers, "
-    "never a remembered offset). Give each wake a plain goal in its message "
-    "('trade the open toward the goal, then schedule your next manage/flatten "
-    "wake'). Every wake reconciles first, then trades freely; each schedules the "
-    "next wake it needs, self-chaining until FLATTEN. If the operation isn't set "
-    "up yet (no strategy, no journal), bootstrap a one-paragraph plan, schedule "
-    "tomorrow's first wake, and stop."
+    "Then SCHEDULE your next wakeups with schedule_job(): the next session's "
+    "first trading wakeup at 09:36 ET, plus a mandatory wakeup near the close to "
+    "close out the day's positions as a safety net (convert each ET time to UTC "
+    "for that DATE via the clock helpers, never a remembered offset). Name each "
+    "one for what it does in plain words — 'Day trade — open positions', 'Day "
+    "trade — check positions', 'Day trade — close out' — the user sees these "
+    "titles in their Automations list, so no internal shorthand or code names. "
+    "Give each a plain goal in its message ('trade the open toward the goal, then "
+    "schedule your next check-in'). Every wakeup reconciles first, then trades "
+    "freely; each schedules the next one it needs, self-chaining until the "
+    "close-out. If the operation isn't set up yet (no strategy, no journal), "
+    "bootstrap a one-paragraph plan, schedule tomorrow's first wakeup, and stop."
 )
 
 
@@ -91,7 +94,7 @@ def _next_nightly_utc() -> datetime:
 
 
 async def ensure_day_trading_nightly(user_id: str) -> None:
-    """Provision (or refresh) the nightly PLAN wake. Safe to call on every
+    """Provision (or refresh) the nightly review wakeup. Safe to call on every
     Robinhood connect — idempotent and pause-respecting."""
     try:
         await schedule(

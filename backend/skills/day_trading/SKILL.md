@@ -31,15 +31,17 @@ from skills.day_trading.scripts import journal
 from skills.robinhood.scripts.trading import (connection_status, portfolio_snapshot,
                                               get_quotes, get_orders, review_order, cancel_order)
 from skills.finch_api.scripts import schedule_job, request_trade_approval  # approval = finch_api, NOT robinhood
+from skills.fred.scripts import upcoming_events        # macro calendar (module is `releases`)
 ```
 The scripts' docstrings are the reference — read them; don't reimplement them.
 
 ## How a trading day flows (reference — your wakeup goal drives)
 
 You're an autonomous agent pursuing a goal, not a script executing fixed steps.
-Your **wakeup message is your instruction**; the phases below (plan → entry →
-manage → flatten) are the proven rhythm to draw on and the tools to use at each
-— not a mandatory sequence. Judge what the moment needs.
+Your **wakeup message is your instruction**; the four moments below (nightly
+review → open positions → check positions → close out) are the proven rhythm to
+draw on and the tools to use at each — not a mandatory sequence. Judge what the
+moment needs.
 
 **Whatever you do, every run opens the same way:** `session()` (ET-correct clock
 — never the server's; exit if not a trading day / closed) → `journal.session_state()`
@@ -47,7 +49,7 @@ manage → flatten) are the proven rhythm to draw on and the tools to use at eac
 `connection_status()` + `portfolio_snapshot()` → reconcile journal vs broker
 and fix drift in the journal first.
 
-### PLAN — nightly, after the close (~17:00–18:00 ET) (no orders)
+### Nightly review — after the close (~17:00–18:00 ET) (no orders)
 Grade today's closed trades against their plans; check `journal.setup_stats()`
 and apply the kill criteria; update `strategy.md` with lessons. Build
 tomorrow's event map and watch ideas:
@@ -65,7 +67,7 @@ after a losing day**. `journal.write_plan(...)`, then `append_note(...)`.
 - FOMC day: no new entries after 13:30 ET; holding through the 14:00 decision
   only with the stop already at breakeven. Expect the 14:00–15:00 whipsaw.
 
-### ENTRY — 09:36 ET (after the 5-min opening range completes)
+### Open positions — 09:36 ET (after the 5-min opening range completes)
 ```python
 candidates = stocks_in_play(top_n=10)        # true RVOL + ATR + today's RTH bars
 # data.py handles the Polygon same-day block itself (FMP fallback) — a Polygon
@@ -96,7 +98,7 @@ Can't fill a field → skip. Bear case stronger than catalyst → skip. Catalyst
 ranking: earnings beat + raise ≫ upgrade > sympathy > unexplained spike >
 dilution/pump (skip the last two outright).
 
-### MANAGE — ~10:15 & ~14:30 ET (and after any fill)
+### Check positions — ~10:15 & ~14:30 ET (and after any fill)
 Exits before entries. Every filled entry **must** have a protective stop
 resting at the broker — a position without one is the first thing you fix.
 Winner at target → take it, or scale half at 1:1 and move the stop to
@@ -105,7 +107,7 @@ never average down. Once `phase` is `lunch`: cancel unfilled armed entries, no
 new entries. Every exit: `log_trade(status="closed", pnl=...)` →
 `budget.register(pnl)`.
 
-### FLATTEN — 15:45 ET (12:45 on `early_close` days)
+### Close out for the day — 15:45 ET (12:45 on `early_close` days)
 Intraday setups have no overnight edge: close every open day-trade position,
 cancel every resting day-trade order. Risk-reducing, so place directly if the
 user opted into unattended trading for this job; otherwise the approval email —
@@ -122,7 +124,7 @@ at 15:45, not 15:55, so there's time to act.
 - **Catalyst swing** (judgment, same gates): a top-tier durable catalyst that
   passes the full template can justify a 1–3 day hold with a defined stop —
   post-news drift is the best-documented edge for a reading agent. Exempt from
-  FLATTEN. Prefer expanding here over adding intraday setups.
+  the daily close-out. Prefer expanding here over adding intraday setups.
 
 ## Sizing & risk (no hard gates)
 
@@ -139,8 +141,9 @@ account can't short; shorts come back `short_blocked`).
 ## Execution mechanics (Robinhood)
 
 - **No shorting** (shorts come back `short_blocked`) and **no bracket/OCO**:
-  rest the protective stop always, take targets yourself at MANAGE, never leave
-  a stop AND a limit-sell resting for the same shares (double-fill).
+  rest the protective stop always, take targets yourself when you check
+  positions, never leave a stop AND a limit-sell resting for the same shares
+  (double-fill).
 - Default flow per `<trade_execution>`: `review_order` →
   `request_trade_approval` (one-click email). Direct `place_order` in
   automations only with explicit per-job opt-in + a dollar cap.
@@ -156,8 +159,9 @@ calls/puts only; premium paid = the position's entire risk budget
 (`contracts = floor(risk$ / (premium×100))`, no separate stop needed); ≥ 2–3
 weeks to expiry, delta ≥ 0.5 — directional instruments, not lottery tickets;
 **never 0DTE; never buy ahead of a known binary event** (IV crush — trade the
-post-event reaction instead); limit orders always; exit by MANAGE/PLAN review,
-worthless-expiry is not an exit plan. Equity remains the default vehicle —
+post-event reaction instead); limit orders always; exit when you check positions
+or at the nightly review — worthless-expiry is not an exit plan. Equity remains
+the default vehicle —
 options only when the catalyst is top-tier and defined-premium risk genuinely
 beats a stopped stock position.
 
@@ -165,8 +169,9 @@ beats a stopped stock position.
 
 Persistent store `/home/user/store/day_trading/` (see `journal.py`):
 trades.jsonl (pass each trade's `trade_id` to every later event), plan.md
-(stale date at ENTRY = nightly failed → half size or skip), notebook.md
-(`append_note` ends EVERY run), strategy.md (the evolving rules).
+(stale date when you go to open positions = the nightly review failed → half
+size or skip), notebook.md (`append_note` ends EVERY run), strategy.md (the
+evolving rules).
 
 **Trade LIVE — no paper ramp, no risk gates.** A `armed`/`triggered` signal on
 a name with a non-skip-tier catalyst is a real order, sized however you judge
@@ -180,42 +185,47 @@ position on higher-priced names, size up freely — no weight cap applies.
 
 ## Scheduling
 
-**The nightly PLAN is the only standing job** — one recurring weekday
+**The nightly review is the only standing job** — one recurring weekday
 automation ("Nightly trading plan"), provisioned when the user connects
 Robinhood; comped, pausable, not cancellable. Everything else is a one-off the
-loop schedules for itself: **PLAN schedules tomorrow's wakes → each wake
-schedules the next it needs → until FLATTEN.** The backend does no
-pre-provisioning; the agent owns its own cadence (`schedule_job`), and the
-weekday PLAN is the backstop that restarts the whole loop each morning even if
-a chain link fails.
+loop schedules for itself: **the nightly review schedules tomorrow's wakeups →
+each wakeup schedules the next one it needs → until the day's close-out.** The
+backend does no pre-provisioning; the agent owns its own cadence
+(`schedule_job`), and the weekday nightly review is the backstop that restarts
+the whole loop each morning even if a link in the chain fails.
 
-At PLAN, once the operation is live, schedule tomorrow's chain:
-1. **FLATTEN near the close FIRST** — a mandatory safety wake, so open positions
+At the nightly review, once the operation is live, schedule tomorrow's wakeups:
+1. **The close-out wakeup FIRST** — a mandatory safety net, so open positions
    still get closed even if an intraday run dies. (12:45 ET on `early_close`
    days, else 15:45 ET.)
-2. **ENTRY at 09:36 ET.** ENTRY then schedules MANAGE, MANAGE the next MANAGE —
-   each run schedules its own successor before it ends. Self-chaining is allowed
-   before 15:30 ET only; after that the standing FLATTEN and tomorrow's PLAN take
-   over.
+2. **Opening wakeup at 09:36 ET**, which then schedules the first check-in, and
+   each check-in schedules the next — every run schedules its own successor
+   before it ends. Self-chaining is allowed before 15:30 ET only; after that the
+   standing close-out and tomorrow's nightly review take over.
+
+Name each wakeup for what it does in plain words ("Day trade — open positions",
+"Day trade — check positions", "Day trade — close out") — the user sees these
+titles in their Automations list, so no internal shorthand.
 
 `schedule_job` takes UTC — fixed times drift an hour at DST changes and
 `weekdays` recurrence ignores holidays. So compute each one-off from that DATE's
 ET target via the clock helpers (never a remembered offset), and open every run
-with the `session()` guard. PLAN itself stays at 22:00 UTC (17:00–18:00 ET;
-evening-ET times cross UTC midnight and break the weekdays recurrence — don't
-move it later). Keep each wake's message thin ("execute the day_trading skill's
-ENTRY decision point exactly") — the recipe lives here. Schedule nothing if the
-operation isn't set up (no strategy.md, no journal).
+with the `session()` guard. The nightly review itself stays at 22:00 UTC
+(17:00–18:00 ET; evening-ET times cross UTC midnight and break the weekdays
+recurrence — don't move it later). Keep each wakeup's message thin ("open
+positions per the day_trading skill") — the recipe lives here. Schedule nothing
+if the operation isn't set up (no strategy.md, no journal).
 
 ## Hard rules
 
 1. `session()` first (closed → exit); `session_state()` second; reconcile
    before acting.
-2. MANAGE before HUNT — no new entries while any position lacks a resting stop.
+2. Check existing positions before opening new ones — no new entries while any
+   position lacks a resting stop.
 3. No setup, no trade; `missed` means missed.
 4. Size each entry yourself — no risk gate to clear (they were removed);
    `plan_trade` is an optional helper, not a required check.
-5. Cut at the stop; never average down; flatten intraday by 15:45 ET.
+5. Cut at the stop; never average down; close intraday positions by 15:45 ET.
 6. Every number AND every position in your picture comes from a tool call in
    THIS run — never a remembered price, a remembered book, or a prior about how
    a ticker "usually" behaves.
