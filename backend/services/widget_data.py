@@ -209,9 +209,15 @@ async def _fetch_news(query: Optional[str], symbols: Optional[List[str]], limit:
                 by_title.extend(by_text)
             raw = by_title
 
-    for n in raw[:limit]:
+    seen_titles = set()
+    for n in raw:
+        if len(items) >= limit:
+            break
         if not isinstance(n, dict) or not n.get("title"):
             continue
+        if n["title"] in seen_titles:
+            continue  # FMP repeats stories across tickers — dedupe by title
+        seen_titles.add(n["title"])
         items.append({
             "title": n.get("title"),
             "url": n.get("url"),

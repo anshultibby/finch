@@ -181,6 +181,10 @@ Two ways to feed it data:
  "query":{"source":"quote","symbols":["AAPL","MSFT","NVDA","TSLA"]},
  "options":{"figure":{"data":[{"type":"scatter","mode":"markers+text","x":"$col.change_pct","y":"$col.price","text":"$col.symbol"}]}}}
 ```
+**Exact ref grammar** (anything else stays a literal string and the chart renders empty): `$t`, `$series.LABEL`, `$series.LABEL.t`, `$series.LABEL.v`, `$col.NAME`, `$value`, `$odds` — namespaced as `$part.<...>` for multi-source tiles.
+
+**Log axes:** Plotly expects `log10(value)` coordinates for `shapes` and `annotations` on a log axis — supplying linear values explodes the axis range. Prefer linear axes + `normalize` unless you specifically handle this.
+
 Prefer **B** whenever the data exists as a source — a bound chart_spec stays live and cited, a self-contained one is frozen.
 
 ### Editing a widget from chat

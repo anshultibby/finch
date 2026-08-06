@@ -21,7 +21,15 @@ function lutFor(data: any, prefix: string, lut: Record<string, any>) {
   if (data.shape === 'series') {
     const series = data.series || [];
     if (series[0]) lut[`${prefix}t`] = series[0].points.map((p: any) => p.t);
-    for (const s of series) lut[`${prefix}series.${s.label}`] = s.points.map((p: any) => p.v);
+    for (const s of series) {
+      const vals = s.points.map((p: any) => p.v);
+      const times = s.points.map((p: any) => p.t);
+      lut[`${prefix}series.${s.label}`] = vals;
+      // Accept the natural extrapolations LLMs write: .v for values, .t for
+      // that series' own timestamps (observed in the wild: $series.Nvidia.t).
+      lut[`${prefix}series.${s.label}.v`] = vals;
+      lut[`${prefix}series.${s.label}.t`] = times;
+    }
   } else if (data.shape === 'table') {
     (data.columns || []).forEach((c: string, i: number) => {
       lut[`${prefix}col.${c}`] = data.rows.map((r: any[]) => r[i]);
