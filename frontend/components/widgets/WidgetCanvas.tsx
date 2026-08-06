@@ -51,13 +51,14 @@ export default function WidgetCanvas({ spec, data }: { spec: WidgetSpec; data?: 
         // full-width one-line note isn't stretched into a big empty card).
         const tall = tile.type === 'chart' || tile.type === 'chart_spec' || tile.type === 'news' || tile.type === 'table';
         const minH = tile.type === 'text' ? '' : tall ? 'min-h-[240px]' : 'min-h-[110px]';
+        const dark = tile.options?.theme === 'dark';
         return (
           <div
             key={tile.id}
-            className={`${COL_SPAN[size]} bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col ${minH}`}
+            className={`${COL_SPAN[size]} ${dark ? 'bg-[#101314] border-gray-800' : 'bg-white border-gray-200'} rounded-2xl border shadow-sm p-4 flex flex-col ${minH}`}
           >
             {tile.title && (
-              <div className="text-sm font-semibold text-gray-900 mb-3 shrink-0">{tile.title}</div>
+              <div className={`text-sm font-semibold mb-3 shrink-0 ${dark ? 'text-gray-50' : 'text-gray-900'}`}>{tile.title}</div>
             )}
             <div className="flex-1 min-h-0">
               <TileBody tile={tile} data={data?.[tile.id]} />
