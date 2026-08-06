@@ -24,6 +24,16 @@ const compact = (v: number | null | undefined, prefix = '') => {
   return `${prefix}${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 };
 
+// Table cells: integers stay integers (a year is 2026, not 2,026.00); 4-digit
+// integers skip the thousands comma; other numbers get 2 decimals.
+const fmtCell = (v: number, isPct: boolean) => {
+  if (Number.isInteger(v)) {
+    const s = v >= 1000 && v <= 9999 ? String(v) : v.toLocaleString();
+    return s + (isPct ? '%' : '');
+  }
+  return num(v) + (isPct ? '%' : '');
+};
+
 const deltaClass = (v: number | null | undefined) =>
   v == null ? 'text-gray-400' : v >= 0 ? 'text-emerald-600' : 'text-red-500';
 
@@ -206,7 +216,7 @@ function TableTile({ data, options, controls }: { data: TableData; options?: Rec
                     className={`px-1.5 py-1.5 font-numeric ${isPct ? deltaClass(val as number) + ' font-medium rounded' : 'text-gray-800'} ${c === 0 ? 'font-medium' : ''}`}
                     style={isPct ? { background: divergingWash(val as number, maxAbsPct) } : undefined}
                   >
-                    {typeof val === 'number' ? num(val) + (isPct ? '%' : '') : (val ?? '—')}
+                    {typeof val === 'number' ? fmtCell(val, isPct) : (val ?? '—')}
                   </td>
                 );
               })}
