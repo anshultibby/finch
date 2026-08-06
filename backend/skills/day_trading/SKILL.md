@@ -29,6 +29,8 @@ from skills.day_trading.scripts.clock import session
 from skills.day_trading.scripts.data import stocks_in_play, rth_today_bars
 from skills.day_trading.scripts.setups import orb_signal, vwap_state, connors_rsi2_signal
 from skills.day_trading.scripts.risk import RiskBudget, plan_trade
+from skills.day_trading.scripts.backtest import (StrategySpec, backtest_orb,
+                                                 research_strategies, is_viable)
 from skills.day_trading.scripts import journal
 from skills.robinhood.scripts.trading import (connection_status, portfolio_snapshot,
                                               get_quotes, get_orders, review_order, cancel_order)
@@ -107,6 +109,38 @@ Intraday setups have no overnight edge: close every open day-trade position,
 cancel every resting day-trade order. Risk-reducing, so place directly if the
 user opted into unattended trading for this job; otherwise the approval email —
 at 15:45, not 15:55, so there's time to act.
+
+## RESEARCH — find & validate a strategy before trading it (on demand / weekly)
+
+Don't trade a setup on faith in its citation — **prove it has an edge on this
+account's universe, then promote the winner.** A strategy is a validated
+`StrategySpec`, not a guess. Run this when there's no validated spec in
+`strategy.md`, when results drift, or on a weekly cadence:
+
+```python
+# 1. Propose a few candidate specs (vary the knobs that matter).
+specs = [
+    StrategySpec(),                                   # the documented baseline
+    StrategySpec(stop_atr_mult=0.20, rr=4.0),         # wider stop, nearer target
+    StrategySpec(min_abs_gap_pct=4.0, top_n=6),       # only the strongest gaps
+]
+# 2. Backtest all over the SAME recent window and rank by expectancy.
+report = research_strategies("2026-05-01", "2026-06-30", specs, equity=1000)
+best = report["best_viable"]        # None if nothing clears is_viable()
+```
+
+`backtest_orb` / `research_strategies` reuse the LIVE signal, sizing and risk
+code, so a backtest is a faithful replay — but read the "known limitations" in
+`backtest.py` (modelled fills, a coarser historical in-play universe) and state
+them when you report. `is_viable()` is deliberately strict: **n ≥ 30, positive
+expectancy_R, profit factor > 1, drawdown ≤ 25%.** "Not viable" is the common,
+correct answer — when nothing clears, say so and keep trading paper / stay flat;
+never promote a strategy that only looked good on a handful of trades.
+
+**Promote:** write the winning spec (its exact params) and its scorecard into
+`strategy.md` as the operation's current strategy; ENTRY then trades those
+params. Note the Polygon-tier rate limits — pace multi-day runs and never imply
+more coverage than you paid for.
 
 ## Setups (full rules in `setups.py` docstrings)
 

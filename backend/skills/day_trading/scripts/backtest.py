@@ -50,6 +50,9 @@ class StrategySpec:
     max_price: float = 2000.0
     min_day_volume: float = 1_000_000
     min_abs_gap_pct: float = 2.0
+    max_abs_gap_pct: float = 30.0      # above this, a "gap" is almost always a
+                                       # split / merger / halt — not tradeable
+                                       # ORB momentum. Exclude corporate actions.
     top_n: int = 10                    # names traded per day (by rvol proxy)
     # signal params (passed straight to orb_signal)
     or_minutes: int = 5
@@ -156,7 +159,7 @@ def historical_in_play(day: str, spec: StrategySpec) -> List[Dict[str, Any]]:
         if pvol < spec.min_day_volume:
             continue
         gap_pct = 100 * ((t.get("o") or pclose) - pclose) / pclose
-        if abs(gap_pct) < spec.min_abs_gap_pct:
+        if not (spec.min_abs_gap_pct <= abs(gap_pct) <= spec.max_abs_gap_pct):
             continue
         out.append({"symbol": sym, "price": round(price, 2),
                     "gap_pct": round(gap_pct, 2),
@@ -383,3 +386,61 @@ def summarize(trades: List[dict], starting_equity: float,
             for reason in ("target", "stop", "eod")
         },
     }
+
+
+# ── research loop: score, gate, rank ─────────────────────────────────────────
+# This is what turns the backtester into a strategy-finder. Propose a handful of
+# StrategySpec variants, backtest each over the same window, and let is_viable()
+# + the ranking decide which (if any) earns real money. The winner's spec is what
+# you write into strategy.md and trade — a strategy is a validated artifact, not
+# a guess.
+
+def is_viable(metrics: Dict[str, Any], min_trades: int = 30,
+              max_drawdown_pct: float = 25.0) -> Dict[str, Any]:
+    """Gate a backtest's scorecard: does this strategy actually have an edge you
+    can trade? Deliberately strict — the null result ("not viable") is the
+    common, correct answer, and shipping a strategy that only looked good on 6
+    trades is how accounts die. All four must hold:
+      · enough trades to trust the sample (n ≥ min_trades)
+      · positive expectancy in R (the edge, net of the win-rate/payoff tradeoff)
+      · profit factor > 1 (gross wins outweigh gross losses)
+      · a drawdown you can sit through (≤ max_drawdown_pct)
+    """
+    reasons = []
+    n = metrics.get("n_trades", 0)
+    if n < min_trades:
+        reasons.append(f"only {n} trades (need ≥ {min_trades} to trust the sample)")
+    if metrics.get("expectancy_r", 0) <= 0:
+        reasons.append(f"expectancy {metrics.get('expectancy_r')}R ≤ 0 (no edge)")
+    pf = metrics.get("profit_factor")
+    if pf is not None and pf <= 1:
+        reasons.append(f"profit factor {pf} ≤ 1 (losses outweigh wins)")
+    dd = metrics.get("max_drawdown_pct", 0)
+    if dd > max_drawdown_pct:
+        reasons.append(f"max drawdown {dd}% > {max_drawdown_pct}% (unsurvivable)")
+    return {"viable": not reasons, "reasons": reasons or ["clears every gate"]}
+
+
+def research_strategies(start: str, end: str, specs: List[StrategySpec],
+                        equity: float = 30_000.0, min_trades: int = 30,
+                        pace_seconds: float = 0.0) -> Dict[str, Any]:
+    """Backtest each candidate spec over the SAME window and rank them. Returns
+    the ranked table + the best VIABLE spec (or None) ready to promote to
+    strategy.md. Ranks by expectancy_r, tie-broken by profit factor — a strategy
+    that clears is_viable() always sorts above one that doesn't.
+
+    Cost warning: this is (len(specs) × days × top_n) data pulls. Start with a
+    few specs over ~40-60 trading days; raise pace_seconds on a throttled Polygon
+    tier. Log what you ran — never imply more coverage than you paid for."""
+    ranked = []
+    for spec in specs:
+        run = backtest_orb(start, end, equity=equity, spec=spec, pace_seconds=pace_seconds)
+        m = run["metrics"]
+        verdict = is_viable(m, min_trades=min_trades)
+        ranked.append({"spec": spec.to_dict(), "metrics": m,
+                       "viable": verdict["viable"], "why": verdict["reasons"]})
+    ranked.sort(key=lambda r: (r["viable"], r["metrics"].get("expectancy_r", 0),
+                               r["metrics"].get("profit_factor") or 0), reverse=True)
+    best = next((r for r in ranked if r["viable"]), None)
+    return {"window": {"start": start, "end": end}, "ranked": ranked,
+            "best_viable": best}
