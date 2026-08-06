@@ -1023,7 +1023,6 @@ export interface ScheduledJob {
   message: string;
   run_at: string;
   recurrence: Recurrence;
-  priority: number;
   status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'paused';
   created_at: string;
   last_run_at: string | null;
@@ -1032,6 +1031,8 @@ export interface ScheduledJob {
   last_run_credits: number;
   credits_spent: number;
   system_key: string | null;  // set on Finch-provisioned built-in automations
+  comped: boolean;            // runs are refunded (Finch-provided built-ins)
+  activity_gated: boolean;    // runs pause while the user is away
   run_chat_id: string | null; // chat holding the run's execution flow (null until a run starts)
 }
 
@@ -1040,7 +1041,6 @@ export interface CreateJobInput {
   run_at: string;
   recurrence?: Recurrence;
   name?: string;
-  priority?: number;
 }
 
 export interface JobListResponse {
@@ -1067,7 +1067,7 @@ export const jobsApi = {
   resume: async (jobId: string): Promise<void> => { await api.post(`/jobs/${jobId}/resume`); },
   pauseAll: async (): Promise<void> => { await api.post('/jobs/pause-all'); },
   resumeAll: async (): Promise<void> => { await api.post('/jobs/resume-all'); },
-  update: async (jobId: string, patch: Partial<Pick<ScheduledJob, 'name' | 'message' | 'run_at' | 'recurrence' | 'priority'>>): Promise<ScheduledJob> => {
+  update: async (jobId: string, patch: Partial<Pick<ScheduledJob, 'name' | 'message' | 'run_at' | 'recurrence'>>): Promise<ScheduledJob> => {
     const response = await api.patch(`/jobs/${jobId}`, patch);
     return response.data;
   },

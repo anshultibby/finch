@@ -141,21 +141,22 @@ def get_transactions(
 
 # ── Scheduled jobs ───────────────────────────────────────────────────────────
 
-def schedule_job(message, run_at=None, in_minutes=None, recurrence=None,
-                 name=None, priority=5, context_paths=None):
-    """Schedule a one-off or recurring job that runs `message` at a future time.
+def schedule_job(message, run_at=None, in_minutes=None, recurrence=None, name=None):
+    """Schedule an automation: a time to wake up, and an instruction to act on.
 
     Provide either run_at (ISO-8601 UTC, e.g. '2026-06-01T13:30:00Z') OR
     in_minutes (relative). recurrence: None | 'hourly' | 'daily' | 'weekly' |
     'weekdays'. For an ALERT, make it recurring and have the message both check
     the condition AND notify only if it's met. Limits: 5 recurring + 10 one-off.
+
+    Each run executes in a fresh chat, so write anything the next run needs
+    somewhere durable (a file, the journal, or report_insight).
     """
     from datetime import datetime, timezone, timedelta
     if run_at is None:
         mins = in_minutes if in_minutes is not None else 60
         run_at = (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat()
-    body = {"message": message, "run_at": run_at, "recurrence": recurrence,
-            "name": name, "priority": priority, "context_paths": context_paths or []}
+    body = {"message": message, "run_at": run_at, "recurrence": recurrence, "name": name}
     body = {k: v for k, v in body.items() if v is not None}
     return _request("POST", "/jobs", body=body)
 
@@ -166,11 +167,11 @@ def list_jobs():
 
 
 def update_job(job_id, message=None, run_at=None, recurrence=None,
-               clear_recurrence=False, name=None, priority=None):
+               clear_recurrence=False, name=None):
     """Modify a scheduled job. Only provided fields change. Set
     clear_recurrence=True to turn a recurring job into a one-off."""
     body = {"message": message, "run_at": run_at, "recurrence": recurrence,
-            "clear_recurrence": clear_recurrence, "name": name, "priority": priority}
+            "clear_recurrence": clear_recurrence, "name": name}
     body = {k: v for k, v in body.items() if v is not None and not (k == "clear_recurrence" and v is False)}
     return _request("PATCH", f"/jobs/{job_id}", body=body)
 

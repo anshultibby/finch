@@ -1,13 +1,18 @@
 """
-Finch built-in automations — definitions + provisioning.
+Finch built-in automations.
 
-A system job is a ScheduledJob with a system_key: provisioned by Finch when it
-becomes relevant (not at signup — a job that has nothing to do just burns
-tokens), exempt from the per-user recurring limit, comped (runs refund their
-credits), pausable in the Automations panel but not cancellable.
+A built-in is an ordinary automation (a time + an instruction) that Finch
+provisions on the user's behalf and identifies by `system_key`. The only things
+that make it special: it's exempt from the per-user limits, and it's pausable
+rather than cancellable. Two per-job behaviours — whether runs are comped and
+whether they pause for inactive users — are columns, declared here.
 
-Currently: the nightly day-trading PLAN heartbeat, provisioned when the user
-connects a Robinhood agentic account.
+Provisioning is one call: job_scheduler.schedule(..., key=...). It upserts, so
+editing an instruction below reaches already-provisioned jobs on the next
+provision, while respecting a user's pause.
+
+Built-ins are provisioned when they become relevant (not at signup — a job with
+nothing to do just burns tokens).
 """
 import uuid
 from datetime import datetime, time, timedelta, timezone
@@ -17,7 +22,7 @@ from sqlalchemy import select
 
 from core.database import get_db_session
 from models.jobs import ScheduledJob
-from services.job_scheduler import ensure_system_job
+from services.job_scheduler import schedule, set_enabled
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,6 +32,8 @@ MORNING_BRIEF = "morning_brief"
 HEARTBEAT = "heartbeat"
 HEARTBEAT_TRIGGER = "heartbeat_trigger"  # one-off runs the market monitor fires
 
+
+# ── nightly day-trading plan ─────────────────────────────────────────────────
 # 22:00 UTC = 18:00 ET in summer / 17:00 ET in winter — always after the close,
 # and still the same UTC calendar day, so the "weekdays" recurrence (which
 # advances on UTC dates) matches US trading weekdays. Do NOT move this into the
@@ -57,6 +64,9 @@ _NIGHTLY_MESSAGE = (
     "all risk gates, you trade live and unconstrained now); build the next "
     "session's watch list + event map (FMP earnings, fred macro); write_plan(); "
     "append_note(). Place no orders now — the market is closed.\n"
+    "Each run starts a FRESH chat, so your memory is what you persist: "
+    "strategy.md, the journal, and the agent-events ledger — write down anything "
+    "the next run needs.\n"
     "Then SCHEDULE your next wakeup with schedule_job(): the next session's first "
     "trading wake at 09:36 ET, plus a mandatory FLATTEN wake near the close as a "
     "safety net (convert each ET time to UTC for that DATE via the clock helpers, "
@@ -79,6 +89,22 @@ def _next_nightly_utc() -> datetime:
         run += timedelta(days=1)
     return run
 
+
+async def ensure_day_trading_nightly(user_id: str) -> None:
+    """Provision (or refresh) the nightly PLAN wake. Safe to call on every
+    Robinhood connect — idempotent and pause-respecting."""
+    try:
+        await schedule(
+            user_id, key=DAY_TRADING_NIGHTLY, name="Nightly trading plan",
+            message=_NIGHTLY_MESSAGE, run_at=_next_nightly_utc(),
+            recurrence="weekdays", comped=True, enforce_limits=False,
+        )
+    except Exception as e:
+        # Provisioning must never break the connect flow.
+        logger.error(f"Failed to provision {DAY_TRADING_NIGHTLY} for {user_id}: {e}")
+
+
+# ── morning brief ────────────────────────────────────────────────────────────
 
 _BRIEF_MESSAGE = (
     "Morning brief run (built-in automation — the user can pause this in "
@@ -132,31 +158,12 @@ async def configure_morning_brief(
         raise ValueError(f"Invalid brief time/timezone: {time_str!r} / {tz_name!r}")
 
     if enabled:
-        await ensure_system_job(
-            user_id=user_id,
-            system_key=MORNING_BRIEF,
-            name="Morning brief",
-            message=_BRIEF_MESSAGE,
-            first_run_at=run_at,
-            recurrence="daily",
+        await schedule(
+            user_id, key=MORNING_BRIEF, name="Morning brief",
+            message=_BRIEF_MESSAGE, run_at=run_at, recurrence="daily",
+            comped=True, enforce_limits=False,
         )
-
-    # ensure_system_job leaves an existing row untouched, so apply the (possibly
-    # changed) schedule and enabled state directly. Also refresh the message so
-    # prompt improvements reach existing jobs.
-    async with get_db_session() as db:
-        row = (await db.execute(
-            select(ScheduledJob).where(ScheduledJob.user_id == user_id,
-                                       ScheduledJob.system_key == MORNING_BRIEF)
-        )).scalars().first()
-        if not row:
-            return  # disabled and never provisioned
-        if row.status != "running":
-            row.status = "pending" if enabled else "paused"
-        if enabled:
-            row.run_at = run_at
-            row.message = _BRIEF_MESSAGE
-        await db.commit()
+    await set_enabled(user_id, MORNING_BRIEF, enabled)
     logger.info(
         f"Morning brief for {user_id}: enabled={enabled} "
         f"time={time_str} tz={tz_name} next_run={run_at.isoformat()}"
@@ -164,12 +171,12 @@ async def configure_morning_brief(
 
 
 # ── heartbeat: the passive analyst in your pocket ────────────────────────────
-# A recurring agentic run that watches the user's portfolio, watchlist and
-# news; writes what it finds into the activity ledger (report_insight) and is
-# the single source of alerts for heartbeat users. Unlike other system jobs it
-# is NOT comped — the user opts in knowing it spends credits (Settings copy).
-# Interval is minute-level for Pro; free users are fixed to daily (gated in
-# routes/account.py).
+# A recurring agentic run that watches the user's portfolio, watchlist and news
+# and writes what it finds into the activity ledger (report_insight). Unlike the
+# other built-ins it is NOT comped — the user opts in knowing it spends credits
+# (Settings copy says so) — and it IS activity-gated, so it stops burning
+# credits for users who've stopped opening the app. Interval is minute-level for
+# Pro; free users are fixed to daily (gated in routes/account.py).
 
 HEARTBEAT_MIN_INTERVAL_MINUTES = 5
 HEARTBEAT_DAILY_MINUTES = 24 * 60
@@ -194,50 +201,27 @@ _HEARTBEAT_MESSAGE = (
 async def configure_heartbeat(user_id: str, enabled: bool, interval_minutes: int) -> None:
     """Provision, re-time, or pause the user's heartbeat."""
     interval = max(int(interval_minutes), HEARTBEAT_MIN_INTERVAL_MINUTES)
-    recurrence = f"every_{interval}m"
-    # First run lands ~2 minutes out so enabling feels immediately alive.
-    first_run = datetime.now(timezone.utc) + timedelta(minutes=2)
-
     if enabled:
-        await ensure_system_job(
-            user_id=user_id,
-            system_key=HEARTBEAT,
-            name="Heartbeat — portfolio & news watch",
+        await schedule(
+            user_id, key=HEARTBEAT, name="Heartbeat — portfolio & news watch",
             message=_HEARTBEAT_MESSAGE,
-            first_run_at=first_run,
-            recurrence=recurrence,
+            # First run lands ~2 minutes out so enabling feels immediately alive.
+            run_at=datetime.now(timezone.utc) + timedelta(minutes=2),
+            recurrence=f"every_{interval}m",
+            activity_gated=True, enforce_limits=False,
         )
-
-    # ensure_system_job leaves an existing row untouched — apply the (possibly
-    # changed) interval and enabled state directly, and refresh the message so
-    # prompt improvements reach existing jobs.
-    async with get_db_session() as db:
-        row = (await db.execute(
-            select(ScheduledJob).where(ScheduledJob.user_id == user_id,
-                                       ScheduledJob.system_key == HEARTBEAT)
-        )).scalars().first()
-        if not row:
-            return  # disabled and never provisioned
-        if row.status != "running":
-            row.status = "pending" if enabled else "paused"
-        if enabled:
-            row.recurrence = recurrence
-            row.message = _HEARTBEAT_MESSAGE
-            row.run_at = first_run
-        await db.commit()
+    await set_enabled(user_id, HEARTBEAT, enabled)
     logger.info(f"Heartbeat for {user_id}: enabled={enabled} every {interval}m")
 
 
 async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:
     """Fire a one-off heartbeat run immediately (the market-monitor tripwire).
-    Skips if a trigger is already pending/running so a volatile day can't
-    stack investigations, and for users inactive >72h (the recurring heartbeat
-    is likewise gated — it resumes when they return). Returns True if a run
-    was enqueued."""
+    Skips if a trigger is already pending/running so a volatile day can't stack
+    investigations, and for users inactive >72h (the recurring heartbeat is
+    likewise gated — it resumes when they return). Returns True if enqueued."""
     from services.agent_events import is_user_active
     if not await is_user_active(user_id):
         return False
-    now = datetime.now(timezone.utc)
     async with get_db_session() as db:
         existing = (await db.execute(
             select(ScheduledJob).where(
@@ -259,36 +243,9 @@ async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:
                 "portfolio/watchlist, and report_insight(title, body, alert=...) "
                 "— alert=True only if a holder should know right now. Stay cheap."
             ),
-            run_at=now, recurrence=None, priority=3,
-            status="pending", system_key=HEARTBEAT_TRIGGER, context_paths=[],
+            run_at=datetime.now(timezone.utc), recurrence=None,
+            status="pending", system_key=HEARTBEAT_TRIGGER, activity_gated=True,
         ))
         await db.commit()
     logger.info(f"Heartbeat tripwire enqueued for {user_id}: {reason}")
     return True
-
-
-async def ensure_day_trading_nightly(user_id: str) -> None:
-    """Provision (or revive) the nightly PLAN heartbeat. Safe to call on every
-    Robinhood connect — it's idempotent and respects a user's pause."""
-    try:
-        await ensure_system_job(
-            user_id=user_id,
-            system_key=DAY_TRADING_NIGHTLY,
-            name="Nightly trading plan",
-            message=_NIGHTLY_MESSAGE,
-            first_run_at=_next_nightly_utc(),
-            recurrence="weekdays",
-        )
-        # ensure_system_job leaves existing rows untouched — refresh the message
-        # so prompt improvements reach already-provisioned jobs.
-        async with get_db_session() as db:
-            row = (await db.execute(
-                select(ScheduledJob).where(ScheduledJob.user_id == user_id,
-                                           ScheduledJob.system_key == DAY_TRADING_NIGHTLY)
-            )).scalars().first()
-            if row and row.message != _NIGHTLY_MESSAGE:
-                row.message = _NIGHTLY_MESSAGE
-                await db.commit()
-    except Exception as e:
-        # Provisioning must never break the connect flow.
-        logger.error(f"Failed to provision {DAY_TRADING_NIGHTLY} for {user_id}: {e}")

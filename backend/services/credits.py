@@ -121,18 +121,17 @@ def calculate_cost_usd(
 
 def usd_to_credits(usd_cost: float) -> int:
     """
-    Convert USD cost to credits with 20% premium.
-    
+    Convert USD cost to credits, applying the premium markup.
+
     Args:
         usd_cost: Cost in USD
-    
+
     Returns:
         Credits to deduct (rounded up to nearest integer)
     """
-    # Apply 20% premium
     cost_with_premium = usd_cost * PREMIUM_MULTIPLIER
-    
-    # Convert to credits (1000 credits = $1)
+
+    # Convert to credits (100 credits = $1)
     credits = cost_with_premium * CREDITS_PER_DOLLAR
     
     # Round up to ensure we don't undercharge

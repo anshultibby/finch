@@ -1,6 +1,8 @@
 """
-Scheduled job schemas. A job is a JSON message + starting context files + a
-planned execution time. The agent schedules them; a waker runs them.
+Scheduled job schemas.
+
+An automation is a time + an instruction. Both the user (via /jobs) and the
+agent (via schedule_job in the finch_api skill) create them the same way.
 """
 import re
 
@@ -8,9 +10,9 @@ from pydantic import BaseModel, Field
 from typing import Optional, Literal, List
 from datetime import datetime
 
-# Recurrence: None = one-off. Otherwise a simple cadence. (System jobs may
-# additionally use a minute-level "every_<N>m" — e.g. the heartbeat — which is
-# why the read DTO below types recurrence as plain str.)
+# None = one-off. Named cadences are what users and the agent pick;
+# "every_<N>m" is additionally accepted for minute-level built-ins (heartbeat),
+# which is why the read DTO types recurrence as a plain str.
 Recurrence = Literal["hourly", "daily", "weekly", "weekdays"]
 JobStatus = Literal["pending", "running", "done", "failed", "cancelled", "paused"]
 
@@ -22,13 +24,7 @@ class JobCreate(BaseModel):
     message: str = Field(description="The instruction the agent runs when the job fires")
     run_at: datetime = Field(description="First/next planned execution time (UTC)")
     recurrence: Optional[Recurrence] = Field(None, description="None = one-off; else repeats on this cadence")
-    priority: int = Field(5, ge=0, le=9, description="0 = highest priority, 9 = lowest")
     name: Optional[str] = Field(None, description="Short human-friendly name")
-    chat_id: Optional[str] = Field(None, description="Chat to run in / post results to")
-    context_paths: List[str] = Field(
-        default_factory=list,
-        description="Paths of files to include as starting context (references, not copies)",
-    )
 
 
 class JobUpdate(BaseModel):
@@ -37,7 +33,6 @@ class JobUpdate(BaseModel):
     run_at: Optional[datetime] = None
     recurrence: Optional[Recurrence] = None
     clear_recurrence: bool = Field(False, description="Set true to make a recurring job one-off")
-    priority: Optional[int] = Field(None, ge=0, le=9)
     name: Optional[str] = None
 
 
@@ -47,20 +42,19 @@ class Job(BaseModel):
     name: str
     message: str
     run_at: datetime
-    recurrence: Optional[str] = None  # named cadence or system "every_<N>m"
-    priority: int = 5
+    recurrence: Optional[str] = None  # named cadence or "every_<N>m"
     status: JobStatus = "pending"
     created_at: datetime
     last_run_at: Optional[datetime] = None
     run_count: int = 0
-    chat_id: Optional[str] = None
-    context_paths: List[str] = Field(default_factory=list)
     last_error: Optional[str] = None
     last_run_credits: int = 0
     credits_spent: int = 0
-    system_key: Optional[str] = None  # set on Finch-provisioned default automations
-    # Chat the runs execute in (chat_id or the implicit job-<id>), exposed once
-    # there's something to look at — lets the UI open the execution flow.
+    system_key: Optional[str] = None  # set on Finch-provisioned built-ins
+    comped: bool = False
+    activity_gated: bool = False
+    # Chat the most recent run executed in — exposed once there's something to
+    # look at, so the UI can open the execution.
     run_chat_id: Optional[str] = None
 
     @property

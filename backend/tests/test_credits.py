@@ -63,7 +63,9 @@ class TestCostCalculation:
             cache_read_tokens=80_000,
             cache_creation_tokens=5_000,
         )
-        uncached = 100_000 - 80_000  # 20_000
+        # prompt_tokens is the TOTAL input, so BOTH cache buckets come out of it
+        # — each token is billed exactly once (see calculate_cost_usd).
+        uncached = 100_000 - 80_000 - 5_000  # 15_000
         expected = (
             (uncached / 1e6) * 3.0
             + (80_000 / 1e6) * 0.30
@@ -100,11 +102,11 @@ class TestUsdToCredits:
     def test_basic_conversion(self):
         credits = usd_to_credits(1.0)
         assert credits == math.ceil(1.0 * PREMIUM_MULTIPLIER * CREDITS_PER_DOLLAR)
-        assert credits == 120
+        assert credits == 125
 
     def test_rounds_up(self):
         credits = usd_to_credits(0.001)
-        assert credits == 1  # ceil(0.001 * 1.2 * 100) = ceil(0.12) = 1
+        assert credits == 1  # ceil(0.001 * 1.25 * 100) = ceil(0.125) = 1
 
     def test_zero_cost(self):
         credits = usd_to_credits(0.0)
@@ -143,7 +145,7 @@ class TestConstants:
         assert CREDITS_PER_DOLLAR == 100
 
     def test_premium_multiplier(self):
-        assert PREMIUM_MULTIPLIER == 1.2
+        assert PREMIUM_MULTIPLIER == 1.25
 
 
 
