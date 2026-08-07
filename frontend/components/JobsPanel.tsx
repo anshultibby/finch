@@ -29,6 +29,7 @@ export default function JobsPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [historyLimit, setHistoryLimit] = useState(25);
   const { loadChat } = useNavigation();
 
   const load = useCallback(async () => {
@@ -38,6 +39,14 @@ export default function JobsPanel() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // "Next run in 5m" is computed at render, so without a tick it stays "in 5m"
+  // indefinitely. Re-render every 30s so the countdowns stay truthful.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const act = async (fn: () => Promise<any>, key: string) => {
     setBusy(key);
@@ -58,11 +67,29 @@ export default function JobsPanel() {
     [selectedId, jobs],
   );
 
+  // Render the shell immediately with skeleton cards rather than replacing the
+  // whole page with a spinner — the header and New button are usable while the
+  // list is still in flight, and the layout doesn't jump when it lands.
   if (loading) {
     return (
-      <div className="flex flex-col h-full bg-white items-center justify-center gap-3">
-        <RefreshCw className="w-6 h-6 text-emerald-500 animate-spin" />
-        <p className="text-sm text-gray-400">Loading automations…</p>
+      <div className="flex flex-col h-full bg-white overflow-y-auto">
+        <div className="max-w-5xl w-full px-6 sm:px-10 py-8">
+          <PageHeader title="Automations" subtitle="Tasks Finch runs for you on a schedule" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" aria-busy="true" aria-label="Loading automations">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="rounded-2xl border border-gray-200 bg-white p-4 animate-pulse">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-xl bg-gray-100" />
+                  <div className="h-2.5 w-24 rounded bg-gray-100" />
+                </div>
+                <div className="h-3.5 w-2/5 rounded bg-gray-100 mb-2" />
+                <div className="h-3 w-full rounded bg-gray-50 mb-1.5" />
+                <div className="h-3 w-4/5 rounded bg-gray-50" />
+                <div className="h-3 w-28 rounded bg-gray-100 mt-4" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -97,7 +124,17 @@ export default function JobsPanel() {
           )}
         />
 
-        {error && <div className="mb-4 text-sm text-red-500 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">{error}</div>}
+        {error && (
+          <div className="mb-4 flex items-center justify-between gap-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">
+            <span>{error}</span>
+            <button
+              onClick={() => { setLoading(true); load(); }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[13px] font-medium text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Retry
+            </button>
+          </div>
+        )}
 
         {!error && isEmpty ? (
           <div className="text-center py-20">
@@ -131,11 +168,21 @@ export default function JobsPanel() {
               <>
                 <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">History</div>
                 <div className="divide-y divide-gray-100 border-y border-gray-100">
-                  {past.map(job => (
+                  {/* Capped: a self-scheduling agent produces a few rows per
+                      trading day, so this list grows without bound. */}
+                  {past.slice(0, historyLimit).map(job => (
                     <HistoryRow key={job.id} job={job} onOpen={() => setSelectedId(job.id)}
                       onOpenChat={job.run_chat_id ? () => loadChat(job.run_chat_id!) : undefined} />
                   ))}
                 </div>
+                {past.length > historyLimit && (
+                  <button
+                    onClick={() => setHistoryLimit(n => n + 25)}
+                    className="mt-3 text-[13px] font-medium text-gray-500 hover:text-gray-900 transition-colors"
+                  >
+                    Show older ({past.length - historyLimit} more)
+                  </button>
+                )}
               </>
             )}
           </>
@@ -185,9 +232,16 @@ function JobCard({ job, busy, onOpen, onPause, onResume }: {
     : `Next run ${relativeTime(job.run_at)}`;
 
   return (
-    <button
+    // A div, not a button: this card contains its own pause control, and a
+    // button inside a button is invalid HTML that breaks keyboard focus.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className={`group relative flex flex-col text-left rounded-2xl border border-gray-200 bg-white p-4 transition-all cursor-pointer ${
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }
+      }}
+      className={`group relative flex flex-col text-left rounded-2xl border border-gray-200 bg-white p-4 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
         paused ? 'opacity-60 hover:opacity-90' : 'hover:border-gray-300 hover:shadow-md'
       }`}
     >
@@ -206,16 +260,18 @@ function JobCard({ job, busy, onOpen, onPause, onResume }: {
             </span>
           )}
         </div>
-        <span
-          role="button"
+        {/* Always visible, not hover-revealed: opacity-0 until :hover made this
+            control unreachable on touch, where there is no hover state. */}
+        <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); (paused ? onResume : onPause)(); }}
+          disabled={busy}
           title={paused ? 'Resume' : 'Pause'}
-          className={`p-1.5 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-all flex-shrink-0 ${
-            busy ? 'opacity-50 pointer-events-none' : 'opacity-0 group-hover:opacity-100'
-          }`}
+          aria-label={`${paused ? 'Resume' : 'Pause'} ${job.name}`}
+          className="p-1.5 rounded-lg text-gray-300 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 transition-colors flex-shrink-0 disabled:opacity-50"
         >
           {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-        </span>
+        </button>
       </div>
 
       {/* body */}
@@ -234,7 +290,7 @@ function JobCard({ job, busy, onOpen, onPause, onResume }: {
           Details <ChevronRight className="w-3.5 h-3.5" />
         </span>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -244,27 +300,33 @@ function HistoryRow({ job, onOpen, onOpenChat }: {
   job: ScheduledJob; onOpen: () => void; onOpenChat?: () => void;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="group flex items-center gap-3 w-full text-left px-1 py-2.5 hover:bg-gray-50 transition-colors cursor-pointer"
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }
+      }}
+      className="group flex items-center gap-3 w-full text-left px-1 py-2.5 hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded-lg"
     >
       <StatusIcon status={job.status} />
       <div className="flex-1 min-w-0">
         <span className="text-[13px] font-medium text-gray-700 truncate block">{job.name}</span>
       </div>
       {onOpenChat && (
-        <span
-          role="button"
+        <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onOpenChat(); }}
           title="View execution in chat"
-          className="p-1.5 rounded-lg text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 transition-all flex-shrink-0 opacity-0 group-hover:opacity-100"
+          aria-label={`View execution of ${job.name}`}
+          className="p-1.5 rounded-lg text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 transition-colors flex-shrink-0"
         >
           <MessagesSquare className="w-4 h-4" />
-        </span>
+        </button>
       )}
       <span className="text-[12px] text-gray-400 font-numeric flex-shrink-0">{exactTime(job.run_at)}</span>
       <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
-    </button>
+    </div>
   );
 }
 
@@ -291,6 +353,7 @@ function JobDetailModal({ job, busy, onClose, onPause, onResume, onCancel, onOpe
   const paused = job.status === 'paused';
   const activeStates = ['pending', 'running', 'paused'];
   const isActive = activeStates.includes(job.status);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -389,10 +452,26 @@ function JobDetailModal({ job, busy, onClose, onPause, onResume, onCancel, onOpe
         <div className="px-6 py-4 flex items-center justify-between gap-2 border-t border-gray-100 mt-4">
           <div>
             {isActive && !isSystem && (
-              <button onClick={onCancel} disabled={busy}
-                className="rounded-full px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
-                Delete
-              </button>
+              // Two-step: deleting a recurring automation is not recoverable
+              // from this screen, and it sat one stray click away.
+              confirmDelete ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-[13px] text-gray-500">Delete?</span>
+                  <button onClick={onCancel} disabled={busy}
+                    className="rounded-full bg-red-500 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-red-600 transition-colors disabled:opacity-50">
+                    Yes, delete
+                  </button>
+                  <button onClick={() => setConfirmDelete(false)} disabled={busy}
+                    className="rounded-full px-3 py-1.5 text-[13px] font-medium text-gray-600 hover:bg-gray-100 transition-colors">
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <button onClick={() => setConfirmDelete(true)} disabled={busy}
+                  className="rounded-full px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
+                  Delete
+                </button>
+              )
             )}
           </div>
           <div className="flex items-center gap-2">
