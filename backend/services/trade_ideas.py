@@ -165,6 +165,23 @@ async def daily_bars(symbol: str, start: datetime, end: datetime) -> List[Dict]:
     return await asyncio.to_thread(_fetch)
 
 
+async def run_scoring_loop(interval_seconds: int = 3600) -> None:
+    """Background sweep that keeps the scorecard current.
+
+    Deliberately NOT an automation. Scoring is deterministic code — no model, no
+    credits — and it has to keep running whether or not the user has the idea
+    job enabled, or a paused job would silently freeze the record it's judged on.
+    """
+    import asyncio
+    logger.info(f"Trade-idea scoring loop started (every {interval_seconds}s)")
+    while True:
+        try:
+            await score_open_ideas()
+        except Exception as e:
+            logger.error(f"Idea scoring sweep failed: {e}")
+        await asyncio.sleep(interval_seconds)
+
+
 async def score_open_ideas(fetch_bars=None) -> int:
     """Score every open idea whose outcome is now determinable.
 

@@ -216,6 +216,14 @@ async def startup_event():
     asyncio.create_task(run_ledger_review_loop())
     logger.info("Started ledger review")
 
+    # Start the trade-idea scoring sweep (marks open ideas target/stop/expired
+    # against daily bars). Plumbing, not an automation — deterministic, no model,
+    # no credits, and it must keep the scorecard honest even while the idea job
+    # is paused.
+    from services.trade_ideas import run_scoring_loop
+    asyncio.create_task(run_scoring_loop())
+    logger.info("Started trade-idea scoring sweep")
+
     # Initialize Supabase Storage bucket (if configured)
     if storage_service.is_available():
         logger.info("Initializing Supabase Storage...")

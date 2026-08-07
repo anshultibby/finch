@@ -31,6 +31,7 @@ DAY_TRADING_NIGHTLY = "day_trading_nightly"
 MORNING_BRIEF = "morning_brief"
 HEARTBEAT = "heartbeat"
 HEARTBEAT_TRIGGER = "heartbeat_trigger"  # one-off runs the market monitor fires
+CATALYST_IDEAS = "catalyst_ideas"
 
 
 # ── nightly day-trading plan ─────────────────────────────────────────────────
@@ -171,6 +172,61 @@ async def configure_morning_brief(
         f"Morning brief for {user_id}: enabled={enabled} "
         f"time={time_str} tz={tz_name} next_run={run_at.isoformat()}"
     )
+
+
+# ── catalyst ideas ───────────────────────────────────────────────────────────
+# Just a wakeup and an instruction. Everything it needs — the scanners, the
+# registry, the scorecard — lives in the catalyst_ideas skill, so improving the
+# bot means editing the skill, not this file.
+
+# 13:00 UTC = 09:00 ET summer / 08:00 ET winter: after the pre-market reaction
+# to last night's after-close reporters, before the open. Same-UTC-day as the
+# session, so the weekdays recurrence lines up with trading days.
+_IDEAS_UTC = time(13, 0)
+
+_IDEAS_MESSAGE = (
+    "Catalyst idea run (built-in automation — the user can pause it in "
+    "Automations). Read the catalyst_ideas SKILL.md and follow it.\n"
+    "Goal: surface the few short-term, catalyst-driven trade ideas that are "
+    "genuinely worth this user's attention today, and be honest about how your "
+    "past ones did.\n"
+    "Start with list_ideas() and read the by_catalyst scorecard — it tells you "
+    "which catalyst types are actually earning alpha for this account. Lean into "
+    "those, stop proposing the ones that aren't. Then scan "
+    "(starters.scan_all(), plus registry.run_all() for any scanners you've "
+    "written), triage the handful that look real by reading the actual story, "
+    "and propose_idea() only for the ones you'd defend. Two or three strong "
+    "ideas beat ten weak ones — every idea you propose is graded whether or not "
+    "the user acts on it, including the ones they reject.\n"
+    "If the scan is thin or nothing clears the bar, propose nothing and say so "
+    "in one line. A quiet day is a real answer.\n"
+    "If you spot a catalyst pattern the existing scanners miss, write one with "
+    "registry.save() so it runs from tomorrow on — that's expected of you, not "
+    "exceptional."
+)
+
+
+def _next_ideas_utc() -> datetime:
+    now = datetime.now(timezone.utc)
+    run = now.replace(hour=_IDEAS_UTC.hour, minute=_IDEAS_UTC.minute,
+                      second=0, microsecond=0)
+    if run <= now:
+        run += timedelta(days=1)
+    while run.weekday() >= 5:
+        run += timedelta(days=1)
+    return run
+
+
+async def configure_catalyst_ideas(user_id: str, enabled: bool = True) -> None:
+    """Provision, refresh, or pause the daily catalyst-idea run."""
+    if enabled:
+        await schedule(
+            user_id, key=CATALYST_IDEAS, name="Catalyst ideas — daily scan",
+            message=_IDEAS_MESSAGE, run_at=_next_ideas_utc(),
+            recurrence="weekdays", activity_gated=True, enforce_limits=False,
+        )
+    await set_enabled(user_id, CATALYST_IDEAS, enabled)
+    logger.info(f"Catalyst ideas for {user_id}: enabled={enabled}")
 
 
 # ── heartbeat: the passive analyst in your pocket ────────────────────────────
