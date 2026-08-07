@@ -1,6 +1,6 @@
 ---
 name: finch_api
-description: Access the user's connected brokerage accounts — sync and query transaction history, get portfolio holdings, and manage account data. All brokerage operations go through the Finch backend which holds the credentials.
+description: "The user's Finch account. SCHEDULE AUTOMATIONS from any chat — schedule_job() creates a wakeup (one-off or recurring) that runs an instruction later; use it whenever the user says remind me / every morning / check daily / alert me when / keep an eye on. Also: propose catalyst trade ideas and read their scorecard, request one-click trade approval, report insights to the activity ledger, send the morning brief, search past chats, and sync/query connected brokerage transactions and holdings."
 metadata:
   emoji: "🏦"
   category: brokerage

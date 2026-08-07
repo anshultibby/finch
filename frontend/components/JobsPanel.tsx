@@ -420,6 +420,44 @@ const REPEAT_OPTIONS: { value: Recurrence; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
 ];
 
+// Starters — a blank textarea doesn't tell you what an automation can be. Each
+// fills the whole form, so one click gets you to a working automation you can
+// then edit. `hour` is local 24h; `null` recurrence means one-off.
+const STARTERS: {
+  label: string; emoji: string; message: string;
+  recurrence: Recurrence; hour: number; name: string;
+}[] = [
+  {
+    emoji: '☀️', label: 'Morning watchlist check', recurrence: 'weekdays', hour: 8,
+    name: 'Morning watchlist check',
+    message: "Check my watchlist and holdings for overnight moves, news since yesterday, and anything reporting earnings in the next few days. Give me a tight summary — only what actually matters, and say so if it's a quiet morning.",
+  },
+  {
+    emoji: '🔔', label: 'Price alert', recurrence: 'hourly', hour: 9,
+    name: 'NVDA price alert',
+    message: "Check NVDA's current price. If it drops below $200, notify me with a one-line explanation of why it moved. If it hasn't, do nothing and reply with a single short line — don't notify me.",
+  },
+  {
+    emoji: '📊', label: 'Weekly portfolio review', recurrence: 'weekly', hour: 17,
+    name: 'Weekly portfolio review',
+    message: 'Review my portfolio for the week: what moved and why, how my positions performed against SPY, any position that has grown into a concentration risk, and one thing worth considering next week.',
+  },
+  {
+    emoji: '📰', label: 'Earnings watch', recurrence: 'daily', hour: 7,
+    name: 'Earnings watch',
+    message: 'Check which of my holdings or watchlist names report earnings today or tomorrow. For each, give me the consensus estimate, what the stock has done into the print, and what to watch for. Skip silently if none are reporting.',
+  },
+];
+
+function whenAtHour(hour: number): string {
+  // Next occurrence of `hour` local time, as a datetime-local string.
+  const d = new Date();
+  d.setHours(hour, 0, 0, 0);
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function defaultWhen(): string {
   // local datetime-local string for "next hour, on the hour"
   const d = new Date(Date.now() + 60 * 60 * 1000);
@@ -464,6 +502,27 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
         </div>
 
         <div className="px-6 pb-6 space-y-4">
+          {/* starters */}
+          <div>
+            <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">Start from an example</label>
+            <div className="flex flex-wrap gap-1.5">
+              {STARTERS.map(s => (
+                <button
+                  key={s.label}
+                  onClick={() => {
+                    setMessage(s.message);
+                    setRecurrence(s.recurrence);
+                    setWhen(whenAtHour(s.hour));
+                    setName(s.name);
+                  }}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[13px] text-gray-600 hover:border-emerald-300 hover:text-gray-900 transition-colors"
+                >
+                  <span className="mr-1">{s.emoji}</span>{s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* message */}
           <div>
             <label className="block text-[13px] font-semibold text-gray-700 mb-1.5">What should Finch do?</label>
