@@ -3,4 +3,5 @@ from .client import (
     schedule_job, list_jobs, update_job, cancel_job,
     request_trade_approval, send_morning_brief, report_insight,
     list_events, search_past_chats,
+    propose_idea, list_ideas,
 )

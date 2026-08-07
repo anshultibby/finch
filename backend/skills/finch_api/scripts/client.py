@@ -274,3 +274,61 @@ def send_morning_brief(subject, markdown, chat_id=None):
     body = {"subject": subject, "markdown": markdown, "chat_id": chat_id}
     body = {k: v for k, v in body.items() if v is not None}
     return _request("POST", "/brief/send", body=body)
+
+
+# ── Trade ideas ──────────────────────────────────────────────────────────────
+
+def propose_idea(symbol, catalyst_type, catalyst_summary, thesis,
+                 entry_ref, stop, target, horizon_days=3, conviction=3,
+                 bear_case=None, sources=None, direction="long"):
+    """Propose a short-term, catalyst-driven trade idea for the user to decide on.
+
+    The idea is recorded and scored on its horizon **whether or not the user
+    approves it** — that's how we learn if the ideas are any good, separately
+    from whether they got traded. So propose the ones you believe in and skip
+    the ones you don't; a rejected idea still counts against your hit rate.
+
+    Args:
+      symbol:           ticker, e.g. "NVDA"
+      catalyst_type:    earnings_beat | earnings_miss | guidance_raise |
+                        guidance_cut | analyst_upgrade | analyst_downgrade |
+                        m_and_a | fda | contract_win | product_launch |
+                        legal_regulatory | insider_buying | index_inclusion |
+                        macro | other
+      catalyst_summary: the specific headline, QUOTED — not a paraphrase
+      thesis:           why this moves the stock over the horizon
+      entry_ref:        the price RIGHT NOW (from a tool call this run). This is
+                        the scoring reference, not a fill.
+      stop:             level that invalidates the thesis
+      target:           where you'd take profit
+      horizon_days:     1-15 trading days (default 3)
+      conviction:       1-5 (bear_case is REQUIRED above 3)
+      sources:          [{"title": ..., "url": ...}] backing the catalyst
+      direction:        "long" (default) or "short"
+
+    Levels must be ordered stop < entry_ref < target for a long (reversed for a
+    short) or the call is rejected.
+
+    Returns the created idea, including its id.
+    """
+    body = {"symbol": symbol, "catalyst_type": catalyst_type,
+            "catalyst_summary": catalyst_summary, "thesis": thesis,
+            "entry_ref": entry_ref, "stop": stop, "target": target,
+            "horizon_days": horizon_days, "conviction": conviction,
+            "bear_case": bear_case, "sources": sources or [],
+            "direction": direction}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", "/ideas", body=body)
+
+
+def list_ideas(limit=100):
+    """List the user's trade ideas with the scorecard.
+
+    Returns {"ideas": [...], "scorecard": {...}, "by_catalyst": {...}}.
+    `scorecard` covers ALL ideas (traded or not): hit_rate, avg_return_pct,
+    avg_alpha_pct (return over SPY — the number that matters), avg_r_multiple.
+    `by_catalyst` breaks the same metrics down by catalyst_type, which tells you
+    which catalysts actually work for this account. Read this before proposing:
+    lean into the catalyst types that are earning alpha, drop the ones that aren't.
+    """
+    return _request("GET", "/ideas", params={"limit": limit})
