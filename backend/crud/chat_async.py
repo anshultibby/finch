@@ -3,10 +3,10 @@ Async CRUD operations for chats and chat messages
 """
 from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, exists, or_, and_
+from sqlalchemy import select, func, desc, or_, and_
 from sqlalchemy.orm import selectinload, load_only
 from models.chat_models import Chat, ChatMessageDB as ChatMessage
-from models.jobs import ScheduledJob
+from models.jobs import JOB_CHAT_PREFIX
 from datetime import datetime
 
 
@@ -56,33 +56,45 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
     return list(result.scalars().all())
 
 
+def job_chat_predicate():
+    """SQL test for "this chat is an automation run".
+
+    Each run executes in its own chat, id'd `job-{job_id}-r{run_count}` by
+    job_scheduler._run_chat_id, so a run's transcript stays isolated from the
+    user's own chats. User chats are uuid4, so the prefix can't collide.
+
+    Kept next to the prefix constant rather than inlined: the sidebar filter
+    and the id format drifted apart once and silently emptied the sidebar.
+    """
+    return Chat.chat_id.like(f"{JOB_CHAT_PREFIX}%")
+
+
 async def get_user_chats_with_preview(
     db: AsyncSession, user_id: str, limit: int = 50, offset: int = 0,
-    search: Optional[str] = None, max_length: int = 100
+    search: Optional[str] = None, max_length: int = 100,
+    source: str = "user",
 ) -> List[dict]:
     """
     Get all chats for a user with last message preview.
     Uses a single optimized query with subquery to avoid N+1 queries.
     Supports offset pagination and title search.
+
+    `source` picks which half of the sidebar to fill: "user" for chats the
+    user started, "automation" for automation-run transcripts, "all" for both.
     """
     from sqlalchemy import func, literal_column
     from sqlalchemy.sql import text
 
-    # Automation runs get their own chat (job.chat_id, or the synthetic
-    # "job-{id}" fallback in job_scheduler.run_job) so the agent's execution
-    # transcript is isolated per run. Those are surfaced in the Automations
-    # panel, not the chat sidebar, so exclude them here.
-    is_job_chat = exists().where(
-        or_(
-            ScheduledJob.chat_id == Chat.chat_id,
-            func.concat('job-', ScheduledJob.id) == Chat.chat_id,
-        )
-    )
+    is_job_chat = job_chat_predicate()
 
     query = (
         select(Chat)
-        .where(Chat.user_id == user_id, Chat.parent_chat_id.is_(None), ~is_job_chat)
+        .where(Chat.user_id == user_id, Chat.parent_chat_id.is_(None))
     )
+    if source == "user":
+        query = query.where(~is_job_chat)
+    elif source == "automation":
+        query = query.where(is_job_chat)
     if search:
         query = query.where(Chat.title.ilike(f"%{search}%"))
     query = query.order_by(Chat.updated_at.desc()).offset(offset).limit(limit)

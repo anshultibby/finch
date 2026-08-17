@@ -25,7 +25,7 @@ from typing import List, Optional
 from sqlalchemy import select, func, update
 
 from core.database import get_db_session
-from models.jobs import ScheduledJob
+from models.jobs import ScheduledJob, JOB_CHAT_PREFIX
 from schemas.jobs import Job, JobCreate, JobUpdate, JobList
 from utils.logger import get_logger
 
@@ -49,7 +49,7 @@ def _run_chat_id(job_id: str, run_count: int) -> str:
     """Chat a run executes in. Keyed by run_count so a retry of a failed run
     (run_count unchanged) resumes that run's chat, while the next successful
     cycle moves to a new one."""
-    return f"job-{job_id}-r{run_count or 0}"
+    return f"{JOB_CHAT_PREFIX}{job_id}-r{run_count or 0}"
 
 
 def next_occurrence(after: datetime, recurrence: str) -> datetime:

@@ -13,6 +13,14 @@ from sqlalchemy.sql import func
 from core.database import Base
 
 
+# Every automation run executes in its own chat whose id starts with this.
+# Minted by job_scheduler._run_chat_id; the chat sidebar keys off it to split
+# run transcripts out of the user's own chats. Lives here so the producer and
+# the consumers share one definition — they drifted apart once already and
+# silently emptied the sidebar (see tests/test_job_chat_ids.py).
+JOB_CHAT_PREFIX = "job-"
+
+
 class ScheduledJob(Base):
     __tablename__ = "scheduled_jobs"
 
