@@ -69,3 +69,15 @@ export function formatRelativeTime(dateStr: string): string {
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+/**
+ * How a past run is stamped in a list: "12m ago" while that still means
+ * something, an actual date and time once it doesn't. A daily automation's
+ * runs are told apart by their clock time, so keep it past the day boundary.
+ * Mirrors runTimestamp() in the web app's lib/utils/time.
+ */
+export function formatRunTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (Date.now() - date.getTime() < 86_400_000) return formatRelativeTime(dateStr);
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}

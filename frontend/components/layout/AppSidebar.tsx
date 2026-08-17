@@ -8,7 +8,7 @@ import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
 import { useCredits } from '@/contexts/CreditsContext';
 import { usePendingTrades } from '@/hooks/usePendingTrades';
-import { relativeTime } from '@/lib/utils/time';
+import { runTimestamp, exactTime } from '@/lib/utils/time';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -515,13 +515,13 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                     const isActive = run.chat_id === currentChatId && currentView.type === 'chat';
                     return (
                       <button key={run.chat_id} onClick={() => onSelectChat(run.chat_id)}
-                        title={`${run.title || 'Automation'} — run #${run.run_number ?? 0}`}
+                        title={`${run.title || 'Automation'} — ${exactTime(run.updated_at)}`}
                         className={`w-full text-left rounded-lg px-2 py-1.5 transition-colors ${
                           isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                         }`}>
                         <span className="block truncate text-sm">{run.title || 'Automation'}</span>
                         <span className="block truncate text-[11px] text-gray-400">
-                          run #{run.run_number ?? 0} · {relativeTime(run.updated_at)}
+                          {runTimestamp(run.updated_at)}
                         </span>
                       </button>
                     );

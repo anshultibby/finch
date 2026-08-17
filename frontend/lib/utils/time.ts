@@ -16,3 +16,13 @@ export function relativeTime(iso: string): string {
 export function exactTime(iso: string): string {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+
+/**
+ * How a past run is stamped in a list: "12m ago" while that still means
+ * something, an actual date and time once it doesn't. A daily automation's
+ * runs are told apart by their clock time, so keep it past the day boundary.
+ */
+export function runTimestamp(iso: string): string {
+  const age = Date.now() - new Date(iso).getTime();
+  return age < 86_400_000 ? relativeTime(iso) : exactTime(iso);
+}

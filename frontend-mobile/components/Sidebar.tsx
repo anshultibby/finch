@@ -10,7 +10,7 @@ import {
   ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2, LogIn, LayoutGrid, Clock,
 } from 'lucide-react-native';
 import FinchLogo from '@/components/FinchLogo';
-import { COLORS } from '@/lib/constants';
+import { COLORS, formatRunTime } from '@/lib/constants';
 
 const SIDEBAR_WIDTH = 308;
 
@@ -271,7 +271,7 @@ export default function Sidebar() {
                     {run.title || 'Automation'}
                   </Text>
                   <Text style={styles.runMeta} numberOfLines={1}>
-                    run #{run.run_number ?? 0}
+                    {formatRunTime(run.updated_at)}
                   </Text>
                 </View>
               </TouchableOpacity>
