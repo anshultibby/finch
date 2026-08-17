@@ -303,6 +303,12 @@ export interface UserChatsResponse {
     last_message?: string;
     is_public?: boolean;
     share_token?: string | null;
+    // Present only on automation-run chats (source=automation|all). A run has
+    // no title of its own, so `title` is filled from `job_name`.
+    job_id?: string;
+    job_name?: string;
+    system_key?: string | null;
+    run_number?: number;
   }>;
 }
 

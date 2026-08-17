@@ -8,19 +8,10 @@ import {
 import { jobsApi, type ScheduledJob, type JobListResponse, type Recurrence } from '@/lib/api';
 import { useNavigation } from '@/contexts/NavigationContext';
 import PageHeader from '@/components/ui/PageHeader';
+import { relativeTime, exactTime } from '@/lib/utils/time';
 
 const RECURRENCE_LABEL: Record<string, string> = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', weekdays: 'Weekdays' };
 
-function relativeTime(iso: string): string {
-  const diff = new Date(iso).getTime() - Date.now();
-  const abs = Math.abs(diff);
-  const m = Math.round(abs / 60000), h = Math.round(abs / 3600000), d = Math.round(abs / 86400000);
-  const rel = m < 1 ? 'now' : m < 60 ? `${m}m` : h < 24 ? `${h}h` : `${d}d`;
-  return diff >= 0 ? `in ${rel}` : `${rel} ago`;
-}
-function exactTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
 
 export default function JobsPanel() {
   const [data, setData] = useState<JobListResponse | null>(null);

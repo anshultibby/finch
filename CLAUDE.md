@@ -74,6 +74,7 @@ Both frontends call the same backend. The API function names in `lib/api.ts` sho
 | Message actions (copy, feedback) | ✅ | ✅ | |
 | Tool call expansion (view output) | ✅ | ✅ | |
 | Sidebar/drawer navigation | ✅ | ✅ | |
+| "Automation runs" sidebar section | ✅ | ✅ | Collapsed by default, fetched on first open; `GET /chat/user/{id}/chats?source=automation`. Run chats are `job-{job_id}-r{n}` and carry no title, so the automation's name stands in |
 | Chat file uploads (PDF/CSV) | ✅ | ✅ | |
 | Live task checklist (update_todos) | ✅ | ✅ | |
 | Live thinking stream | ✅ | ✅ | Mobile shows pulsing tail line |

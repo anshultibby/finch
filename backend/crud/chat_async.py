@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, and_
 from sqlalchemy.orm import selectinload, load_only
 from models.chat_models import Chat, ChatMessageDB as ChatMessage
-from models.jobs import JOB_CHAT_PREFIX
+from models.jobs import ScheduledJob, JOB_CHAT_PREFIX
+import re
 from datetime import datetime
 
 
@@ -54,6 +55,45 @@ async def get_user_chats(db: AsyncSession, user_id: str, limit: int = 50) -> Lis
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+_RUN_CHAT_RE = re.compile(rf"^{re.escape(JOB_CHAT_PREFIX)}(?P<job_id>.+)-r(?P<run>\d+)$")
+
+
+async def job_run_labels(db: AsyncSession, chat_ids: List[str]) -> dict:
+    """Map run-chat id -> the automation that produced it.
+
+    Run chats never get a title: titling is kicked off by the client after the
+    user's first message, and a run has no client and no user. Without this the
+    sidebar would show a column of "New Chat". One extra query, only for the
+    automation section.
+    """
+    parsed = {}
+    for cid in chat_ids:
+        m = _RUN_CHAT_RE.match(cid)
+        if m:
+            parsed[cid] = (m.group("job_id"), int(m.group("run")))
+    if not parsed:
+        return {}
+
+    rows = (await db.execute(
+        select(ScheduledJob.id, ScheduledJob.name, ScheduledJob.system_key)
+        .where(ScheduledJob.id.in_({jid for jid, _ in parsed.values()}))
+    )).all()
+    jobs = {r.id: r for r in rows}
+
+    labels = {}
+    for cid, (jid, run) in parsed.items():
+        job = jobs.get(jid)
+        labels[cid] = {
+            "job_id": jid,
+            # Deleted automations keep their run transcripts; name them as such
+            # rather than dropping the row.
+            "job_name": job.name if job else "Deleted automation",
+            "system_key": job.system_key if job else None,
+            "run_number": run,
+        }
+    return labels
 
 
 def job_chat_predicate():
@@ -129,6 +169,8 @@ async def get_user_chats_with_preview(
     else:
         last_messages_by_chat = {}
     
+    labels = {} if source == "user" else await job_run_labels(db, [c.chat_id for c in chats])
+
     # Format results with previews
     chats_list = []
     for chat in chats:
@@ -139,9 +181,10 @@ async def get_user_chats_with_preview(
             if len(last_message) > max_length:
                 last_message = last_message[:max_length] + "..."
         
+        label = labels.get(chat.chat_id)
         chats_list.append({
             "chat_id": chat.chat_id,
-            "title": chat.title,
+            "title": chat.title or (label["job_name"] if label else None),
             "icon": chat.icon,
             "model": chat.model,
             "created_at": chat.created_at.isoformat(),
@@ -149,6 +192,7 @@ async def get_user_chats_with_preview(
             "last_message": last_message,
             "is_public": chat.is_public,
             "share_token": chat.share_token,
+            **(label or {}),
         })
     
     return chats_list

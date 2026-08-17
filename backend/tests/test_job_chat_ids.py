@@ -17,7 +17,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
-from crud.chat_async import job_chat_predicate, get_user_chats_with_preview
+from crud.chat_async import (
+    job_chat_predicate, get_user_chats_with_preview, job_run_labels,
+)
 from models.chat_models import Chat
 from models.jobs import JOB_CHAT_PREFIX
 from services.job_scheduler import _run_chat_id
@@ -61,6 +63,48 @@ def test_predicate_compiles_against_live_columns():
     """Referencing a dropped column (as `ScheduledJob.chat_id` was) raises here."""
     sql = _compile(select(Chat.chat_id).where(~job_chat_predicate()))
     assert "NOT" in sql and JOB_CHAT_PREFIX in sql
+
+
+# ── labelling run chats for the sidebar section ──────────────────────────────
+
+class _JobRow:
+    def __init__(self, id, name, system_key=None):
+        self.id, self.name, self.system_key = id, name, system_key
+
+
+class _JobsDB:
+    """Returns a fixed set of automations for any IN (...) lookup."""
+    def __init__(self, rows): self._rows = rows
+
+    async def execute(self, stmt):
+        rows = self._rows
+
+        class _R:
+            def all(self): return rows
+        return _R()
+
+
+async def test_run_chats_are_labelled_with_their_automation():
+    """Run chats have no title of their own — the job name stands in."""
+    labels = await job_run_labels(
+        _JobsDB([_JobRow("abc", "Catalyst ideas — daily scan", "catalyst_ideas")]),
+        [_run_chat_id("abc", 3)],
+    )
+    label = labels[_run_chat_id("abc", 3)]
+    assert label["job_name"] == "Catalyst ideas — daily scan"
+    assert label["run_number"] == 3
+    assert label["job_id"] == "abc"
+
+
+async def test_user_chats_get_no_label():
+    """A uuid4 chat id must not parse as a run, or it'd be mislabelled."""
+    assert await job_run_labels(_JobsDB([]), ["8f45b8e3-8115-4424-ba32-dac079b6b177"]) == {}
+
+
+async def test_run_of_a_deleted_automation_still_labels():
+    """Deleting an automation leaves its transcripts; they must not go blank."""
+    labels = await job_run_labels(_JobsDB([]), [_run_chat_id("gone", 0)])
+    assert labels[_run_chat_id("gone", 0)]["job_name"] == "Deleted automation"
 
 
 @pytest.mark.parametrize("source,expect_negated", [("user", True), ("automation", False)])

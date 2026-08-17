@@ -8,6 +8,7 @@ import FinchLogo from '@/components/shared/FinchLogo';
 import type { View } from '@/contexts/NavigationContext';
 import { useCredits } from '@/contexts/CreditsContext';
 import { usePendingTrades } from '@/hooks/usePendingTrades';
+import { relativeTime } from '@/lib/utils/time';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -21,6 +22,10 @@ interface Chat {
   updated_at: string;
   is_public?: boolean;
   share_token?: string | null;
+  // Automation-run chats only.
+  job_id?: string;
+  job_name?: string;
+  run_number?: number;
 }
 
 interface AppSidebarProps {
@@ -145,6 +150,12 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     return mins < 60 ? `${mins}m left` : `${Math.floor(mins / 60)}h left`;
   })();
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
+  // Automation runs are noisy and rarely the thing you came for — collapsed by
+  // default, and not fetched at all until the section is opened.
+  const [runsCollapsed, setRunsCollapsed] = useState(true);
+  const [runs, setRuns] = useState<Chat[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsLoaded, setRunsLoaded] = useState(false);
   const { credits, loading: creditsLoading, openModal: openCreditsModal } = useCredits();
   const [searchQuery, setSearchQuery] = useState('');
   const [hasMore, setHasMore] = useState(false);
@@ -203,6 +214,23 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
     } catch { /* ignore */ } finally { setIsLoadingMore(false); }
   }, [userId, isLoadingMore, hasMore, searchQuery, chats.length]);
 
+  const loadRuns = useCallback(async () => {
+    if (!userId) return;
+    setRunsLoading(true);
+    try {
+      const response = await chatApi.getUserChats(userId, { limit: PAGE_SIZE, source: 'automation' });
+      setRuns(response.chats || []);
+      setRunsLoaded(true);
+    } catch { /* ignore */ } finally { setRunsLoading(false); }
+  }, [userId]);
+
+  const toggleRuns = useCallback(() => {
+    setRunsCollapsed(c => {
+      if (c && !runsLoaded) loadRuns();   // first open pays for the fetch
+      return !c;
+    });
+  }, [runsLoaded, loadRuns]);
+
   const updateChatTitle = useCallback((chatId: string, title: string, icon: string) => {
     setChats(prev => {
       const exists = prev.find(c => c.chat_id === chatId);
@@ -228,6 +256,8 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   useImperativeHandle(ref, () => ({ updateChatTitle }), [updateChatTitle]);
 
   useEffect(() => { loadChats(searchQuery); }, [loadChats, refreshTrigger]);
+  // Keep an open run list current; a closed one stays unfetched.
+  useEffect(() => { if (!runsCollapsed) loadRuns(); }, [refreshTrigger]);
   useEffect(() => {
     if (currentChatId) {
       const timer = setTimeout(() => loadChats(searchQuery), 100);
@@ -455,6 +485,48 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
                     )}
                   </div>
                 </>
+              )}
+            </div>
+          )}
+
+          {/* Automation runs — one transcript per run, collapsed by default */}
+          {expanded && (
+            <div className="flex flex-col flex-shrink-0 border-t border-gray-200 pt-1 pb-2">
+              <button onClick={toggleRuns}
+                aria-expanded={!runsCollapsed}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors flex-shrink-0">
+                <span>Automation runs</span>
+                <svg className={`w-3 h-3 transition-transform ${runsCollapsed ? '' : 'rotate-90'}`}
+                  fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M7.293 4.707a1 1 0 010 1.414L3.414 10l3.879 3.879a1 1 0 01-1.414 1.414l-4.586-4.586a1 1 0 010-1.414l4.586-4.586a1 1 0 011.414 0z" clipRule="evenodd" transform="rotate(180 10 10)" />
+                </svg>
+              </button>
+              {!runsCollapsed && (
+                <div className="overflow-y-auto max-h-56 px-2 space-y-0.5">
+                  {runsLoading && runs.length === 0 && (
+                    <div className="flex justify-center py-3">
+                      <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                    </div>
+                  )}
+                  {!runsLoading && runs.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-gray-400">No runs yet</div>
+                  )}
+                  {runs.map(run => {
+                    const isActive = run.chat_id === currentChatId && currentView.type === 'chat';
+                    return (
+                      <button key={run.chat_id} onClick={() => onSelectChat(run.chat_id)}
+                        title={`${run.title || 'Automation'} — run #${run.run_number ?? 0}`}
+                        className={`w-full text-left rounded-lg px-2 py-1.5 transition-colors ${
+                          isActive ? 'bg-white shadow-sm border border-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                        }`}>
+                        <span className="block truncate text-sm">{run.title || 'Automation'}</span>
+                        <span className="block truncate text-[11px] text-gray-400">
+                          run #{run.run_number ?? 0} · {relativeTime(run.updated_at)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}

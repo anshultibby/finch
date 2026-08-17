@@ -7,7 +7,7 @@ import { useDrawer } from '@/contexts/DrawerContext';
 import { chatApi } from '@/lib/api';
 import {
   X, SquarePen, Search, Star, BarChart3, Wallet, Settings,
-  ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2, LogIn, LayoutGrid,
+  ChevronDown, MessageSquare, MoreHorizontal, Share2, Pencil, Trash2, LogIn, LayoutGrid, Clock,
 } from 'lucide-react-native';
 import FinchLogo from '@/components/FinchLogo';
 import { COLORS } from '@/lib/constants';
@@ -24,6 +24,8 @@ interface ChatItem {
   updated_at: string;
   is_public?: boolean;
   share_token?: string | null;
+  // Automation-run chats only; `title` is filled from the automation's name.
+  run_number?: number;
 }
 
 export default function Sidebar() {
@@ -36,6 +38,10 @@ export default function Sidebar() {
   const [visible, setVisible] = useState(false);
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [recentsOpen, setRecentsOpen] = useState(true);
+  // Automation runs sit in their own section, shut until asked for.
+  const [runs, setRuns] = useState<ChatItem[]>([]);
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [runsLoaded, setRunsLoaded] = useState(false);
   const [menuChat, setMenuChat] = useState<ChatItem | null>(null);
   const [renameTarget, setRenameTarget] = useState<ChatItem | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -63,6 +69,22 @@ export default function Sidebar() {
       const data = await chatApi.getUserChats(user.id);
       setChats(data.chats || []);
     } catch {}
+  };
+
+  const fetchRuns = async () => {
+    if (!user) return;
+    try {
+      const data = await chatApi.getUserChats(user.id, { source: 'automation' });
+      setRuns(data.chats || []);
+      setRunsLoaded(true);
+    } catch {}
+  };
+
+  const toggleRuns = () => {
+    setRunsOpen(o => {
+      if (!o && !runsLoaded) fetchRuns();   // first open pays for the fetch
+      return !o;
+    });
   };
 
   const go = (path: string) => {
@@ -219,7 +241,46 @@ export default function Sidebar() {
             {chats.length === 0 && <Text style={styles.emptyText}>No chats yet</Text>}
           </ScrollView>
         )}
-        {!recentsOpen && <View style={{ flex: 1 }} />}
+
+        {/* Automation runs (collapsed by default) */}
+        <TouchableOpacity
+          style={styles.sectionHeader}
+          onPress={toggleRuns}
+          activeOpacity={0.6}
+        >
+          <Text style={styles.sectionTitle}>Automation runs</Text>
+          <ChevronDown
+            size={15}
+            color={COLORS.gray400}
+            style={{ transform: [{ rotate: runsOpen ? '0deg' : '-90deg' }] }}
+          />
+        </TouchableOpacity>
+
+        {runsOpen && (
+          <ScrollView style={styles.runList} showsVerticalScrollIndicator={false}>
+            {runs.slice(0, 40).map((run) => (
+              <TouchableOpacity
+                key={run.chat_id}
+                style={styles.chatRowMain}
+                onPress={() => go(`/(tabs)/chat/${run.chat_id}`)}
+                activeOpacity={0.6}
+              >
+                <Clock size={14} color={COLORS.gray400} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.chatTitle} numberOfLines={1}>
+                    {run.title || 'Automation'}
+                  </Text>
+                  <Text style={styles.runMeta} numberOfLines={1}>
+                    run #{run.run_number ?? 0}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            {runsLoaded && runs.length === 0 && <Text style={styles.emptyText}>No runs yet</Text>}
+          </ScrollView>
+        )}
+
+        {!recentsOpen && !runsOpen && <View style={{ flex: 1 }} />}
 
         {/* Account footer */}
         <View style={styles.footer}>
@@ -376,6 +437,18 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 10,
     marginTop: 2,
+  },
+  runList: {
+    // Bounded, unlike Recents: the run log is long and shouldn't crowd out
+    // the chats above it.
+    maxHeight: 220,
+    paddingHorizontal: 10,
+    marginTop: 2,
+  },
+  runMeta: {
+    fontSize: 11,
+    color: COLORS.gray400,
+    marginTop: 1,
   },
   chatRow: {
     flexDirection: 'row',

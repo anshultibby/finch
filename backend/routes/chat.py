@@ -354,14 +354,20 @@ async def list_user_chats(
     limit: int = 50,
     offset: int = 0,
     search: str | None = None,
+    source: str = "user",
     authenticated_user_id: str = Depends(get_current_user_id),
 ):
     """
-    List all chats for a user. Supports offset pagination and title search.
+    List a user's chats. Supports offset pagination and title search.
+
+    `source` picks which sidebar section to fill: "user" (chats the user
+    started), "automation" (one transcript per automation run), or "all".
     """
+    if source not in ("user", "automation", "all"):
+        raise HTTPException(status_code=422, detail="source must be user, automation, or all")
     await verify_user_access(user_id, authenticated_user_id)
     try:
-        chats = await chat_service.get_user_chats(user_id, limit, offset=offset, search=search)
+        chats = await chat_service.get_user_chats(user_id, limit, offset=offset, search=search, source=source)
         return {
             "user_id": user_id,
             "chats": chats,

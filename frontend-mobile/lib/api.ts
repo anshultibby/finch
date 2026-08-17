@@ -291,8 +291,9 @@ export const chatApi = {
     return response.data;
   },
 
-  getUserChats: async (userId: string): Promise<UserChatsResponse> => {
-    const response = await api.get<UserChatsResponse>(`/chat/user/${userId}/chats`);
+  getUserChats: async (userId: string, opts?: { source?: 'user' | 'automation' | 'all' }): Promise<UserChatsResponse> => {
+    const qs = opts?.source ? `?source=${opts.source}` : '';
+    const response = await api.get<UserChatsResponse>(`/chat/user/${userId}/chats${qs}`);
     return response.data;
   },
 
