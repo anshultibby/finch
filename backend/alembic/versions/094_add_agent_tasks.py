@@ -32,8 +32,10 @@ def upgrade():
         sa.Column("symbols", JSONB(), nullable=True),
         sa.Column("opened_on", sa.Date(), nullable=True),
         sa.Column("review_on", sa.Date(), nullable=True),
-        sa.Column("chat_id", UUID(as_uuid=True),
-                  sa.ForeignKey("chats.id", ondelete="SET NULL"), nullable=True),
+        # chats' primary key is `chat_id`, a varchar — job runs use readable ids
+        # like "job-9447c340b486-r27", so this is not a UUID column.
+        sa.Column("chat_id", sa.String(),
+                  sa.ForeignKey("chats.chat_id", ondelete="SET NULL"), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.UniqueConstraint("user_id", "slug", name="uq_agent_tasks_user_slug"),

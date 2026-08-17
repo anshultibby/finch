@@ -40,7 +40,9 @@ class AgentTask(Base):
     symbols = Column(JSONB, nullable=True)
     opened_on = Column(Date, nullable=True)
     review_on = Column(Date, nullable=True, index=True)
-    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True)
+    # chats' PK is `chat_id`, a varchar — job runs use ids like
+    # "job-9447c340b486-r27", so this is deliberately not a UUID.
+    chat_id = Column(String, ForeignKey("chats.chat_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

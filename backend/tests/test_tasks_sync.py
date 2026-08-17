@@ -146,6 +146,30 @@ async def test_non_task_paths_are_ignored(monkeypatch):
     assert called is False
 
 
+# ── schema declarations must match the real database ─────────────────────────
+
+def test_chat_id_is_a_varchar_fk_to_chats_chat_id():
+    """This exact declaration failed a production migration: `chats` has no `id`
+    column — its PK is `chat_id`, a varchar, because job runs use ids like
+    "job-9447c340b486-r27". Copied from StockAnalysis, which had it wrong too."""
+    from sqlalchemy import String
+    from models.tasks import AgentTask
+
+    col = AgentTask.__table__.c.chat_id
+    assert isinstance(col.type, String)
+    fk = list(col.foreign_keys)[0]
+    assert fk.target_fullname == "chats.chat_id"
+
+
+def test_stock_analysis_chat_id_matches_the_database_too():
+    from sqlalchemy import String
+    from models.brokerage import StockAnalysis
+
+    col = StockAnalysis.__table__.c.chat_id
+    assert isinstance(col.type, String)
+    assert list(col.foreign_keys)[0].target_fullname == "chats.chat_id"
+
+
 @pytest.mark.asyncio
 async def test_a_db_failure_never_breaks_the_write(monkeypatch):
     """The agent asked to write a file. The mirror is a side effect."""

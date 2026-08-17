@@ -175,7 +175,10 @@ class StockAnalysis(Base):
     filename = Column(String(200), nullable=True)
     title = Column(String(200), nullable=True)
     content = Column(Text, nullable=False)
-    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True)
+    # Matches the DB: migration 056 created this as a varchar FK to chats.chat_id.
+    # The declaration said UUID/chats.id, which is neither the real type nor a
+    # real column — harmless only because this table is written via raw SQL.
+    chat_id = Column(String, ForeignKey("chats.chat_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
