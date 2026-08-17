@@ -5,6 +5,7 @@ from sqlalchemy import Column, String, DateTime, Date, Text, Boolean, Integer, F
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from core.database import Base
+from models.encrypted import EncryptedText
 import uuid
 
 
@@ -50,7 +51,8 @@ class SnapTradeUser(Base):
 
     user_id = Column(String, primary_key=True, index=True)
     snaptrade_user_id = Column(String, unique=True, nullable=False, index=True)
-    snaptrade_user_secret = Column(Text, nullable=False)
+    # Encrypted at rest — see models/encrypted.py. Reads/writes are transparent.
+    snaptrade_user_secret = Column(EncryptedText, nullable=False)
     connected_account_ids = Column(Text, nullable=True)
     is_connected = Column(Boolean, default=False, nullable=False)
     brokerage_name = Column(String, nullable=True)
@@ -199,7 +201,8 @@ class UserAuthToken(Base):
     __tablename__ = "user_auth_tokens"
 
     user_id = Column(String, primary_key=True, index=True)
-    refresh_token = Column(Text, nullable=False)
+    # Encrypted at rest — see models/encrypted.py.
+    refresh_token = Column(EncryptedText, nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
