@@ -16,13 +16,14 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 
-from core.constants import Models
 from core.database import get_db_session
 from models.brokerage import UserWatchlist
+from services.insight_model import resolve_insight_model, thinking_off_kwargs
 
 logger = logging.getLogger(__name__)
 
-DIGEST_MODEL = Models.GLM_5_1
+# Model is resolved per user (see services.insight_model): this path sends the
+# user's actual holdings, so GLM is opt-in per tenant and off by default.
 
 _CACHE_TTL_SECONDS = 10 * 60
 _cache: Dict[str, Dict[str, Any]] = {}
@@ -152,7 +153,9 @@ async def _build_digest(user_id: str) -> Dict[str, Any]:
     prev_value = total_value - day_change_total
     day_change_pct = (day_change_total / prev_value * 100) if prev_value > 0 else 0.0
 
-    narrative = await _generate_narrative(mode, day_change_total, day_change_pct, top, spy)
+    narrative = await _generate_narrative(
+        user_id, mode, day_change_total, day_change_pct, top, spy
+    )
 
     result = {
         "success": True,
@@ -180,6 +183,7 @@ async def _fetch_headlines(symbol: str, limit: int = 3) -> List[str]:
 
 
 async def _generate_narrative(
+    user_id: str,
     mode: str,
     day_change: float,
     day_change_pct: float,
@@ -214,19 +218,18 @@ async def _generate_narrative(
 
     lines.append("\nWrite the 2-3 sentence 'Today' story.")
 
+    model = await resolve_insight_model(user_id)
     handler = LLMHandler(user_id=None, chat_id=None, agent_type="portfolio_digest")
     try:
         response = await handler.acompletion(
-            model=DIGEST_MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": "\n".join(lines)},
             ],
             stream=False,
             max_tokens=1000,
-            # Disable GLM's default server-side reasoning — it adds ~30s of
-            # latency and a short narration task doesn't need it.
-            extra_body={"thinking": {"type": "disabled"}},
+            **thinking_off_kwargs(model),
         )
         text = (response.choices[0].message.content or "").strip()
         if text:

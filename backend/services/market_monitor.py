@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from core.database import get_db_session
+from services.insight_model import filter_active_users
 from models.brokerage import PortfolioHoldingsCache, UserWatchlist
 from models.user import DeviceToken
 
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
-CHECK_INTERVAL_SECONDS = 5 * 60
+CHECK_INTERVAL_SECONDS = 15 * 60
 ALERT_BANDS = (5.0, 10.0)  # abs % move thresholds, escalating
 MAX_ALERTS_PER_USER_PER_DAY = 6
 
@@ -63,12 +64,20 @@ def _symbols_from_cached_portfolio(portfolio_data: dict) -> List[str]:
 
 
 async def _gather_user_symbols() -> Dict[str, Set[str]]:
-    """Map of user_id -> watched symbols, for users with a registered device."""
+    """Map of user_id -> watched symbols, for recently-active users with a device.
+
+    A registered device is not evidence of a live user — tokens outlive the
+    people who installed the app. Gating on recent activity too keeps the
+    every-few-minutes sweep off dormant accounts.
+    """
     async with get_db_session() as db:
         result = await db.execute(select(DeviceToken.user_id).distinct())
         user_ids = {row[0] for row in result.all()}
-        if not user_ids:
-            return {}
+    user_ids = await filter_active_users(user_ids)
+    if not user_ids:
+        return {}
+
+    async with get_db_session() as db:
 
         watched: Dict[str, Set[str]] = {uid: set() for uid in user_ids}
 

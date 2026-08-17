@@ -16,11 +16,14 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from core.constants import Models
+from services.insight_model import DEFAULT_INSIGHT_MODEL, thinking_off_kwargs
 
 logger = logging.getLogger(__name__)
 
-EXPLAINER_MODEL = Models.GLM_5_1
+# Symbol-scoped and cached across all users, so this can't be resolved per
+# tenant without shattering that cache — and it needs no holdings to do its
+# job, only a public quote and headlines. Flat US-hosted default instead.
+EXPLAINER_MODEL = DEFAULT_INSIGHT_MODEL
 
 # Cache entries live this long, and are also dropped if the live change% has
 # drifted more than _CACHE_DRIFT_PCT points from when the entry was generated.
@@ -181,11 +184,11 @@ async def _generate_explanation(
             ],
             stream=False,
             max_tokens=1000,
-            # GLM-5.1 reasons by default (Z.ai enables it server-side), which
+            # Thinking stays off for this short grounded task; on GLM that
             # takes ~40s — far too slow for a tap-to-explain UI. Disabling
             # thinking brings this to a few seconds with no quality loss on a
             # 2-sentence summarization task.
-            extra_body={"thinking": {"type": "disabled"}},
+            **thinking_off_kwargs(EXPLAINER_MODEL),
         )
         text = (response.choices[0].message.content or "").strip()
         if text:

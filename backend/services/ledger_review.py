@@ -3,11 +3,11 @@ Nightly ledger review — cheap general analysis of each user's watchlist +
 portfolio, written into the agent-activity ledger as an `insight` event.
 
 This is deliberately NOT an agent run (no tool loop, no sandbox): the stats
-are computed deterministically from one FMP batch-quote call, and a single
-GLM completion (thinking disabled, same pattern as the why-engine) narrates
-them. Cost is a fraction of a cent per user per day, so it can run for every
-user with symbols — it's what makes the "while you were gone" ledger feel
-alive even for users with no automations or trades.
+are computed deterministically from one FMP batch-quote call, and a
+single completion (thinking disabled, same pattern as the why-engine) narrates
+them. Cost is a fraction of a cent per active user per day — it's what makes
+the "while you were gone" ledger feel alive even for users with no automations
+or trades. The model is resolved per tenant; see services.insight_model.
 
 Dedup is DB-backed (one `insight` event per user per ET trading day), so
 overlapping dev/prod instances or restarts can't double-write.
@@ -24,17 +24,23 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, func
 
-from core.constants import Models
 from core.database import get_db_session
 from models.activity import AgentEvent
 from models.brokerage import PortfolioHoldingsCache, UserWatchlist
+from services.insight_model import (
+    filter_active_users,
+    resolve_insight_model,
+    thinking_off_kwargs,
+)
 
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
-REVIEW_MODEL = Models.GLM_5_1
-CHECK_INTERVAL_SECONDS = 10 * 60
+# The model is resolved per user (see services.insight_model) — GLM is opt-in.
+# The sweep only fires once per user per day, so a slow tick costs nothing but
+# saves 5 wake-ups an hour on a job that is idle outside the review window.
+CHECK_INTERVAL_SECONDS = 60 * 60
 MAX_SYMBOLS_PER_USER = 40
 MAX_REVIEWS_PER_SWEEP = 500  # global safety valve
 
@@ -72,10 +78,13 @@ def _holdings_from_cache(portfolio_data: dict) -> Dict[str, float]:
 
 
 async def _gather_users() -> Dict[str, Dict[str, float]]:
-    """user_id -> {symbol: quantity} for anyone with a watchlist or holdings.
+    """user_id -> {symbol: quantity} for recently-active users with symbols.
 
     Unlike the market monitor this does NOT require a push device — the
-    review lands in the in-app ledger, which every platform can read.
+    review lands in the in-app ledger, which every platform can read. It is
+    gated on recent activity though: a watchlist row from a user who churned
+    months ago would otherwise buy a review nobody opens, every trading day,
+    forever.
     """
     async with get_db_session() as db:
         users: Dict[str, Dict[str, float]] = {}
@@ -89,7 +98,9 @@ async def _gather_users() -> Dict[str, Dict[str, float]]:
             for sym, qty in _holdings_from_cache(data).items():
                 cur = users.setdefault(uid, {})
                 cur[sym] = max(cur.get(sym, 0.0), qty)
-    return users
+
+    active = await filter_active_users(users.keys())
+    return {uid: syms for uid, syms in users.items() if uid in active}
 
 
 async def _reviewed_today(user_ids: Set[str], day_start_utc: datetime) -> Set[str]:
@@ -137,7 +148,9 @@ def _stat_lines(symbols: Dict[str, float], quotes: Dict[str, dict]) -> List[str]
     return [r[1] for r in rows[:12]]
 
 
-async def _narrate(lines: List[str], spy_pct: Optional[float]) -> Optional[dict]:
+async def _narrate(
+    lines: List[str], spy_pct: Optional[float], user_id: str
+) -> Optional[dict]:
     from modules.agent.llm_handler import LLMHandler
 
     prompt = []
@@ -146,19 +159,18 @@ async def _narrate(lines: List[str], spy_pct: Optional[float]) -> Optional[dict]
     prompt.append("Symbols (sorted by move size):")
     prompt.extend(f"- {l}" for l in lines)
 
+    model = await resolve_insight_model(user_id)
     handler = LLMHandler(user_id=None, chat_id=None, agent_type="ledger_review")
     try:
         response = await handler.acompletion(
-            model=REVIEW_MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": "\n".join(prompt)},
             ],
             stream=False,
             max_tokens=500,
-            # Same as the digest: GLM's server-side reasoning adds ~30s of
-            # latency a short grounded narration doesn't need.
-            extra_body={"thinking": {"type": "disabled"}},
+            **thinking_off_kwargs(model),
         )
         text = (response.choices[0].message.content or "").strip()
         return _parse_review(text)
@@ -204,7 +216,7 @@ async def _review_user(user_id: str, symbols: Dict[str, float],
     lines = _stat_lines(symbols, quotes)
     if not lines:
         return False
-    narrated = await _narrate(lines, spy_pct)
+    narrated = await _narrate(lines, spy_pct, user_id)
     if not narrated:
         return False
     from services.agent_events import record_event
