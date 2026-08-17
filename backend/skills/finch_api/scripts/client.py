@@ -161,9 +161,63 @@ def schedule_job(message, run_at=None, in_minutes=None, recurrence=None, name=No
     return _request("POST", "/jobs", body=body)
 
 
-def list_jobs():
-    """List the user's scheduled jobs and how full their quota is."""
-    return _request("GET", "/jobs")
+# Fields that answer "what is scheduled, when, and is it healthy?" — which is
+# the only reason an agent lists jobs. Notably absent: `message`, the full
+# instruction body, which for a trading automation runs to several hundred words
+# per job and dominates the response.
+_JOB_SUMMARY_FIELDS = (
+    "id", "name", "run_at", "recurrence", "status",
+    "last_run_at", "run_count", "last_error", "system_key",
+)
+
+_JOB_DONE_STATUSES = {"done", "failed", "cancelled"}
+
+
+def list_jobs(active_only=True, include_message=False, message_chars=200):
+    """List the user's scheduled jobs and how full their quota is.
+
+    Returns a summary by default: id, name, run_at, recurrence, status, and
+    run health — enough to decide "is tomorrow's wakeup already scheduled?",
+    which is what this is almost always for.
+
+    Deliberately NOT the full instruction bodies. Those are several hundred
+    words each, and a finished automation accumulates dozens of rows, so the
+    unfiltered response ran to ~19K tokens — then sat in context and got re-sent
+    on every later call of the run.
+
+        active_only     drop done/failed/cancelled rows (default True)
+        include_message include instructions, truncated to message_chars
+                        (pass message_chars=None for untruncated — rarely right)
+
+    To read one job's full instruction, fetch it by id rather than listing.
+    """
+    result = _request("GET", "/jobs")
+    jobs = result.get("jobs") or []
+
+    if active_only:
+        jobs = [j for j in jobs if j.get("status") not in _JOB_DONE_STATUSES]
+
+    slim = []
+    for j in jobs:
+        row = {k: j[k] for k in _JOB_SUMMARY_FIELDS if k in j}
+        if include_message:
+            msg = j.get("message") or ""
+            if message_chars is not None and len(msg) > message_chars:
+                msg = msg[:message_chars] + "…"
+            row["message"] = msg
+        slim.append(row)
+
+    return {**result, "jobs": slim}
+
+
+def get_job(job_id):
+    """One job in full, including its instruction body. Use this when you
+    actually need to read or edit an instruction — not list_jobs()."""
+    jobs = (_request("GET", "/jobs").get("jobs") or [])
+    for j in jobs:
+        if j.get("id") == job_id:
+            return j
+    return None
 
 
 def update_job(job_id, message=None, run_at=None, recurrence=None,

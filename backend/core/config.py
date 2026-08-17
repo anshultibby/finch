@@ -261,6 +261,15 @@ class Settings(BaseSettings):
         default=400000,
         description="Hard cap on tool result size at persistence time (chars)"
     )
+    TOOL_READ_FILE_MAX_CHARS: int = Field(
+        default=40000,
+        description="Cap on a whole-file read_chat_file result (chars, ~10K tokens). "
+                    "Over this, head+tail are returned with a pointer to "
+                    "start_line/end_line. A tool result is re-sent on every "
+                    "subsequent LLM call of the run, so an uncapped read of a "
+                    "large file is charged dozens of times, not once. Explicit "
+                    "start_line/end_line ranges bypass the cap."
+    )
     COMPACTION_ENABLED: bool = Field(
         default=True,
         description="Summarize old history into a persistent compaction message when context is large"

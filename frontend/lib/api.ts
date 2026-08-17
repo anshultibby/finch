@@ -1370,6 +1370,44 @@ export const analysisApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tasks API — the agent's long-running work, one markdown file per task.
+// Read-only: the file in the sandbox is the source of truth, so the way to
+// change a task is to ask the agent, not to POST here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TaskStatus = 'open' | 'blocked' | 'done' | 'dropped';
+
+export interface AgentTask {
+  id: string;
+  slug: string;
+  title: string;
+  status: TaskStatus;
+  symbols: string[];
+  opened_on: string | null;
+  review_on: string | null;
+  chat_id: string | null;
+  updated_at: string | null;
+  /** Only present on the detail fetch. */
+  body?: string;
+}
+
+export interface TaskListResponse {
+  tasks: AgentTask[];
+  counts: Record<TaskStatus, number>;
+}
+
+export const tasksApi = {
+  list: async (params?: { status?: TaskStatus; due_by?: string; symbol?: string }): Promise<TaskListResponse> => {
+    const response = await api.get('/tasks', { params });
+    return response.data;
+  },
+  get: async (slug: string): Promise<AgentTask> => {
+    const response = await api.get(`/tasks/${slug}`);
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Widgets API — declarative financial dashboard cards. See docs/widgets/spec.md.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Widget, WidgetSummary, WidgetSpec, WidgetData } from '@/components/widgets/types';

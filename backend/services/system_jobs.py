@@ -43,42 +43,22 @@ CATALYST_IDEAS = "catalyst_ideas"
 _NIGHTLY_UTC = time(22, 0)
 
 _NIGHTLY_MESSAGE = (
-    "You are this account's autonomous day-trading agent (built-in automation — "
-    "the user can pause it in Automations). GOAL: grow the account by "
-    "day-trading, trading LIVE — place real orders, no paper ramp. You are "
-    "authorized to place orders DIRECTLY and unattended (no email approval). "
-    "There are NO risk limits: no per-trade size cap, no daily-loss stop, no "
-    "trade-count cap, no consecutive-loss stop. Size positions and pace yourself "
-    "entirely as you judge best toward the goal, and deploy as much of the "
-    "account as you want. (One hard constraint, from the broker not us: the cash "
-    "account can't short — longs only.) You wake at scheduled triggers, act, and "
-    "schedule your own next wakeup; this nightly trigger is your anchor — after "
-    "the close, review and set up the next session.\n"
-    "This run: read the day_trading skill's SKILL.md for the tools available to "
-    "you (clock/session, stocks_in_play, orb_signal & the other setups, robinhood "
-    "execution, journal; plan_trade/RiskBudget remain as OPTIONAL sizing helpers "
-    "— use them or not, but they no longer gate or cap anything). Use everything "
-    "as you judge best — tools, not a fixed script. session() guard (stop if "
-    "today wasn't a trading day); reconcile journal vs broker; grade today's "
-    "closed trades; update strategy.md (and delete any leftover paper-ramp, "
-    "go-live, daily-stop, drawdown-stop or risk-limit policy — the owner removed "
-    "all risk gates, you trade live and unconstrained now); build the next "
-    "session's watch list + event map (FMP earnings, fred macro); write_plan(); "
-    "append_note(). Place no orders now — the market is closed.\n"
-    "Each run starts a FRESH chat, so your memory is what you persist: "
-    "strategy.md, the journal, and the agent-events ledger — write down anything "
-    "the next run needs.\n"
-    "Then SCHEDULE your next wakeups with schedule_job(): the next session's "
-    "first trading wakeup at 09:36 ET, plus a mandatory wakeup near the close to "
-    "close out the day's positions as a safety net (convert each ET time to UTC "
-    "for that DATE via the clock helpers, never a remembered offset). Name each "
-    "one for what it does in plain words — 'Day trade — open positions', 'Day "
-    "trade — check positions', 'Day trade — close out' — the user sees these "
-    "titles in their Automations list, so no internal shorthand or code names. "
-    "Give each a plain goal in its message ('trade the open toward the goal, then "
-    "schedule your next check-in'). Every wakeup reconciles first, then trades "
-    "freely; each schedules the next one it needs, self-chaining until the "
-    "close-out. If the operation isn't set up yet (no strategy, no journal), "
+    "Nightly trading review (built-in automation — the user can pause it in "
+    "Automations).\n"
+    "You are this account's autonomous day-trading agent. GOAL: grow the account "
+    "by day-trading LIVE and unattended — place real orders directly, no email "
+    "approval, no paper ramp. There are NO risk limits; size and pace entirely "
+    "as you judge best. Longs only (broker constraint, not ours).\n"
+    "Read `skills/day_trading/SKILL.md` and follow its 'Nightly review' section. "
+    "That file is the recipe and the thing kept current — this message only sets "
+    "the goal and the mandate.\n"
+    "Open with `journal.session_state()`; treat it as your only memory read "
+    "unless it leaves something specific missing. Place no orders — the market "
+    "is closed.\n"
+    "Close the run the way the skill says: schedule the next session's wakeups, "
+    "then `append_note(did, next_steps=...)`. Each run is a FRESH chat, and "
+    "`next_steps` is the first thing the next run sees — put the real handoff "
+    "there. If the operation isn't set up yet (no strategy.md, no journal), "
     "bootstrap a one-paragraph plan, schedule tomorrow's first wakeup, and stop."
 )
 
@@ -187,22 +167,16 @@ _IDEAS_UTC = time(13, 0)
 _IDEAS_MESSAGE = (
     "Catalyst idea run (built-in automation — the user can pause it in "
     "Automations). Read the catalyst_ideas SKILL.md and follow it.\n"
-    "Goal: surface the few short-term, catalyst-driven trade ideas that are "
-    "genuinely worth this user's attention today, and be honest about how your "
-    "past ones did.\n"
-    "Start with list_ideas() and read the by_catalyst scorecard — it tells you "
-    "which catalyst types are actually earning alpha for this account. Lean into "
-    "those, stop proposing the ones that aren't. Then scan "
-    "(starters.scan_all(), plus registry.run_all() for any scanners you've "
-    "written), triage the handful that look real by reading the actual story, "
-    "and propose_idea() only for the ones you'd defend. Two or three strong "
-    "ideas beat ten weak ones — every idea you propose is graded whether or not "
-    "the user acts on it, including the ones they reject.\n"
-    "If the scan is thin or nothing clears the bar, propose nothing and say so "
-    "in one line. A quiet day is a real answer.\n"
-    "If you spot a catalyst pattern the existing scanners miss, write one with "
-    "registry.save() so it runs from tomorrow on — that's expected of you, not "
-    "exceptional."
+    "Goal: surface the few short-term, catalyst-driven trade ideas genuinely "
+    "worth this user's attention today, and be honest about how your past ones "
+    "did.\n"
+    "Start with `list_ideas()` and its by_catalyst scorecard — lean into the "
+    "catalyst types actually earning alpha here, stop proposing the ones that "
+    "aren't. Two or three ideas you'd defend beat ten weak ones; everything you "
+    "propose is graded whether or not the user acts on it.\n"
+    "Nothing clearing the bar is a real answer — say so in one line and stop. "
+    "Pull detail only for the names you're seriously considering; a scan result "
+    "is a shortlist, not something to read end to end."
 )
 
 
@@ -244,16 +218,20 @@ _HEARTBEAT_MESSAGE = (
     "Heartbeat run (built-in automation — this spends the user's credits; they "
     "can pause it or change how often it runs in Settings). You are the user's "
     "passive analyst: check their portfolio, watchlist, and news for those "
-    "symbols. Each run is a FRESH chat — your memory lives in the ledger: "
+    "symbols.\n"
     "`from skills.finch_api.scripts import list_events, search_past_chats, "
-    "report_insight`. Start with list_events(limit=15) to see what you already "
-    "reported and never repeat it; use search_past_chats('NVDA thesis') if you "
-    "need deeper context from earlier runs or the user's own conversations. "
-    "When something a holder should know about has changed, "
-    "report_insight(title, body, alert=False) — alert=True only when it's "
-    "urgent enough to interrupt their day. If nothing meaningful changed, "
-    "reply with one short line saying so. Stay cheap and be judicious about "
-    "what's worth the user's attention."
+    "report_insight`. Each run is a FRESH chat and the ledger is your memory: "
+    "open with `list_events(limit=15)` so you never re-report something, and "
+    "reach for `search_past_chats('NVDA thesis')` only when a specific name "
+    "needs history you don't have.\n"
+    "Work outward-in: start from the quote-level view of the whole book, and "
+    "pull news or detail ONLY for the two or three names that actually moved. "
+    "Reading everything about everything is the failure mode here — most runs "
+    "should touch very little.\n"
+    "When something a holder should know has changed, `report_insight(title, "
+    "body, alert=False)`; alert=True only when it's urgent enough to interrupt "
+    "their day. If nothing meaningful changed, reply with one short line saying "
+    "so — that's the expected outcome most of the time, and it should be cheap."
 )
 
 
@@ -271,6 +249,48 @@ async def configure_heartbeat(user_id: str, enabled: bool, interval_minutes: int
         )
     await set_enabled(user_id, HEARTBEAT, enabled)
     logger.info(f"Heartbeat for {user_id}: enabled={enabled} every {interval}m")
+
+
+# ── keeping provisioned rows in step with the text above ─────────────────────
+
+async def refresh_builtin_messages() -> int:
+    """Push edits to the instructions above onto already-provisioned rows.
+
+    Built-ins are otherwise only re-provisioned when their trigger fires again
+    (a Robinhood connect, a settings save), so a user who connected months ago
+    keeps running whatever text shipped that day. That's fine for wording, and
+    not fine for the things these messages control — cost, scope, mandate.
+
+    Only `message` is touched: status, run_at, cadence and the user's pause all
+    survive. Idempotent, so it's safe on every boot.
+    """
+    updates = {
+        DAY_TRADING_NIGHTLY: _NIGHTLY_MESSAGE,
+        MORNING_BRIEF: _BRIEF_MESSAGE,
+        CATALYST_IDEAS: _IDEAS_MESSAGE,
+        HEARTBEAT: _HEARTBEAT_MESSAGE,
+    }
+    changed = 0
+    try:
+        async with get_db_session() as db:
+            for key, message in updates.items():
+                rows = (await db.execute(
+                    select(ScheduledJob).where(
+                        ScheduledJob.system_key == key,
+                        ScheduledJob.message != message,
+                    )
+                )).scalars().all()
+                for row in rows:
+                    row.message = message
+                    changed += 1
+            await db.commit()
+    except Exception as e:
+        # A refresh failure must never block startup — the old text still runs.
+        logger.error(f"Built-in message refresh failed: {e}")
+        return 0
+    if changed:
+        logger.info(f"Refreshed {changed} built-in automation instruction(s)")
+    return changed
 
 
 async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:

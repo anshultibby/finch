@@ -1,13 +1,23 @@
 """
 Trade journal — the agent's persistent state across stateless runs.
 
-Lives in the persistent store (NOT chat_files), so every session and automation
-reads the same history:
+This module owns the hard facts — the trade ledger and today's plan:
 
     /home/user/store/day_trading/trades.jsonl   — append-only event ledger
     /home/user/store/day_trading/plan.md        — TODAY's plan (written nightly)
-    /home/user/store/day_trading/notebook.md    — running diary + next_steps
-    /home/user/store/day_trading/strategy.md    — the evolving rules (free-form)
+
+Everything narrative is filed through the `library` skill instead, one document
+per subject, so it's findable and (for theses and tasks) visible to the user:
+
+    stocks/{SYMBOL}/thesis.md   a view on a company   -> Analysis tab
+    tasks/{slug}.md             work spanning runs    -> Tasks
+    journal/{YYYY-MM}.md        what happened, dated
+    playbooks/day-trading.md    the rules you operate by
+
+`session_state()` is the one memory call a run should need. Everything past it
+goes through the library's index → outline → section path, never a whole-file
+read: this operation's diary once reached 40K tokens and was, by itself, ~38%
+of a nightly run's input bill.
 
 Events are linked by trade_id so one trade's lifecycle is unambiguous:
 
@@ -32,7 +42,6 @@ from .clock import now_et
 
 JOURNAL_DIR = os.environ.get("DAY_TRADING_JOURNAL_DIR", "/home/user/store/day_trading")
 TRADES_PATH = os.path.join(JOURNAL_DIR, "trades.jsonl")
-NOTEBOOK_PATH = os.path.join(JOURNAL_DIR, "notebook.md")
 PLAN_PATH = os.path.join(JOURNAL_DIR, "plan.md")
 
 TERMINAL = {"closed", "rejected", "cancelled", "expired", "skipped"}
@@ -210,7 +219,7 @@ def setup_stats() -> Dict[str, Dict[str, Any]]:
     return stats
 
 
-# ── plan & notebook ──────────────────────────────────────────────────────────
+# ── plan ─────────────────────────────────────────────────────────────────────
 
 def write_plan(content: str, date_et: Optional[str] = None) -> str:
     """Overwrite plan.md with the plan for `date_et` (the nightly PLAN run's
@@ -235,35 +244,68 @@ def read_plan() -> Dict[str, str]:
     return {"date": date, "content": rest.strip()}
 
 
-def read_notebook() -> str:
-    if not os.path.exists(NOTEBOOK_PATH):
-        return ""
-    with open(NOTEBOOK_PATH) as f:
-        return f.read()
+# ── the run's memory ─────────────────────────────────────────────────────────
+#
+# There is deliberately no day-trading notebook any more. A private diary that
+# every run read whole was the single most expensive thing in the operation, and
+# splitting it fixed more than cost: a thesis in a diary is invisible to the
+# user and unfindable later. Its contents now live where they belong —
+#
+#   a view on a company   -> stocks/{SYMBOL}/thesis.md   (shows in Analysis)
+#   work spanning runs    -> tasks/{slug}.md             (shows in Tasks)
+#   what happened today   -> journal/{YYYY-MM}.md        (dated, self-bounding)
+#   a rule you now follow -> playbooks/day-trading.md
+#
+# — all reached through the `library` skill, which reads sections rather than
+# files. See skills/library/SKILL.md.
+
+JOURNAL_DOC = "journal/{month}.md"
+
+
+def journal_path(when=None) -> str:
+    """This month's log document. Dated files need no rotation: next month is
+    simply a new file, and the library indexes them all."""
+    return JOURNAL_DOC.format(month=(when or now_et()).strftime("%Y-%m"))
 
 
 def append_note(did: str, next_steps: str = "") -> str:
-    """End-of-run diary entry. `next_steps` is the standing message to your
-    future self — session_state() reads the tail back at the next run's start."""
-    _ensure_dir()
-    entry = f"\n## {now_et().isoformat()}\n\n**Did:** {did}\n"
-    if next_steps:
-        entry += f"\n**Next:** {next_steps}\n"
-    new_file = not os.path.exists(NOTEBOOK_PATH)
-    with open(NOTEBOOK_PATH, "a") as f:
-        if new_file:
-            f.write("# Day Trading Notebook\n_Running log: what I did, what to do next._\n")
-        f.write(entry)
-    return entry
+    """End-of-run entry in this month's log.
 
-
-def session_state(notebook_chars: int = 1500) -> Dict[str, Any]:
+    `next_steps` is the standing message to the next run — session_state() hands
+    it straight back, so it's the one channel that reliably survives. Anything
+    that should outlive tomorrow belongs in a task file or the playbook instead.
     """
-    One-call situational awareness — read this FIRST every run: today's session
-    window, open positions + pending orders (with their plans), TODAY's realized
-    P&L and loss streak, today's plan, and the notebook tail.
+    from skills.library.scripts.notes import log
+    body = did.strip()
+    if next_steps:
+        body += f"\n\n**Next:** {next_steps.strip()}"
+    return log(journal_path(), now_et().isoformat(timespec="seconds"), body)
+
+
+def last_note() -> Dict[str, str]:
+    """The previous run's entry: {'title', 'body'}. Empty if this is the first
+    run of the month — check the prior month only if you actually need to."""
+    from skills.library.scripts.notes import latest
+    entries = latest(journal_path(), 1)
+    return entries[0] if entries else {"title": "", "body": ""}
+
+
+def session_state(**_ignored) -> Dict[str, Any]:
+    """
+    One-call situational awareness — call this FIRST every run, and let it be
+    the only memory read you make unless something specific is missing.
+
+    Everything here is derived from the trade ledger and one log entry, so it
+    stays around 1-2K tokens no matter how long the operation has been running.
+    To go deeper, go through the library: `read("stocks/NVDA/thesis.md",
+    "Invalidation")`, `find("dilution")`, `tasks(due_by=today)` — never a
+    whole-file read.
+
+    Extra keyword arguments are accepted and ignored, so a live agent calling
+    an older signature doesn't crash mid-run.
     """
     from .clock import session
+    from skills.library.scripts.notes import tasks as open_tasks
     sess = session()
     today = sess["date"]
     return {
@@ -273,5 +315,6 @@ def session_state(notebook_chars: int = 1500) -> Dict[str, Any]:
         "today": today_summary(today),
         "day_trades_past_5_sessions": day_trades_past_5_sessions(today),
         "plan": read_plan(),
-        "notebook_tail": read_notebook()[-notebook_chars:],
+        "last_note": last_note(),
+        "tasks_due": open_tasks(due_by=today),
     }

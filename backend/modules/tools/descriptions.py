@@ -83,7 +83,7 @@ Do NOT use bash heredocs (`cat > file << 'EOF'`) — use `write_chat_file` inste
 ```
 python3 -c "from skills.polygon_io.scripts.market.quote import get_last_trade; print(get_last_trade('AAPL'))"
 ```
-Read skill docs with: `read_chat_file(filename="/home/user/skills/<name>/SKILL.md")` (never truncates)
+Read skill docs with: `read_chat_file(filename="/home/user/skills/<name>/SKILL.md")`
 """
 
 _EXECUTE_CODE_GUIDELINES = """
@@ -123,7 +123,7 @@ This keeps code out of bash tool args, making iteration and debugging much easie
 - `sync_to_analysis` (bool, default true): set to false to skip syncing to the Analysis tab and watchlist (e.g., for draft files or non-stock-specific content).
 """
 
-READ_CHAT_FILE_DESC = """Read a file from the sandbox. **Never truncates. Supports partial reads and images!**
+READ_CHAT_FILE_DESC = """Read a file from the sandbox. **Supports partial reads and images!**
 
 **Paths:** Relative filenames read from the chat workspace. Absolute paths (starting with `/`) read from anywhere.
 - `read_chat_file(filename="analysis.py")` → reads from chat workspace
@@ -132,10 +132,13 @@ READ_CHAT_FILE_DESC = """Read a file from the sandbox. **Never truncates. Suppor
 **CRITICAL - NEVER READ ENTIRE LARGE FILES UNLESS NECESSARY:**
 - `peek=True` reads first ~100 lines (like Cursor's default preview)
 - For large data files, use code to parse them instead of reading them fully
-- Reading thousands of lines wastes tokens and slows you down
+- What you read stays in context and is re-sent on every later step of this
+  run, so a big file is charged many times over, not once
+- A whole-file read over ~40K characters comes back as head+tail with a note;
+  page through it with start_line/end_line, which is never capped
 
 **When to use:**
-- Reading skill documentation (absolute path, never truncates unlike bash)
+- Reading skill documentation (absolute path — cleaner than bash cat)
 - Reading text files (code, data, configs) created during this chat session
 - **VIEWING IMAGES** - Use this to see charts/visualizations you've created
 - **Peeking at large files** - Use peek=True to read first ~100 lines

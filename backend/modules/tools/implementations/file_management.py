@@ -5,6 +5,7 @@ Chat files live inside the bot's sandbox directory when a bot context is active,
 otherwise fall back to /home/user/chat_files/.
 No database storage for file content — only Resource entries for UI sidebar.
 """
+from core.config import Config
 from modules.agent.context import AgentContext
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -76,6 +77,7 @@ async def _get_sandbox(user_id: str):
 
 
 _STOCK_ANALYSIS_MD_PATTERN = re.compile(r"^stocks/([A-Z0-9.]+)/([^/]+\.md)$", re.IGNORECASE)
+_TASK_MD_PATTERN = re.compile(r"^tasks/([^/]+)\.md$", re.IGNORECASE)
 _VISUALIZATION_HTML_PATTERN = re.compile(r"^visualizations/[^/]+\.html$", re.IGNORECASE)
 _VISUALIZATION_JS_PATTERN = re.compile(r"^visualizations/[^/]+\.js$", re.IGNORECASE)
 
@@ -103,6 +105,93 @@ def _extract_title(content: str) -> str | None:
         if line.startswith('# '):
             return line[2:].strip()[:200]
     return None
+
+
+_FRONTMATTER_STATUSES = {"open", "blocked", "done", "dropped"}
+
+
+def _parse_frontmatter(content: str) -> dict:
+    """The small YAML subset the task convention uses: scalars and inline
+    `[a, b]` lists, between two `---` fences. Not a YAML parser and shouldn't
+    become one — if a task file needs more than this, the convention is wrong."""
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}
+    meta = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if ":" not in line:
+            continue
+        key, _, raw = line.partition(":")
+        val = raw.split("  #")[0].strip()
+        if val.startswith("[") and val.endswith("]"):
+            meta[key.strip()] = [v.strip().strip("'\"") for v in val[1:-1].split(",") if v.strip()]
+        else:
+            meta[key.strip()] = val.strip("'\"")
+    return meta
+
+
+def _as_date(value):
+    """A frontmatter date, or None. A malformed date must not lose the task —
+    the row still syncs, it just won't appear in date-filtered views."""
+    from datetime import date
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
+async def _maybe_sync_task(filename: str, content: str, context: AgentContext):
+    """If filename matches tasks/{slug}.md, mirror it into agent_tasks.
+
+    The file stays the source of truth; this row is what the app lists from, so
+    the Tasks view works without booting the user's sandbox.
+    """
+    m = _TASK_MD_PATTERN.match(filename)
+    if not m:
+        return
+    slug = m.group(1).strip().lower()[:200]
+
+    meta = _parse_frontmatter(content)
+    status = str(meta.get("status", "open")).strip().lower()
+    if status not in _FRONTMATTER_STATUSES:
+        status = "open"
+    symbols = meta.get("symbols") or []
+    if isinstance(symbols, str):
+        symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+    symbols = [s.upper() for s in symbols][:20]
+
+    try:
+        import json
+        from core.database import get_db_session
+        from sqlalchemy import text
+        chat_id = (context.data or {}).get("chat_id")
+        async with get_db_session() as db:
+            await db.execute(
+                text(
+                    "INSERT INTO agent_tasks (id, user_id, slug, title, status, body, "
+                    "  symbols, opened_on, review_on, chat_id, created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :user_id, :slug, :title, :status, :body, "
+                    "  CAST(:symbols AS jsonb), :opened_on, :review_on, :chat_id, now(), now()) "
+                    "ON CONFLICT ON CONSTRAINT uq_agent_tasks_user_slug DO UPDATE SET "
+                    "  title = EXCLUDED.title, status = EXCLUDED.status, body = EXCLUDED.body, "
+                    "  symbols = EXCLUDED.symbols, opened_on = EXCLUDED.opened_on, "
+                    "  review_on = EXCLUDED.review_on, "
+                    "  chat_id = COALESCE(EXCLUDED.chat_id, agent_tasks.chat_id), "
+                    "  updated_at = now()"
+                ),
+                {"user_id": context.user_id, "slug": slug,
+                 "title": _extract_title(content), "status": status, "body": content,
+                 "symbols": json.dumps(symbols), "opened_on": _as_date(meta.get("opened")),
+                 "review_on": _as_date(meta.get("review")), "chat_id": chat_id},
+            )
+        logger.info(f"Synced task '{slug}' ({status}) for user {context.user_id}")
+    except Exception as e:
+        # Never let the mirror break the write the agent actually asked for.
+        logger.warning(f"Task sync failed for '{filename}' (non-fatal): {e}")
 
 
 async def _maybe_sync_stock_analysis(
@@ -372,6 +461,7 @@ async def process_sync_manifest(context: AgentContext):
                 continue
             await _maybe_sync_visualization(filename, content, context)
             await _maybe_sync_stock_analysis(filename, content, context)
+            await _maybe_sync_task(filename, content, context)
             synced += 1
 
         try:
@@ -410,10 +500,11 @@ async def write_chat_file_impl(
 
         await entry.sbx.files.write(full_path, content)
 
-        # Only sync analysis/viz for relative paths (chat workspace files)
+        # Only sync analysis/viz/tasks for relative paths (chat workspace files)
         if not filename.startswith("/"):
             await _maybe_sync_stock_analysis(filename, content, context, sync_to_analysis=sync_to_analysis)
             await _maybe_sync_visualization(filename, content, context)
+            await _maybe_sync_task(filename, content, context)
 
         yield {
             "success": True,
@@ -511,6 +602,39 @@ async def read_chat_file_impl(
                 "navigation": f"({', '.join(nav_hints)})" if nav_hints else None
             }
 
+        # Whole-file read: cap it. An unbounded read isn't paid once — the result
+        # stays in the message list and is re-sent on every subsequent LLM call
+        # of the run, so one big file can cost more than the rest of the run put
+        # together. Callers that genuinely need the middle can page with
+        # start_line/end_line, which is exempt from this cap.
+        if len(content) > Config.TOOL_READ_FILE_MAX_CHARS:
+            head_chars = int(Config.TOOL_READ_FILE_MAX_CHARS * 0.4)
+            tail_chars = Config.TOOL_READ_FILE_MAX_CHARS - head_chars
+            omitted = len(content) - Config.TOOL_READ_FILE_MAX_CHARS
+            content = (
+                content[:head_chars]
+                + f"\n\n[... {omitted:,} characters omitted from the middle of this "
+                  f"file. Re-read with start_line/end_line to page through it, or "
+                  f"grep it with bash instead of loading it whole ...]\n\n"
+                + content[-tail_chars:]
+            )
+            logger.info(
+                f"read_chat_file truncated '{filename}': {omitted:,} chars omitted "
+                f"(cap {Config.TOOL_READ_FILE_MAX_CHARS:,})"
+            )
+            return {
+                "success": True,
+                "content": content,
+                "filename": filename,
+                "file_type": file_type,
+                "total_lines": total_lines,
+                "truncated": True,
+                "navigation": (
+                    f"showing the head and tail only — {total_lines} lines total; "
+                    "use start_line/end_line to read a specific range"
+                ),
+            }
+
         return {
             "success": True,
             "content": content,
@@ -599,6 +723,7 @@ async def replace_in_chat_file_impl(
 
         await _maybe_sync_stock_analysis(filename, content, context)
         await _maybe_sync_visualization(filename, content, context)
+        await _maybe_sync_task(filename, content, context)
 
         yield {
             "success": True,

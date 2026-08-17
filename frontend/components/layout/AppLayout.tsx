@@ -15,6 +15,7 @@ import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
 import WidgetsPanel from '@/components/widgets/WidgetsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
+import TasksPanel from '@/components/tasks/TasksPanel';
 import JobsPanel from '@/components/JobsPanel';
 import CreditsModal from '@/components/CreditsModal';
 import { marketApi, widgetsApi } from '@/lib/api';
@@ -30,6 +31,7 @@ function viewLabel(view: View): string {
     case 'chat': return 'Chat';
     case 'widgets': return 'Widgets';
     case 'memory-store': return 'Memory Store';
+    case 'tasks': return 'Tasks';
     case 'jobs': return 'Automations';
     default: return '';
   }
@@ -328,6 +330,8 @@ function AppLayoutInner() {
         return <WidgetsPanel widgetId={currentView.widgetId} />;
       case 'memory-store':
         return <MemoryStorePanel />;
+      case 'tasks':
+        return <TasksPanel />;
       case 'jobs':
         return <JobsPanel />;
       case 'chat':

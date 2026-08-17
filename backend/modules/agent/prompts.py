@@ -226,7 +226,8 @@ def build_skills_prompt(skill_ids: list[str]) -> str:
     lines = ["", "", "<available_skills>"]
     lines.append("You have the following skills available in your sandbox.")
     lines.append("IMPORTANT: NEVER guess skill import paths. Always read the skill's SKILL.md BEFORE writing any import statement.")
-    lines.append("  read_chat_file(filename=\"<location>/SKILL.md\")  -- never truncates, always returns full content")
+    lines.append("  read_chat_file(filename=\"<location>/SKILL.md\")  -- returns the full SKILL.md")
+    lines.append("  (Very large files are returned head+tail with a note; page through those with start_line/end_line.)")
     lines.append("")
     for skill in active:
         lines.append(f'  <skill name="{skill["name"]}" location="{skill["location"]}">')
@@ -256,8 +257,36 @@ A bare `store/...` path resolves under the chat-files dir, not here, and will 40
 - `scratchpad/` — ephemeral thinking space; wiped on sandbox restart. Throwaway notes only.
 - `context/` — system-provided reference (past chats, skills).
 
-Per-stock analysis does NOT go in `store/`. It has a dedicated home — see \
-"Stock analysis notes" in the sandbox section: always `stocks/{SYMBOL}/<name>.md`.
+Two kinds of note are shared with the user rather than kept in `store/`, and both \
+are written with `write_chat_file` so they sync to the app:
+- `stocks/{SYMBOL}/<name>.md` — anything ticker-specific. Shows in that stock's Analysis tab.
+- `tasks/<slug>.md` — work that spans more than one sitting. Shows in Tasks.
+
+**File by what changes a thing, so every fact has exactly one home.** A view on a \
+company changes with news → its stock note. Work in flight changes as you progress \
+→ its task file. A rule changes when you learn a lesson → `learnings.md`. What \
+happened changes daily → `journal/`. When two homes seem plausible, you're about to \
+create the mess: pick by what would change it.
+
+A task file carries YAML frontmatter, and `review` is what makes the directory a \
+work queue rather than a list:
+```
+---
+status: open          # open | blocked | done | dropped
+opened: 2026-08-17
+symbols: [NVDA]
+review: 2026-08-20    # when to pick this up again
+---
+# One-line statement of the question or goal
+```
+
+**Reading: index → outline → section, never a whole corpus.** What you read stays in \
+context and is re-sent on every later step, so a long document is charged many times \
+over. The `library` skill exists for this: `index()` lists what exists and what each \
+document costs, `outline(path)` shows its headings, `read(path, heading=...)` returns \
+one section, `find(query)` returns locations rather than content. Reading a file whole \
+is a deliberate act — if you're about to, name the section you actually wanted. Write \
+headings, and split by subject; splitting files is free and makes retrieval cheap.
 
 At session start, read `/home/user/store/preferences.md` and `/home/user/store/next_session.md` \
 (absolute paths). The \

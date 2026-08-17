@@ -53,6 +53,18 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="tasks/index"
+          options={{
+            headerShown: true,
+            headerTitle: 'Tasks',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
+        {/* Detail draws its own back affordance, so no stack header here. */}
+        <Stack.Screen name="tasks/[slug]" options={{ headerShown: false }} />
+        <Stack.Screen
           name="widgets/index"
           options={{
             headerShown: true,

@@ -30,7 +30,9 @@ from skills.day_trading.scripts.risk import RiskBudget, plan_trade
 from skills.day_trading.scripts import journal
 from skills.robinhood.scripts.trading import (connection_status, portfolio_snapshot,
                                               get_quotes, get_orders, review_order, cancel_order)
-from skills.finch_api.scripts import schedule_job, request_trade_approval  # approval = finch_api, NOT robinhood
+from skills.day_trading.scripts.journal import session_state, append_note
+from skills.library.scripts.notes import read, find, write_section, tasks
+from skills.finch_api.scripts import schedule_job, list_jobs, get_job, request_trade_approval  # approval = finch_api, NOT robinhood
 from skills.fred.scripts import upcoming_events        # macro calendar (module is `releases`)
 ```
 The scripts' docstrings are the reference — read them; don't reimplement them.
@@ -45,13 +47,64 @@ moment needs.
 
 **Whatever you do, every run opens the same way:** `session()` (ET-correct clock
 — never the server's; exit if not a trading day / closed) → `journal.session_state()`
-(your memory: open positions, pending orders, today's P&L, plan, notebook) →
-`connection_status()` + `portfolio_snapshot()` → reconcile journal vs broker
-and fix drift in the journal first.
+(your memory: open positions, pending orders, today's P&L, plan, the previous
+run's note, and any tasks due today) → `connection_status()` + `portfolio_snapshot()`
+→ reconcile journal vs broker and fix drift in the journal first.
+
+## Where your work goes
+
+You have no memory between runs — only what you filed. File by **what changes
+it**, which gives every fact exactly one home. Read `library`'s SKILL.md once;
+it owns the general pattern and the index → outline → section access path.
+
+| What you learned | Goes in | Who sees it |
+|---|---|---|
+| A view on a company | `stocks/{SYMBOL}/thesis.md` | the user, in Analysis |
+| Work spanning runs | `tasks/{slug}.md` | the user, in Tasks |
+| What happened today | `append_note(did, next_steps=...)` | you |
+| A rule you now follow | `playbooks/day-trading.md` | you |
+| A trade event | `log_trade(...)` | the ledger |
+
+**Anything ticker-specific goes in `stocks/{SYMBOL}/thesis.md`** — via
+`write_chat_file`, which syncs it to that stock's Analysis tab. Sections the
+next run will want: `Thesis`, `Invalidation`, `History`. A thesis written into
+a daily log is invisible to the user and unfindable to you.
+
+**Anything you're waiting on becomes a task file** — "does the MU thesis
+survive the DRAM print", "watch for the NVDA guide" — with a `review` date. The
+next run picks it up from `tasks_due` without reading any history at all.
+
+## Context discipline — read narrow, then go deep
+
+A tool result you pull in early is re-sent to the model on *every* later call in
+that run, so a 40K-token read is charged thirty times over. This operation's
+old diary was exactly that: ~38% of a nightly run's bill, for one file.
+
+| Want | Call | Not |
+|---|---|---|
+| Where the operation stands | `session_state()` | reading files |
+| What's on my plate | `tasks_due` (in `session_state`) | reading history |
+| A past thesis | `read("stocks/MU/thesis.md", "Thesis")` | reading the file |
+| Where did I mention X? | `find("dilution")` | grepping everything in |
+| Is tomorrow's wakeup set? | `list_jobs()` | `list_jobs(include_message=True)` |
+| Candidates | `stocks_in_play(top_n=10)` | per-symbol calls for all of them |
+
+Rules that follow from this:
+1. `session_state()` is the ONLY memory read a normal run makes. Reach past it
+   only for something specific and named — never "let me refresh my context."
+2. **Never read a note as a whole file.** `read(path, heading=...)` exists
+   precisely so you don't.
+3. Triage on cheap data first — scan output, quotes — then pull news, bars or
+   fundamentals only for names still alive after triage. Three deep reads on
+   three candidates, not ten shallow ones on ten.
+4. `bash` output lands in context in full. Print what you need (`len(x)`, the
+   fields you'll use), not whole objects — and never `cat` a note.
+5. Fewer, larger tool calls beat many small ones: batch related lookups into one
+   `bash` block, since each extra round trip re-sends the entire conversation.
 
 ### Nightly review — after the close (~17:00–18:00 ET) (no orders)
 Grade today's closed trades against their plans; check `journal.setup_stats()`
-and apply the kill criteria; update `strategy.md` with lessons. Build
+and apply the kill criteria; update `playbooks/day-trading.md` with lessons. Build
 tomorrow's event map and watch ideas:
 - `get_earnings_calendar(...)` (financial_modeling_prep): tonight's after-close
   + tomorrow's pre-open reporters → likely stocks-in-play.
@@ -167,18 +220,28 @@ beats a stopped stock position.
 
 ## Memory & kill criteria
 
-Persistent store `/home/user/store/day_trading/` (see `journal.py`):
-trades.jsonl (pass each trade's `trade_id` to every later event), plan.md
-(stale date when you go to open positions = the nightly review failed → half
-size or skip), notebook.md (`append_note` ends EVERY run), strategy.md (the
-evolving rules).
+Hard facts live in `/home/user/store/day_trading/` (see `journal.py`):
+trades.jsonl (pass each trade's `trade_id` to every later event) and plan.md
+(a stale date when you go to open positions = the nightly review failed → half
+size or skip). Everything narrative is filed per "Where your work goes" above.
+
+`append_note(did, next_steps=...)` ends EVERY run, and `next_steps` is the part
+that matters: `session_state()` hands it straight back, so it's the one channel
+that reliably survives to tomorrow. Write the actual handoff there — "at ENTRY,
+the MU thesis needs today's RVOL still >2 or skip it" — not a recap of what you
+just did.
+
+Match the horizon to the home. Tomorrow → `next_steps`. Beyond tomorrow → a
+task file with a `review` date. A durable rule → `playbooks/day-trading.md`. A
+view on a name → its thesis note. Putting a long-lived thing in the daily log
+is how it gets lost.
 
 **Trade LIVE — no paper ramp, no risk gates.** A `armed`/`triggered` signal on
 a name with a non-skip-tier catalyst is a real order, sized however you judge
 best. The account is live and unconstrained from the first qualifying setup.
-(If `strategy.md` still carries any old paper-ramp, go-live, daily-stop,
+(If `playbooks/day-trading.md` still carries any old paper-ramp, go-live, daily-stop,
 drawdown-stop or risk-limit policy, delete it — the owner removed all of them.)
-Keep in `strategy.md` only what improves the edge: which setups/catalysts are
+Keep in `playbooks/day-trading.md` only what improves the edge: which setups/catalysts are
 working (a setup persistently negative after ~20–30 logged trades is worth
 retiring), notes, and lessons. Small accounts (< $5k): to deploy a meaningful
 position on higher-priced names, size up freely — no weight cap applies.
@@ -214,12 +277,12 @@ with the `session()` guard. The nightly review itself stays at 22:00 UTC
 (17:00–18:00 ET; evening-ET times cross UTC midnight and break the weekdays
 recurrence — don't move it later). Keep each wakeup's message thin ("open
 positions per the day_trading skill") — the recipe lives here. Schedule nothing
-if the operation isn't set up (no strategy.md, no journal).
+if the operation isn't set up (no playbook, no journal).
 
 ## Hard rules
 
-1. `session()` first (closed → exit); `session_state()` second; reconcile
-   before acting.
+1. `session()` first (closed → exit); `session_state()` second and as your only
+   memory read; reconcile before acting.
 2. Check existing positions before opening new ones — no new entries while any
    position lacks a resting stop.
 3. No setup, no trade; `missed` means missed.

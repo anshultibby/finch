@@ -12,6 +12,7 @@ export type View =
   | { type: 'chat' }
   | { type: 'widgets'; widgetId?: string }
   | { type: 'memory-store' }
+  | { type: 'tasks' }
   | { type: 'jobs' };
 
 // ─────────────────────────────────────────────────────────────────────────────

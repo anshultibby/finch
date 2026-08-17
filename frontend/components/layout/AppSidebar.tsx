@@ -93,6 +93,12 @@ const WidgetsIcon = () => (
   </svg>
 );
 
+const TasksIcon = () => (
+  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m-6-8h6M5.25 5.25h.008v.008H5.25V5.25Zm0 4.5h.008v.008H5.25V9.75Zm0 4.5h.008v.008H5.25v-.008Zm0 4.5h.008v.008H5.25V18.75Z" />
+  </svg>
+);
+
 const ChatIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
@@ -165,6 +171,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const PAGE_SIZE = 30;
   const navItems: NavItem[] = [
     { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon /> },
+    { id: 'tasks', label: 'Tasks', view: { type: 'tasks' }, icon: <TasksIcon /> },
     { id: 'jobs', label: 'Automations', view: { type: 'jobs' }, icon: <ScheduledIcon /> },
     { id: 'widgets', label: 'Widgets', view: { type: 'widgets' }, icon: <WidgetsIcon /> },
     { id: 'memory-store', label: 'Memory Store', view: { type: 'memory-store' }, icon: <MemoryStoreIcon /> },

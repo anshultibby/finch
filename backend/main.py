@@ -13,6 +13,7 @@ from routes.jobs import router as jobs_router
 from routes.brief import router as brief_router
 from routes.insights import router as insights_router
 from routes.activity import router as activity_router
+from routes.tasks import router as tasks_router
 from utils.logger import configure_logging, get_logger
 from utils.tracing import setup_tracing
 from utils.sentry import setup_sentry
@@ -141,6 +142,7 @@ app.include_router(apple_notifications_router)
 app.include_router(casparser_router)
 app.include_router(widget_router)
 app.include_router(trade_ideas_router)
+app.include_router(tasks_router)
 
 
 import asyncio
@@ -192,6 +194,12 @@ async def startup_event():
     # Start background pool monitoring
     _pool_monitor_task = asyncio.create_task(monitor_connection_pool())
     logger.info("Started connection pool monitoring")
+
+    # Push any edits to the built-in automation instructions onto rows that were
+    # provisioned earlier. Runs before the waker so a job firing on this boot
+    # already picks up the current text.
+    from services.system_jobs import refresh_builtin_messages
+    await refresh_builtin_messages()
 
     # Start the scheduled-job waker (file-backed jobs)
     from services.job_scheduler import run_job_loop
