@@ -75,3 +75,6 @@ kalshi-bot/data/
 # EAS / mobile build artifacts
 frontend-mobile/build-*.tar.gz
 kalshi-bot/logs/
+
+# Personal entity/tax details — not for the repo
+docs/compliance/entity-formation.md
