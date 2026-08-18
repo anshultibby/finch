@@ -8,13 +8,12 @@ SECURITY NOTES:
 """
 from snaptrade_client import SnapTrade
 from typing import Dict, Any, Optional, List, AsyncGenerator, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from core.config import Config
 from core.database import get_db_session
 from crud import snaptrade_user as snaptrade_crud
 from crud import brokerage_account as brokerage_crud
-from models.user import SnapTradeUser as DBSnapTradeUser
 from schemas.snaptrade import (
     Position, Account, AggregatedHolding, Portfolio,
     SnapTradePositionResponse, SnapTradeAccountResponse
@@ -99,7 +98,7 @@ class SnapTradeTools:
                     db_user.snaptrade_user_secret = session.snaptrade_user_secret
                     db_user.is_connected = session.is_connected
                     db_user.connected_account_ids = ','.join(session.account_ids) if session.account_ids else None
-                    db_user.last_activity = datetime.utcnow()
+                    db_user.last_activity = datetime.now(timezone.utc)
                     if session.is_connected:
                         # Reconnect after a stale-purge clears the reverify flag.
                         db_user.purged_at = None
@@ -948,7 +947,7 @@ class SnapTradeTools:
         Get historical portfolio value time series from our own daily snapshots.
         Also records today's snapshot if one doesn't exist yet.
         """
-        from datetime import date, timedelta
+        from datetime import date, timedelta, timezone
         from models.brokerage import PortfolioSnapshot
         from sqlalchemy import and_, select
         import uuid

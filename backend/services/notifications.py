@@ -35,52 +35,6 @@ def _get_resend_key() -> Optional[str]:
     return os.getenv("RESEND_API_KEY")
 
 
-async def send_trade_confirmation_sms(
-    token: str,
-    bot_name: str,
-    action: str,
-    market: str,
-    side: str,
-    quantity: int,
-    price: float,
-    cost_usd: float,
-) -> bool:
-    """Send SMS asking user to approve/reject a trade. Returns True if sent."""
-    phone = os.getenv("NOTIFICATION_PHONE")
-    from_number = os.getenv("TWILIO_FROM_NUMBER")
-    if not phone or not from_number:
-        logger.warning("NOTIFICATION_PHONE or TWILIO_FROM_NUMBER not set")
-        return False
-
-    client = _get_twilio_client()
-    if not client:
-        return False
-
-    approve_url = f"{APP_BASE_URL}/api/trades/approve/{token}"
-    reject_url = f"{APP_BASE_URL}/api/trades/reject/{token}"
-
-    body = (
-        f"{bot_name} wants to {action.upper()}:\n"
-        f"{market}\n"
-        f"Side: {side} | Qty: {quantity} | Price: {price}c\n"
-        f"Cost: ${cost_usd:.2f}\n\n"
-        f"APPROVE: {approve_url}\n"
-        f"REJECT: {reject_url}"
-    )
-
-    try:
-        msg = client.messages.create(
-            body=body,
-            from_=from_number,
-            to=phone,
-        )
-        logger.info(f"Trade confirmation SMS sent: {msg.sid}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send SMS: {e}")
-        return False
-
-
 def _send_resend_email_sync(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
     """Send an email via Resend (blocking). Use send_resend_email() in async code."""
     raw = from_email or os.getenv("RESEND_FROM_EMAIL", "notifications@finchapp.ai")
@@ -122,43 +76,6 @@ async def _send_resend_email(to_email: str, subject: str, html: str, from_email:
     return await loop.run_in_executor(
         None, partial(_send_resend_email_sync, to_email, subject, html, from_email)
     )
-
-
-async def send_trade_confirmation_email(
-    token: str,
-    bot_name: str,
-    action: str,
-    market: str,
-    side: str,
-    quantity: int,
-    price: float,
-    cost_usd: float,
-) -> bool:
-    """Send email asking user to approve/reject a trade. Returns True if sent."""
-    to_email = os.getenv("NOTIFICATION_EMAIL")
-    if not to_email:
-        logger.warning("NOTIFICATION_EMAIL not set")
-        return False
-
-    approve_url = f"{APP_BASE_URL}/api/trades/approve/{token}"
-    reject_url = f"{APP_BASE_URL}/api/trades/reject/{token}"
-
-    subject = f"{bot_name}: Confirm {action.upper()} {market}"
-    html = f"""
-    <h2>{bot_name} wants to {action.upper()}</h2>
-    <table style="border-collapse:collapse;">
-      <tr><td style="padding:4px 12px;font-weight:bold;">Market</td><td style="padding:4px 12px;">{market}</td></tr>
-      <tr><td style="padding:4px 12px;font-weight:bold;">Side</td><td style="padding:4px 12px;">{side}</td></tr>
-      <tr><td style="padding:4px 12px;font-weight:bold;">Quantity</td><td style="padding:4px 12px;">{quantity}</td></tr>
-      <tr><td style="padding:4px 12px;font-weight:bold;">Price</td><td style="padding:4px 12px;">{price}c</td></tr>
-      <tr><td style="padding:4px 12px;font-weight:bold;">Cost</td><td style="padding:4px 12px;">${cost_usd:.2f}</td></tr>
-    </table>
-    <br/>
-    <a href="{approve_url}" style="display:inline-block;padding:12px 24px;background:#16a34a;color:white;text-decoration:none;border-radius:6px;font-weight:bold;margin-right:12px;">APPROVE</a>
-    <a href="{reject_url}" style="display:inline-block;padding:12px 24px;background:#dc2626;color:white;text-decoration:none;border-radius:6px;font-weight:bold;">REJECT</a>
-    """
-
-    return await _send_resend_email(to_email, subject, html)
 
 
 def _markdown_to_email_html(text: str) -> str:
@@ -350,75 +267,3 @@ async def send_morning_brief_email(
     return await _send_resend_email(to_email, subject, html)
 
 
-async def send_trade_push_notification(
-    user_id: str,
-    bot_name: str,
-    action: str,
-    market: str,
-    side: str,
-    quantity: int,
-    price: float,
-    cost_usd: float,
-    approve_token: str,
-) -> bool:
-    """Send a push notification for a trade confirmation. Returns True if sent."""
-    try:
-        from core.database import get_async_db
-        from services.push_notifications import send_push_notification
-
-        async for db in get_async_db():
-            return await send_push_notification(
-                db=db,
-                user_id=user_id,
-                title=f"{bot_name}: {action.upper()} {market}",
-                body=f"{side} {quantity} @ {price}c (${cost_usd:.2f})",
-                data={"screen": "orders", "approve_token": approve_token},
-            )
-    except Exception as e:
-        logger.error(f"Failed to send trade push notification: {e}")
-    return False
-
-
-async def send_trade_notification(
-    token: str,
-    bot_name: str,
-    action: str,
-    market: str,
-    side: str,
-    quantity: int,
-    price: float,
-    cost_usd: float,
-    user_id: Optional[str] = None,
-) -> str:
-    """Try push first, then SMS, then email. Returns the method used or 'none'."""
-    kwargs = dict(
-        token=token,
-        bot_name=bot_name,
-        action=action,
-        market=market,
-        side=side,
-        quantity=quantity,
-        price=price,
-        cost_usd=cost_usd,
-    )
-
-    if user_id:
-        if await send_trade_push_notification(
-            user_id=user_id,
-            bot_name=bot_name,
-            action=action,
-            market=market,
-            side=side,
-            quantity=quantity,
-            price=price,
-            cost_usd=cost_usd,
-            approve_token=token,
-        ):
-            return "push"
-
-    if await send_trade_confirmation_sms(**kwargs):
-        return "sms"
-    if await send_trade_confirmation_email(**kwargs):
-        return "email"
-    logger.warning("No notification channel configured — trade will auto-execute")
-    return "none"

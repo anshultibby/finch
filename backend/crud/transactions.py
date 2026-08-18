@@ -2,38 +2,10 @@
 CRUD operations for transactions
 """
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, func
+from sqlalchemy import and_, desc
 from typing import List, Optional, Dict, Any
-from datetime import datetime, date, timedelta
-from models.brokerage import Transaction, PortfolioSnapshot, TradeAnalytics, TransactionSyncJob
-from decimal import Decimal
-import uuid
-
-
-def create_transaction(
-    db: Session,
-    user_id: str,
-    account_id: str,
-    symbol: str,
-    transaction_type: str,
-    transaction_date: datetime,
-    data: Dict[str, Any],
-    external_id: Optional[str] = None
-) -> Transaction:
-    """Create a new transaction record"""
-    transaction = Transaction(
-        user_id=user_id,
-        account_id=account_id,
-        symbol=symbol.upper(),
-        transaction_type=transaction_type.upper(),
-        transaction_date=transaction_date,
-        external_id=external_id,
-        data=data
-    )
-    db.add(transaction)
-    db.commit()
-    db.refresh(transaction)
-    return transaction
+from datetime import datetime
+from models.brokerage import Transaction, TransactionSyncJob
 
 
 def get_transactions(
@@ -122,97 +94,6 @@ def upsert_transaction(
             db.commit()
             db.refresh(transaction)
         return transaction, True
-
-
-def create_portfolio_snapshot(
-    db: Session,
-    user_id: str,
-    snapshot_date: date,
-    data: Dict[str, Any]
-) -> PortfolioSnapshot:
-    """Create or update daily portfolio snapshot"""
-    snapshot = db.query(PortfolioSnapshot).filter(
-        and_(
-            PortfolioSnapshot.user_id == user_id,
-            PortfolioSnapshot.snapshot_date == snapshot_date
-        )
-    ).first()
-    
-    if snapshot:
-        # Update existing
-        snapshot.data = data
-    else:
-        # Create new
-        snapshot = PortfolioSnapshot(
-            user_id=user_id,
-            snapshot_date=snapshot_date,
-            data=data
-        )
-        db.add(snapshot)
-    
-    db.commit()
-    db.refresh(snapshot)
-    return snapshot
-
-
-def get_portfolio_snapshots(
-    db: Session,
-    user_id: str,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None
-) -> List[PortfolioSnapshot]:
-    """Get historical portfolio snapshots"""
-    query = db.query(PortfolioSnapshot).filter(PortfolioSnapshot.user_id == user_id)
-    
-    if start_date:
-        query = query.filter(PortfolioSnapshot.snapshot_date >= start_date)
-    
-    if end_date:
-        query = query.filter(PortfolioSnapshot.snapshot_date <= end_date)
-    
-    return query.order_by(desc(PortfolioSnapshot.snapshot_date)).all()
-
-
-def create_trade_analytics(
-    db: Session,
-    user_id: str,
-    symbol: str,
-    exit_date: datetime,
-    data: Dict[str, Any]
-) -> TradeAnalytics:
-    """Create trade analytics record"""
-    analytics = TradeAnalytics(
-        user_id=user_id,
-        symbol=symbol.upper(),
-        exit_date=exit_date,
-        data=data
-    )
-    db.add(analytics)
-    db.commit()
-    db.refresh(analytics)
-    return analytics
-
-
-def get_trade_analytics(
-    db: Session,
-    user_id: str,
-    symbol: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
-) -> List[TradeAnalytics]:
-    """Get trade analytics with filters"""
-    query = db.query(TradeAnalytics).filter(TradeAnalytics.user_id == user_id)
-    
-    if symbol:
-        query = query.filter(TradeAnalytics.symbol == symbol.upper())
-    
-    if start_date:
-        query = query.filter(TradeAnalytics.exit_date >= start_date)
-    
-    if end_date:
-        query = query.filter(TradeAnalytics.exit_date <= end_date)
-    
-    return query.order_by(desc(TradeAnalytics.exit_date)).all()
 
 
 def create_sync_job(

@@ -37,26 +37,6 @@ def _get_session_sync(user_id: str):
     return None
 
 
-def search_symbols(user_id: str, account_id: str, query: str) -> Dict[str, Any]:
-    """Search for tradeable symbols within a brokerage account."""
-    try:
-        session = _get_session_sync(user_id)
-        if not session or not session.is_connected:
-            return {"success": False, "needs_auth": True, "error": "Not connected"}
-
-        response = snaptrade_tools.client.reference_data.symbol_search_user_account(
-            user_id=session.snaptrade_user_id,
-            user_secret=session.snaptrade_user_secret,
-            account_id=account_id,
-            body={"substring": query},
-        )
-        data = response.body if hasattr(response, "body") else response
-        symbols = data if isinstance(data, list) else [data]
-        return {"success": True, "symbols": symbols, "count": len(symbols)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
 def place_order(
     user_id: str,
     account_id: str,

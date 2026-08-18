@@ -7,10 +7,9 @@ File Structure:
 
 Strategies are stored as markdown files with embedded code.
 """
-import os
 from pathlib import Path
-from typing import List, Dict, Optional, Literal
-from datetime import datetime
+from typing import List, Dict, Optional
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -118,7 +117,7 @@ class ResourceManager:
         # Build markdown content
         content = f"""# Strategy: {strategy_name}
 
-**Created:** {datetime.utcnow().isoformat()}
+**Created:** {datetime.now(timezone.utc).isoformat()}
 
 ## Description
 

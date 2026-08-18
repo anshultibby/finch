@@ -30,19 +30,3 @@ class MockResponse:
         })()]
 
 
-def build_mock_response_from_stream(
-    full_content: str,
-    accumulated_tool_calls: List[Dict[str, Any]]
-) -> MockResponse:
-    """
-    Build a mock response object from accumulated stream data
-    
-    Args:
-        full_content: Accumulated text content
-        accumulated_tool_calls: List of accumulated tool call dicts
-        
-    Returns:
-        MockResponse object compatible with tool handler
-    """
-    return MockResponse(full_content, accumulated_tool_calls)
-

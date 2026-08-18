@@ -3,12 +3,11 @@ Async CRUD operations for chats and chat messages
 """
 from typing import List, Optional, Set
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, or_, and_
-from sqlalchemy.orm import selectinload, load_only
+from sqlalchemy import select, desc, or_, and_
 from models.chat_models import Chat, ChatMessageDB as ChatMessage
 from models.jobs import ScheduledJob, JOB_CHAT_PREFIX
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # Chat operations
@@ -198,29 +197,6 @@ async def get_user_chats_with_preview(
     return chats_list
 
 
-async def get_last_message_preview(db: AsyncSession, chat_id: str, max_length: int = 100) -> Optional[str]:
-    """Get a preview of the last user or assistant message in a chat"""
-    from models.chat_models import ChatMessageDB
-
-    result = await db.execute(
-        select(ChatMessageDB)
-        .where(ChatMessageDB.chat_id == chat_id)
-        .where(ChatMessageDB.role.in_(['user', 'assistant']))
-        .order_by(ChatMessageDB.sequence.desc())
-        .limit(1)
-    )
-    message = result.scalar_one_or_none()
-    
-    if message and message.content:
-        # Truncate and clean up the message for preview
-        content = message.content.strip()
-        if len(content) > max_length:
-            content = content[:max_length] + "..."
-        return content
-    
-    return None
-
-
 async def update_chat_title(db: AsyncSession, chat_id: str, title: str, icon: Optional[str] = None) -> Optional[Chat]:
     """Update a chat's title and optionally its icon"""
     db_chat = await get_chat(db, chat_id)
@@ -228,7 +204,7 @@ async def update_chat_title(db: AsyncSession, chat_id: str, title: str, icon: Op
         db_chat.title = title
         if icon is not None:
             db_chat.icon = icon
-        db_chat.updated_at = datetime.utcnow()
+        db_chat.updated_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(db_chat)
     return db_chat
@@ -333,7 +309,7 @@ async def create_message(
     # Update chat's updated_at timestamp
     db_chat = await get_chat(db, chat_id)
     if db_chat:
-        db_chat.updated_at = datetime.utcnow()
+        db_chat.updated_at = datetime.now(timezone.utc)
         await db.commit()
     
     return db_message
@@ -596,14 +572,6 @@ async def get_last_activity_timestamp(db: AsyncSession, chat_id: str) -> Optiona
     return None
 
 
-async def set_notify_email(db: AsyncSession, chat_id: str, email: Optional[str]) -> None:
-    """Set (or clear) the email address to notify when this chat's stream completes."""
-    chat = await get_chat(db, chat_id)
-    if chat:
-        chat.notify_email = email
-        await db.commit()
-
-
 async def pop_notify_email(db: AsyncSession, chat_id: str) -> Optional[str]:
     """Read and clear the notify_email for a chat. Returns None if not set."""
     chat = await get_chat(db, chat_id)
@@ -638,7 +606,7 @@ async def set_chat_processing(db: AsyncSession, chat_id: str, is_processing: boo
     Mark a chat as processing or not processing.
     Used for stream reconnection to track active streams.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     chat = await get_chat(db, chat_id)
     if chat:
@@ -652,7 +620,7 @@ async def is_chat_processing(db: AsyncSession, chat_id: str) -> bool:
     Check if a chat is currently being processed.
     Also cleans up stale processing state (>5 minutes old).
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     
     chat = await get_chat(db, chat_id)
     if not chat or not chat.is_processing:

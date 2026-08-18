@@ -150,6 +150,29 @@ import asyncio
 # Background task for monitoring connection pool
 _pool_monitor_task = None
 
+# Long-lived background loops. asyncio only keeps *weak* references to tasks, so
+# a bare create_task() can be garbage-collected mid-execution and silently stop
+# the loop (killing job scheduling, the reaper, alerts, etc.). Holding a strong
+# reference here also gives shutdown something to cancel.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro, name: str) -> asyncio.Task:
+    """Start a long-lived background loop and keep a strong reference to it."""
+    task = asyncio.create_task(coro, name=name)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+    def _log_if_failed(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.error(f"Background loop '{name}' died: {exc}", exc_info=exc)
+
+    task.add_done_callback(_log_if_failed)
+    return task
+
 async def monitor_connection_pool():
     """Background task to monitor connection pool usage"""
     from core.database import get_pool_status
@@ -203,25 +226,25 @@ async def startup_event():
 
     # Start the scheduled-job waker (file-backed jobs)
     from services.job_scheduler import run_job_loop
-    asyncio.create_task(run_job_loop())
+    _spawn_background(run_job_loop(), "job-scheduler")
     logger.info("Started job scheduler")
 
     # Start the stale SnapTrade connection reaper (de-registers dormant users
     # to stop per-user connection fees; soft purge keeps cached portfolio).
     from services.snaptrade_reaper import run_reaper_loop
-    asyncio.create_task(run_reaper_loop())
+    _spawn_background(run_reaper_loop(), "snaptrade-reaper")
     logger.info("Started SnapTrade stale-connection reaper")
 
     # Start the market monitor (intraday smart alerts: pushes a "why it moved"
     # explanation when a watched holding crosses a move threshold).
     from services.market_monitor import run_market_monitor_loop
-    asyncio.create_task(run_market_monitor_loop())
+    _spawn_background(run_market_monitor_loop(), "market-monitor")
     logger.info("Started market monitor")
 
     # Start the nightly ledger review (cheap GLM analysis of each user's
     # watchlist/portfolio written into the agent-activity ledger).
     from services.ledger_review import run_ledger_review_loop
-    asyncio.create_task(run_ledger_review_loop())
+    _spawn_background(run_ledger_review_loop(), "ledger-review")
     logger.info("Started ledger review")
 
     # Start the trade-idea scoring sweep (marks open ideas target/stop/expired
@@ -229,7 +252,7 @@ async def startup_event():
     # no credits, and it must keep the scorecard honest even while the idea job
     # is paused.
     from services.trade_ideas import run_scoring_loop
-    asyncio.create_task(run_scoring_loop())
+    _spawn_background(run_scoring_loop(), "trade-idea-scoring")
     logger.info("Started trade-idea scoring sweep")
 
     # Initialize Supabase Storage bucket (if configured)
@@ -256,6 +279,14 @@ async def shutdown_event():
         except asyncio.CancelledError:
             pass
         logger.info("Stopped connection pool monitoring")
+
+    # Stop the long-lived background loops
+    if _background_tasks:
+        pending = list(_background_tasks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        logger.info(f"Stopped {len(pending)} background loop(s)")
 
 
 @app.get("/")

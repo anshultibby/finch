@@ -172,7 +172,6 @@ def get_pool_status() -> dict:
     }
 
 
-
 def get_db() -> Generator[Session, None, None]:
     """
     Sync dependency for getting database sessions (legacy support)
@@ -189,9 +188,3 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-
-def init_db():
-    """Initialize database tables (creates all tables defined in models)"""
-    # Import all models here so Base knows about them
-    from models.user import SnapTradeUser  # noqa
-    Base.metadata.create_all(bind=engine)

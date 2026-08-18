@@ -1,11 +1,17 @@
 """
 Tool registry for managing and executing tools
 """
-from typing import Dict, List, Optional, Any, Callable
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 
 from .models import Tool
-from modules.agent.context import AgentContext
 from utils.logger import get_logger
+
+if TYPE_CHECKING:
+    # Runtime import would cycle: modules.tools -> registry -> modules.agent
+    # -> base_agent -> modules.tools. Annotations are deferred via __future__.
+    from modules.agent.context import AgentContext
 
 logger = get_logger(__name__)
 

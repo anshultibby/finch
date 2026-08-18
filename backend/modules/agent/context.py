@@ -76,7 +76,3 @@ def unregister_context(chat_id: str, context: AgentContext) -> None:
         del _active_contexts[chat_id]
 
 
-def get_active_context(chat_id: str) -> Optional[AgentContext]:
-    """Get the currently active context for a chat"""
-    return _active_contexts.get(chat_id)
-

@@ -6,7 +6,7 @@ FMP responses are cached at the fmp() call layer (see scripts/api.py).
 import asyncio
 import re
 from fastapi import APIRouter, HTTPException, Query
-from datetime import date, timedelta, datetime, time as dtime, timezone
+from datetime import date, timedelta, datetime, time as dtime
 from zoneinfo import ZoneInfo
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -693,8 +693,8 @@ async def get_sec_filings(symbol: str, type: str = None, limit: int = 20):
 @router.get("/financials/{symbol}")
 async def get_financials(
     symbol: str,
-    statement: str = Query("income-statement", regex="^(key-stats|income-statement|balance-sheet|cash-flow|ratios)$"),
-    period: str = Query("annual", regex="^(annual|quarter|ttm)$"),
+    statement: str = Query("income-statement", pattern="^(key-stats|income-statement|balance-sheet|cash-flow|ratios)$"),
+    period: str = Query("annual", pattern="^(annual|quarter|ttm)$"),
     limit: int = 6,
 ):
     sym = symbol.upper()

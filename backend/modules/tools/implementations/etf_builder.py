@@ -8,7 +8,6 @@ from schemas.sse import SSEEvent
 from typing import Optional, Dict, Any, AsyncGenerator, List, Literal
 from pydantic import BaseModel, Field
 from utils.logger import get_logger
-import os
 
 logger = get_logger(__name__)
 
@@ -17,6 +16,7 @@ class BuildCustomETFParams(BaseModel):
     """Build a custom ETF with specified stocks and weighting strategy"""
     tickers: List[str] = Field(
         ...,
+        min_length=1,
         description="List of stock tickers to include in the ETF (e.g., ['AAPL', 'MSFT', 'GOOGL'])"
     )
     weighting_method: Literal["market_cap"] = Field(

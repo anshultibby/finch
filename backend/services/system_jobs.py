@@ -191,18 +191,6 @@ def _next_ideas_utc() -> datetime:
     return run
 
 
-async def configure_catalyst_ideas(user_id: str, enabled: bool = True) -> None:
-    """Provision, refresh, or pause the daily catalyst-idea run."""
-    if enabled:
-        await schedule(
-            user_id, key=CATALYST_IDEAS, name="Catalyst ideas — daily scan",
-            message=_IDEAS_MESSAGE, run_at=_next_ideas_utc(),
-            recurrence="weekdays", activity_gated=True, enforce_limits=False,
-        )
-    await set_enabled(user_id, CATALYST_IDEAS, enabled)
-    logger.info(f"Catalyst ideas for {user_id}: enabled={enabled}")
-
-
 # ── heartbeat: the passive analyst in your pocket ────────────────────────────
 # A recurring agentic run that watches the user's portfolio, watchlist and news
 # and writes what it finds into the activity ledger (report_insight). Unlike the

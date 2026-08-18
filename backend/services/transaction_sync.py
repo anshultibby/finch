@@ -3,7 +3,6 @@ Service for syncing transactions from SnapTrade
 """
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 import asyncio
 from core.database import SessionLocal
 from crud import transactions as tx_crud
@@ -464,7 +463,7 @@ class TransactionSyncService:
                 settlement_date = datetime.fromisoformat(
                     activity["settlement_date"].replace("Z", "+00:00")
                 )
-            except:
+            except (TypeError, ValueError, AttributeError):
                 pass
         
         # Extract currency (NEW API: currency is an object)

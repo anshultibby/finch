@@ -9,10 +9,9 @@ Wraps litellm's acompletion to add:
 - Session-level usage tracking with cost calculation
 """
 from typing import Dict, Any, Optional, AsyncGenerator, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from litellm import acompletion
 import time
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -552,14 +551,13 @@ class LLMHandler:
         
         # Log the LLM turn
         self.chat_logger.log_llm_turn(
-            llm_input_messages=kwargs.get("messages", []),
             assistant_response=assistant_response,
             usage_data=usage_data,
             model=kwargs.get("model", "unknown"),
             system_prompt=kwargs.get("system"),
             tools=kwargs.get("tools")
         )
-    
+
     def _log_chat_turn_streaming(self, kwargs: Dict[str, Any], accumulated: Dict[str, Any], usage_info: Any):
         """Log streaming chat turn"""
         if not self.chat_logger:
@@ -588,7 +586,6 @@ class LLMHandler:
         # Log the LLM turn (assistant response)
         # Tool results should be logged separately via log_tool_results()
         self.chat_logger.log_llm_turn(
-            llm_input_messages=kwargs.get("messages", []),
             assistant_response=assistant_response,
             usage_data=usage_data,
             model=kwargs.get("model", "unknown"),

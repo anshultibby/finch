@@ -4,6 +4,7 @@ Tool Runner - Handles execution of tools
 Separates execution logic from registry (storage) and agents (orchestration)
 """
 from typing import Dict, Any, Optional, Union, AsyncGenerator
+import asyncio
 import traceback
 import inspect
 import time
@@ -172,8 +173,13 @@ class ToolRunner:
                         # Regular async function
                         result = await result
                 else:
-                    result = tool.handler(**kwargs)
-                
+                    # Sync handlers must not run on the event loop: web_search,
+                    # news_search and scrape_url all make blocking `requests`
+                    # calls (scrape_url with a 30s timeout), which would stall
+                    # every concurrent SSE stream for the duration of the call.
+                    # to_thread propagates contextvars, so tracing still works.
+                    result = await asyncio.to_thread(tool.handler, **kwargs)
+
                 # Ensure result is a dict
                 if not isinstance(result, dict):
                     logger.warning(f"Tool {tool_name} returned non-dict: {type(result)}")

@@ -5,9 +5,8 @@ Runs against a real PostgreSQL database (integration tests).
 Uses the same async session infrastructure as the app.
 """
 import pytest
-import uuid
 import math
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from services.credits import (
     calculate_cost_usd,
@@ -251,5 +250,103 @@ class TestCreditsServiceAdd:
             credits=100,
         )
         assert success is False
+
+
+# ---------------------------------------------------------------------------
+# Daily-refresh accrual (_apply_refresh)
+# ---------------------------------------------------------------------------
+
+class TestApplyRefresh:
+    """
+    _apply_refresh does a read-modify-write with an absolute `credits = value`.
+    It must (a) not lock or write on the common no-op path, (b) accrue whole
+    days of daily credits when due, and (c) never let the free daily refresh
+    push a balance past the plan cap -- the bug that once destroyed ~19k
+    purchased credits.
+    """
+
+    @staticmethod
+    def _user(credits, *, plan="free", days_since_refresh=0.0):
+        from datetime import datetime, timezone, timedelta
+        u = MagicMock()
+        u.user_id = "u1"
+        u.credits = credits
+        u.plan = plan
+        u.last_credit_refresh = datetime.now(timezone.utc) - timedelta(days=days_since_refresh)
+        u.created_at = u.last_credit_refresh
+        return u
+
+    @pytest.mark.asyncio
+    async def test_noop_path_takes_no_lock_and_no_write(self):
+        from services.credits import CreditsService
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()  # would be a SELECT ... FOR UPDATE if locked
+        user = self._user(500, days_since_refresh=0.3)  # < 1 day → nothing due
+
+        balance = await CreditsService._apply_refresh(mock_db, user)
+
+        assert balance == 500
+        # Fast path must not hit the DB at all: no lock, no update, no txn row.
+        mock_db.execute.assert_not_called()
+        mock_db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_accrues_whole_days_under_lock(self):
+        from services.credits import CreditsService
+
+        locked_user = self._user(200, plan="free", days_since_refresh=3.5)
+        select_result = MagicMock()
+        select_result.scalar_one_or_none.return_value = locked_user
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=select_result)
+        mock_db.flush = AsyncMock()
+
+        balance = await CreditsService._apply_refresh(mock_db, locked_user)
+
+        # 3 whole days × 100/day = 300 accrued → 200 + 300 = 500
+        assert balance == 500
+        txn = mock_db.add.call_args[0][0]
+        assert txn.amount == 300
+        assert txn.transaction_type == "daily_refresh"
+
+    @pytest.mark.asyncio
+    async def test_refresh_never_exceeds_cap_but_keeps_existing_surplus(self):
+        from services.credits import CreditsService
+
+        # Already above the free cap (1000) from a purchase; refresh adds nothing
+        # and must not clamp the balance down.
+        locked_user = self._user(4_000, plan="free", days_since_refresh=10)
+        select_result = MagicMock()
+        select_result.scalar_one_or_none.return_value = locked_user
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=select_result)
+        mock_db.flush = AsyncMock()
+
+        balance = await CreditsService._apply_refresh(mock_db, locked_user)
+
+        assert balance == 4_000          # surplus preserved
+        mock_db.add.assert_not_called()  # nothing accrued, no transaction
+
+    @pytest.mark.asyncio
+    async def test_refresh_fills_only_up_to_cap(self):
+        from services.credits import CreditsService
+
+        # 950/1000 with 5 days due (would accrue 500) → capped to +50.
+        locked_user = self._user(950, plan="free", days_since_refresh=5)
+        select_result = MagicMock()
+        select_result.scalar_one_or_none.return_value = locked_user
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=select_result)
+        mock_db.flush = AsyncMock()
+
+        balance = await CreditsService._apply_refresh(mock_db, locked_user)
+
+        assert balance == 1_000
+        txn = mock_db.add.call_args[0][0]
+        assert txn.amount == 50
 
 

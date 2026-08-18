@@ -4,7 +4,7 @@ CRUD operations for chats and chat messages
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from models.chat_models import Chat, ChatMessageDB as ChatMessage
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # Chat operations
@@ -44,7 +44,7 @@ def update_chat_title(db: Session, chat_id: str, title: str, icon: Optional[str]
         db_chat.title = title
         if icon is not None:
             db_chat.icon = icon
-        db_chat.updated_at = datetime.utcnow()
+        db_chat.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(db_chat)
     return db_chat
@@ -108,7 +108,7 @@ def create_message(
     # Update chat's updated_at timestamp
     db_chat = get_chat(db, chat_id)
     if db_chat:
-        db_chat.updated_at = datetime.utcnow()
+        db_chat.updated_at = datetime.now(timezone.utc)
         db.commit()
     
     return db_message

@@ -2,13 +2,15 @@
 Tool decorator for converting functions into LLM-callable tools
 """
 import inspect
-from typing import Callable, Optional, List, Any, Dict, get_type_hints, get_origin, get_args, AsyncGenerator, Union
+from typing import Callable, Optional, List, Any, Dict, get_origin, get_args, Union
 from functools import wraps
 
 from .models import Tool
-from modules.agent.context import AgentContext
+# NOTE: AgentContext is referenced only in docstrings below. Importing it here
+# creates a cycle (modules.tools -> decorator -> modules.agent -> base_agent ->
+# modules.tools), which only survives today because the app happens to import
+# modules.agent first. Keep it out of the runtime import graph.
 from .responses import ToolResponse, ToolSuccess, ToolError
-from schemas.sse import SSEEvent
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -204,7 +206,7 @@ def _python_type_to_json_type(annotation) -> str:
         from pydantic import BaseModel
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             return "object"
-    except:
+    except TypeError:
         pass
 
     # Handle typing module types

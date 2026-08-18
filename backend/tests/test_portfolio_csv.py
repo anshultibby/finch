@@ -79,33 +79,39 @@ def test_portfolio_csv_format():
     
     portfolio = Portfolio.from_accounts([account1, account2])
     csv_format = portfolio.to_csv_format()
-    
+
     print("\n=== Portfolio CSV Format ===")
     print(f"Success: {csv_format['success']}")
     print(f"Total Value: ${csv_format['total_value']}")
     print(f"Total Positions: {csv_format['total_positions']}")
     print(f"Account Count: {csv_format['account_count']}")
-    
+
     print("\n--- Aggregated Holdings CSV ---")
-    print(csv_format['aggregated_holdings_csv'])
-    
-    print("\n--- Account Details ---")
-    for acc in csv_format['accounts']:
-        print(f"\n{acc['name']} ({acc['institution']})")
-        print(f"Account Type: {acc['type']}")
-        print(f"Total Value: ${acc['total_value']}")
-        print(f"Positions CSV:\n{acc['positions_csv']}")
-    
+    print(csv_format['holdings_csv'])
+
     # Verify structure
     assert csv_format['success'] == True
     assert csv_format['total_value'] == 15650.00
     assert csv_format['total_positions'] == 3  # AAPL, TSLA, GOOGL (aggregated)
     assert csv_format['account_count'] == 2
-    assert 'aggregated_holdings_csv' in csv_format
-    assert len(csv_format['accounts']) == 2
-    
+    assert 'holdings_csv' in csv_format
+
+    # to_csv_format() is the lean LLM payload: aggregated CSV only. Per-account
+    # detail lives in to_full_format(), which is what the frontend consumes.
+    assert 'accounts' not in csv_format
+
+    full_format = portfolio.to_full_format()
+    assert len(full_format['accounts']) == 2
+
+    print("\n--- Account Details (full format) ---")
+    for acc in full_format['accounts']:
+        print(f"\n{acc['name']} ({acc['institution']})")
+        print(f"Account Type: {acc['type']}")
+        print(f"Total Value: ${acc['total_value']}")
+
+
     # Verify CSV content
-    agg_csv = csv_format['aggregated_holdings_csv']
+    agg_csv = csv_format['holdings_csv']
     assert "AAPL" in agg_csv
     assert "TSLA" in agg_csv
     assert "GOOGL" in agg_csv

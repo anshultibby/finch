@@ -80,7 +80,7 @@ def setup_tracing(app, engine=None):
             with httpx.Client() as client:
                 response = client.get("http://localhost:16686", timeout=1.0)
             jaeger_available = True
-        except:
+        except Exception:
             jaeger_available = False
         
         if jaeger_available:

@@ -84,15 +84,6 @@ def _parse_frontmatter(skill_md: Path) -> dict:
         return {}
 
 
-def get_skill_env_keys(skill_name: str) -> list[str]:
-    """Return the list of required env vars declared in a skill's SKILL.md."""
-    skill_md = _SKILLS_DIR / skill_name / "SKILL.md"
-    if not skill_md.exists():
-        return []
-    meta = _parse_frontmatter(skill_md)
-    return meta.get("env", [])
-
-
 def get_all_skill_packages() -> list[str]:
     """
     Return a deduplicated list of all pip packages required by all skills.

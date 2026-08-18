@@ -217,13 +217,26 @@ class CreditsService:
 
         now = datetime.now(timezone.utc)
 
-        # Re-read the row under a row lock before the read-modify-write below.
-        # This method writes an absolute `credits = <value computed in Python>`,
-        # unlike deduct_credits() which deducts relatively in SQL. Without the
-        # lock, a deduction that commits between the caller's unlocked SELECT
-        # and this UPDATE is overwritten -- silently refunding the user. The
-        # lock also makes the refresh itself single-shot under concurrency,
-        # since the second waiter re-reads the bumped last_credit_refresh.
+        def _days_since_refresh(u: UserAccount) -> float:
+            last = u.last_credit_refresh or u.created_at
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            return (now - last).total_seconds() / 86400
+
+        # Cheap pre-check on the caller's already-loaded row. A refresh is due
+        # less than once a day, but this runs on every balance check, so avoid
+        # taking a row lock on the overwhelmingly common no-op path.
+        if _days_since_refresh(user) < 1:
+            return user.credits
+
+        # A refresh looks due. Re-read under a row lock before the
+        # read-modify-write below: this method writes an absolute
+        # `credits = <value computed in Python>` (unlike deduct_credits(), which
+        # deducts relatively in SQL), so a deduction committing between the
+        # caller's unlocked SELECT and this UPDATE would be overwritten --
+        # silently refunding the user. The lock also makes the refresh
+        # single-shot under concurrency: the second waiter re-reads the bumped
+        # last_credit_refresh and finds nothing due.
         locked = (
             await db.execute(
                 select(UserAccount)
@@ -235,15 +248,7 @@ class CreditsService:
             return user.credits
         user = locked
 
-        last = user.last_credit_refresh
-        if last is None:
-            last = user.created_at
-
-        if last.tzinfo is None:
-            from datetime import timezone as tz
-            last = last.replace(tzinfo=tz.utc)
-
-        elapsed_days = (now - last).total_seconds() / 86400
+        elapsed_days = _days_since_refresh(user)
         if elapsed_days < 1:
             return user.credits
 

@@ -25,7 +25,7 @@ import asyncio
 import time
 import traceback as traceback_module
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from schemas.sse import SSEEvent, LLMStartEvent, LLMEndEvent, AssistantMessageDeltaEvent, ThinkingDeltaEvent, ToolCallStreamingEvent, ToolCallDetectedEvent
 from .llm_handler import LLMHandler
 from .llm_config import LLMConfig
@@ -74,6 +74,11 @@ def _log_cache_diagnostics(
     """Write per-call cache diagnostics to chat_logs for offline analysis."""
     if not chat_id:
         return
+    # Same gate as every other chat_logs writer. Without it this walks the whole
+    # chat_logs tree and appends a jsonl file on every single LLM call in prod.
+    from core.config import Config
+    if not Config.DEBUG_CHAT_LOGS:
+        return
     try:
         from .chat_logger import get_chat_log_dir
         backend_dir = Path(__file__).resolve().parent.parent.parent
@@ -108,7 +113,7 @@ def _log_cache_diagnostics(
         ]
 
         entry = {
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "call_idx": call_idx,
             "cache_mode": "automatic",
             "msg_count": len(messages),
@@ -546,7 +551,7 @@ async def stream_llm_response(
                         # Small delay for smooth streaming
                         if not is_final:
                             await asyncio.sleep(0.01)
-            except (json.JSONDecodeError, Exception) as e:
+            except Exception as e:
                 logger.warning(f"Could not extract file content for streaming: {e}")
     
     # Log per-call cache diagnostics for offline analysis

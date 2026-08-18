@@ -164,19 +164,32 @@ class TestETFBuilderIntegration:
     
     def test_tool_registration(self):
         """Test that build_custom_etf is registered"""
+        # Registration is a side effect of importing definitions; without this
+        # the registry is empty and the lookup below fails spuriously.
+        import modules.tools.definitions  # noqa: F401
         from modules.tools import tool_registry
-        
+
         tool = tool_registry.get_tool("build_custom_etf")
         assert tool is not None
         assert tool.name == "build_custom_etf"
         assert tool.category == "analysis"
-    
-    def test_tool_in_agent_config(self):
-        """Test that tool is in executor agent config"""
+
+    def test_agent_tools_all_resolve(self):
+        """Every tool named in AGENT_TOOLS must actually be registered.
+
+        build_custom_etf is intentionally NOT in AGENT_TOOLS -- it is registered
+        but not part of the curated default tool set. The invariant worth
+        guarding is that the curated list has no typos/stale names, since an
+        unresolvable name would silently drop the tool from the agent.
+        """
+        import modules.tools.definitions  # noqa: F401
+        from modules.tools import tool_registry
         from core.config import Config
-        
-        assert "build_custom_etf" in Config.AGENT_TOOLS
-    
+
+        missing = [n for n in Config.AGENT_TOOLS if tool_registry.get_tool(n) is None]
+        assert not missing, f"AGENT_TOOLS names not registered: {missing}"
+
+
     def test_params_validation(self):
         """Test Pydantic validation"""
         # Valid params

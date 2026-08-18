@@ -494,7 +494,7 @@ class ChatHistory(BaseModel):
                             args_preview = json.dumps(args_dict, indent=2)
                             if len(args_preview) > 200:
                                 args_preview = args_preview[:200] + "..."
-                        except:
+                        except (TypeError, ValueError):
                             args_preview = str(args)[:200]
                         
                         lines.append(f"- `{func_name}`: {args_preview}")

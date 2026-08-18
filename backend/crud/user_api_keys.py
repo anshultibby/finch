@@ -302,11 +302,3 @@ async def delete_api_key(db: AsyncSession, user_id: str, service: str) -> bool:
     return True
 
 
-async def has_api_key(db: AsyncSession, user_id: str, service: str) -> bool:
-    """
-    Check if user has credentials for a service (without decrypting)
-    
-    Note: This still requires decryption to check, but doesn't expose credentials
-    """
-    creds = await get_decrypted_credentials(db, user_id, service)
-    return creds is not None

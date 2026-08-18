@@ -3,7 +3,7 @@ ApeWisdom API Pydantic models for Reddit stock sentiment data
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class StockMention(BaseModel):
@@ -36,7 +36,7 @@ class RedditSentiment(BaseModel):
     mentions: List[StockMention]
     total_tickers: int
     data_source: str = "ApeWisdom - Reddit Stock Mentions"
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     
     class Config:
         json_schema_extra = {

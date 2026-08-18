@@ -64,11 +64,6 @@ def setup_sentry() -> bool:
     return True
 
 
-def is_enabled() -> bool:
-    """Whether Sentry was successfully initialized."""
-    return _initialized
-
-
 def capture_tool_exception(exc: BaseException, *, tool_name: str,
                            chat_id: str = "", user_id: str = "") -> None:
     """
