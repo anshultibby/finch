@@ -18,6 +18,12 @@ logger = get_logger(__name__)
 # Pricing per million tokens (from llm_handler.py)
 # Format: {model_prefix: {"input": price, "output": price, "cache_read": price, "cache_write": price}}
 MODEL_PRICING = {
+    # Claude 5 models. Both were previously absent and fell through to the
+    # $3/$15 default at the bottom of _get_model_pricing — Fable undercharged
+    # 3.3x (Finch ate the difference) and Haiku overcharged 3x. Both are
+    # user-selectable in the chat model picker, so both were live.
+    "claude-fable-5":    {"input": 10.0, "output": 50.0, "cache_read": 1.00, "cache_write": 12.50},
+    "claude-haiku-4-5":  {"input": 1.0, "output": 5.0, "cache_read": 0.10, "cache_write": 1.25},
     # Claude 4 models
     "claude-opus-4-8":   {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
@@ -39,6 +45,12 @@ MODEL_PRICING = {
     # Gemini models
     "gemini-2.0": {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0},  # Free tier
     "gemini-2.5": {"input": 1.25, "output": 5.0, "cache_read": 0.125, "cache_write": 1.5625},
+    # Flash keys MUST precede "gemini-3" — _get_model_pricing is a substring scan
+    # in insertion order, so "gemini-3" would otherwise swallow "gemini-3.6-flash"
+    # and bill Flash at Pro rates (3.3x over). Only confirmed rates are listed;
+    # other Flash/-lite variants still fall through to the Pro entry above.
+    "gemini-3.7-flash": {"input": 0.75, "output": 3.75, "cache_read": 0.075, "cache_write": 0.0},
+    "gemini-3.6-flash": {"input": 0.75, "output": 3.75, "cache_read": 0.075, "cache_write": 0.0},
     "gemini-3": {"input": 2.5, "output": 10.0, "cache_read": 0.25, "cache_write": 3.125},
     # Z.ai / Zhipu GLM (matches pricing in core.model_registry; estimated)
     "glm-": {"input": 0.60, "output": 2.20, "cache_read": 0.11, "cache_write": 0.0},
@@ -204,6 +216,25 @@ class CreditsService:
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)
+
+        # Re-read the row under a row lock before the read-modify-write below.
+        # This method writes an absolute `credits = <value computed in Python>`,
+        # unlike deduct_credits() which deducts relatively in SQL. Without the
+        # lock, a deduction that commits between the caller's unlocked SELECT
+        # and this UPDATE is overwritten -- silently refunding the user. The
+        # lock also makes the refresh itself single-shot under concurrency,
+        # since the second waiter re-reads the bumped last_credit_refresh.
+        locked = (
+            await db.execute(
+                select(UserAccount)
+                .where(UserAccount.user_id == user.user_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if locked is None:
+            return user.credits
+        user = locked
+
         last = user.last_credit_refresh
         if last is None:
             last = user.created_at

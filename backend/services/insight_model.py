@@ -25,11 +25,31 @@ from models.user import SnapTradeUser, UserSettings
 logger = logging.getLogger(__name__)
 
 # US-hosted default. GLM stays wired up but has to be turned on per tenant.
-DEFAULT_INSIGHT_MODEL = Models.CLAUDE_SONNET_4_6
+#
+# Gemini 3.6 Flash with thinking off matches Sonnet's quality on all three of
+# these prompts at ~1/5 the cost and ~3x the speed (measured Aug 17 2026).
+#
+# Requires litellm >= 1.83.7: 1.80.9 dropped `extra_body` on the *Gemini* adapter
+# specifically, so `thinking_off_kwargs` below never reached the API and thinking
+# silently stayed on. If this is ever downgraded, the failure is silent and
+# expensive — with thinking on, ledger_review emits ~476 reasoning tokens against
+# its max_tokens=500 and truncates mid-JSON, so `_parse_review` returns None and
+# the nightly review is dropped entirely. GLM is unaffected either way; it routes
+# through the OpenAI-compatible path, where extra_body passes on both versions.
+DEFAULT_INSIGHT_MODEL = Models.GEMINI_3_6_FLASH
 OPT_IN_INSIGHT_MODEL = Models.GLM_5_1
 
 # UserSettings.settings is JSONB, so the opt-in needs no migration.
 GLM_OPT_IN_KEY = "allow_glm_insights"
+
+# Gemini's only real thinking off-switch. Allowlisted by exact model id rather
+# than by provider because support is per-model and asymmetric: 3.6 accepts
+# MINIMAL, 3.7 rejects it outright ("Thinking level MINIMAL is not supported for
+# this model", HTTP 400) — Google added MINIMAL on the Flash line and then
+# dropped it again in 3.7. A wrong entry here fails the call, not just the token
+# budget, so anything added must be verified against the live API first.
+THINKING_MINIMAL = {"thinkingConfig": {"thinkingLevel": "MINIMAL"}}
+_GEMINI_MINIMAL_THINKING = frozenset({Models.GEMINI_3_6_FLASH})
 
 # A user counts as active if they've opened a chat or synced a brokerage within
 # this window. Everything upstream of the insight jobs is best-effort, so the
@@ -66,9 +86,17 @@ def thinking_off_kwargs(model: str) -> Dict[str, Any]:
     Z.ai turns reasoning on server-side, so GLM needs an explicit opt-out (it
     otherwise adds ~30s per call). Anthropic only thinks when asked, and these
     call sites never pass `reasoning_params`, so there's nothing to disable.
+
+    Gemini 3.x also reasons by default, and on these 2-3 sentence prompts it
+    spends 90%+ of its output budget doing it — enough to blow past
+    ledger_review's max_tokens=500 and return nothing at all. `MINIMAL` is the
+    only lever that actually zeroes it: thinkingBudget is a legacy no-op on 3.x
+    (budget=100 still yields ~500 reasoning tokens) and `LOW` only trims ~20%.
     """
     if resolve(model).provider == "zai":
         return {"extra_body": {"thinking": {"type": "disabled"}}}
+    if model in _GEMINI_MINIMAL_THINKING:
+        return {"extra_body": {"generationConfig": THINKING_MINIMAL}}
     return {}
 
 

@@ -20,6 +20,9 @@ class Models(StrEnum):
 
     # Gemini (gemini-3-pro-preview was retired; 3.1 is the current pro preview)
     GEMINI_3_1_PRO = "gemini/gemini-3.1-pro-preview"
+    # 3.6 — not 3.7 — is the insight-job workhorse: it's the newest Flash that
+    # still accepts thinkingLevel MINIMAL. See `thinking_off_kwargs`.
+    GEMINI_3_6_FLASH = "gemini/gemini-3.6-flash"
     GEMINI_3_FLASH = "gemini/gemini-3-flash-preview"
     GEMINI_2_5_PRO = "gemini/gemini-2.5-pro"
     GEMINI_2_5_FLASH = "gemini/gemini-2.5-flash"

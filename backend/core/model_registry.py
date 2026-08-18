@@ -114,6 +114,22 @@ MODEL_SPECS: List[ModelSpec] = [
         default_effort="medium",
         pricing={"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     ),
+    # --------------------------------------------------- Anthropic Claude Haiku
+    # Must precede the general Claude spec, which would otherwise catch Haiku and
+    # cost-log it at Sonnet's $3/$15 — 3x its real rate. Same reasoning config as
+    # the general spec (Haiku 4.5 predates adaptive thinking and takes an explicit
+    # budget); only the pricing differs.
+    ModelSpec(
+        prefixes=("anthropic/claude-haiku", "claude-haiku"),
+        provider="anthropic",
+        api_key_setting="ANTHROPIC_API_KEY",
+        caching="anthropic",
+        stream_usage=True,
+        defaults={"caching": True, "max_tokens": 16000},
+        reasoning_style="anthropic_budget",
+        default_effort="medium",
+        pricing={"input": 1.0, "output": 5.0, "cache_read": 0.10, "cache_write": 1.25},
+    ),
     # ---------------------------------------------------------------- Anthropic
     ModelSpec(
         prefixes=("anthropic/", "claude"),
@@ -146,6 +162,21 @@ MODEL_SPECS: List[ModelSpec] = [
         # Z.ai pricing (per Mtok); cached input is ~5x cheaper. Estimated — used
         # only for cost logging, not billing.
         pricing={"input": 0.60, "output": 2.20, "cache_read": 0.11, "cache_write": 0.0},
+    ),
+    # ------------------------------------------------------------- Gemini Flash
+    # More specific than the general Gemini spec below (Flash is ~1/3 the price
+    # of Pro), so it must come first — otherwise Flash calls are cost-logged at
+    # Pro rates. Deliberately lists only the two variants whose rates are
+    # confirmed; the -lite tiers are cheaper still, so folding them in here
+    # would overstate their cost. Add them (and a credits.py key) when adopted.
+    ModelSpec(
+        prefixes=("gemini/gemini-3.7-flash", "gemini/gemini-3.6-flash"),
+        provider="gemini",
+        api_key_setting="GEMINI_API_KEY",
+        caching="none",
+        stream_usage=False,
+        defaults={"caching": False},
+        pricing={"input": 0.75, "output": 3.75, "cache_read": 0.075, "cache_write": 0.0},
     ),
     # ------------------------------------------------------------------- Gemini
     ModelSpec(
