@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # its max_tokens=500 and truncates mid-JSON, so `_parse_review` returns None and
 # the nightly review is dropped entirely. GLM is unaffected either way; it routes
 # through the OpenAI-compatible path, where extra_body passes on both versions.
-DEFAULT_INSIGHT_MODEL = Models.GEMINI_3_6_FLASH
+DEFAULT_INSIGHT_MODEL = Models.CLAUDE_SONNET_4_6
 OPT_IN_INSIGHT_MODEL = Models.GLM_5_1
 
 # UserSettings.settings is JSONB, so the opt-in needs no migration.
