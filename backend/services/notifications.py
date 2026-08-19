@@ -37,6 +37,20 @@ def _get_resend_key() -> Optional[str]:
 
 def _send_resend_email_sync(to_email: str, subject: str, html: str, from_email: Optional[str] = None) -> bool:
     """Send an email via Resend (blocking). Use send_resend_email() in async code."""
+    # Tag every email from a non-production backend so a stray local/dev server
+    # can never look like real user mail. Default is dev-tagged: only a backend
+    # that explicitly declares SENTRY_ENVIRONMENT=production sends untagged, so a
+    # local server that forgets to set it is loudly marked, not silently mistaken
+    # for prod. (This exact confusion — a local --reload server re-firing the
+    # morning brief — cost hours once.)
+    try:
+        from core.config import Config
+        env = (getattr(Config, "SENTRY_ENVIRONMENT", "development") or "development").lower()
+        if env != "production" and not subject.startswith("["):
+            subject = f"[{env.upper()}] {subject}"
+    except Exception:
+        subject = f"[DEV] {subject}"
+
     raw = from_email or os.getenv("RESEND_FROM_EMAIL", "notifications@finchapp.ai")
     from_email = f"Finch <{raw}>" if raw and "<" not in raw else raw
     api_key = _get_resend_key()

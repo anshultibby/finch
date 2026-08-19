@@ -31,6 +31,13 @@ async def register_token(body: RegisterTokenRequest, user_id: str = Depends(get_
     return {"ok": True}
 
 
+@router.get("/usage")
+async def routine_usage(user_id: str = Depends(get_current_user_id)):
+    """Plan limits + current usage for the Routines screen (active count, runs
+    today, per-plan caps). Static path — declared before /{job_id} routes."""
+    return await job_scheduler.routine_usage(user_id)
+
+
 @router.get("", response_model=JobList)
 async def list_jobs(user_id: str = Depends(get_current_user_id)):
     """One query. Deliberately no provisioning work on this path.

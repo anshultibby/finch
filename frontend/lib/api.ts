@@ -1072,7 +1072,21 @@ export const jobsApi = {
     const response = await api.patch(`/jobs/${jobId}`, patch);
     return response.data;
   },
+  usage: async (): Promise<RoutineUsage> => {
+    const response = await api.get('/jobs/usage');
+    return response.data;
+  },
 };
+
+// Plan limits + current usage for the Routines screen. Caps of `null` = unlimited.
+export interface RoutineUsage {
+  plan: string;
+  active_routines: number;
+  max_active_routines: number;
+  runs_today: number;
+  runs_per_day: number | null;
+  min_interval_min: number;
+}
 
 export const analyticsApi = {
   async getTransactions(userId: string, symbol?: string, limit: number = 200) {
@@ -1386,6 +1400,8 @@ export interface AgentTask {
   opened_on: string | null;
   review_on: string | null;
   chat_id: string | null;
+  /** True when Finch opened this on its own (from an automation run), not from a chat. */
+  is_autonomous: boolean;
   updated_at: string | null;
   /** Only present on the detail fetch. */
   body?: string;
@@ -1397,7 +1413,7 @@ export interface TaskListResponse {
 }
 
 export const tasksApi = {
-  list: async (params?: { status?: TaskStatus; due_by?: string; symbol?: string }): Promise<TaskListResponse> => {
+  list: async (params?: { status?: TaskStatus; due_by?: string; symbol?: string; origin?: 'automation' | 'chat' }): Promise<TaskListResponse> => {
     const response = await api.get('/tasks', { params });
     return response.data;
   },

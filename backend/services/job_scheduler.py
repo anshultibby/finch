@@ -61,6 +61,36 @@ def _interval_minutes(recurrence: Optional[str]) -> Optional[int]:
     return {"hourly": 60, "daily": 1440, "weekdays": 1440, "weekly": 10080}.get(recurrence)
 
 
+async def routine_usage(user_id: str) -> dict:
+    """Plan limits + current usage for the Routines UI, so it can render
+    "2 of 2 routines · 3 of 5 runs today" and gate the upgrade CTA. `None` on a
+    cap means unlimited (paid plans). Fail-safe: on error, report the free caps
+    with zero usage rather than raising into the UI."""
+    from services.credits import CreditsService
+    try:
+        async with get_db_session() as db:
+            plan = await CreditsService.get_user_plan(db, user_id)
+            active = await _count_active(db, user_id, True)
+        lim = _routine_limits(plan)
+        return {
+            "plan": plan,
+            "active_routines": active,
+            "max_active_routines": lim["max_active"],
+            "runs_today": await _daily_run_count(user_id),
+            "runs_per_day": lim["runs_per_day"],
+            "min_interval_min": lim["min_interval_min"],
+        }
+    except Exception as e:
+        logger.warning(f"routine_usage failed for {user_id}: {e}")
+        free = _ROUTINE_LIMITS["free"]
+        return {
+            "plan": "free", "active_routines": 0,
+            "max_active_routines": free["max_active"], "runs_today": 0,
+            "runs_per_day": free["runs_per_day"],
+            "min_interval_min": free["min_interval_min"],
+        }
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

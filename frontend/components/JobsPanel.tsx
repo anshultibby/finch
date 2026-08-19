@@ -5,7 +5,7 @@ import {
   Clock, Repeat, X, CalendarClock, RefreshCw, CheckCircle2, AlertCircle,
   Pause, Play, Plus, Sparkles, ChevronRight, MessagesSquare,
 } from 'lucide-react';
-import { jobsApi, type ScheduledJob, type JobListResponse, type Recurrence } from '@/lib/api';
+import { jobsApi, type ScheduledJob, type JobListResponse, type Recurrence, type RoutineUsage } from '@/lib/api';
 import { useNavigation } from '@/contexts/NavigationContext';
 import PageHeader from '@/components/ui/PageHeader';
 import { relativeTime, exactTime } from '@/lib/utils/time';
@@ -21,12 +21,19 @@ export default function JobsPanel() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historyLimit, setHistoryLimit] = useState(25);
+  const [usage, setUsage] = useState<RoutineUsage | null>(null);
   const { loadChat } = useNavigation();
 
   const load = useCallback(async () => {
     setError(null);
-    try { setData(await jobsApi.list()); }
-    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Could not load jobs'); }
+    try {
+      // Usage is best-effort — a routine list that renders without the caps
+      // banner is fine; a failed caps lookup must not blank the whole screen.
+      const [list, u] = await Promise.all([jobsApi.list(), jobsApi.usage().catch(() => null)]);
+      setData(list);
+      setUsage(u);
+    }
+    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Could not load routines'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -65,8 +72,8 @@ export default function JobsPanel() {
     return (
       <div className="flex flex-col h-full bg-white overflow-y-auto">
         <div className="max-w-5xl w-full px-6 sm:px-10 py-8">
-          <PageHeader title="Automations" subtitle="Tasks Finch runs for you on a schedule" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" aria-busy="true" aria-label="Loading automations">
+          <PageHeader title="Routines" subtitle="Standing requests Finch carries out for you on a schedule" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" aria-busy="true" aria-label="Loading routines">
             {[0, 1, 2, 3].map(i => (
               <div key={i} className="rounded-2xl border border-gray-200 bg-white p-4 animate-pulse">
                 <div className="flex items-center gap-2 mb-3">
@@ -90,10 +97,10 @@ export default function JobsPanel() {
       <div className="max-w-5xl w-full px-6 sm:px-10 py-8">
         {/* Header */}
         <PageHeader
-          title="Automations"
+          title="Routines"
           subtitle={active.length > 0
-            ? `${active.length} ${active.length === 1 ? 'task runs' : 'tasks run'} on a schedule — results land in chat and email`
-            : 'Tasks Finch runs for you on a schedule'}
+            ? `${active.length} ${active.length === 1 ? 'routine runs' : 'routines run'} on a schedule — results land in chat and email`
+            : 'Standing requests Finch carries out for you on a schedule'}
           actions={!isEmpty && (
             <>
               {active.length > 0 && (
@@ -115,6 +122,8 @@ export default function JobsPanel() {
           )}
         />
 
+        {usage && <UsageBanner usage={usage} atRoutineCap={active.filter(j => j.recurrence).length >= usage.max_active_routines} />}
+
         {error && (
           <div className="mb-4 flex items-center justify-between gap-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">
             <span>{error}</span>
@@ -132,7 +141,7 @@ export default function JobsPanel() {
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-50 mb-5">
               <CalendarClock className="w-7 h-7 text-emerald-500" strokeWidth={1.75} />
             </div>
-            <h2 className="text-lg font-bold text-gray-900 mb-2">No automations yet</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">No routines yet</h2>
             <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
               Have Finch check a price, send a digest, or run research on a schedule — once or repeating. Ask in chat, or set one up by hand.
             </p>
@@ -205,6 +214,49 @@ export default function JobsPanel() {
 }
 
 // ── Active card ──────────────────────────────────────────────────────────────
+
+// Caps + usage, always visible so a limit is never an invisible wall. Shows the
+// upgrade path at the friction points (at the routine cap, or out of daily runs).
+function UsageBanner({ usage, atRoutineCap }: { usage: RoutineUsage; atRoutineCap: boolean }) {
+  const isFree = usage.plan === 'free';
+  const runsCap = usage.runs_per_day;                        // null = unlimited
+  const runsUsedUp = runsCap != null && usage.runs_today >= runsCap;
+  const showUpgrade = isFree && (atRoutineCap || runsUsedUp);
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+        <span className={atRoutineCap ? 'text-gray-900' : 'text-gray-600'}>
+          <span className="font-semibold text-gray-900">{usage.active_routines}</span>
+          {' of '}{usage.max_active_routines} routines
+        </span>
+        <span className="text-gray-300">·</span>
+        <span className={runsUsedUp ? 'text-gray-900' : 'text-gray-600'}>
+          <span className="font-semibold text-gray-900">{usage.runs_today}</span>
+          {' of '}{runsCap == null ? '∞' : runsCap} runs today
+        </span>
+        {isFree && (
+          <>
+            <span className="text-gray-300">·</span>
+            <span className="text-gray-500">checks hourly</span>
+          </>
+        )}
+      </div>
+      {showUpgrade ? (
+        <a
+          href="/settings"
+          className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-gray-800 transition-colors flex-shrink-0"
+        >
+          <Sparkles className="w-3.5 h-3.5" /> Upgrade to Pro
+        </a>
+      ) : isFree ? (
+        <a href="/settings" className="text-[13px] font-medium text-gray-500 hover:text-gray-900 transition-colors flex-shrink-0">
+          Pro: unlimited &amp; every 5 min →
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
 function JobCard({ job, busy, onOpen, onPause, onResume }: {
   job: ScheduledJob; busy: boolean;
