@@ -36,6 +36,30 @@ ONEOFF_LIMIT = 10
 ACTIVE = ("pending", "running", "paused")
 CLAIM_BATCH = 25
 
+# ── Routine (user-created recurring job) plan limits ─────────────────────────
+# See docs/routines/spec.md. Only user routines (no system_key) are gated;
+# Finch built-ins are exempt. "free" is the restricted tier; every paid tier
+# (pro/max/admin) gets the generous caps — credits are the real bound there.
+_ROUTINE_LIMITS = {
+    "free": {"max_active": 2,  "min_interval_min": 60, "runs_per_day": 5},
+    "paid": {"max_active": 50, "min_interval_min": 5,  "runs_per_day": None},
+}
+
+
+def _routine_limits(plan: Optional[str]) -> dict:
+    return _ROUTINE_LIMITS["free"] if (plan or "free") == "free" else _ROUTINE_LIMITS["paid"]
+
+
+def _interval_minutes(recurrence: Optional[str]) -> Optional[int]:
+    """Minutes between runs for a recurrence string, or None for one-off /
+    unrecognized (which the interval floor then ignores)."""
+    if not recurrence:
+        return None
+    m = re.fullmatch(r"every_(\d+)m", recurrence)
+    if m:
+        return int(m.group(1))
+    return {"hourly": 60, "daily": 1440, "weekdays": 1440, "weekly": 10080}.get(recurrence)
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -167,8 +191,27 @@ async def schedule(
 
         if row is None:
             if enforce_limits:
-                if recurrence and await _count_active(db, user_id, True) >= RECURRING_LIMIT:
-                    raise ValueError(f"Recurring job limit reached ({RECURRING_LIMIT}). Cancel one first.")
+                if recurrence:
+                    # User routines are plan-gated: active-count cap + interval
+                    # floor. Built-ins (with `key`) never reach here with
+                    # enforce_limits, so this only touches user routines.
+                    from services.credits import CreditsService
+                    plan = await CreditsService.get_user_plan(db, user_id)
+                    lim = _routine_limits(plan)
+                    if await _count_active(db, user_id, True) >= lim["max_active"]:
+                        extra = " — upgrade to Pro for unlimited." if plan == "free" else "."
+                        raise ValueError(
+                            f"You already have {lim['max_active']} active routine(s) on the "
+                            f"{plan} plan. Cancel one first{extra}"
+                        )
+                    iv = _interval_minutes(recurrence)
+                    if iv is not None and iv < lim["min_interval_min"]:
+                        floor = lim["min_interval_min"]
+                        extra = " — upgrade to Pro to check every 5 min." if plan == "free" else "."
+                        raise ValueError(
+                            f"On the {plan} plan a routine can run at most every "
+                            f"{floor} min{extra}"
+                        )
                 if not recurrence and await _count_active(db, user_id, False) >= ONEOFF_LIMIT:
                     raise ValueError(f"One-off job limit reached ({ONEOFF_LIMIT}). Cancel one first.")
             if key and recurrence and run_at <= _now():
@@ -428,6 +471,63 @@ async def _skip_inactive(job: Job) -> None:
     logger.info(f"Skipped job {job.id} ({job.name}) — user inactive >72h")
 
 
+async def _daily_run_count(user_id: str) -> int:
+    """User-routine runs recorded today (UTC) — counts 'job_run' ledger events
+    whose job had no system_key (i.e. user routines, not Finch built-ins)."""
+    from models.activity import AgentEvent
+    midnight = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    async with get_db_session() as db:
+        return (await db.execute(
+            select(func.count()).select_from(AgentEvent).where(
+                AgentEvent.user_id == user_id,
+                AgentEvent.event_type == "job_run",
+                AgentEvent.created_at >= midnight,
+                # system_key is stored as JSON null for user routines → SQL NULL.
+                AgentEvent.data["system_key"].astext.is_(None),
+            )
+        )).scalar() or 0
+
+
+async def _skip_over_budget(job: Job) -> None:
+    """Free plan hit its daily run budget: advance the schedule without running
+    (no credits, no run recorded), and drop ONE quiet ledger note per day so the
+    user can see why a routine went silent. Mirrors _skip_inactive."""
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.id == job.id)
+        )).scalars().first()
+        if not row:
+            return
+        if row.recurrence:
+            row.run_at = _advance_past_now(row.run_at, row.recurrence)
+            row.status = "pending"
+        else:
+            row.status = "done"
+        await db.commit()
+    try:
+        from services.agent_events import record_event
+        from models.activity import AgentEvent
+        midnight = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+        async with get_db_session() as db:
+            already = (await db.execute(
+                select(func.count()).select_from(AgentEvent).where(
+                    AgentEvent.user_id == job.user_id,
+                    AgentEvent.event_type == "run_skipped",
+                    AgentEvent.created_at >= midnight,
+                )
+            )).scalar() or 0
+        if not already:
+            await record_event(
+                job.user_id, "run_skipped", "Daily routine limit reached",
+                body="Your free plan runs routines up to 5 times a day. They'll "
+                     "resume tomorrow — Pro removes the limit.",
+                data={"job_id": job.id}, source="automation",
+            )
+    except Exception as e:
+        logger.warning(f"Failed to record skip note for job {job.id}: {e}")
+    logger.info(f"Skipped job {job.id} ({job.name}) — daily run budget reached")
+
+
 async def run_job(job: Job) -> None:
     """Run one claimed job: send its instruction to the agent, as the user."""
     if job.activity_gated:
@@ -435,6 +535,22 @@ async def run_job(job: Job) -> None:
         if not await is_user_active(job.user_id):
             await _skip_inactive(job)
             return
+
+    # Daily run budget (free plan), user routines only. FAIL-OPEN: the cap must
+    # never wedge the waker, so any error here falls through to running the job.
+    if job.system_key is None:
+        try:
+            from services.credits import CreditsService
+            async with get_db_session() as db:
+                plan = await CreditsService.get_user_plan(db, job.user_id)
+            cap = _routine_limits(plan)["runs_per_day"]
+            if cap is not None and await _daily_run_count(job.user_id) >= cap:
+                await _skip_over_budget(job)
+                return
+        except Exception as e:
+            logger.warning(
+                f"Daily run-cap check failed for job {job.id}; running anyway: {e}"
+            )
 
     chat_id = _run_chat_id(job.id, job.run_count)
     try:
