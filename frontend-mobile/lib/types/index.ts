@@ -11,6 +11,7 @@ export interface Message {
   content: string;
   timestamp: string;
   toolCalls?: ToolCallStatus[];
+  reasoning?: string | null;  // persisted extended-thinking text (display-only)
 }
 
 export interface ImageAttachment {
@@ -146,6 +147,7 @@ export interface SSEMessageEndEvent {
   role: string;
   content: string;
   timestamp: string;
+  reasoning?: string | null;
   tool_calls?: Array<{
     id: string;
     type: string;

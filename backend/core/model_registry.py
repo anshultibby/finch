@@ -38,7 +38,11 @@ _DEFAULT_PRICING: Dict[str, float] = {
 # Scaled so each tier is a meaningful step up; budget_tokens MUST stay < max_tokens.
 _THINKING_BUDGET: Dict[str, int] = {
     "low": 4_096,
-    "medium": 10_000,
+    # Lowered 10k → 6k: at 10k the coordinator could think for many seconds with
+    # no visible output, which reads as "stuck". 6k keeps enough room for real
+    # reasoning while shrinking the pure-thinking dead-air window. Affects all
+    # medium-effort anthropic_budget models (coordinator + sub-agents).
+    "medium": 6_000,
     "high": 24_000,
 }
 

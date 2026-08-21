@@ -95,6 +95,9 @@ class MessageEndEvent(BaseModel):
     role: str = "assistant"
     content: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    # Accumulated extended-thinking text for this assistant turn, so the server
+    # can persist it alongside the message (streamed live via ThinkingDeltaEvent).
+    reasoning: Optional[str] = None
     timestamp: str = datetime.now().isoformat()
 
 
@@ -164,6 +167,7 @@ class LLMEndEvent(BaseModel):
     """Event when LLM call completes - includes accumulated results"""
     content: str
     tool_calls: List[Dict[str, Any]]
+    reasoning: Optional[str] = None  # accumulated extended-thinking text for this turn
     timestamp: str = datetime.now().isoformat()
 
 

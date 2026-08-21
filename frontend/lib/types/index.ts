@@ -11,6 +11,7 @@ export interface Message {
   content: string;
   timestamp: string;
   toolCalls?: ToolCallStatus[];
+  reasoning?: string | null;  // persisted extended-thinking text (display-only)
 }
 
 export interface ImageAttachment {

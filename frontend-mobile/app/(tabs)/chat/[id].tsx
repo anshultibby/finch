@@ -73,6 +73,7 @@ export default function ChatScreen() {
             content: m.content,
             timestamp: m.timestamp || new Date().toISOString(),
             toolCalls: m.tool_calls,
+            reasoning: m.reasoning,
           })));
           hasGeneratedTitle.current = true;
         }

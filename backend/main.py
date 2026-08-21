@@ -235,6 +235,12 @@ async def startup_event():
     _spawn_background(run_reaper_loop(), "snaptrade-reaper")
     logger.info("Started SnapTrade stale-connection reaper")
 
+    # Start the chat processing-flag reaper (clears leaked chats.is_processing so
+    # a chat whose generation died mid-turn doesn't stay stuck "thinking" forever).
+    from services.processing_reaper import run_processing_reaper_loop
+    _spawn_background(run_processing_reaper_loop(), "processing-reaper")
+    logger.info("Started chat processing-flag reaper")
+
     # Start the market monitor (intraday smart alerts: pushes a "why it moved"
     # explanation when a watched holding crosses a move threshold).
     from services.market_monitor import run_market_monitor_loop

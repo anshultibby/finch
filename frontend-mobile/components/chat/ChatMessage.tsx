@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Platform, StyleSheet } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Markdown from 'react-native-markdown-display';
-import { Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react-native';
+import { Copy, Check, ThumbsUp, ThumbsDown, Sparkles, ChevronRight } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import type { Message } from '@/lib/types';
@@ -50,6 +50,8 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const [showThinking, setShowThinking] = useState(false);
+  const reasoning = !isUser ? (message.reasoning || '').trim() : '';
 
   const handleCopy = async () => {
     if (!message.content) return;
@@ -75,6 +77,28 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
 
   return (
     <Animated.View entering={FadeInDown.springify().damping(15).mass(0.7)} className={`mb-3 ${isUser ? 'items-end' : 'items-start'}`}>
+      {reasoning.length > 0 && (
+        <View style={cmStyles.thinkingCard}>
+          <TouchableOpacity onPress={() => setShowThinking(v => !v)} activeOpacity={0.6} style={cmStyles.thinkingHeader}>
+            <Sparkles size={13} color="#059669" />
+            <Text style={cmStyles.thinkingLabel}>Reasoning</Text>
+            <View style={{ flex: 1 }} />
+            <Text style={cmStyles.thinkingMeta}>{reasoning.length.toLocaleString()} chars</Text>
+            <ChevronRight size={14} color="#d6d3d1" style={{ transform: [{ rotate: showThinking ? '90deg' : '0deg' }] }} />
+          </TouchableOpacity>
+          {/* A preview stays visible in-flow; tap to expand to the full scrollable trace. */}
+          {showThinking ? (
+            <ScrollView style={cmStyles.thinkingBody} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              <Text style={cmStyles.thinkingText}>{reasoning}</Text>
+            </ScrollView>
+          ) : (
+            <View style={cmStyles.thinkingPreview}>
+              <Text style={cmStyles.thinkingText} numberOfLines={5}>{reasoning}</Text>
+              <Text style={cmStyles.thinkingMore}>Show full reasoning</Text>
+            </View>
+          )}
+        </View>
+      )}
       {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
         <View className="w-full mb-1.5">
           {message.toolCalls.map((tc, i) => (
@@ -118,3 +142,56 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
     </Animated.View>
   );
 }
+
+const cmStyles = StyleSheet.create({
+  thinkingCard: {
+    width: '100%',
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#f0efec',
+    borderRadius: 12,
+    backgroundColor: '#fafaf9',
+    overflow: 'hidden',
+  },
+  thinkingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  thinkingLabel: {
+    fontSize: 13,
+    fontFamily: 'DMSans-Medium',
+    color: '#78716c',
+  },
+  thinkingBody: {
+    maxHeight: 440,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  thinkingPreview: {
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+  },
+  thinkingText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontFamily: 'DMSans',
+    fontStyle: 'italic',
+    color: '#78716c',
+  },
+  thinkingMeta: {
+    fontSize: 11,
+    fontFamily: 'DMSans',
+    color: '#a8a29e',
+    marginRight: 6,
+    fontVariant: ['tabular-nums'],
+  },
+  thinkingMore: {
+    marginTop: 4,
+    fontSize: 11,
+    fontFamily: 'DMSans-Medium',
+    color: '#a8a29e',
+  },
+});

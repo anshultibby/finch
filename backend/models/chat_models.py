@@ -45,6 +45,7 @@ class ChatMessageDB(Base):
     chat_id = Column(String, nullable=False, index=True)
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
+    reasoning = Column(Text, nullable=True)  # extended-thinking text for assistant turns (display-only)
     sequence = Column(Integer, nullable=False)
     tool_calls = Column(JSONB, nullable=True)
     tool_results = Column(JSONB, nullable=True)

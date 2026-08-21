@@ -246,9 +246,11 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       const last = state.streamingThoughts[state.streamingThoughts.length - 1];
 
       if (last?.live) {
+        // Keep the full reasoning trace (no snippet cap) so the user can read all
+        // of it. Guard only against a pathological runaway with a very high ceiling.
         update(chatId, {
           streamingThoughts: state.streamingThoughts.map(t =>
-            t === last ? { ...t, text: (t.text + event.delta).slice(0, 8000) } : t
+            t === last ? { ...t, text: (t.text + event.delta).slice(0, 200000) } : t
           ),
         }, notify);
         return;
@@ -265,7 +267,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       }, notify);
     },
 
-    onMessageEnd: (event: { content: string; timestamp: string }) => {
+    onMessageEnd: (event: { content: string; timestamp: string; reasoning?: string | null }) => {
       const state = getChatState(chatId);
       // Use event.content (authoritative from backend), fall back to streamingText
       const text = event.content?.trim() ? event.content : state.streamingText;
@@ -276,7 +278,13 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           role: 'assistant' as const,
           content: text,
           timestamp: event.timestamp,
+          // Persist this turn's reasoning onto the message so the ReasoningCard
+          // stays in the transcript after the live stream ends (no reload needed).
+          reasoning: event.reasoning ?? null,
         }];
+        // A content-only message_end is the final answer — hand off from the live
+        // reasoning card to the persisted one by clearing the live thoughts.
+        updates.streamingThoughts = [];
       }
       update(chatId, updates, notify);
     },

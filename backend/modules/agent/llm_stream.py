@@ -569,7 +569,8 @@ async def stream_llm_response(
         event="llm_end",
         data=LLMEndEvent(
             content=content,
-            tool_calls=validated_tool_calls
+            tool_calls=validated_tool_calls,
+            reasoning=reasoning_content or None,
         ).model_dump()
     )
     logger.info("🔄 llm_end event yielded successfully")

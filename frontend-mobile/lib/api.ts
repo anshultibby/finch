@@ -285,6 +285,7 @@ export const chatApi = {
       content: string;
       timestamp?: string;
       tool_calls?: ToolCallStatus[];
+      reasoning?: string | null;
     }>;
   }> => {
     const response = await api.get(`/chat/history/${chatId}/display`);

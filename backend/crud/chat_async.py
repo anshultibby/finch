@@ -272,7 +272,8 @@ async def create_message(
     tool_results: Optional[dict] = None,
     tool_call_id: Optional[str] = None,
     name: Optional[str] = None,
-    latency_ms: Optional[int] = None
+    latency_ms: Optional[int] = None,
+    reasoning: Optional[str] = None,
 ) -> ChatMessage:
     """
     Create a new chat message (OpenAI format)
@@ -300,7 +301,8 @@ async def create_message(
         tool_results=tool_results,
         tool_call_id=tool_call_id,
         name=name,
-        latency_ms=latency_ms
+        latency_ms=latency_ms,
+        reasoning=reasoning,
     )
     db.add(db_message)
     await db.commit()
@@ -358,7 +360,7 @@ async def get_chat_messages_for_display(
         params["before_sequence"] = before_sequence
 
     sql = text(f"""
-        SELECT id, role, content, sequence, tool_calls, timestamp,
+        SELECT id, role, content, reasoning, sequence, tool_calls, timestamp,
                CASE WHEN tool_results IS NOT NULL AND jsonb_typeof(tool_results) = 'object' THEN (
                    SELECT jsonb_object_agg(
                        key,
@@ -388,6 +390,7 @@ async def get_chat_messages_for_display(
             "id": r["id"],
             "role": r["role"],
             "content": r["content"],
+            "reasoning": r["reasoning"],
             "sequence": r["sequence"],
             "tool_calls": r["tool_calls"],
             "tool_results": r["tool_results_light"],

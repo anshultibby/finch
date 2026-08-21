@@ -221,6 +221,7 @@ class BaseAgent:
                     # Step 1: Call LLM and stream response (yields SSE events directly)
                     content = ""
                     tool_calls = []
+                    reasoning = None
                     async for event in stream_llm_response(
                         messages=messages_for_llm,
                         tools=tools,
@@ -233,6 +234,7 @@ class BaseAgent:
                         if event.event == "llm_end":
                             content = event.data.get("content", "")
                             tool_calls = event.data.get("tool_calls", [])
+                            reasoning = event.data.get("reasoning")
                         
                         # Forward LLM events (content deltas, llm_end, etc.)
                         yield event
@@ -244,7 +246,7 @@ class BaseAgent:
                             from schemas.sse import MessageEndEvent
                             yield SSEEvent(
                                 event="message_end",
-                                data=MessageEndEvent(content=content, tool_calls=None).model_dump()
+                                data=MessageEndEvent(content=content, tool_calls=None, reasoning=reasoning).model_dump()
                             )
                         
                         self._agent_tracer.record_final_turn(iteration, len(content) if content else 0)
@@ -288,7 +290,7 @@ class BaseAgent:
                     from schemas.sse import MessageEndEvent
                     yield SSEEvent(
                         event="message_end",
-                        data=MessageEndEvent(content=content, tool_calls=tool_calls).model_dump()
+                        data=MessageEndEvent(content=content, tool_calls=tool_calls, reasoning=reasoning).model_dump()
                     )
                     
                     # Step 2: Execute tools

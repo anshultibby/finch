@@ -274,7 +274,9 @@ export default function ToolCallSummary({
 
         {isStreaming ? (
           <span className={`flex-1 min-w-0 text-[13px] leading-5 activity-shimmer-text truncate ${anchorLive.isThought ? 'italic' : ''}`}>
-            {anchorLive.text}
+            {/* For live reasoning the readable panel below carries the content,
+                so the anchor is just a compact "Thinking" header. */}
+            {anchorLive.isThought ? 'Thinking' : anchorLive.text}
           </span>
         ) : (
           <span className="flex-1 min-w-0 text-[13px] leading-5 text-stone-500 truncate">
@@ -328,16 +330,16 @@ export default function ToolCallSummary({
                 item.tool ? renderTool(item.tool) : (
                   <div key={item.thought!.id} className="flex gap-2 py-0.5 px-1 min-w-0">
                     <SparkleIcon className="w-3 h-3 mt-1 flex-shrink-0 text-stone-300" />
-                    <p className="text-xs italic leading-5 text-stone-400 line-clamp-3 whitespace-pre-line min-w-0">
-                      {item.thought!.text.length > 400
-                        ? item.thought!.text.slice(0, 400).trimEnd() + '…'
-                        : item.thought!.text}
+                    <p className="text-xs italic leading-5 text-stone-400 whitespace-pre-line min-w-0">
+                      {item.thought!.text}
                     </p>
                   </div>
                 )
               )}
             </div>
           ) : isStreaming && settled.length > 0 ? (
+            // Reasoning now streams in the ReasoningCard above the message; here
+            // the ticker just shows the evaporating trail of prior steps.
             <ActivityTrail items={settled} />
           ) : null}
         </div>

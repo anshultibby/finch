@@ -6,6 +6,7 @@ import ChatInput from './ChatInput';
 import ChatModeBanner from './ChatModeBanner';
 import ChatHeaderActions from './ChatHeaderActions';
 import NewChatWelcome from './NewChatWelcome';
+import ReasoningCard from './ReasoningCard';
 import FileViewer from '../FileViewer';
 import ComputerPanel from '../ComputerPanel';
 import AgentPeekPanel from './AgentPeekPanel';
@@ -277,6 +278,7 @@ export default function ChatView({
           content: msg.content,
           timestamp: msg.timestamp || new Date().toISOString(),
           toolCalls: msg.tool_calls,
+          reasoning: msg.reasoning,
         }));
         updateChatState(recoveredChatId, { messages: loadedMessages }, syncDisplay);
       } catch {
@@ -357,6 +359,7 @@ export default function ChatView({
           content: msg.content,
           timestamp: msg.timestamp || new Date().toISOString(),
           toolCalls: msg.tool_calls,
+          reasoning: msg.reasoning,
         }));
 
         // Restore the chat's stored model into the picker (undefined = default)
@@ -393,6 +396,7 @@ export default function ChatView({
         content: msg.content,
         timestamp: msg.timestamp || new Date().toISOString(),
         toolCalls: msg.tool_calls,
+        reasoning: msg.reasoning,
       }));
 
       if (olderMessages.length > 0) {
@@ -459,6 +463,7 @@ export default function ChatView({
                   content: msg.content,
                   timestamp: msg.timestamp || new Date().toISOString(),
                   toolCalls: msg.tool_calls,
+                  reasoning: msg.reasoning,
                 }));
                 updateChatState(chatIdToReload, {
                   messages: loadedMessages,
@@ -871,6 +876,7 @@ export default function ChatView({
                       role={msg.role}
                       content={msg.content}
                       toolCalls={msg.toolCalls}
+                      reasoning={msg.reasoning}
                       chatId={currentChatId || undefined}
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
@@ -887,12 +893,24 @@ export default function ChatView({
                   );
                 })}
 
+                {/* Live reasoning card — streams the thinking in a distinct,
+                    expandable card in the transcript, across the whole turn
+                    (before tools and during post-tool re-thinking). */}
+                {isLoading && streamingThoughts.some(t => t.text.trim()) && (
+                  <div className="px-3">
+                    <ReasoningCard
+                      live
+                      startTime={streamStartTime}
+                      text={streamingThoughts.map(t => t.text).join('\n\n')}
+                    />
+                  </div>
+                )}
+
                 {(streamingText || streamingTools.length > 0) && (
                   <ChatMessage
                     role="assistant"
                     content={streamingText}
                     toolCalls={streamingTools.length > 0 ? streamingTools : undefined}
-                    thoughts={streamingThoughts.length > 0 ? streamingThoughts : undefined}
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
                     onFileClick={(filename) => setSelectedFile(filename)}
@@ -923,7 +941,10 @@ export default function ChatView({
                   </div>
                 )}
 
-                {isLoading && !streamingText && streamingTools.length === 0 && (
+                {/* Before the first reasoning token arrives (and no text/tools yet):
+                    a compact pulse. Once reasoning streams, the live ReasoningCard
+                    above takes over. */}
+                {isLoading && !streamingText && streamingTools.length === 0 && !streamingThoughts.some(t => t.text.trim()) && (
                   <div className="flex justify-start mb-4 px-3 animate-activity-in">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="relative w-3 h-3 flex items-center justify-center flex-shrink-0">
@@ -931,15 +952,7 @@ export default function ChatView({
                         <span className="relative w-[7px] h-[7px] rounded-full bg-emerald-500 block" />
                       </span>
                       <span className="text-[13px] leading-5 activity-shimmer-text truncate min-w-0">
-                        {/* live tail of the model's reasoning, if it's streaming */}
-                        {(() => {
-                          const live = streamingThoughts[streamingThoughts.length - 1];
-                          if (live?.text) {
-                            const tail = live.text.replace(/\s+/g, ' ').trim();
-                            return tail.length > 110 ? '…' + tail.slice(-110) : tail;
-                          }
-                          return timeEstimate?.description || 'Thinking…';
-                        })()}
+                        {timeEstimate?.description || 'Thinking…'}
                       </span>
                     </div>
                   </div>

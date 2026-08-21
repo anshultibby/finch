@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -7,7 +7,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Bell } from 'lucide-react-native';
+import { Bell, Sparkles, ChevronRight } from 'lucide-react-native';
 import Markdown from 'react-native-markdown-display';
 import type { ToolCallStatus, TodoItem } from '@/lib/types';
 import ToolCallCard from './ToolCallCard';
@@ -66,7 +66,7 @@ export default function StreamingView({ text, tools, todos = [], thinkingText = 
           ))}
         </View>
       )}
-      {thinkingText.length > 0 && <ThinkingLine text={thinkingText} />}
+      {thinkingText.length > 0 && <ThinkingPanel text={thinkingText} />}
       {text.length > 0 && (
         <View className="w-full">
           <Markdown style={streamMdStyles} rules={streamRules}>{stripLegacyMarkers(text)}</Markdown>
@@ -87,10 +87,24 @@ export default function StreamingView({ text, tools, todos = [], thinkingText = 
   );
 }
 
-/** Last line of the live reasoning stream, gently pulsing. Evaporates when the
- *  answer text or a tool call arrives (the hook clears thinkingText). */
-function ThinkingLine({ text }: { text: string }) {
-  const pulse = useSharedValue(0.45);
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const min = Math.floor(seconds / 60);
+  const sec = seconds % 60;
+  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+}
+
+/** The live reasoning stream, shown as readable content in a bounded,
+ *  auto-scrolling panel with a progress header (elapsed + char count). Persists
+ *  across tool calls; cleared by the hook only when the final answer starts. */
+function ThinkingPanel({ text }: { text: string }) {
+  const pulse = useSharedValue(0.5);
+  const scrollRef = useRef<ScrollView>(null);
+  const startRef = useRef<number>(Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  // Tap the header to expand the reading area so the whole trace is readable.
+  const [expanded, setExpanded] = useState(false);
+
   useEffect(() => {
     pulse.value = withRepeat(
       withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
@@ -98,32 +112,80 @@ function ThinkingLine({ text }: { text: string }) {
       true
     );
   }, [pulse]);
-  const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
-  // Show only the tail so the line stays a glanceable one-liner.
-  const lines = text.trimEnd().split('\n');
-  const tail = lines[lines.length - 1].slice(-140);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const clean = text.replace(/\n{3,}/g, '\n\n').trimEnd();
 
   return (
-    <Animated.View style={[svStyles.thinkingRow, style]}>
-      <Text style={svStyles.thinkingText} numberOfLines={2}>
-        {tail}
-      </Text>
-    </Animated.View>
+    <View style={svStyles.thinkingPanel}>
+      <TouchableOpacity onPress={() => setExpanded(v => !v)} activeOpacity={0.6} style={svStyles.thinkingHeader}>
+        <Animated.View style={dotStyle}>
+          <Sparkles size={13} color="#059669" />
+        </Animated.View>
+        <Text style={svStyles.thinkingLabel}>Thinking</Text>
+        <View style={{ flex: 1 }} />
+        {clean.length > 0 && <Text style={svStyles.thinkingMeta}>{clean.length.toLocaleString()} chars</Text>}
+        {elapsed > 0 && <Text style={svStyles.thinkingMeta}>{formatElapsed(elapsed)}</Text>}
+        <ChevronRight size={14} color="#d6d3d1" style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }} />
+      </TouchableOpacity>
+      <ScrollView
+        ref={scrollRef}
+        style={[svStyles.thinkingScroll, { maxHeight: expanded ? 440 : 150 }]}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={svStyles.thinkingText}>{clean}</Text>
+      </ScrollView>
+    </View>
   );
 }
 
 const svStyles = StyleSheet.create({
-  thinkingRow: {
-    paddingVertical: 4,
-    paddingRight: 16,
+  thinkingPanel: {
+    width: '100%',
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#f0efec',
+    borderRadius: 12,
+    backgroundColor: '#fafaf9',
+    overflow: 'hidden',
+  },
+  thinkingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  thinkingLabel: {
+    fontSize: 13,
+    fontFamily: 'DMSans-Medium',
+    color: '#059669',
+  },
+  thinkingMeta: {
+    fontSize: 11,
+    fontFamily: 'DMSans',
+    color: '#a8a29e',
+    marginLeft: 8,
+    fontVariant: ['tabular-nums'],
+  },
+  thinkingScroll: {
+    maxHeight: 150,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
   },
   thinkingText: {
     fontSize: 12.5,
     lineHeight: 18,
     fontFamily: 'DMSans',
     fontStyle: 'italic',
-    color: '#a8a29e',
+    color: '#78716c',
   },
   notifBanner: {
     flexDirection: 'row',

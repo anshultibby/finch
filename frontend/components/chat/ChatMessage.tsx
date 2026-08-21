@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ToolCallSummary from './ToolCallSummary';
+import ReasoningCard from './ReasoningCard';
 import { isImageFile, isCsvFile, isHtmlFile, getApiBaseUrl } from '@/lib/utils';
 import { getAuthHeader } from '@/lib/api';
 import type { ToolCallStatus, TodoItem } from '@/lib/types';
@@ -21,6 +22,7 @@ interface ChatMessageProps {
   timestamp?: string;
   toolCalls?: ToolCallStatus[];
   thoughts?: ThoughtEntry[];
+  reasoning?: string | null;  // persisted extended-thinking, rendered as a collapsed disclosure
   chatId?: string;
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
@@ -894,7 +896,7 @@ function MessageActions({ actions, alwaysVisible, onFeedback, feedbackGiven, set
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, chatId, userId, onSelectTool, onFileClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, todos }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, reasoning, chatId, userId, onSelectTool, onFileClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, todos }: ChatMessageProps) {
   const isUser = role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -1037,10 +1039,18 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
     );
   }
 
+  // Persisted extended-thinking → a distinct, expandable reasoning card in the
+  // transcript. Only for history (not while streaming — ChatView renders the
+  // live ReasoningCard for that phase).
+  const reasoningBlock = !isUser && !isStreaming && reasoning && reasoning.trim() ? (
+    <ReasoningCard text={reasoning} />
+  ) : null;
+
   if (toolCalls && toolCalls.length > 0 && !content) {
     return (
       <div className="flex justify-start mb-2">
         <div className="w-full px-3">
+          {reasoningBlock}
           <ToolCallSummary toolCalls={toolCalls} thoughts={thoughts} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} todos={todos} />
         </div>
       </div>
@@ -1051,6 +1061,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
     <>
       <div className="flex justify-start mb-2 group/msg">
         <div className="w-full px-3">
+          {reasoningBlock}
           {content && (
             hasSpecialTags ? (
               <div className="prose prose-sm prose-slate max-w-none mb-2">

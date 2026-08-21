@@ -52,6 +52,7 @@ export function useChatStream(userId: string, chatId: string) {
           content: m.content,
           timestamp: m.timestamp || new Date().toISOString(),
           toolCalls: m.tool_calls,
+          reasoning: m.reasoning,
         })),
         ...EMPTY_STREAM,
         isStreaming: false,
@@ -92,6 +93,10 @@ export function useChatStream(userId: string, chatId: string) {
       error: null,
     }));
 
+    // Capture this turn's reasoning from message_end so it can be attached to the
+    // finalized assistant message (thinkingText is cleared once the answer starts).
+    let turnReasoning: string | null = null;
+
     const handlers: SSEEventHandlers = {
       onMessageDelta: (event) => {
         setState(prev => ({
@@ -99,6 +104,9 @@ export function useChatStream(userId: string, chatId: string) {
           streamingText: prev.streamingText + event.delta,
           thinkingText: '',
         }));
+      },
+      onMessageEnd: (event) => {
+        if (event.reasoning) turnReasoning = event.reasoning;
       },
       onThinkingDelta: (event) => {
         setState(prev => ({
@@ -141,7 +149,9 @@ export function useChatStream(userId: string, chatId: string) {
           };
           return {
             ...prev,
-            thinkingText: '',
+            // Keep thinkingText: reasoning stays readable across tool calls and
+            // post-tool thinking appends to the same stream. It's cleared only
+            // when the final answer starts (onMessageDelta).
             streamingTools: existing
               ? prev.streamingTools.map(t =>
                   t.tool_call_id === event.tool_call_id ? { ...t, ...started } : t
@@ -179,6 +189,7 @@ export function useChatStream(userId: string, chatId: string) {
             content: prev.streamingText,
             timestamp: new Date().toISOString(),
             toolCalls: prev.streamingTools.length > 0 ? prev.streamingTools : undefined,
+            reasoning: turnReasoning,
           };
           // A recovered stream has no local transcript — reloadFromServer
           // (via onStreamRecovered) repopulates messages instead.

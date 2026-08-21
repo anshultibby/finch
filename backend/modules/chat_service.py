@@ -211,14 +211,16 @@ class ChatService:
                         if event.event == "message_end":
                             tool_calls = event.data.get("tool_calls")
                             content = event.data.get("content", "")
-                            
+                            reasoning = event.data.get("reasoning")
+
                             if tool_calls:
                                 # Hold the assistant message until tools_end so we can attach
                                 # tool_results metadata to it in a single DB write.
                                 logger.info(f"📝 message_end with {len(tool_calls)} tool calls - holding for tools_end")
                                 pending_assistant_msg = {
                                     "content": content,
-                                    "tool_calls": tool_calls
+                                    "tool_calls": tool_calls,
+                                    "reasoning": reasoning,
                                 }
                             else:
                                 # Final assistant message with no tool calls — save immediately.
@@ -230,7 +232,8 @@ class ChatService:
                                         chat_id=chat_id,
                                         role="assistant",
                                         content=content,
-                                        sequence=seq
+                                        sequence=seq,
+                                        reasoning=reasoning,
                                     )
                                     logger.info(f"💾 Saved final assistant message (seq={seq})")
                                 except Exception as e:
@@ -296,7 +299,8 @@ class ChatService:
                                         content=pending_assistant_msg["content"],
                                         sequence=seq,
                                         tool_calls=pending_assistant_msg["tool_calls"],
-                                        tool_results=tool_results if tool_results else None
+                                        tool_results=tool_results if tool_results else None,
+                                        reasoning=pending_assistant_msg.get("reasoning"),
                                     )
                                     logger.info(f"💾 Saved assistant message with {len(pending_assistant_msg['tool_calls'])} tool calls (seq={seq})")
                                     seq += 1
@@ -635,6 +639,7 @@ class ChatService:
                     display_messages.append({
                         "role": "assistant",
                         "content": msg["content"] or "",
+                        "reasoning": msg.get("reasoning") or None,
                         "timestamp": ts.isoformat() if ts else None,
                         "tool_calls": tool_calls if tool_calls else None
                     })
