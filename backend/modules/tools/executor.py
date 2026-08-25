@@ -18,6 +18,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from .runner import tool_runner
+from .provenance import next_source_ref, tag_llm_content, register_source
 from modules.agent.context import AgentContext
 from schemas.sse import SSEEvent, ToolsEndEvent
 from services.tool_monitoring import record_tool_outcome
@@ -809,43 +810,58 @@ class ToolExecutor:
             # ALWAYS use list format for content (multimodal-safe)
             # This ensures consistent handling throughout the codebase
             content_blocks = []
-            
-            if result.raw_result and isinstance(result.raw_result, dict):
-                image_data = result.raw_result.get("image")
-                if image_data and isinstance(image_data, dict) and image_data.get("type") == "base64":
-                    # Multimodal content: image + text context
-                    content_blocks.append({
-                        "type": "text",
-                        "text": f"Image file '{result.raw_result.get('filename', 'unknown')}' contents:"
-                    })
-                    content_blocks.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": image_data.get("media_type", "image/png"),
-                            "data": image_data.get("data", "")
-                        }
-                    })
-                else:
-                    # Text-only result - still use list format
-                    content_blocks.append({
-                        "type": "text",
-                        "text": result.llm_content
-                    })
-            else:
-                # Text-only result - still use list format
+
+            is_image = (
+                isinstance(result.raw_result, dict)
+                and isinstance(result.raw_result.get("image"), dict)
+                and result.raw_result["image"].get("type") == "base64"
+            )
+
+            # Mint a citation handle for successful data results so the model can
+            # cite this result as [^N] and we can later verify the citation and
+            # open its payload. Allocated here at the synchronous result-build
+            # moment (not at tool-start) so numbering is deterministic and
+            # collision-free under parallel execution; the per-chat counter is a
+            # shared namespace across this turn's agent + its sub-agents. Images
+            # are agent-produced artifacts, not data sources — not citable.
+            source_ref = None
+            if result.success and not is_image:
+                source_ref = next_source_ref(context.chat_id)
+                # Register in the shared chat-scoped registry so the parent turn's
+                # enforcement can resolve this citation even when it was minted
+                # inside a sub-agent (same chat_id namespace).
+                register_source(context.chat_id, source_ref, result.tool_call_id, result.tool_name)
+
+            if is_image:
+                image_data = result.raw_result["image"]
+                # Multimodal content: image + text context
                 content_blocks.append({
                     "type": "text",
-                    "text": result.llm_content
+                    "text": f"Image file '{result.raw_result.get('filename', 'unknown')}' contents:"
                 })
-            
+                content_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_data.get("media_type", "image/png"),
+                        "data": image_data.get("data", "")
+                    }
+                })
+            else:
+                # Text-only result — tag it with its citation handle so the model
+                # reads the [^N] it must cite this data by.
+                text = result.llm_content
+                if source_ref is not None:
+                    text = tag_llm_content(source_ref, result.tool_name, text)
+                content_blocks.append({"type": "text", "text": text})
+
             tool_messages.append({
                 "role": "tool",
                 "tool_call_id": result.tool_call_id,
                 "name": result.tool_name,
                 "content": content_blocks
             })
-            
+
             execution_results.append({
                 "tool_call_id": result.tool_call_id,
                 "tool_name": result.tool_name,
@@ -853,7 +869,8 @@ class ToolExecutor:
                 "arguments": result.arguments,
                 "result_data": result.raw_result,
                 "error": result.error,
-                "duration_ms": result.duration_ms
+                "duration_ms": result.duration_ms,
+                "source_ref": source_ref,
             })
         
         # Yield final tools_end event with BOTH tool messages AND detailed results

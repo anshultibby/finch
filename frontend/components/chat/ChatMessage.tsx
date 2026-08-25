@@ -26,6 +26,7 @@ interface ChatMessageProps {
   chatId?: string;
   userId?: string;
   onSelectTool?: (tool: ToolCallStatus) => void;
+  onCiteClick?: (n: number) => void;  // chat-wide citation resolver (overrides local)
   onFileClick?: (filename: string) => void;
   onSendMessage?: (msg: string) => void;
   onPeekAgent?: (agentId: string, chatId: string, name: string) => void;
@@ -145,7 +146,7 @@ function SandboxImage({
 
 const CITE_BADGE_RE = /^\d+$/;
 
-type Citation = { url: string; label?: string };
+type Citation = { url?: string; label?: string };
 
 function extractCitations(md: string): Map<number, Citation> {
   const refs = new Map<number, Citation>();
@@ -154,12 +155,26 @@ function extractCitations(md: string): Map<number, Citation> {
   while ((m = linked.exec(md)) !== null) {
     refs.set(parseInt(m[1]), { url: m[2] });
   }
-  // Footnote definitions. The URL may be bare (`[^1]: https://…`) or wrapped in
-  // a markdown link (`[^1]: [Gotrade, May 13](https://…)`) — the model uses both.
-  const defs = /^\[\^(\d+)\]:\s*(?:\[([^\]]*)\]\()?(https?:\/\/[^)\s]+)/gm;
+  // Footnote definitions: `[^N]: <rest>`. The source may be a web link (bare url
+  // or a markdown link), OR — for fetched/computed data (FMP, get_equity_quotes,
+  // "Calculated from …") — a plain text label with NO url. The old regex required
+  // an http url, so every data/calc source was silently dropped and the Sources
+  // list came up empty on data-heavy analyses. Capture the label-only case too.
+  const defs = /^\[\^(\d+)\]:\s*(.+?)\s*$/gm;
   while ((m = defs.exec(md)) !== null) {
     const n = parseInt(m[1]);
-    if (!refs.has(n)) refs.set(n, { url: m[3], label: m[2]?.trim() || undefined });
+    if (refs.has(n)) continue;
+    const rest = m[2].trim();
+    const mdLink = rest.match(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/);
+    const bareUrl = rest.match(/(https?:\/\/[^)\s]+)/);
+    if (mdLink) {
+      refs.set(n, { url: mdLink[2], label: mdLink[1].trim() || undefined });
+    } else if (bareUrl) {
+      const label = rest.replace(bareUrl[1], '').replace(/[—–-]\s*$/, '').trim();
+      refs.set(n, { url: bareUrl[1], label: label || undefined });
+    } else {
+      refs.set(n, { label: rest });  // data / calc source — no url
+    }
   }
   return refs;
 }
@@ -183,32 +198,46 @@ function citationDomain(url: string): string {
   } catch { return url; }
 }
 
-function CitationReferences({ citations }: { citations: Map<number, Citation> }) {
+function CitationReferences({ citations, onCiteClick }: { citations: Map<number, Citation>; onCiteClick?: (n: number) => void }) {
   if (citations.size === 0) return null;
   const sorted = Array.from(citations.entries()).sort((a, b) => a[0] - b[0]);
+  const rowClass = "inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors group/ref scroll-mt-24";
+  const numBadge = (num: number) => (
+    <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full shrink-0">{num}</span>
+  );
   return (
     <div className="mt-3 pt-2 border-t border-gray-200">
       <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {sorted.map(([num, { url, label }]) => (
-          <a
-            key={num}
-            id={`cite-${num}`}
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors group/ref scroll-mt-24"
-          >
-            <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded-full shrink-0">{num}</span>
-            <span className="group-hover/ref:underline truncate max-w-[200px]">{label || citationDomain(url)}</span>
-          </a>
-        ))}
+        {sorted.map(([num, { url, label }]) => {
+          const text = label || (url ? citationDomain(url) : `source ${num}`);
+          const inner = (
+            <>
+              {numBadge(num)}
+              <span className="group-hover/ref:underline truncate max-w-[240px]">{text}</span>
+            </>
+          );
+          // Web source → external link. Data/calc source (no url) → open the
+          // backing tool result in the tool panel via onCiteClick.
+          if (url) {
+            return (
+              <a key={num} id={`cite-${num}`} href={url} target="_blank" rel="noopener noreferrer" className={rowClass}>
+                {inner}
+              </a>
+            );
+          }
+          return (
+            <button key={num} id={`cite-${num}`} type="button" onClick={() => onCiteClick?.(num)} className={`${rowClass} text-left`} title="View the data behind this citation">
+              {inner}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 // Custom ReactMarkdown components that route sandbox image paths through the API
-const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filename: string) => void) => ({
+const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filename: string) => void, onCiteClick?: (n: number) => void) => ({
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
     if (src && chatId && (src.startsWith('/home/user/') || src.startsWith('/tmp/'))) {
       const proxiedSrc = `${getApiBaseUrl()}/api/chat-files/${chatId}/sandbox-file?path=${encodeURIComponent(src)}`;
@@ -228,16 +257,19 @@ const makeMarkdownComponents = (chatId: string | undefined, onFileClick?: (filen
       : Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
     if (CITE_BADGE_RE.test(text.trim())) {
       const badgeClass = "no-underline inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[11px] font-bold bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 -top-1.5 relative";
-      // In-page citation (bare [^N]) → scroll to the source row, don't open a tab.
+      // In-page citation (bare [^N]) → open the backing tool result if we can map
+      // it, else fall back to scrolling to the source row.
       if (href?.startsWith('#cite-')) {
+        const n = parseInt(text.trim(), 10);
         return (
           <a
             href={href}
-            title="Jump to source"
+            title="View source"
             className={badgeClass}
             onClick={(e) => {
               e.preventDefault();
-              document.getElementById(href.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              if (!Number.isNaN(n) && onCiteClick) onCiteClick(n);
+              else document.getElementById(href.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
             {...props}
           >
@@ -896,7 +928,7 @@ function MessageActions({ actions, alwaysVisible, onFeedback, feedbackGiven, set
   );
 }
 
-export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, reasoning, chatId, userId, onSelectTool, onFileClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, todos }: ChatMessageProps) {
+export default function ChatMessage({ role, content: rawContent, toolCalls, thoughts, reasoning, chatId, userId, onSelectTool, onCiteClick: onCiteClickProp, onFileClick, onSendMessage, onPeekAgent, onEditMessage, onFeedback, actions, isLastAssistantMessage, isStreaming, startTime, timeEstimate, todos }: ChatMessageProps) {
   const isUser = role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -912,7 +944,17 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
     /\[(file|visualization|image):\s*[^\]]+\]/.test(content)
   );
   const parsedContent = hasSpecialTags ? parseFileReferences(content, chatId, onFileClick, onSendMessage) : null;
-  const mdComponents = React.useMemo(() => makeMarkdownComponents(chatId, onFileClick), [chatId, onFileClick]);
+  // Clicking a citation opens the tool result it's backed by (matched by the
+  // source handle N), reusing the tool-output panel. When the backing tool call
+  // isn't in this message group (persisted final answers keep tool calls on a
+  // sibling message), fall back to scrolling to the Sources row.
+  const onCiteClick = React.useCallback((n: number) => {
+    if (onCiteClickProp) { onCiteClickProp(n); return; }  // chat-wide resolver from ChatView
+    const tc = toolCalls?.find((t) => t.source_ref === n);
+    if (tc && onSelectTool) onSelectTool(tc);
+    else document.getElementById(`cite-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [onCiteClickProp, toolCalls, onSelectTool]);
+  const mdComponents = React.useMemo(() => makeMarkdownComponents(chatId, onFileClick, onCiteClick), [chatId, onFileClick, onCiteClick]);
 
   useEffect(() => {
     if (isEditing && editRef.current) {
@@ -1026,7 +1068,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
                 </ReactMarkdown>
               </div>
             )}
-            <CitationReferences citations={citations} />
+            <CitationReferences citations={citations} onCiteClick={onCiteClick} />
             {actions && actions.length > 0 && (
               <MessageActions actions={actions} alwaysVisible={isLastAssistantMessage} onFeedback={onFeedback} feedbackGiven={feedbackGiven} setFeedbackModal={setFeedbackModal} />
             )}
@@ -1081,7 +1123,7 @@ export default function ChatMessage({ role, content: rawContent, toolCalls, thou
               </div>
             )
           )}
-          <CitationReferences citations={citations} />
+          <CitationReferences citations={citations} onCiteClick={onCiteClick} />
           {toolCalls && toolCalls.length > 0 && (
             <ToolCallSummary toolCalls={toolCalls} thoughts={thoughts} onSelectTool={onSelectTool} onPeekAgent={onPeekAgent} isStreaming={isStreaming} startTime={startTime} timeEstimate={timeEstimate} todos={todos} />
           )}

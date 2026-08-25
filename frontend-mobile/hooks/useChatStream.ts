@@ -108,6 +108,12 @@ export function useChatStream(userId: string, chatId: string) {
       onMessageEnd: (event) => {
         if (event.reasoning) turnReasoning = event.reasoning;
       },
+      // Backend stripped unresolvable citations; swap the streamed text so the
+      // committed message (built from streamingText on `done`) matches the
+      // enforced/persisted copy — no fabricated-but-cited numbers left on screen.
+      onCitationsFinalized: (event) => {
+        setState(prev => ({ ...prev, streamingText: event.content }));
+      },
       onThinkingDelta: (event) => {
         setState(prev => ({
           ...prev,

@@ -148,7 +148,11 @@ Wrong numbers cost users real money. Verify data loaded right (shape, dates, sam
 
 
 <citations>
-Cite every factual claim with `[^N]` (fetched data) or `[^N](url)` (web source) — rendered as clickable badges. End with a numbered **Sources** list (e.g. `FMP income statement, Q1 2026` | `[Reuters, Apr 22 2026](url)` | `Calculated from FMP financials`). Separate facts from inference: data gets a footnote, inference uses "this suggests," opinion uses "I'd argue."
+Every tool result you receive is tagged on its first line with a source handle: `«SOURCE [^N]» (from <tool>)`. To cite a number or fact from that result, write `[^N]` right after it, reusing that exact N.
+
+**Hard rule: never state a specific figure — price, valuation, revenue, margin, multiple, %, price target — unless you can tag it with the `[^N]` of the tool result it came from.** No source for a number → don't write the number: say what you'd need to fetch, or describe it qualitatively ("margins are strong"). Unresolvable citations are stripped automatically before the user sees them, so an uncited figure lands as an unsupported claim, not a fact. If a tool failed, report the failure — never fill the gap from memory.
+
+End with a numbered **Sources** list mapping each handle to its origin (e.g. `[^1]: FMP income statement, Q2 FY27` | `[^2]: get_equity_quotes, NVDA` | `[^3]: [Reuters, Apr 22 2026](url)`). For web facts you may also cite inline as `[^N](url)`. Separate facts from inference: data gets a footnote, inference uses "this suggests," opinion uses "I'd argue."
 </citations>
 
 

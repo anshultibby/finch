@@ -38,6 +38,31 @@ SANDBOX_IDLE_TIMEOUT = 600   # seconds — sandbox auto-pauses after this idle t
 _HOST_SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "skills"
 
 
+def assert_sandbox_sdk_compatible() -> None:
+    """Fail loud at startup if the installed e2b SDK can't create sandboxes.
+
+    We call AsyncSandbox.beta_create (for auto_pause=True), which lives in the
+    core `e2b` package. If the core version drifts below the one that introduced
+    beta_create, every sandbox op fails at runtime with an opaque
+    "type object 'AsyncSandbox' has no attribute 'beta_create'" — silently
+    breaking code execution for all users. Refuse to boot instead.
+    """
+    from e2b_code_interpreter import AsyncSandbox
+
+    if not hasattr(AsyncSandbox, "beta_create"):
+        try:
+            import e2b
+            core_version = getattr(e2b, "__version__", "unknown")
+        except Exception:
+            core_version = "unknown"
+        raise RuntimeError(
+            "Incompatible e2b SDK: AsyncSandbox.beta_create is missing "
+            f"(core e2b=={core_version}). Sandbox creation requires beta_create "
+            "for auto_pause. Pin `e2b` in requirements.txt to a version that "
+            "provides it (see the note there) and redeploy."
+        )
+
+
 # ---------------------------------------------------------------------------
 # In-process sandbox cache (user_id → live sandbox + state)
 # ---------------------------------------------------------------------------

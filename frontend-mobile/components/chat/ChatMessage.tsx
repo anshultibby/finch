@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Platform, StyleSheet } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Pressable, Modal, Linking, Platform, StyleSheet } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Markdown from 'react-native-markdown-display';
-import { Copy, Check, ThumbsUp, ThumbsDown, Sparkles, ChevronRight } from 'lucide-react-native';
+import { Copy, Check, ThumbsUp, ThumbsDown, Sparkles, ChevronRight, X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import type { Message } from '@/lib/types';
 import ToolCallCard from './ToolCallCard';
 import { stripLegacyMarkers } from '@/lib/messageMarkers';
 import { chatApi } from '@/lib/api';
+import { extractCitations, preprocessCitationsMobile, type Citation } from '@/lib/citations';
+
+function citeDomain(url: string): string {
+  const m = url.match(/^https?:\/\/(?:www\.)?([^/]+)/i);
+  return m ? m[1] : url;
+}
 
 const mdStyles = {
   body: { color: '#374151', fontSize: 14, lineHeight: 21, fontFamily: 'DMSans' },
@@ -42,7 +48,7 @@ const mdRules = {
   ),
 };
 
-export default function ChatMessage({ message, chatId, messageIndex }: {
+function ChatMessage({ message, chatId, messageIndex }: {
   message: Message;
   chatId?: string;
   messageIndex?: number;
@@ -52,6 +58,34 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const [showThinking, setShowThinking] = useState(false);
   const reasoning = !isUser ? (message.reasoning || '').trim() : '';
+
+  // Citations: render tappable Sources under the message; tapping opens the source
+  // (external link, or the raw tool-result payload for data/calc sources).
+  const citations = useMemo(() => (isUser ? new Map<number, Citation>() : extractCitations(message.content || '')), [isUser, message.content]);
+  const body = useMemo(() => (isUser ? message.content : preprocessCitationsMobile(message.content || '')), [isUser, message.content]);
+  const [activeCite, setActiveCite] = useState<{ n: number; c: Citation } | null>(null);
+  const [citeText, setCiteText] = useState<string | null>(null);
+  const [citeLoading, setCiteLoading] = useState(false);
+
+  const openCite = async (n: number, c: Citation) => {
+    if (c.url) { Linking.openURL(c.url).catch(() => {}); return; }
+    setActiveCite({ n, c });
+    setCiteText(null);
+    const tc = message.toolCalls?.find((t) => t.source_ref === n);
+    if (tc?.tool_call_id && chatId) {
+      setCiteLoading(true);
+      try {
+        const r = await chatApi.getToolResult(chatId, tc.tool_call_id);
+        setCiteText(r.content || '(empty result)');
+      } catch {
+        setCiteText('This figure came from a research sub-agent; its raw data was not stored separately.');
+      } finally {
+        setCiteLoading(false);
+      }
+    } else {
+      setCiteText(c.label || 'No additional source detail.');
+    }
+  };
 
   const handleCopy = async () => {
     if (!message.content) return;
@@ -111,12 +145,24 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
       )}
 
       {isUser ? (
-        <View className="max-w-[85%] rounded-[18px] rounded-br-[4px] px-3.5 py-2.5 bg-gray-900">
+        <View className="max-w-[85%] rounded-[18px] rounded-br-[4px] px-3.5 py-2.5 bg-primary-600 shadow-sm">
           <Text className="text-[14px] font-body text-white leading-[20px]">{message.content}</Text>
         </View>
       ) : message.content ? (
         <View className="w-full">
-          <Markdown style={mdStyles} rules={mdRules}>{stripLegacyMarkers(message.content)}</Markdown>
+          <Markdown style={mdStyles} rules={mdRules}>{stripLegacyMarkers(body)}</Markdown>
+          {/* Sources — tappable citations. Data/calc sources open their raw payload;
+              web sources open the link. This is what was entirely missing on mobile. */}
+          {citations.size > 0 && (
+            <View style={cmStyles.sources}>
+              {Array.from(citations.entries()).sort((a, b) => a[0] - b[0]).map(([n, c]) => (
+                <TouchableOpacity key={n} onPress={() => openCite(n, c)} style={cmStyles.sourceRow} activeOpacity={0.6}>
+                  <View style={cmStyles.sourceBadge}><Text style={cmStyles.sourceBadgeText}>{n}</Text></View>
+                  <Text style={cmStyles.sourceLabel} numberOfLines={1}>{c.label || (c.url ? citeDomain(c.url) : `source ${n}`)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           {/* Message Actions */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, marginBottom: 4 }}>
             <TouchableOpacity onPress={handleCopy} style={{ padding: 6, borderRadius: 6 }} activeOpacity={0.6}>
@@ -139,6 +185,25 @@ export default function ChatMessage({ message, chatId, messageIndex }: {
           </View>
         </View>
       ) : null}
+
+      {/* Source viewer — shows the raw data behind a citation. */}
+      <Modal visible={!!activeCite} transparent animationType="slide" onRequestClose={() => setActiveCite(null)}>
+        <Pressable style={cmStyles.modalBackdrop} onPress={() => setActiveCite(null)}>
+          <Pressable style={cmStyles.modalSheet} onPress={() => {}}>
+            <View style={cmStyles.modalHeader}>
+              <Text style={cmStyles.modalTitle}>
+                {activeCite ? `Source [^${activeCite.n}]${activeCite.c.label ? ` · ${activeCite.c.label}` : ''}` : ''}
+              </Text>
+              <TouchableOpacity onPress={() => setActiveCite(null)} hitSlop={8}>
+                <X size={18} color="#78716c" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={cmStyles.modalBody} contentContainerStyle={{ paddingBottom: 16 }}>
+              <Text style={cmStyles.modalMono}>{citeLoading ? 'Loading source data…' : (citeText ?? '')}</Text>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Animated.View>
   );
 }
@@ -194,4 +259,78 @@ const cmStyles = StyleSheet.create({
     fontFamily: 'DMSans-Medium',
     color: '#a8a29e',
   },
+  sources: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    maxWidth: '100%',
+  },
+  sourceBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sourceBadgeText: {
+    fontSize: 10,
+    fontFamily: 'DMSans-Bold',
+    color: '#1d4ed8',
+  },
+  sourceLabel: {
+    fontSize: 12,
+    fontFamily: 'DMSans',
+    color: '#6b7280',
+    maxWidth: 220,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    maxHeight: '70%',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: 'DMSans-Bold',
+    color: '#111827',
+    marginRight: 10,
+  },
+  modalBody: {
+    maxHeight: 420,
+  },
+  modalMono: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: 'SpaceMono',
+    color: '#374151',
+  },
 });
+
+// Memoized: during streaming the message list re-renders on every token.
+// Without this, every prior bubble re-parses its markdown each tick → jank.
+// Completed messages keep a stable object ref, so the shallow compare skips them.
+export default React.memo(ChatMessage);

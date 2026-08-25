@@ -84,6 +84,8 @@ export interface ToolCallStatus {
   result_summary?: string;
   statusMessage?: string;
   arguments?: Record<string, any>;
+  source_ref?: number;  // citation handle ([^N]) this result is cited by
+
   code_output?: CodeOutput;
   file_content?: FileContent;
   search_results?: SearchResults;

@@ -665,6 +665,38 @@ export default function ChatView({
     }
   };
 
+  // Chat-wide map from citation handle N → the tool call that produced it, so a
+  // [^N] click resolves even when the tool call lives on a sibling message
+  // (persisted final answers keep tool calls on a separate message from the prose).
+  const citeMap = React.useMemo(() => {
+    const m = new Map<number, { toolCallId: string; toolName: string }>();
+    const collect = (tcs?: ToolCallStatus[]) => tcs?.forEach((t) => {
+      if (typeof t.source_ref === 'number') m.set(t.source_ref, { toolCallId: t.tool_call_id, toolName: t.tool_name });
+    });
+    messages.forEach((msg) => collect(msg.toolCalls));
+    collect(streamingTools);
+    return m;
+  }, [messages, streamingTools]);
+
+  // Open the raw data behind a citation in the tool panel. Fetches the stored
+  // payload; sub-agent results aren't persisted parent-side, so those degrade to
+  // an explanatory note rather than an error.
+  const handleCiteClick = useCallback(async (n: number) => {
+    const ref = citeMap.get(n);
+    if (!ref || !currentChatId) return;
+    const base: ToolCallStatus = {
+      tool_call_id: ref.toolCallId, tool_name: ref.toolName, status: 'completed',
+      statusMessage: `Source [^${n}] · ${ref.toolName}`,
+    };
+    setSelectedTool({ ...base, code_output: { stdout: 'Loading source data…', stderr: '' } });
+    try {
+      const res = await chatApi.getToolResult(currentChatId, ref.toolCallId);
+      setSelectedTool({ ...base, code_output: { stdout: res.content || '(empty result)', stderr: '' } });
+    } catch {
+      setSelectedTool({ ...base, code_output: { stdout: '(This figure came from a research sub-agent; its raw data was not stored separately.)', stderr: '' } });
+    }
+  }, [citeMap, currentChatId]);
+
   const handleExportPdf = async () => {
     if (!currentChatId || isExporting || messages.length === 0) return;
     setIsExporting(true);
@@ -880,6 +912,7 @@ export default function ChatView({
                       chatId={currentChatId || undefined}
                       userId={userId || undefined}
                       onSelectTool={handleSelectTool}
+                      onCiteClick={handleCiteClick}
                       onFileClick={(filename) => setSelectedFile(filename)}
                       onSendMessage={(text) => handleSendMessage(text)}
                       onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
@@ -913,6 +946,7 @@ export default function ChatView({
                     toolCalls={streamingTools.length > 0 ? streamingTools : undefined}
                     chatId={currentChatId || undefined}
                     onSelectTool={handleSelectTool}
+                    onCiteClick={handleCiteClick}
                     onFileClick={(filename) => setSelectedFile(filename)}
                     onPeekAgent={(agentId, chatId, name) => setPeekAgent({ agentId, chatId, name })}
                     isStreaming={true}

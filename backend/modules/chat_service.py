@@ -179,6 +179,13 @@ class ChatService:
                 # Add user message to history (with optional images for multimodal)
                 history.add_user_message(message_with_datetime, images=images)
                 
+                # Start a fresh citation-handle sequence for this turn, and track
+                # the src:N -> tool_call_id map as tool results arrive so the final
+                # answer's [^N] citations can be verified against real tool calls.
+                from modules.tools.provenance import reset_source_refs
+                reset_source_refs(chat_id)
+                turn_source_map: dict[int, str] = {}
+
                 # Track pending assistant message (with tool calls) until tools_end arrives
                 pending_assistant_msg = None
                 # BaseAgent.process_message_stream catches its own exceptions and turns
@@ -224,6 +231,25 @@ class ChatService:
                                 }
                             else:
                                 # Final assistant message with no tool calls — save immediately.
+                                # Provenance enforcement: strip any [^N] citation that
+                                # doesn't resolve to a real tool result minted this turn
+                                # (registry includes sub-agent handles via shared chat_id).
+                                # This is what makes fabricated "cited" data unable to
+                                # survive — no real source, no badge.
+                                from modules.tools.provenance import enforce_citations, registered_refs
+                                content, dropped_refs = enforce_citations(content, registered_refs(chat_id))
+                                if dropped_refs:
+                                    logger.warning(
+                                        f"🚫 Dropped {len(dropped_refs)} unresolvable citation(s) "
+                                        f"{dropped_refs} from final answer (chat {chat_id}) — "
+                                        "cited data had no backing tool result this turn."
+                                    )
+                                    # Correct the live-streamed copy too (it was streamed
+                                    # before enforcement ran); frontend swaps it in on done.
+                                    yield SSEEvent(
+                                        event="citations_finalized",
+                                        data={"content": content, "dropped": dropped_refs},
+                                    ).to_sse_format()
                                 try:
                                     seq = current_sequence
                                     current_sequence += 1
@@ -272,11 +298,20 @@ class ChatService:
                                 tool_call_id = exec_result.get("tool_call_id")
                                 if tool_call_id:
                                     result_data = exec_result.get("result_data", {})
+                                    source_ref = exec_result.get("source_ref")
                                     tool_results[tool_call_id] = {
                                         "status": exec_result.get("status", "completed"),
                                         "error": exec_result.get("error"),
                                         "result_summary": result_data.get("message") if isinstance(result_data, dict) else None,
+                                        # Citation provenance: the handle the model
+                                        # cites this result by ([^N]) and the tool
+                                        # that produced it. Enables verifying and
+                                        # opening the citation's backing payload.
+                                        "source_ref": source_ref,
+                                        "tool_name": exec_result.get("tool_name"),
                                     }
+                                    if source_ref is not None:
+                                        turn_source_map[source_ref] = tool_call_id
                                     if isinstance(result_data, dict):
                                         stdout = result_data.get("stdout")
                                         stderr = result_data.get("stderr")
@@ -603,6 +638,11 @@ class ChatService:
                         "status": stored_result.get("status", "completed"),
                         "error": stored_result.get("error"),
                         "result_summary": stored_result.get("result_summary"),
+                        # Citation handle ([^N]) this tool result is cited by, so the
+                        # frontend can open the backing result when a badge is clicked.
+                        "source_ref": (int(stored_result["source_ref"])
+                                       if str(stored_result.get("source_ref") or "").isdigit()
+                                       else None),
                     }
                     code_output = stored_result.get("code_output")
                     if code_output is not None:

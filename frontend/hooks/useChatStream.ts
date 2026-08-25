@@ -289,6 +289,20 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       update(chatId, updates, notify);
     },
 
+    // Backend stripped unresolvable citations after message_end streamed. Swap the
+    // just-added final message's content with the enforced copy so the live view
+    // matches what's persisted (no fabricated-but-cited numbers left on screen).
+    onCitationsFinalized: (event: { content: string; dropped: number[] }) => {
+      const state = getChatState(chatId);
+      const msgs = state.messages;
+      if (!msgs.length) return;
+      const last = msgs[msgs.length - 1];
+      if (last.role !== 'assistant') return;
+      update(chatId, {
+        messages: [...msgs.slice(0, -1), { ...last, content: event.content }],
+      }, notify);
+    },
+
     // ── Tool lifecycle ────────────────────────────────────────────────────
 
     onToolCallDetected: (event: SSEToolCallDetectedEvent) => {

@@ -368,6 +368,8 @@ async def get_chat_messages_for_display(
                            'status', COALESCE(value->>'status', 'completed'),
                            'error', value->>'error',
                            'result_summary', value->>'result_summary',
+                           'source_ref', value->>'source_ref',
+                           'tool_name', value->>'tool_name',
                            'code_output', LEFT(value->>'code_output', 2000)
                        )
                    )
@@ -399,6 +401,37 @@ async def get_chat_messages_for_display(
         for r in reversed(rows)
     ]
     return messages, has_more
+
+
+async def get_tool_result_payload(db: AsyncSession, chat_id: str, tool_call_id: str) -> Optional[dict]:
+    """Fetch the raw payload the model saw for a tool call — the citation's backing
+    data. Reads the role='tool' row (which holds the full, storage-capped result)
+    and returns its text. Returns None if there's no such row (e.g. sub-agent tools,
+    whose results aren't persisted to the parent chat)."""
+    import json
+    from sqlalchemy import text
+    sql = text("""
+        SELECT content, name FROM chat_messages
+        WHERE chat_id = :chat_id AND role = 'tool' AND tool_call_id = :tool_call_id
+        ORDER BY sequence DESC LIMIT 1
+    """)
+    row = (await db.execute(sql, {"chat_id": chat_id, "tool_call_id": tool_call_id})).mappings().first()
+    if not row:
+        return None
+    raw = row["content"] or ""
+    # Stored as json.dumps(content_blocks); flatten the text blocks for display and
+    # drop the leading «SOURCE [^N]» provenance tag line we prepend for the model.
+    text_out = raw
+    try:
+        blocks = json.loads(raw)
+        if isinstance(blocks, list):
+            text_out = "\n".join(
+                b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"
+            )
+    except (json.JSONDecodeError, TypeError):
+        pass
+    text_out = re.sub(r"^«SOURCE \[\^\d+\]»[^\n]*\n", "", text_out)
+    return {"tool_call_id": tool_call_id, "tool_name": row["name"], "content": text_out}
 
 
 async def delete_messages_from_user_turn(db: AsyncSession, chat_id: str, user_turn_index: int) -> int:

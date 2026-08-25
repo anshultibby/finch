@@ -220,6 +220,25 @@ async def get_chat_history_display(
         raise HTTPException(status_code=404, detail="Chat not found")
 
 
+@router.get("/history/{chat_id}/tool-result/{tool_call_id}")
+async def get_tool_result(
+    chat_id: str,
+    tool_call_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Return the raw payload behind a citation ([^N]) so the UI can show the data
+    a claim is grounded in. 404 if there's no stored result for this tool call."""
+    async with get_db_session() as db:
+        chat = await chat_async.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        await verify_user_access(chat.user_id, authenticated_user_id)
+        payload = await chat_async.get_tool_result_payload(db, chat_id, tool_call_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Tool result not found")
+    return payload
+
+
 @router.delete("/history/{chat_id}")
 async def clear_chat_history(
     chat_id: str,

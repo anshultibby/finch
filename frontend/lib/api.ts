@@ -86,6 +86,7 @@ export interface SSEEventHandlers {
   onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onThinkingDelta?: (event: { delta: string }) => void;
   onMessageEnd?: (event: SSEMessageEndEvent) => void;
+  onCitationsFinalized?: (event: { content: string; dropped: number[] }) => void;
   onToolCallDetected?: (event: SSEToolCallDetectedEvent) => void;
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
   onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
@@ -162,6 +163,9 @@ export const chatApi = {
           break;
         case 'message_end':
           handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
+          break;
+        case 'citations_finalized':
+          handlers.onCitationsFinalized?.(eventData as { content: string; dropped: number[] });
           break;
         case 'tool_call_detected':
           handlers.onToolCallDetected?.(eventData as SSEToolCallDetectedEvent);
@@ -470,6 +474,13 @@ export const chatApi = {
       comment: comment || null,
       message_content: messageContent || null,
     });
+  },
+
+  // Fetch the raw payload behind a citation ([^N]) so it can be shown as the
+  // data a claim is grounded in. Rejects (404) when no stored result exists.
+  getToolResult: async (chatId: string, toolCallId: string): Promise<{ tool_call_id: string; tool_name: string; content: string }> => {
+    const response = await api.get(`/chat/history/${chatId}/tool-result/${encodeURIComponent(toolCallId)}`);
+    return response.data;
   },
 
   healthCheck: async (): Promise<{ status: string }> => {

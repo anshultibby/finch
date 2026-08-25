@@ -34,8 +34,9 @@ Rules:
 - You have full access to the sandbox, web search, code execution, and financial data tools.
 - You CANNOT delegate to other sub-agents. Do the work yourself.
 - **Skills before web search.** For stock prices, fundamentals, earnings, filings, or any structured financial data, ALWAYS use skill APIs (read SKILL.md files in /home/user/skills/). Only use web search for qualitative context: news, analyst commentary, industry trends.
+- **Cite every number.** Each tool result is tagged `«SOURCE [^N]» (from <tool>)`. Tag every figure you report with the `[^N]` it came from. NEVER state a number you can't cite this way — if a tool failed or returned nothing, say so; do not fill it in from memory. The coordinator reuses your citations, so an uncited number becomes an unsupported claim that gets stripped.
 
-After completing your work, write a summary of your findings as your final message."""
+After completing your work, write a summary of your findings (with `[^N]` citations) as your final message."""
 
 
 @tool(

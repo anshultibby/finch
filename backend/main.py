@@ -207,6 +207,12 @@ async def startup_event():
     from services.storage import storage_service
     from core.database import get_pool_status
 
+    # Fail loud if the installed e2b SDK can't create sandboxes (beta_create /
+    # auto_pause). Otherwise code execution breaks silently for every user.
+    from modules.tools.implementations.code_execution import assert_sandbox_sdk_compatible
+    assert_sandbox_sdk_compatible()
+    logger.info("e2b sandbox SDK compatibility verified")
+
     # Log database connection pool configuration
     pool_status = get_pool_status()
     if pool_status.get('pooled', True):

@@ -72,6 +72,7 @@ api.interceptors.request.use(async (config) => {
 export interface SSEEventHandlers {
   onMessageDelta?: (event: SSEAssistantMessageDeltaEvent) => void;
   onMessageEnd?: (event: SSEMessageEndEvent) => void;
+  onCitationsFinalized?: (event: { content: string; dropped: number[] }) => void;
   onToolCallDetected?: (event: SSEToolCallDetectedEvent) => void;
   onToolCallStart?: (event: SSEToolCallStartEvent) => void;
   onToolCallComplete?: (event: SSEToolCallCompleteEvent) => void;
@@ -134,6 +135,9 @@ export const chatApi = {
           break;
         case 'message_end':
           handlers.onMessageEnd?.(eventData as SSEMessageEndEvent);
+          break;
+        case 'citations_finalized':
+          handlers.onCitationsFinalized?.(eventData as { content: string; dropped: number[] });
           break;
         case 'tool_call_detected':
           handlers.onToolCallDetected?.(eventData as SSEToolCallDetectedEvent);
@@ -349,6 +353,13 @@ export const chatApi = {
       message_content: messageContent,
     });
   },
+
+  // Fetch the raw payload behind a citation ([^N]) — the data a claim is grounded
+  // in. Rejects (404) when no stored result exists (e.g. sub-agent results).
+  getToolResult: async (chatId: string, toolCallId: string): Promise<{ tool_call_id: string; tool_name: string; content: string }> => {
+    const response = await api.get(`/chat/history/${chatId}/tool-result/${encodeURIComponent(toolCallId)}`);
+    return response.data;
+  },
 };
 
 export const chatFilesApi = {
@@ -451,6 +462,8 @@ export interface AgentTask {
   opened_on: string | null;
   review_on: string | null;
   chat_id: string | null;
+  /** True when Finch opened this on its own (from an automation run), not from a chat. */
+  is_autonomous: boolean;
   updated_at: string | null;
   /** Only present on the detail fetch. */
   body?: string;
@@ -462,7 +475,7 @@ export interface TaskListResponse {
 }
 
 export const tasksApi = {
-  list: async (params?: { status?: TaskStatus; due_by?: string; symbol?: string }): Promise<TaskListResponse> =>
+  list: async (params?: { status?: TaskStatus; due_by?: string; symbol?: string; origin?: 'automation' | 'chat' }): Promise<TaskListResponse> =>
     (await api.get('/tasks', { params })).data,
   get: async (slug: string): Promise<AgentTask> => (await api.get(`/tasks/${slug}`)).data,
 };
