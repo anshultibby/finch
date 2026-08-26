@@ -5,12 +5,16 @@ In-app account deletion is required by App Store Review Guideline 5.1.1(v):
 an app that supports account creation must let the user initiate deletion of
 their account (not just sign out) from within the app.
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from core.database import get_db_session
 from core.config import Config
 from auth.dependencies import get_current_user_id, verify_user_access
 from schemas.preferences import UserPreferences, UpdatePreferencesRequest
+from schemas.goals import Goal, SetGoalRequest
 from crud import user_preferences as prefs_crud
+from crud import user_goals as goals_crud
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -88,6 +92,31 @@ async def update_preferences(
         return await prefs_crud.update_user_preferences(db, user_id, updates)
 
 
+@router.get("/{user_id}/goal", response_model=Optional[Goal])
+async def get_goal(
+    user_id: str,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Return the user's active goal, or null if they haven't set one."""
+    await verify_user_access(user_id, authenticated_user_id)
+    async with get_db_session() as db:
+        goal = await goals_crud.get_goal(db, user_id)
+        return Goal.model_validate(goal) if goal is not None else None
+
+
+@router.put("/{user_id}/goal", response_model=Goal)
+async def set_goal(
+    user_id: str,
+    body: SetGoalRequest,
+    authenticated_user_id: str = Depends(get_current_user_id),
+):
+    """Create or replace the user's active goal (from the onboarding wizard)."""
+    await verify_user_access(user_id, authenticated_user_id)
+    async with get_db_session() as db:
+        goal = await goals_crud.set_goal(db, user_id, body.model_dump())
+        return Goal.model_validate(goal)
+
+
 @router.delete("/{user_id}")
 async def delete_account(
     user_id: str,
@@ -117,10 +146,11 @@ async def delete_account(
     try:
         async with get_db_session() as db:
             from sqlalchemy import delete
-            from models.user import UserAccount
+            from models.user import UserAccount, UserGoal
             from models.chat_models import Chat
 
             await db.execute(delete(Chat).where(Chat.user_id == user_id))
+            await db.execute(delete(UserGoal).where(UserGoal.user_id == user_id))
             await db.execute(delete(UserAccount).where(UserAccount.user_id == user_id))
             await db.commit()
     except Exception as e:

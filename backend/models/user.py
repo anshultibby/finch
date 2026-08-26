@@ -42,6 +42,44 @@ class UserAccount(Base):
         return f"<UserAccount(user_id='{self.user_id}', plan='{self.plan}', credits={self.credits})>"
 
 
+class UserGoal(Base):
+    """
+    The user's active goal / "mission" — one row per user (keyed by the Supabase
+    auth user id), written by the onboarding wizard, read by the goal-oriented
+    home cockpit, and injected into the agent's system prompt so everything it
+    surfaces is shaped around what the user is actually trying to do.
+
+    `kind` selects the goal shape:
+      number  — a dollar target by a deadline   (target_amount + deadline)
+      grow    — long-term compounding           (horizon_years + monthly_contribution)
+      income  — recurring monthly income        (monthly_income)
+      protect — watch-only, no numeric target   (config.watch / config.notify)
+
+    Shape-specific extras (tradeable assets, watch list, notify channel, …) live
+    in `config` (JSONB) so new goal types don't churn the schema.
+    """
+    __tablename__ = "user_goals"
+
+    user_id = Column(String, primary_key=True, index=True)
+    kind = Column(String, nullable=False, default="number")   # number | grow | income | protect
+    title = Column(String, nullable=False, default="")        # human label for the cockpit
+    objective = Column(Text, nullable=True)                    # the raw thing the user typed
+    target_amount = Column(Float, nullable=True)               # number goals
+    deadline = Column(Date, nullable=True)                     # number goals
+    horizon_years = Column(Integer, nullable=True)             # grow goals
+    monthly_contribution = Column(Float, nullable=True)        # grow goals
+    monthly_income = Column(Float, nullable=True)              # income goals
+    risk = Column(Integer, nullable=True)                      # 1..10 (null for protect)
+    options_enabled = Column(Boolean, nullable=False, default=False)
+    config = Column(JSONB, nullable=False, default=dict)       # assets, watch prefs, notify, …
+    status = Column(String, nullable=False, default="active")  # active | paused | done | archived
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<UserGoal(user_id='{self.user_id}', kind='{self.kind}', title='{self.title}')>"
+
+
 class SnapTradeUser(Base):
     """
     Stores SnapTrade broker connections per user. Account/billing/credits now
