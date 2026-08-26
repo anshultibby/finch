@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import GoalGate from '@/components/onboarding/GoalGate';
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -212,6 +213,6 @@ export default function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  return <>{children}</>;
+  return <GoalGate>{children}</GoalGate>;
 }
 
