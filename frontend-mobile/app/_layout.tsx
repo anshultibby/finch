@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import { AuthProvider } from '@/contexts/AuthContext';
+import GoalGate from '@/components/onboarding/GoalGate';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -105,6 +106,7 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+      <GoalGate />
       <StatusBar style="dark" />
     </AuthProvider>
   );
