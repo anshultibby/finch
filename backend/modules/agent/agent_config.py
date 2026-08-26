@@ -67,6 +67,65 @@ async def _get_trade_execution_directive(user_id: str) -> str:
     )
 
 
+async def _get_goal_directive(user_id: str) -> str:
+    """
+    Inject the user's active goal / "mission" so the agent shapes everything it
+    surfaces around what they're actually trying to do. Per-session (goals change),
+    so this lives in the dynamic block. Silent no-op if no active goal is set.
+    """
+    try:
+        from core.database import get_db_session
+        from crud.user_goals import get_goal
+        async with get_db_session() as db:
+            goal = await get_goal(db, user_id)
+    except Exception as e:
+        logger.debug(f"Could not load user goal (non-fatal): {e}")
+        return ""
+    if goal is None or goal.status != "active":
+        return ""
+
+    lines = []
+    if goal.title:
+        lines.append(f"Goal: {goal.title}")
+    lines.append(f"Type: {goal.kind}")
+    if goal.target_amount is not None:
+        line = f"Target: ${goal.target_amount:,.0f}"
+        if goal.deadline:
+            line += f" by {goal.deadline.isoformat()}"
+        lines.append(line)
+    if goal.horizon_years is not None:
+        hz = f"Horizon: {goal.horizon_years} years"
+        if goal.monthly_contribution is not None:
+            hz += f", ${goal.monthly_contribution:,.0f}/mo contributions"
+        lines.append(hz)
+    if goal.monthly_income is not None:
+        lines.append(f"Target income: ${goal.monthly_income:,.0f}/month")
+    if goal.risk is not None:
+        lines.append(f"Risk tolerance: {goal.risk}/10")
+    lines.append(f"Options allowed: {'yes' if goal.options_enabled else 'no'}")
+    if goal.objective:
+        lines.append(f'In their words: "{goal.objective}"')
+
+    stance = {
+        "number": "They want to hit a specific dollar target by a deadline. Bias toward "
+                  "moves that make measurable progress and be honest about pace (ahead/behind).",
+        "grow": "Long-term, low-stress compounding. Favor durable, diversified positions; "
+                "avoid churn and hype.",
+        "income": "They want recurring income. Favor income strategies (covered calls, "
+                  "dividends) and capital preservation over swings.",
+        "protect": "Watch-and-protect, NOT a return target. Monitor and warn; do not push "
+                   "trades or a scoreboard — only suggest action to defend the book.",
+    }.get(goal.kind, "")
+
+    return (
+        "<mission>\n"
+        "Shape everything you surface — ideas, alerts, the brief — around the user's active "
+        "goal, and frame suggestions as progress toward it.\n\n"
+        f"{chr(10).join(lines)}\n\n{stance}\n"
+        "</mission>"
+    )
+
+
 async def create_agent(context, user_id: str = None, skill_ids: list[str] = None, model: str = None):
     """Create an agent with the base system prompt.
 
@@ -89,6 +148,10 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
         dynamic_parts.append(f"<sandbox_files>\nFiles currently in your workspace:\n{file_listing}\n</sandbox_files>")
 
     dynamic_parts.append(await _get_trade_execution_directive(context.user_id))
+
+    goal_directive = await _get_goal_directive(context.user_id)
+    if goal_directive:
+        dynamic_parts.append(goal_directive)
 
     dynamic_context = "\n\n".join(dynamic_parts) if dynamic_parts else None
 
