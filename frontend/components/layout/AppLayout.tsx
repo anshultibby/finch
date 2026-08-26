@@ -13,6 +13,7 @@ import TickerLogo from '@/components/ui/TickerLogo';
 import StockPage from '@/components/stock/StockPage';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
+import MissionCockpit from '@/components/home/MissionCockpit';
 import WidgetsPanel from '@/components/widgets/WidgetsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
 import TasksPanel from '@/components/tasks/TasksPanel';
@@ -26,6 +27,7 @@ import { marketApi, widgetsApi } from '@/lib/api';
 
 function viewLabel(view: View): string {
   switch (view.type) {
+    case 'mission': return 'Mission';
     case 'home': return 'Dashboard';
     case 'stock': return view.symbol;
     case 'chat': return 'Chat';
@@ -322,6 +324,8 @@ function AppLayoutInner() {
   // Render current view (excluding chat — chat is always mounted for stream persistence)
   const renderNonChatView = () => {
     switch (currentView.type) {
+      case 'mission':
+        return <MissionCockpit />;
       case 'home':
         return <HomePage />;
       case 'stock':

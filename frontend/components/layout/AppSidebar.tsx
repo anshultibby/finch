@@ -62,6 +62,14 @@ const HomeIcon = () => (
   </svg>
 );
 
+const MissionIcon = () => (
+  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <circle cx={12} cy={12} r={9} strokeWidth={1.8} />
+    <circle cx={12} cy={12} r={5} strokeWidth={1.8} />
+    <circle cx={12} cy={12} r={1.4} fill="currentColor" stroke="none" />
+  </svg>
+);
+
 const SearchIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -170,6 +178,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const PAGE_SIZE = 30;
   const navItems: NavItem[] = [
+    { id: 'mission', label: 'Mission', view: { type: 'mission' }, icon: <MissionIcon /> },
     { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon /> },
     { id: 'tasks', label: 'Tasks', view: { type: 'tasks' }, icon: <TasksIcon /> },
     { id: 'jobs', label: 'Automations', view: { type: 'jobs' }, icon: <ScheduledIcon /> },
@@ -178,7 +187,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   ];
 
   const mobileNavItems: NavItem[] = [
-    { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
+    { id: 'mission', label: 'Mission', view: { type: 'mission' }, icon: <MissionIcon />, mobileNav: true },
     { id: 'chat', label: 'Chat', view: { type: 'chat' }, icon: <ChatIcon />, mobileNav: true },
   ];
 

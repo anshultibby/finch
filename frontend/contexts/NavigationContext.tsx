@@ -7,6 +7,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type View =
+  | { type: 'mission' }
   | { type: 'home' }
   | { type: 'stock'; symbol: string; tab?: string }
   | { type: 'chat' }
@@ -56,7 +57,7 @@ interface NavigationContextType {
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
-  const [history, setHistory] = useState<View[]>([{ type: 'home' }]);
+  const [history, setHistory] = useState<View[]>([{ type: 'mission' }]);
   const [market, setMarket] = useState<Market>('us');
   const [homeTab, setHomeTab] = useState<HomeTab>('markets');
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
