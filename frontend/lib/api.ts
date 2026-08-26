@@ -748,6 +748,48 @@ export const accountApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Goal / "mission" API — the user's active goal, set by the onboarding wizard
+// and read by the goal-oriented cockpit. Keep in sync with mobile lib/api.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type GoalKind = 'number' | 'grow' | 'income' | 'protect';
+
+export interface Goal {
+  kind: GoalKind;
+  title: string;
+  objective?: string | null;
+  target_amount?: number | null;
+  deadline?: string | null;          // ISO date (YYYY-MM-DD)
+  horizon_years?: number | null;
+  monthly_contribution?: number | null;
+  monthly_income?: number | null;
+  risk?: number | null;              // 1..10
+  options_enabled: boolean;
+  config: Record<string, any>;       // assets, watch prefs, notify channel, …
+  status: string;                    // active | paused | done | archived
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// Fields the wizard sends. Only `kind` is required; the rest depend on the kind.
+export type SetGoalRequest = Partial<Omit<Goal, 'kind' | 'status' | 'created_at' | 'updated_at'>> & {
+  kind: GoalKind;
+};
+
+export const goalApi = {
+  // Returns null when the user hasn't set a goal yet (drives the wizard gate).
+  getGoal: async (userId: string): Promise<Goal | null> => {
+    const response = await api.get<Goal | null>(`/account/${userId}/goal`);
+    return response.data ?? null;
+  },
+
+  setGoal: async (userId: string, goal: SetGoalRequest): Promise<Goal> => {
+    const response = await api.put<Goal>(`/account/${userId}/goal`, goal);
+    return response.data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Kalshi bot (admin-only for now)
 // ─────────────────────────────────────────────────────────────────────────────
 

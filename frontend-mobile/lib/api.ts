@@ -740,6 +740,45 @@ export const accountApi = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Goal / "mission" API — keep in sync with web frontend/lib/api.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type GoalKind = 'number' | 'grow' | 'income' | 'protect';
+
+export interface Goal {
+  kind: GoalKind;
+  title: string;
+  objective?: string | null;
+  target_amount?: number | null;
+  deadline?: string | null;          // ISO date (YYYY-MM-DD)
+  horizon_years?: number | null;
+  monthly_contribution?: number | null;
+  monthly_income?: number | null;
+  risk?: number | null;              // 1..10
+  options_enabled: boolean;
+  config: Record<string, any>;
+  status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type SetGoalRequest = Partial<Omit<Goal, 'kind' | 'status' | 'created_at' | 'updated_at'>> & {
+  kind: GoalKind;
+};
+
+export const goalApi = {
+  // Returns null when no goal is set yet (drives the onboarding gate).
+  getGoal: async (userId: string): Promise<Goal | null> => {
+    const response = await api.get(`/account/${userId}/goal`);
+    return (response.data ?? null) as Goal | null;
+  },
+  setGoal: async (userId: string, goal: SetGoalRequest): Promise<Goal> => {
+    const response = await api.put(`/account/${userId}/goal`, goal);
+    return response.data as Goal;
+  },
+};
+
 export const notificationsApi = {
   getNotifications: async (limit = 50, unreadOnly = false) => {
     const response = await api.get('/push/notifications', { params: { limit, unread_only: unreadOnly } });
