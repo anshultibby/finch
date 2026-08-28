@@ -11,7 +11,7 @@ import { Modal, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useAuth } from '@/contexts/AuthContext';
 import { goalApi, type SetGoalRequest } from '@/lib/api';
-import GoalOnboarding from './GoalOnboarding';
+import MeetFinch from './MeetFinch';
 
 const skipKey = (userId: string) => `finch-goal-wizard-skipped-${userId}`;
 
@@ -57,7 +57,7 @@ export default function GoalGate() {
 
   return (
     <Modal visible={show} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { /* not dismissable */ }}>
-      <GoalOnboarding onDone={handleDone} onSkip={handleSkip} />
+      <MeetFinch onDone={handleDone} onSkip={handleSkip} />
     </Modal>
   );
 }
