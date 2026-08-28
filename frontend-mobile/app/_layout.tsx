@@ -105,6 +105,16 @@ export default function RootLayout() {
             headerShadowVisible: false,
           }}
         />
+        <Stack.Screen
+          name="mission"
+          options={{
+            headerShown: true,
+            headerTitle: 'Your mission',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
       </Stack>
       <GoalGate />
       <StatusBar style="dark" />

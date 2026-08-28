@@ -7,7 +7,7 @@ import { creditsApi, apiKeysApi, robinhoodApi, accountApi, UserPreferences, Cred
 import { connectRobinhood } from '@/lib/robinhoodAuth';
 import { purchasesAvailable } from '@/lib/purchases';
 import PaywallModal from '@/components/PaywallModal';
-import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise, Activity } from 'lucide-react-native';
+import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise, Activity, Target } from 'lucide-react-native';
 import { COLORS } from '@/lib/constants';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
@@ -263,6 +263,22 @@ export default function SettingsScreen() {
               <Text className="text-[13px] font-body text-gray-500">{user?.email}</Text>
             </View>
           </View>
+        </View>
+
+        {/* Your mission & profile */}
+        <View style={styles.menuCard} className="mb-3">
+          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" onPress={() => router.push('/mission')} activeOpacity={0.7}>
+            <View className="flex-row items-center gap-3">
+              <View style={[styles.iconBox, { backgroundColor: '#ecfdf5' }]}>
+                <Target size={16} color="#059669" />
+              </View>
+              <View>
+                <Text className="text-[13px] font-body-medium text-gray-900">Your mission &amp; profile</Text>
+                <Text className="text-[11px] font-body text-gray-500">Goal, risk & preferences Finch works from</Text>
+              </View>
+            </View>
+            <ChevronRight size={16} color="#d1d5db" />
+          </TouchableOpacity>
         </View>
 
         {/* Plan & Credits */}
