@@ -1,0 +1,72 @@
+{
+  "name": "The Wheel — thetagang style (1PercentMax guide)",
+  "slug": "wheel-thetagang-live",
+  "source": {
+    "community": "r/thetagang",
+    "urls": ["https://www.reddit.com/r/thetagang/comments/lui6k9/complete_guide_to_trading_the_wheel_thetagang/"],
+    "captured_at": "2026-08-28T00:00:00Z",
+    "provenance": "FetchLayer live pull — post body (841 score) + 243 comments; distilled from the OP guide and the top-voted comment threads."
+  },
+  "style_summary": "Sell options like an insurance business: collect premium by selling cash-secured puts on quality stocks with elevated implied volatility that you'd be willing to own; if assigned, sell covered calls until the shares are called away. Time entries to mean-reversion — sell puts after a drop, calls after a run.",
+  "instrument": "options",
+  "options_enabled": true,
+  "mechanics": "The wheel: sell CSP -> if OTM repeat, if assigned buy 100 shares -> sell CC -> if OTM repeat, if exercised sell shares -> back to CSP.",
+  "universe": {
+    "selection_rules": [
+      "Elevated implied volatility — author targets IV Rank >= 50 (but see conflict below)",
+      "Understand WHY IV is high — skip names facing fraud/bankruptcy/obsolescence (cited failures: WKHS, CCIV)",
+      "Liquid underlying AND liquid options — avoid wide bid-ask spreads (low premium doesn't pay for the risk)",
+      "Only names you're genuinely willing to own (assignment means holding them)",
+      "A diversified basket, never a single ticker; each leg needs >=100x strike in collateral"
+    ],
+    "example_tickers": ["AMZN", "BKNG", "GOOGL", "CMG"],
+    "avoid_examples": ["WKHS", "CCIV"],
+    "explicit_watchlist": []
+  },
+  "entry": {
+    "trigger": "Sell CSPs only after the underlying has moved significantly LOWER; sell CCs only after it has moved significantly HIGHER (FA + TA to time the low/high). Sell further OTM on high-IV names to reduce assignment risk.",
+    "dte": "<= 45 (theta decay accelerates at the 45-DTE mark)",
+    "delta_or_strike": "OP gives no delta; a top comment (TacticalYam) uses ~0.30-delta puts in the $25-50 range, with ratio/synthetic structures outside it. [from comments, not the OP]",
+    "iv_rank": ">= 50 per the OP",
+    "premium_min": null
+  },
+  "exit": {
+    "profit_target": "No fixed %. Rule of thumb: the first portion of a sold option decays fast and the last bits slow — once it has lost most of its value, buy it back and sell a new one.",
+    "roll_rules": "To avoid assignment, roll: buy back the short option and simultaneously sell another, netted for a credit.",
+    "assignment_handling": "Accept on names you wanted; buy 100 shares and switch to selling covered calls until called away.",
+    "stop_or_line_in_sand": "Cut and move on if the underlying is fundamentally broken (fraud / failing business), rather than bag-holding. No numeric stop given."
+  },
+  "sizing": {
+    "max_per_underlying": "Not stated as a %; rule is 'diversify, >=100x per name, never single-stock'. A commenter (TacticalYam) caps Reg-T buying power at ~60%, more conservative on portfolio margin.",
+    "concurrent_positions": "A diversified basket (count unspecified)",
+    "cash_reserve": "CSPs fully cash-secured by default; margin only 'used responsibly' per comments"
+  },
+  "cadence": "Active — monitor the underlying and manage positions; weekly expiries referenced by commenters (one targets ~10% return on capital when assigned).",
+  "variants": [
+    "Hybrid entry (charaZy_freeeK, endorsed by OP): buy 100 shares first, then sell a lower-strike put to average down + a covered call — avoids missing the upside if the stock runs.",
+    "High-IV names via ratio spreads / synthetic longs instead of a plain wheel (TacticalYam)."
+  ],
+  "risk_notes": [
+    "Never wheel a single ticker or a single theme (EV/cannabis/GME) — treat it like YOLO risk.",
+    "Don't FOMO into a CSP after a big run-up, or panic-close on unrealized red.",
+    "Author's honest caveat: after-tax returns were 'lackluster' vs buy-and-hold SPY; short-term cap-gains; paper trade first."
+  ],
+  "confidence": {
+    "level": "medium",
+    "conflicts": [
+      {
+        "field": "universe.selection_rules (high IV requirement)",
+        "values": ["OP: target IV Rank >= 50", "Botboy141 (22 upvotes): high IV NOT mandatory — reasonable returns achievable on low-IV ETFs like SPY; pick IV to match target return/risk"],
+        "resolution": "Kept the OP's >=50 IVR as the default but flagged that a well-regarded commenter runs it on low-IV names; organizer to confirm which the community actually follows."
+      }
+    ],
+    "gaps": [
+      "No explicit profit-target % (only a qualitative 'buy back when most value is gone').",
+      "No numeric stop-loss.",
+      "Delta target and margin/BP limits come only from comments, not the OP — confirm they're house rules.",
+      "No earnings/event rule stated.",
+      "Position count / % per name not quantified in the OP."
+    ]
+  },
+  "disclaimer": "Educational tool, not personalized investment advice. The OP explicitly states 'I am not a financial advisor.' Runs on the member's own account with their own risk limits and hold-to-approve execution."
+}

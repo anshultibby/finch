@@ -125,6 +125,14 @@ class Settings(BaseSettings):
         default=None,
         description="Reddit app client secret"
     )
+    FETCHLAYER_API_KEY: Optional[str] = Field(
+        default=None,
+        description="FetchLayer third-party Reddit data API key (sk-...) — provider backend for community reading"
+    )
+    REDDIT_BACKEND: str = Field(
+        default="official",
+        description="Which backend reddit_api uses to read communities: 'official' or 'fetchlayer'"
+    )
     ODDS_API_KEY: Optional[str] = Field(
         default=None,
         description="The Odds API key for live sports odds data"

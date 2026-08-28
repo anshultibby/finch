@@ -1,0 +1,79 @@
+{
+  "name": "The Wheel (theta-gang style)",
+  "slug": "wheel-thetagang",
+  "source": {
+    "community": "r/thetagang — the wheel / premium selling",
+    "urls": [
+      "https://options.cafe/blog/premium-selling-theta-gang-playbook/",
+      "https://quantwheel.com/learn/wheel-strategy"
+    ],
+    "captured_at": "2026-08-27T00:00:00Z"
+  },
+  "style_summary": "Sell cash-secured puts on quality stocks you'd be happy to own; if assigned, sell covered calls against the shares. Collect option premium (theta) over and over rather than betting on direction.",
+  "instrument": "options",
+  "options_enabled": true,
+  "mechanics": "The wheel: sell a cash-secured put -> keep premium if it expires OTM and repeat -> if assigned, buy 100 shares -> sell covered calls above cost basis -> repeat until called away.",
+  "universe": {
+    "selection_rules": [
+      "Only stocks you'd be happy to own ('sell on stocks you'd own')",
+      "Market cap > $5B",
+      "Average daily volume > 1M shares",
+      "Tight option bid-ask (< $0.10 for ATM)",
+      "Open interest > 100 contracts per strike",
+      "Share price $20-$300; avoid penny stocks under $5"
+    ],
+    "example_tickers": ["TSLA", "HIMS", "HOOD", "CHWY", "RIVN", "INTC"],
+    "explicit_watchlist": []
+  },
+  "entry": {
+    "trigger": "Open a cash-secured put on a qualifying underlying when IV rank is elevated.",
+    "dte": "30-45 (weeklies 7-14 for active traders; up to 45-60 for patient)",
+    "delta_or_strike": "CSP: ~0.30 delta (0.20-0.30 conservative, up to 0.40-0.50 aggressive). CC: strike 5-10% above cost basis.",
+    "iv_rank": ">30, ideal 40-60; avoid 80+ (often signals fundamental trouble)",
+    "premium_min": null
+  },
+  "exit": {
+    "profit_target": "Close at 50% of max profit when 21+ DTE remain (some hold to 80%).",
+    "roll_rules": "At 50% profit with 21+ DTE, close and roll. Roll puts down-and-out when ITM to avoid assignment; roll calls up-and-out when shares are threatened with early assignment.",
+    "assignment_handling": "Accept assignment on stocks you wanted; buy 100 shares (cost basis = strike - premium) and switch to selling covered calls.",
+    "stop_or_line_in_sand": "Define profit target AND exit ('line in the sand') before entering — number not specified by source."
+  },
+  "sizing": {
+    "max_per_underlying": "5% of account (CONSERVATIVE choice — see conflicts)",
+    "concurrent_positions": "many small positions (sources ranged 3-5 to 'dozens')",
+    "cash_reserve": "20-30% cash; total exposure capped 70-80%"
+  },
+  "cadence": "Weekly — act around expiries and check each market open for rolls/assignments.",
+  "risk_notes": [
+    "Diversify across many underlyings and don't oversize any one name.",
+    "Only wheel names you'd hold through a drawdown, since assignment means owning them.",
+    "Avoid names with IV > 80 — high premium there usually reflects real fundamental risk."
+  ],
+  "confidence": {
+    "level": "medium",
+    "conflicts": [
+      {
+        "field": "sizing.max_per_underlying",
+        "values": ["~5% of account", "up to 20% of portfolio"],
+        "resolution": "Defaulted to the more conservative 5%; flag for organizer to confirm."
+      },
+      {
+        "field": "sizing.concurrent_positions",
+        "values": ["3-5 positions", "'dozens of small positions'"],
+        "resolution": "Left as a range; organizer to set their house number."
+      },
+      {
+        "field": "exit.profit_target",
+        "values": ["50%", "50-80%"],
+        "resolution": "Baseline 50% (conservative); noted 80% as a variant."
+      }
+    ],
+    "gaps": [
+      "No minimum premium threshold (premium_min) stated.",
+      "No concrete numeric stop / 'line in the sand' given, only that one should exist.",
+      "No rule for earnings/events (many wheelers avoid holding through earnings) — source silent.",
+      "Covered-call delta target not given (only '5-10% above cost basis')."
+    ]
+  },
+  "disclaimer": "Educational tool, not personalized investment advice. Runs on the member's own account with their own risk limits and hold-to-approve execution."
+}

@@ -29,6 +29,8 @@ SKILL_ENV_KEYS: Dict[str, Tuple[str, str]] = {
     "ODDS_API_KEY":           ("ODDS",     "system"),
     "REDDIT_CLIENT_ID":       ("REDDIT",   "system"),
     "REDDIT_CLIENT_SECRET":   ("REDDIT",   "system"),
+    "FETCHLAYER_API_KEY":     ("FETCHLAYER", "system"),
+    "REDDIT_BACKEND":         ("REDDIT",   "system"),
     "SNAPTRADE_CLIENT_ID":    ("SNAPTRADE","system"),
     "SNAPTRADE_CONSUMER_KEY": ("SNAPTRADE","system"),
     "OPENAI_API_KEY":         ("OPENAI",   "system"),

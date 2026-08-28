@@ -1,6 +1,6 @@
 ---
 name: reddit
-description: Social sentiment analysis from Reddit. Track trending stock mentions, sentiment scores, and discussion volume across subreddits.
+description: Reddit sentiment + community reading. Trending ticker mentions/sentiment, and search/read a specific community's actual posts & threads via the official Reddit API.
 homepage: https://reddit.com
 metadata:
   emoji: "👾"
@@ -15,13 +15,44 @@ metadata:
 
 # Reddit Skill
 
-Social sentiment analysis from Reddit discussions.
+Two capabilities:
+1. **Trending sentiment** (`get_trending_stocks`) — aggregate ticker mentions + sentiment
+   via ApeWisdom. Keyless, no credentials needed.
+2. **Community reading** (`reddit_api`) — search a subreddit and read its actual posts and
+   comment threads via the **official Reddit Data API**. This is what feeds the
+   `strategy_distiller` a community's own words. Needs `REDDIT_CLIENT_ID` /
+   `REDDIT_CLIENT_SECRET` (register a *script* app at https://reddit.com/prefs/apps and set
+   both in `backend/.env`). Free for non-commercial use at ~100 queries/min.
+
+Ingestion posture: fetch live, use, discard — do **not** persist a redistributable corpus
+(see `docs/community-strategies-research.md` §1a).
 
 ## Import Pattern
 
 ```python
 from skills.reddit.scripts.get_trending_stocks import get_trending_stocks
+from skills.reddit.scripts.reddit_api import search_community, get_community_posts, read_thread
 ```
+
+## Community Reading (official Reddit API)
+
+```python
+from skills.reddit.scripts.reddit_api import search_community, get_community_posts, read_thread
+
+# Search within a community
+posts = search_community("thetagang", "wheel strategy rules", sort="top", time_filter="year", limit=25)
+
+# Pull a community's top posts
+top = get_community_posts("thetagang", sort="top", time_filter="month", limit=25)
+
+# Read a full thread (post + top comments) — post_id is the 'id' from a result above
+thread = read_thread(posts[0]["id"])
+for c in thread["comments"][:10]:
+    print(c["author"], c["score"], c["body"][:200])
+```
+
+Each post dict: `id, title, author, selftext, score, num_comments, created_utc, flair, permalink`.
+`read_thread` adds `comments` (`author/body/score`). Listings cap at 1000 results.
 
 ## Get Trending Stocks
 
