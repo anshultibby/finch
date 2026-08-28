@@ -2,7 +2,7 @@
 
 /**
  * GoalGate — sits between auth and the app. If the signed-in user has no active
- * goal yet, it offers the stepped ProfileWizard and persists the result
+ * goal yet, it offers the MeetFinch onboarding and persists the result
  * (PUT /goal). Soft gate: the wizard is skippable and a skip is remembered
  * per-user (localStorage), so a user who just wants in isn't walled on every
  * load. MissionCockpit still nudges them to set a mission later. Fail-open: any
@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { goalApi, type SetGoalRequest } from '@/lib/api';
-import ProfileWizard from './ProfileWizard';
+import MeetFinch from './MeetFinch';
 
 const skipKey = (userId: string) => `finch:goal-wizard-skipped:${userId}`;
 
@@ -57,6 +57,6 @@ export default function GoalGate({ children }: { children: React.ReactNode }) {
   // AuthGate only mounts us once authenticated. While we check for a goal, hold
   // the app back so we don't flash the dashboard and then swap to the wizard.
   if (user && !checked) return null;
-  if (needsGoal) return <ProfileWizard onComplete={handleComplete} onSkip={handleSkip} />;
+  if (needsGoal) return <MeetFinch onComplete={handleComplete} onSkip={handleSkip} />;
   return <>{children}</>;
 }
