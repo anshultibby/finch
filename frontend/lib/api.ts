@@ -766,6 +766,7 @@ export interface Goal {
   risk?: number | null;              // 1..10
   options_enabled: boolean;
   config: Record<string, any>;       // assets, watch prefs, notify channel, …
+  preferences?: Record<string, any>; // profile "about me": watch, notify, experience, constraints, notes
   status: string;                    // active | paused | done | archived
   created_at?: string | null;
   updated_at?: string | null;

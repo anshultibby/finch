@@ -106,6 +106,17 @@ async def _get_goal_directive(user_id: str) -> str:
     if goal.objective:
         lines.append(f'In their words: "{goal.objective}"')
 
+    # Cross-kind profile preferences (the wizard's "about me"). The verbose
+    # version lives in profile.md; keep the hard constraints in the prompt.
+    prefs = dict(getattr(goal, "preferences", None) or {})
+    if prefs.get("experience"):
+        exp = {"new": "new to investing", "some": "some experience", "pro": "experienced"}.get(prefs["experience"], prefs["experience"])
+        lines.append(f"Experience: {exp}")
+    if prefs.get("constraints"):
+        lines.append(f"NEVER do (hard constraints): {', '.join(prefs['constraints'])}")
+    if (prefs.get("notes") or "").strip():
+        lines.append(f'Also: "{prefs["notes"].strip()}"')
+
     stance = {
         "number": "They want to hit a specific dollar target by a deadline. Bias toward "
                   "moves that make measurable progress and be honest about pace (ahead/behind).",
@@ -121,7 +132,9 @@ async def _get_goal_directive(user_id: str) -> str:
         "<mission>\n"
         "Shape everything you surface — ideas, alerts, the brief — around the user's active "
         "goal, and frame suggestions as progress toward it.\n\n"
-        f"{chr(10).join(lines)}\n\n{stance}\n"
+        f"{chr(10).join(lines)}\n\n{stance}\n\n"
+        "Their full profile (watch list, notification prefs, constraints, notes) is in "
+        "/home/user/store/profile.md — read it before acting on their behalf.\n"
         "</mission>"
     )
 

@@ -19,6 +19,7 @@ class Goal(BaseModel):
     risk: Optional[int] = Field(None, ge=1, le=10)
     options_enabled: bool = False
     config: Dict[str, Any] = Field(default_factory=dict)
+    preferences: Dict[str, Any] = Field(default_factory=dict)
     status: str = "active"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -44,3 +45,4 @@ class SetGoalRequest(BaseModel):
     risk: Optional[int] = Field(None, ge=1, le=10)
     options_enabled: bool = False
     config: Dict[str, Any] = Field(default_factory=dict)
+    preferences: Dict[str, Any] = Field(default_factory=dict)

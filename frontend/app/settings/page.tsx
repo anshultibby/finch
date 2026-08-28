@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountApi, type UserPreferences } from '@/lib/api';
+import ProfileEditor from '@/components/onboarding/ProfileEditor';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -43,7 +44,13 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-[#fafaf9]">
       <div className="max-w-2xl mx-auto px-6 py-12">
         <h1 className="text-2xl font-bold text-stone-900 mb-1">Settings</h1>
-        <p className="text-sm text-stone-500 mb-8">Manage how Finch trades on your behalf.</p>
+        <p className="text-sm text-stone-500 mb-8">Your mission and how Finch works on your behalf.</p>
+
+        <section className="bg-white border border-stone-200 rounded-2xl p-6 mb-6">
+          <h2 className="text-base font-semibold text-stone-900 mb-1">Your mission &amp; profile</h2>
+          <p className="text-sm text-stone-500 mb-5">What you're aiming for and how you want Finch to work. Shapes everything it surfaces — and it's shared with the agent.</p>
+          {user?.id && <ProfileEditor userId={user.id} />}
+        </section>
 
         <section className="bg-white border border-stone-200 rounded-2xl p-6">
           <h2 className="text-base font-semibold text-stone-900 mb-4">Trading</h2>

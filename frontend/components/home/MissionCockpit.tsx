@@ -98,6 +98,14 @@ export default function MissionCockpit() {
     setAsk('');
   };
 
+  // Re-open the onboarding wizard for a user who skipped it (or never set a
+  // goal). GoalGate re-checks on mount, so clearing the skip flag + reloading
+  // drops them back into the wizard.
+  const startMission = () => {
+    try { if (user) localStorage.removeItem(`finch:goal-wizard-skipped:${user.id}`); } catch { /* best effort */ }
+    window.location.reload();
+  };
+
   if (loading) {
     return <div className="h-full grid place-items-center text-gray-400 text-sm">Loading your mission…</div>;
   }
@@ -130,12 +138,10 @@ export default function MissionCockpit() {
               {copy.scoreboard ? (
                 <div>
                   <div className="flex items-baseline gap-2 mb-2" style={{ fontFamily: 'var(--font-numeric), sans-serif' }}>
-                    <span className="text-3xl font-semibold tracking-tight">$0</span>
-                    <span className="text-sm text-stone-400">/ {money(goal?.target_amount)}</span>
+                    <span className="text-3xl font-semibold tracking-tight">{money(goal?.target_amount)}</span>
+                    <span className="text-sm text-stone-400">target</span>
                   </div>
-                  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: '2%', background: 'linear-gradient(90deg,#059669,#34d399)' }} />
-                  </div>
+                  <div className="h-2 rounded-full bg-white/10 border border-dashed border-white/15" />
                   <div className="mt-2 text-[11px] text-stone-400">
                     Connect a brokerage and I&apos;ll track your pace toward this in real time.
                   </div>
@@ -154,6 +160,27 @@ export default function MissionCockpit() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {!copy && (
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <div className="font-mono text-[11px] tracking-[.14em] uppercase text-stone-400 mb-2">No mission set</div>
+                <h1 className="text-2xl font-semibold tracking-tight leading-tight" style={{ fontFamily: 'var(--font-numeric), var(--font-body), sans-serif' }}>
+                  What are we doing with your money?
+                </h1>
+                <p className="mt-2 text-[12.5px] text-stone-400 max-w-md">
+                  Give Finch a goal — a number, a horizon, or just &ldquo;watch my portfolio&rdquo; — and the whole app orients around it.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={startMission}
+                className="self-start inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors whitespace-nowrap"
+              >
+                Set your mission <ArrowRight className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>

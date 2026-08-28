@@ -56,7 +56,11 @@ class UserGoal(Base):
       protect — watch-only, no numeric target   (config.watch / config.notify)
 
     Shape-specific extras (tradeable assets, watch list, notify channel, …) live
-    in `config` (JSONB) so new goal types don't churn the schema.
+    in `config` (JSONB) so new goal types don't churn the schema. Cross-kind
+    profile preferences the wizard collects (watch topics, notify channel,
+    experience level, constraints, freeform notes) live in `preferences` (JSONB)
+    — together the row is the user's unified *profile*, edited in Settings and
+    mirrored to /home/user/store/profile.md for the agent.
     """
     __tablename__ = "user_goals"
 
@@ -72,6 +76,7 @@ class UserGoal(Base):
     risk = Column(Integer, nullable=True)                      # 1..10 (null for protect)
     options_enabled = Column(Boolean, nullable=False, default=False)
     config = Column(JSONB, nullable=False, default=dict)       # assets, watch prefs, notify, …
+    preferences = Column(JSONB, nullable=False, default=dict)  # profile "about me": watch, notify, experience, constraints, notes
     status = Column(String, nullable=False, default="active")  # active | paused | done | archived
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

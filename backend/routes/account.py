@@ -114,7 +114,17 @@ async def set_goal(
     await verify_user_access(user_id, authenticated_user_id)
     async with get_db_session() as db:
         goal = await goals_crud.set_goal(db, user_id, body.model_dump())
-        return Goal.model_validate(goal)
+        result = Goal.model_validate(goal)
+
+    # Mirror the profile to /home/user/store/profile.md so the agent sees it.
+    # Best-effort — never block the save on sandbox availability.
+    try:
+        from services.profile_sync import write_profile_md
+        await write_profile_md(user_id)
+    except Exception as e:
+        logger.debug(f"profile.md sync after set_goal failed (non-fatal): {e}")
+
+    return result
 
 
 @router.delete("/{user_id}")

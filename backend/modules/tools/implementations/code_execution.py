@@ -241,6 +241,12 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
         # --- 6. Reset the ephemeral scratchpad on every (re)connect ---
         if fresh_connection:
             await _reset_scratchpad(entry.sbx)
+            # Seed the user's profile.md so the agent has it in a fresh volume.
+            try:
+                from services.profile_sync import write_profile_md
+                await write_profile_md(user_id, sbx=entry.sbx)
+            except Exception as e:
+                logger.debug(f"profile.md seed failed (non-fatal): {e}")
 
         return entry
 

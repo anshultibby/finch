@@ -17,7 +17,7 @@ from models.user import UserGoal
 _WRITABLE = {
     "kind", "title", "objective", "target_amount", "deadline",
     "horizon_years", "monthly_contribution", "monthly_income",
-    "risk", "options_enabled", "config", "status",
+    "risk", "options_enabled", "config", "preferences", "status",
 }
 
 
