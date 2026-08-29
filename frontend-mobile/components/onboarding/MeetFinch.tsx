@@ -1,274 +1,203 @@
 /**
- * MeetFinch (mobile) — conversational, character-driven onboarding, the native
- * mirror of web's MeetFinch. You meet Finch, say what you want your money to do
- * (a tap or a line), Finch "thinks" (real LLM interpret), reacts with a specific
- * take, and reveals a live mission (counting-up target, nudgeable values).
- * "Let's go" persists via goalApi. Warm, alive, ~one choice. Replaces the old
- * stepped GoalOnboarding in the gate.
+ * MeetFinch (mobile) — a small, skippable card Finch presents to set your
+ * mission (native mirror of web). Three focused, capital-anchored questions:
+ * how much you're starting with → the plan → the horizon → a grounded reveal
+ * (real projection from the capital). "Let's go" persists via goalApi; skippable
+ * at any stage. One Finch mark presenting the card.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, TextInput, ScrollView, ActivityIndicator, Animated, Easing } from 'react-native';
-import Svg, { Path, Circle } from 'react-native-svg';
+import React, { useState } from 'react';
+import { View, Text, Pressable, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import FinchLogo from '@/components/FinchLogo';
-import { useAuth } from '@/contexts/AuthContext';
-import { goalApi, type MissionDraft, type SetGoalRequest, type GoalKind } from '@/lib/api';
+import type { SetGoalRequest, GoalKind } from '@/lib/api';
 
-const EMERALD = '#059669';
 const fmt = (n: number) => n.toLocaleString('en-US');
-const dayLabel = (d: number) => (d === 7 ? 'this week' : d === 21 ? '3 weeks' : d === 30 ? 'a month' : '3 months');
 const daysFromNowISO = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
 
-const CHIPS: { e: string; label: string; text: string }[] = [
-  { e: '🚀', label: 'Aggressive profits', text: 'go aggressive for big profits, I can handle the risk' },
-  { e: '🌱', label: 'Safe growth', text: 'grow my savings safely and steadily' },
-  { e: '💵', label: 'Monthly income', text: 'generate steady monthly income' },
-  { e: '🛡️', label: 'Just watch my back', text: 'just watch my portfolio and warn me' },
+const CAPS = [1000, 5000, 10000, 25000, 50000, 100000];
+const PLANS: { k: GoalKind; r: number | null; e: string; h: string; p: string }[] = [
+  { k: 'number', r: 8, e: '🚀', h: 'Aggressive profits', p: 'Go for big gains, higher risk' },
+  { k: 'grow', r: 4, e: '🌱', h: 'Safe growth', p: 'Steady, low-stress compounding' },
+  { k: 'income', r: 5, e: '💵', h: 'Monthly income', p: 'Cash flow from what you hold' },
+  { k: 'protect', r: null, e: '🛡️', h: 'Just watch', p: 'Monitor & warn, no trades' },
 ];
+const AGG_TF: [number, string, number][] = [[30, 'This month', 0.12], [90, '3 months', 0.25], [365, 'This year', 0.6]];
+const HORIZONS = [5, 10, 20, 30];
 
-function fallbackDraft(text: string): MissionDraft {
-  const s = text.toLowerCase();
-  if (/watch|monitor|protect|warn|keep an eye|don.?t lose|back/.test(s))
-    return { kind: 'protect', options_enabled: false, risk: null, title: 'Watch & protect my portfolio', stance: 'alerts only · no trades without you', reaction: "Smoke detector, not arsonist. I'll watch, you sleep." };
-  if (/income|monthly|cash ?flow|dividend|passive/.test(s))
-    return { kind: 'income', monthly_income: 300, options_enabled: true, risk: 5, title: 'Generate ~$300/mo income', stance: 'conservative · covered calls + dividends', reaction: "Cash flow mode. Let's get you paid." };
-  if (/grow|long|steady|slow|safe|retire|years|wealth/.test(s))
-    return { kind: 'grow', horizon_years: 10, options_enabled: false, risk: 4, title: 'Grow steadily over 10 years', stance: 'low-stress · diversified', reaction: 'The boring plan. My favorite. This is how real money gets made.' };
-  return { kind: 'number', target_amount: 1000, days: 21, options_enabled: true, risk: 7, title: 'Make $1,000 in 3 weeks', stance: 'full send · stocks + options', reaction: 'A target. My favorite kind of problem. Ambitious — not delusional.' };
-}
-
-function useTyped(text: string, speed = 16) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    setN(0); let i = 0;
-    const id = setInterval(() => { i++; setN(i); if (i >= text.length) clearInterval(id); }, speed);
-    return () => clearInterval(id);
-  }, [text]);
-  return text.slice(0, n);
-}
-function useCountUp(target: number, run: boolean, dur = 800) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    if (!run) { setV(target); return; }
-    let raf = 0; const start = Date.now();
-    const tick = () => { const p = Math.min(1, (Date.now() - start) / dur); setV(Math.round(target * (1 - Math.pow(1 - p, 3)))); if (p < 1) raf = requestAnimationFrame(tick); };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, run]);
-  return v;
-}
-
-function Says({ children }: { children: React.ReactNode }) {
-  return (
-    <View className="flex-row gap-3 items-start mb-6">
-      <View className="rounded-[11px] overflow-hidden"><FinchLogo size={38} /></View>
-      <View className="flex-1">
-        <Text className="font-body text-[10px] tracking-[1.4px] text-gray-400 mb-1.5" style={{ textTransform: 'uppercase' }}>Finch</Text>
-        <Text className="font-body-bold text-gray-900 text-[25px]" style={{ lineHeight: 30, letterSpacing: -0.4 }}>{children}</Text>
-      </View>
-    </View>
-  );
-}
-function Stepper({ onDec, onInc, children }: { onDec: () => void; onInc: () => void; children: React.ReactNode }) {
-  const tap = (fn: () => void) => () => { Haptics.selectionAsync(); fn(); };
-  return (
-    <View className="flex-row items-center gap-3">
-      <Pressable onPress={tap(onDec)} className="w-9 h-9 rounded-full border border-black/10 bg-white items-center justify-center"><Text className="text-xl text-gray-500">−</Text></Pressable>
-      {children}
-      <Pressable onPress={tap(onInc)} className="w-9 h-9 rounded-full border border-black/10 bg-white items-center justify-center"><Text className="text-xl text-gray-500">+</Text></Pressable>
-    </View>
-  );
-}
+type StepKey = 'capital' | 'plan' | 'time' | 'reveal';
+const LINE: Record<StepKey, string> = {
+  capital: "First — how much are you starting with? Everything scales from this.",
+  plan: "Nice. What are we doing with it?",
+  time: "And what's the time horizon?",
+  reveal: "Here's your mission. Real numbers, from your money.",
+};
 
 export default function MeetFinch({ onDone, onSkip }: { onDone: (g: SetGoalRequest) => Promise<void> | void; onSkip?: () => void }) {
-  const { user } = useAuth();
-  const [phase, setPhase] = useState<'ask' | 'thinking' | 'reveal' | 'saving'>('ask');
-  const [greeted, setGreeted] = useState(false);
-  const [draft, setDraft] = useState<MissionDraft | null>(null);
-  const [input, setInput] = useState('');
-  const [amt, setAmt] = useState(1000);
-  const [days, setDays] = useState(21);
-  const [income, setIncome] = useState(300);
+  const [step, setStep] = useState(0);
+  const [capital, setCapital] = useState(5000);
+  const [kind, setKind] = useState<GoalKind | null>(null);
+  const [risk, setRisk] = useState<number | null>(null);
+  const [days, setDays] = useState(30);
   const [years, setYears] = useState(10);
+  const [done, setDone] = useState(false);
 
-  const greeting = useTyped(greeted ? '' : "Hey — I'm Finch.");
-  useEffect(() => { if (!greeted) { const t = setTimeout(() => setGreeted(true), 1300); return () => clearTimeout(t); } }, [greeted]);
-
-  const submit = async (text: string) => {
-    if (!text.trim() || phase !== 'ask') return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setPhase('thinking');
-    let d: MissionDraft;
-    try { d = user ? await goalApi.interpret(user.id, text) : fallbackDraft(text); } catch { d = fallbackDraft(text); }
-    setDraft(d);
-    if (d.target_amount) setAmt(d.target_amount);
-    if (d.days) setDays(d.days);
-    if (d.monthly_income) setIncome(d.monthly_income);
-    if (d.horizon_years) setYears(d.horizon_years);
-    setPhase('reveal');
-  };
+  const steps: StepKey[] = ['capital', 'plan', ...((kind === 'number' || kind === 'grow') ? ['time' as StepKey] : []), 'reveal'];
+  const key = steps[Math.min(step, steps.length - 1)];
+  const canNext = key === 'plan' ? !!kind : true;
+  const isReveal = key === 'reveal';
+  const rate = (AGG_TF.find(t => t[0] === days) || AGG_TF[0])[2];
+  const tap = (fn: () => void) => () => { Haptics.selectionAsync(); fn(); };
 
   const build = (): SetGoalRequest => {
-    const d = draft!;
-    const base: SetGoalRequest = { kind: d.kind, options_enabled: d.options_enabled, risk: d.risk ?? null, preferences: {}, config: {} };
-    if (d.kind === 'number') return { ...base, target_amount: amt, deadline: daysFromNowISO(days), title: `Make $${fmt(amt)} in ${dayLabel(days)}` };
-    if (d.kind === 'grow') return { ...base, horizon_years: years, options_enabled: false, title: `Grow steadily over ${years} years` };
-    if (d.kind === 'income') return { ...base, monthly_income: income, title: `Generate ~$${fmt(income)}/mo income` };
-    return { ...base, risk: null, title: 'Watch & protect my portfolio', config: { watch: ['big drops in my holdings', 'earnings for what I own'], notify: 'both' } };
+    const config: Record<string, any> = { starting_capital: capital };
+    const base: SetGoalRequest = { kind: kind!, risk, options_enabled: (risk ?? 0) >= 8, config, preferences: {} };
+    if (kind === 'number') {
+      const target = Math.round(capital * rate / 50) * 50;
+      const tf = (AGG_TF.find(t => t[0] === days) || AGG_TF[0])[1].toLowerCase();
+      return { ...base, target_amount: target, deadline: daysFromNowISO(days), title: `Turn $${fmt(capital)} into $${fmt(capital + target)} (${tf})` };
+    }
+    if (kind === 'grow') { const fv = Math.round(capital * Math.pow(1.08, years)); return { ...base, options_enabled: false, horizon_years: years, title: `Grow $${fmt(capital)} to ~$${fmt(fv)} over ${years}y` }; }
+    if (kind === 'income') { const mo = Math.round(capital * 0.03 / 12); return { ...base, options_enabled: false, monthly_income: mo, title: `~$${fmt(mo)}/mo income from $${fmt(capital)}` }; }
+    return { ...base, risk: null, config: { ...config, watch: ['big drops in my holdings', 'earnings for what I own'], notify: 'both' }, title: `Watch & protect $${fmt(capital)}` };
   };
-  const lockIn = async () => { if (draft) { setPhase('saving'); await onDone(build()); } };
+
+  const next = async () => {
+    if (step < steps.length - 1) { Haptics.selectionAsync(); setStep(step + 1); }
+    else { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setDone(true); await onDone(build()); }
+  };
+  const back = () => setStep(Math.max(0, step - 1));
 
   return (
-    <View className="flex-1 bg-[#fbfbfa]">
-      <View className="px-[22px] pt-16 flex-row items-center">
-        <FinchLogo size={30} showText />
-        {onSkip && <Pressable onPress={onSkip} className="ml-auto" hitSlop={10}><Text className="text-[12.5px] text-gray-400">Skip for now</Text></Pressable>}
+    <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: 'rgba(20,18,16,0.28)' }}>
+      {/* Finch, presenting */}
+      <View className="items-center" style={{ marginBottom: 2, zIndex: 2 }}>
+        <View className="rounded-[13px]" style={{ shadowColor: '#059669', shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 14 } }}><FinchLogo size={46} /></View>
+        {!done && <Text className="mt-3.5 text-[13.5px] text-stone-100 text-center" style={{ maxWidth: 320, lineHeight: 20 }}>{LINE[key]}</Text>}
       </View>
 
-      <ScrollView contentContainerClassName="px-[22px] pt-10 pb-24 flex-grow justify-center" showsVerticalScrollIndicator={false}>
-        {phase === 'ask' && (
-          <View>
-            <Says>{greeted ? 'What do you want your money to do?' : greeting}</Says>
-            {greeted && (
-              <View className="ml-[50px]">
-                <Text className="text-[14.5px] text-gray-500 -mt-3 mb-4">Say it however — a number, a vibe, or “just don&apos;t lose it.”</Text>
-                <View className="flex-row items-center gap-2.5 bg-white border-[1.5px] border-black/10 rounded-2xl pl-[18px] pr-1.5 py-1.5">
-                  <TextInput value={input} onChangeText={setInput} placeholder="e.g. make $1k this month…" placeholderTextColor="#a8a29e"
-                    className="flex-1 text-base text-gray-900 py-3" returnKeyType="go" onSubmitEditing={() => submit(input)} />
-                  <Pressable onPress={() => submit(input)} disabled={!input.trim()}
-                    className={`w-10 h-10 rounded-xl items-center justify-center ${input.trim() ? 'bg-gray-900' : 'bg-gray-300'}`}><Text className="text-white text-lg">↑</Text></Pressable>
-                </View>
-                <View className="flex-row flex-wrap gap-2.5 mt-3.5">
-                  {CHIPS.map(c => (
-                    <Pressable key={c.label} onPress={() => submit(c.text)}
-                      className="flex-row items-center gap-2 bg-white border-[1.5px] border-black/10 rounded-2xl px-4 py-3">
-                      <Text className="text-lg">{c.e}</Text><Text className="text-[14.5px] font-body-bold text-gray-900">{c.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
+      <View className="w-full bg-white rounded-3xl p-[22px]" style={{ maxWidth: 400, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 40, shadowOffset: { width: 0, height: 24 } }}>
+        {done ? (
+          <View className="items-center py-4">
+            <Text className="text-[22px] font-body-bold text-gray-900">Mission set ✓</Text>
+            <Text className="text-[12.5px] text-stone-500 mt-1">Building your cockpit…</Text>
           </View>
-        )}
-
-        {phase === 'thinking' && (
-          <View>
-            <Says>Give me a sec…</Says>
-            <View className="ml-[50px]"><ActivityIndicator color={EMERALD} /></View>
-          </View>
-        )}
-
-        {phase === 'reveal' && draft && (
-          <View>
-            <Reaction text={draft.reaction} />
-            <View className="ml-[50px]">
-              <Instrument kind={draft.kind} amt={amt} setAmt={setAmt} days={days} setDays={setDays} income={income} setIncome={setIncome} years={years} setYears={setYears} />
-              {!!draft.stance && (
-                <View className="items-center mt-3">
-                  <Text className="text-xs text-gray-600 bg-stone-50 border border-black/10 px-3.5 py-1.5 rounded-full">{draft.stance}</Text>
-                </View>
-              )}
-              <Pressable onPress={lockIn} className="mt-4 bg-emerald-600 rounded-2xl py-4 items-center">
-                <Text className="text-white text-[15px] font-body-bold">Let&apos;s go →</Text>
+        ) : (
+          <>
+            {onSkip && (
+              <Pressable onPress={onSkip} hitSlop={8} className="absolute top-3.5 right-3.5 w-[30px] h-[30px] rounded-[9px] bg-stone-100 items-center justify-center z-10">
+                <Text className="text-stone-400 text-base">✕</Text>
               </Pressable>
-              {onSkip && <Pressable onPress={onSkip} className="items-center mt-2 py-1"><Text className="text-[13px] text-gray-400">Not now</Text></Pressable>}
+            )}
+            <View className="flex-row gap-1.5 mb-4" style={{ paddingRight: 36 }}>
+              {steps.map((_, i) => (
+                <View key={i} className={`flex-1 rounded-full ${i < step ? 'bg-emerald-400' : i === step ? 'bg-gray-900' : 'bg-stone-200'}`} style={{ height: 5 }} />
+              ))}
             </View>
-          </View>
-        )}
 
-        {phase === 'saving' && (
-          <View className="items-center py-10">
-            <FinchLogo size={52} />
-            <Text className="text-lg font-body-bold text-gray-900 mt-4">Mission set.</Text>
-            <Text className="text-sm text-gray-500 mt-1">Building your cockpit…</Text>
-          </View>
+            {key === 'capital' && <CapitalStep capital={capital} onPick={c => tap(() => setCapital(c))()} />}
+            {key === 'plan' && <PlanStep kind={kind} onPick={(k, r) => tap(() => { setKind(k); setRisk(r); })()} />}
+            {key === 'time' && (kind === 'number'
+              ? <TimeStep title="By when?" hint="Aggressive means real swings — a shorter clock is punchier." options={AGG_TF.map(t => [t[0], t[1]] as [number, string])} value={days} onChange={v => tap(() => setDays(v))()} />
+              : <TimeStep title="For how long?" hint="Longer horizon — compounding does the work." options={HORIZONS.map(y => [y, `${y} yrs`] as [number, string])} value={years} onChange={v => tap(() => setYears(v))()} />)}
+            {key === 'reveal' && <Reveal kind={kind!} capital={capital} rate={rate} days={days} years={years} />}
+
+            <View className="flex-row items-center gap-2.5 mt-[18px]">
+              {step > 0 && <Pressable onPress={back} className="py-2"><Text className="text-[13px] font-body-bold text-stone-400">← Back</Text></Pressable>}
+              <Pressable onPress={next} disabled={!canNext} className={`ml-auto rounded-xl px-[22px] py-3 ${!canNext ? 'bg-gray-300' : isReveal ? 'bg-emerald-600' : 'bg-gray-900'}`}>
+                <Text className="text-sm font-body-bold text-white">{isReveal ? "Let's go →" : 'Continue'}</Text>
+              </Pressable>
+            </View>
+
+            {!isReveal && onSkip && (
+              <Pressable onPress={onSkip} className="items-center mt-3"><Text className="text-xs text-stone-400 underline">Skip setup for now</Text></Pressable>
+            )}
+          </>
         )}
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
-function Reaction({ text }: { text: string }) {
-  const shown = useTyped(text);
-  return <Says>{shown}</Says>;
+function Q({ title, hint }: { title: string; hint: string }) {
+  return (<><Text className="text-[17px] font-body-bold text-gray-900 mb-0.5">{title}</Text><Text className="text-[12.5px] text-stone-400 mb-4" style={{ lineHeight: 17 }}>{hint}</Text></>);
 }
 
-function Projection({ bow }: { bow: number }) {
-  const my = 64 - (64 - 14) * bow;
+function CapitalStep({ capital, onPick }: { capital: number; onPick: (n: number) => void }) {
   return (
-    <Svg width="100%" height={70} viewBox="0 0 378 78" style={{ marginVertical: 6 }}>
-      <Path d={`M6 64 Q 190 ${my - 8} 372 14`} stroke={EMERALD} strokeWidth={2.5} fill="none" strokeLinecap="round" />
-      <Circle cx={372} cy={14} r={4} fill="#fff" stroke={EMERALD} strokeWidth={2.5} />
-    </Svg>
-  );
-}
-
-function Card({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <View className="bg-white border border-black/[0.06] rounded-[20px] p-5">
-      <View className="flex-row items-center justify-between mb-3.5">
-        <Text className="font-body text-[10.5px] text-emerald-700" style={{ letterSpacing: 1.4, textTransform: 'uppercase' }}>{label}</Text>
-        <Text className="font-body text-[10px] text-gray-400" style={{ textTransform: 'uppercase' }}>live</Text>
-      </View>
-      {children}
-    </View>
-  );
-}
-
-function Instrument(p: {
-  kind: GoalKind; amt: number; setAmt: (n: number) => void; days: number; setDays: (n: number) => void;
-  income: number; setIncome: (n: number) => void; years: number; setYears: (n: number) => void;
-}) {
-  const amtShown = useCountUp(p.amt, p.kind === 'number');
-  const incShown = useCountUp(p.income, p.kind === 'income');
-  if (p.kind === 'protect') {
-    return <Card label="on watch"><Text className="text-[15px] text-gray-900 leading-6 py-1">I&apos;ll keep eyes on your book 24/7 and only ping you when it actually matters — big drops, earnings, unusual moves. No noise.</Text></Card>;
-  }
-  if (p.kind === 'grow') {
-    const fv = Math.round(5000 * Math.pow(1.08, p.years) / 1000);
-    return (
-      <Card label="the long game">
-        <Text className="text-center text-[48px] font-body-bold text-gray-900" style={{ fontVariant: ['tabular-nums'] }}>${fmt(fv)}k</Text>
-        <Projection bow={0.7} />
-        <View className="flex-row items-center justify-center gap-3 mt-2">
-          <Text className="text-[13px] text-gray-500">over</Text>
-          <Stepper onDec={() => p.setYears(Math.max(1, p.years - 1))} onInc={() => p.setYears(Math.min(30, p.years + 1))}>
-            <Text className="text-[22px] font-body-bold text-gray-900 text-center" style={{ minWidth: 96, fontVariant: ['tabular-nums'] }}>{p.years} yrs</Text>
-          </Stepper>
-        </View>
-        <Text className="text-center text-[13px] text-gray-500 mt-3">steady, low-stress, no hype</Text>
-      </Card>
-    );
-  }
-  if (p.kind === 'income') {
-    return (
-      <Card label="monthly income">
-        <View className="flex-row items-center justify-center mb-1">
-          <Stepper onDec={() => p.setIncome(Math.max(50, p.income - 50))} onInc={() => p.setIncome(Math.min(2000, p.income + 50))}>
-            <Text className="text-[44px] font-body-bold text-gray-900" style={{ fontVariant: ['tabular-nums'] }}>${fmt(incShown)}<Text className="text-[18px] text-gray-400">/mo</Text></Text>
-          </Stepper>
-        </View>
-        <Text className="text-center text-[13px] text-gray-500 mt-2">≈ ${fmt(p.income * 12)}/yr · covered calls &amp; dividends do the work</Text>
-      </Card>
-    );
-  }
-  const per = Math.round(p.amt / p.days);
-  return (
-    <Card label="the target">
-      <View className="flex-row items-center justify-center mb-1">
-        <Stepper onDec={() => p.setAmt(Math.max(200, p.amt - 100))} onInc={() => p.setAmt(Math.min(5000, p.amt + 100))}>
-          <Text className="text-[46px] font-body-bold text-gray-900" style={{ fontVariant: ['tabular-nums'] }}>${fmt(amtShown)}</Text>
-        </Stepper>
-      </View>
-      <View className="flex-row gap-1 bg-stone-100 rounded-xl p-1 my-3">
-        {([[7, '1 wk'], [21, '3 wks'], [30, '1 mo'], [90, '3 mo']] as const).map(([d, t]) => (
-          <Pressable key={d} onPress={() => p.setDays(d)} className={`flex-1 py-2 rounded-lg items-center ${p.days === d ? 'bg-white' : ''}`} style={p.days === d ? { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } } : undefined}>
-            <Text className={`text-xs font-body-bold ${p.days === d ? 'text-gray-900' : 'text-gray-500'}`}>{t}</Text>
+    <>
+      <Q title="How much are you starting with?" hint="You can add more later. This anchors everything." />
+      <Text className="text-center text-[34px] font-body-bold text-gray-900 mb-2.5" style={{ fontVariant: ['tabular-nums'] }}>${fmt(capital)}</Text>
+      <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+        {CAPS.map(c => (
+          <Pressable key={c} onPress={() => onPick(c)} className={`rounded-xl border-[1.5px] items-center justify-center ${capital === c ? 'bg-gray-900 border-gray-900' : 'bg-white border-gray-200'}`} style={{ width: '31.5%', paddingVertical: 11 }}>
+            <Text className={`text-sm font-body-bold ${capital === c ? 'text-white' : 'text-gray-900'}`}>${c >= 1000 ? `${c / 1000}k` : c}</Text>
           </Pressable>
         ))}
       </View>
-      <Projection bow={0.5 + (p.amt / 5000) * 0.5} />
-      <Text className="text-center text-[13px] text-gray-500 mt-1">≈ ${per}/day to hit ${fmt(p.amt)} in {dayLabel(p.days)}. I&apos;ll pace you.</Text>
-    </Card>
+    </>
   );
+}
+
+function PlanStep({ kind, onPick }: { kind: GoalKind | null; onPick: (k: GoalKind, r: number | null) => void }) {
+  return (
+    <>
+      <Q title="What's the plan?" hint="Pick one — it sets how I'll invest." />
+      <View style={{ gap: 10 }}>
+        {PLANS.map(pl => (
+          <Pressable key={pl.k} onPress={() => onPick(pl.k, pl.r)} className={`flex-row items-center gap-3 px-[15px] py-3.5 rounded-2xl border-[1.5px] ${kind === pl.k ? 'border-emerald-600 bg-emerald-50' : 'border-gray-200 bg-white'}`}>
+            <Text className="text-[22px]">{pl.e}</Text>
+            <View className="flex-1"><Text className="text-[14.5px] font-body-bold text-gray-900">{pl.h}</Text><Text className="text-[12.5px] text-stone-500">{pl.p}</Text></View>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+}
+
+function TimeStep({ title, hint, options, value, onChange }: { title: string; hint: string; options: [number, string][]; value: number; onChange: (n: number) => void }) {
+  return (
+    <>
+      <Q title={title} hint={hint} />
+      <View className="flex-row bg-stone-100 rounded-xl p-1" style={{ gap: 6 }}>
+        {options.map(([v, t]) => (
+          <Pressable key={v} onPress={() => onChange(v)} className={`flex-1 py-2.5 rounded-lg items-center ${value === v ? 'bg-white' : ''}`} style={value === v ? { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } } : undefined}>
+            <Text className={`text-[13px] font-body-bold ${value === v ? 'text-gray-900' : 'text-stone-500'}`}>{t}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+}
+
+function Reveal({ kind, capital, rate, days, years }: { kind: GoalKind; capital: number; rate: number; days: number; years: number }) {
+  const Eye = ({ s }: { s: string }) => <Text className="font-body text-[10px] text-stone-400 mb-2" style={{ letterSpacing: 1.4, textTransform: 'uppercase' }}>Your mission · {s}</Text>;
+  const Stat = ({ v, delta, flat }: { v: string; delta?: string; flat?: boolean }) => (
+    <View className="flex-row items-baseline" style={{ gap: 10 }}>
+      <Text className="text-[30px] font-body-bold text-gray-900" style={{ fontVariant: ['tabular-nums'] }}>{v}</Text>
+      {delta != null && <Text className={`text-sm font-body-bold ${flat ? 'text-stone-400' : 'text-emerald-600'}`}>{delta}</Text>}
+    </View>
+  );
+  const Sub = ({ children }: { children: React.ReactNode }) => <Text className="text-[12.5px] text-stone-600 mt-2" style={{ lineHeight: 18 }}>{children}</Text>;
+
+  if (kind === 'number') {
+    const target = Math.round(capital * rate / 50) * 50, end = capital + target, pct = Math.round(rate * 100);
+    const tf = (AGG_TF.find(t => t[0] === days) || AGG_TF[0])[1].toLowerCase(); const per = Math.round(target / days);
+    return <View><Eye s={tf} /><Stat v={`$${fmt(end)}`} delta={`+$${fmt(target)} · ${pct}%`} /><Sub>From your ${fmt(capital)} — about ${fmt(per)}/day. Aggressive means real swings; I size tight and bank profits.</Sub></View>;
+  }
+  if (kind === 'grow') {
+    const fv = Math.round(capital * Math.pow(1.08, years)), gain = fv - capital, pct = Math.round(gain / capital * 100), fill = Math.min(100, Math.round(capital / fv * 100));
+    return (
+      <View>
+        <Eye s={`${years} years`} /><Stat v={`$${fmt(fv)}`} delta={`+$${fmt(gain)} · ${pct}%`} />
+        <Sub>${fmt(capital)} compounding at ~8%/yr. Boring, and it works.</Sub>
+        <View className="mt-3.5 rounded-full bg-stone-200 overflow-hidden" style={{ height: 8 }}><View className="h-full rounded-full bg-emerald-600" style={{ width: `${fill}%` }} /></View>
+        <View className="flex-row justify-between mt-1.5"><Text className="text-[11px] text-stone-400">${fmt(capital)} today</Text><Text className="text-[11px] text-stone-400">${fmt(fv)} in {years}y</Text></View>
+      </View>
+    );
+  }
+  if (kind === 'income') {
+    const mo = Math.round(capital * 0.03 / 12), modest = mo < 75;
+    return <View><Eye s="monthly income" /><Stat v={`$${fmt(mo)}/mo`} /><Sub>Realistic on ${fmt(capital)} at a safe ~3% yield.{modest ? ' Honestly modest — growing the base first gets you a lot more.' : ' Covered calls can nudge it higher.'}</Sub></View>;
+  }
+  return <View><Eye s="watch & protect" /><Stat v={`$${fmt(capital)}`} delta="on watch" flat /><Sub>I'll keep eyes on your book 24/7 and only ping you when it matters — big drops, earnings, unusual moves. No noise.</Sub></View>;
 }

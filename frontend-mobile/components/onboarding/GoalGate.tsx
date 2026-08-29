@@ -56,7 +56,7 @@ export default function GoalGate() {
   };
 
   return (
-    <Modal visible={show} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { /* not dismissable */ }}>
+    <Modal visible={show} animationType="fade" transparent onRequestClose={handleSkip}>
       <MeetFinch onDone={handleDone} onSkip={handleSkip} />
     </Modal>
   );
