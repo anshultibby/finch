@@ -1,313 +1,225 @@
 'use client';
 
 /**
- * MeetFinch — the conversational, character-driven onboarding. You meet Finch,
- * say what you want your money to do (one line or a tap), Finch "thinks" (a real
- * LLM interprets it), then reacts with a specific analyst take and reveals a live
- * mission — a counting-up target, a drawing projection, values you can nudge.
- * "Let's go" persists the mission via goalApi.setGoal. Warm, alive, ~one choice.
- *
- * Design: Finch's own tokens (emerald/stone, DM Sans + Space Grotesk numeric),
- * the real FinchLogo mark. Replaces the old stepped ProfileWizard.
+ * MeetFinch — a small, skippable card Finch presents to set your mission. Three
+ * focused questions, capital-anchored so every number is real:
+ *   1) how much you're starting with   (the anchor — everything scales off it)
+ *   2) the plan   (aggressive / safe growth / income / watch)
+ *   3) the horizon   (by-when for a target, or how-long for growth)
+ * Then a grounded reveal (real projection from the capital) → "Let's go" persists
+ * via goalApi.setGoal (starting_capital stored in config for the agent).
+ * Skippable at any stage. One Finch mark (presenting the card). Finch's tokens.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import FinchLogo from '@/components/shared/FinchLogo';
-import { useAuth } from '@/contexts/AuthContext';
-import { goalApi, type MissionDraft, type SetGoalRequest, type GoalKind } from '@/lib/api';
+import type { SetGoalRequest, GoalKind } from '@/lib/api';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 const numeric = { fontFamily: 'var(--font-numeric), sans-serif' } as const;
-const dayLabel = (d: number) => (d === 7 ? 'this week' : d === 21 ? '3 weeks' : d === 30 ? 'a month' : '3 months');
 const daysFromNowISO = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
 
-const CHIPS: { e: string; label: string; text: string }[] = [
-  { e: '🚀', label: 'Aggressive profits', text: 'go aggressive for big profits, I can handle the risk' },
-  { e: '🌱', label: 'Safe growth', text: 'grow my savings safely and steadily' },
-  { e: '💵', label: 'Monthly income', text: 'generate steady monthly income' },
-  { e: '🛡️', label: 'Just watch my back', text: 'just watch my portfolio and warn me' },
+const CAPS = [1000, 5000, 10000, 25000, 50000, 100000];
+const PLANS: { k: GoalKind; r: number | null; e: string; h: string; p: string }[] = [
+  { k: 'number', r: 8, e: '🚀', h: 'Aggressive profits', p: 'Go for big gains, higher risk' },
+  { k: 'grow', r: 4, e: '🌱', h: 'Safe growth', p: 'Steady, low-stress compounding' },
+  { k: 'income', r: 5, e: '💵', h: 'Monthly income', p: 'Cash flow from what you hold' },
+  { k: 'protect', r: null, e: '🛡️', h: 'Just watch', p: 'Monitor & warn, no trades' },
 ];
+const AGG_TF: [number, string, number][] = [[30, 'This month', 0.12], [90, '3 months', 0.25], [365, 'This year', 0.6]];
+const HORIZONS = [5, 10, 20, 30];
 
-function fallbackDraft(text: string): MissionDraft {
-  const s = text.toLowerCase();
-  if (/watch|monitor|protect|warn|keep an eye|don.?t lose|back/.test(s))
-    return { kind: 'protect', options_enabled: false, risk: null, title: 'Watch & protect my portfolio', stance: 'alerts only · no trades without you', reaction: "Smoke detector, not arsonist. I'll watch, you sleep." };
-  if (/income|monthly|cash ?flow|dividend|passive/.test(s))
-    return { kind: 'income', monthly_income: 300, options_enabled: true, risk: 5, title: 'Generate ~$300/mo income', stance: 'conservative · covered calls + dividends', reaction: "Cash flow mode. Let's get you paid." };
-  if (/grow|long|steady|slow|safe|retire|years|wealth/.test(s))
-    return { kind: 'grow', horizon_years: 10, options_enabled: false, risk: 4, title: 'Grow steadily over 10 years', stance: 'low-stress · diversified', reaction: 'The boring plan. My favorite. This is how real money gets made.' };
-  return { kind: 'number', target_amount: 1000, days: 21, options_enabled: true, risk: 7, title: 'Make $1,000 in 3 weeks', stance: 'full send · stocks + options', reaction: 'A target. My favorite kind of problem. Ambitious — not delusional.' };
-}
-
-// ── typing effect ──────────────────────────────────────────────────────────────
-function Typed({ text, className, speed = 16, onDone }: { text: string; className?: string; speed?: number; onDone?: () => void }) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    setN(0);
-    let i = 0;
-    const id = setInterval(() => {
-      i++; setN(i);
-      if (i >= text.length) { clearInterval(id); onDone?.(); }
-    }, speed);
-    return () => clearInterval(id);
-  }, [text, speed]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <span className={className}>{text.slice(0, n)}</span>;
-}
-
-function useCountUp(target: number, run: boolean, dur = 800) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    if (!run) return;
-    let raf = 0; const start = performance.now();
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / dur); const e = 1 - Math.pow(1 - p, 3);
-      setV(Math.round(target * e));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, run, dur]);
-  return v;
-}
-
-function Says({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex gap-3 items-start mb-6 animate-[popin_0.45s_cubic-bezier(0.2,0.9,0.25,1.04)]">
-      <div className="relative flex-none">
-        <FinchLogo size={38} />
-        <span className="absolute -inset-[5px] rounded-[15px] border-[1.5px] border-emerald-500/30 animate-[halo_3s_ease-in-out_infinite]" />
-      </div>
-      <div>
-        <div className="font-mono text-[10px] tracking-[0.14em] uppercase text-stone-400 mb-1.5">Finch</div>
-        <div className="font-semibold text-gray-900 text-[27px] leading-[1.2] tracking-tight" style={numeric}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Stepper({ onDec, onInc, children }: { onDec: () => void; onInc: () => void; children: React.ReactNode }) {
-  return (
-    <div className="inline-flex items-center gap-3">
-      <button type="button" onClick={onDec} className="w-8 h-8 rounded-full border border-gray-200 bg-white text-stone-500 grid place-items-center text-lg leading-none hover:border-emerald-600 hover:text-emerald-700 transition-colors">−</button>
-      {children}
-      <button type="button" onClick={onInc} className="w-8 h-8 rounded-full border border-gray-200 bg-white text-stone-500 grid place-items-center text-lg leading-none hover:border-emerald-600 hover:text-emerald-700 transition-colors">+</button>
-    </div>
-  );
-}
+type StepKey = 'capital' | 'plan' | 'time' | 'reveal';
+const LINE: Record<StepKey, string> = {
+  capital: "First — how much are you starting with? Everything scales from this.",
+  plan: "Nice. What are we doing with it?",
+  time: "And what's the time horizon?",
+  reveal: "Here's your mission. Real numbers, from your money.",
+};
 
 export default function MeetFinch({ onComplete, onSkip }: {
   onComplete: (g: SetGoalRequest) => void | Promise<void>;
   onSkip?: () => void;
 }) {
-  const { user } = useAuth();
-  const [phase, setPhase] = useState<'ask' | 'thinking' | 'reveal' | 'saving'>('ask');
-  const [draft, setDraft] = useState<MissionDraft | null>(null);
-  const [input, setInput] = useState('');
-  const [amt, setAmt] = useState(1000);
-  const [days, setDays] = useState(21);
-  const [income, setIncome] = useState(300);
+  const [step, setStep] = useState(0);
+  const [capital, setCapital] = useState(5000);
+  const [kind, setKind] = useState<GoalKind | null>(null);
+  const [risk, setRisk] = useState<number | null>(null);
+  const [days, setDays] = useState(30);
   const [years, setYears] = useState(10);
-  const [reactionDone, setReactionDone] = useState(false);
-  const askedRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
 
-  const submit = async (text: string) => {
-    if (!text.trim() || phase !== 'ask') return;
-    setPhase('thinking');
-    let d: MissionDraft;
-    try { d = user ? await goalApi.interpret(user.id, text) : fallbackDraft(text); }
-    catch { d = fallbackDraft(text); }
-    setDraft(d);
-    if (d.target_amount) setAmt(d.target_amount);
-    if (d.days) setDays(d.days);
-    if (d.monthly_income) setIncome(d.monthly_income);
-    if (d.horizon_years) setYears(d.horizon_years);
-    setReactionDone(false);
-    setPhase('reveal');
+  const steps: StepKey[] = ['capital', 'plan', ...((kind === 'number' || kind === 'grow') ? ['time' as StepKey] : []), 'reveal'];
+  const key = steps[Math.min(step, steps.length - 1)];
+  const canNext = key === 'plan' ? !!kind : true;
+  const isReveal = key === 'reveal';
+  const rate = (AGG_TF.find(t => t[0] === days) || AGG_TF[0])[2];
+
+  const next = () => { if (step < steps.length - 1) setStep(step + 1); else finish(); };
+  const back = () => setStep(Math.max(0, step - 1));
+
+  const build = (): SetGoalRequest => {
+    const config: Record<string, any> = { starting_capital: capital };
+    const base: SetGoalRequest = { kind: kind!, risk, options_enabled: (risk ?? 0) >= 8, config, preferences: {} };
+    if (kind === 'number') {
+      const target = Math.round(capital * rate / 50) * 50;
+      const tf = (AGG_TF.find(t => t[0] === days) || AGG_TF[0])[1].toLowerCase();
+      return { ...base, target_amount: target, deadline: daysFromNowISO(days), title: `Turn $${fmt(capital)} into $${fmt(capital + target)} (${tf})` };
+    }
+    if (kind === 'grow') {
+      const fv = Math.round(capital * Math.pow(1.08, years));
+      return { ...base, options_enabled: false, horizon_years: years, title: `Grow $${fmt(capital)} to ~$${fmt(fv)} over ${years}y` };
+    }
+    if (kind === 'income') {
+      const mo = Math.round(capital * 0.03 / 12);
+      return { ...base, options_enabled: false, monthly_income: mo, title: `~$${fmt(mo)}/mo income from $${fmt(capital)}` };
+    }
+    return { ...base, risk: null, config: { ...config, watch: ['big drops in my holdings', 'earnings for what I own'], notify: 'both' }, title: `Watch & protect $${fmt(capital)}` };
   };
 
-  const buildRequest = (): SetGoalRequest => {
-    const d = draft!;
-    const base: SetGoalRequest = { kind: d.kind, options_enabled: d.options_enabled, risk: d.risk ?? null, preferences: {}, config: {} };
-    if (d.kind === 'number') return { ...base, target_amount: amt, deadline: daysFromNowISO(days), title: `Make $${fmt(amt)} in ${dayLabel(days)}` };
-    if (d.kind === 'grow') return { ...base, horizon_years: years, title: `Grow steadily over ${years} years`, options_enabled: false };
-    if (d.kind === 'income') return { ...base, monthly_income: income, title: `Generate ~$${fmt(income)}/mo income` };
-    return { ...base, risk: null, title: 'Watch & protect my portfolio', config: { watch: ['big drops in my holdings', 'earnings for what I own'], notify: 'both' } };
-  };
-
-  const lockIn = async () => { if (draft) { setPhase('saving'); await onComplete(buildRequest()); } };
+  const finish = async () => { setSaving(true); setDone(true); await onComplete(build()); };
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto"
-      style={{ background: 'radial-gradient(900px 500px at 80% -10%, #eafaf1, transparent), radial-gradient(700px 400px at 5% 110%, #f2effa, transparent), #fbfbfa' }}>
-      <style>{`@keyframes popin{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}@keyframes halo{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.12);opacity:.1}}@keyframes draw{to{stroke-dashoffset:0}}@keyframes blink{0%,60%,100%{opacity:.28;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}`}</style>
+    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center p-6"
+      style={{ background: 'rgba(20,18,16,.16)', backdropFilter: 'blur(3px)' }}>
+      <style>{`@keyframes fcHalo{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.13);opacity:.1}}@keyframes fcIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}`}</style>
 
-      {/* brand bar */}
-      <div className="max-w-[600px] mx-auto px-[22px] pt-[22px] flex items-center gap-2.5">
-        <FinchLogo size={30} showText />
-        {onSkip && <button type="button" onClick={onSkip} className="ml-auto text-[12.5px] text-stone-400 hover:text-gray-900 transition-colors">Skip for now</button>}
+      {/* Finch, presenting */}
+      <div className="flex flex-col items-center mb-0.5 z-[2]">
+        <div className="relative rounded-[13px]" style={{ boxShadow: '0 16px 34px -14px rgba(5,150,105,.6)' }}>
+          <FinchLogo size={46} />
+          <span className="absolute -inset-[6px] rounded-[19px] border-[1.5px] border-emerald-500/40" style={{ animation: 'fcHalo 3s ease-in-out infinite' }} />
+        </div>
+        {!done && <p className="mt-3.5 text-[13.5px] text-stone-600 max-w-[320px] text-center leading-relaxed">{LINE[key]}</p>}
       </div>
 
-      <div className="max-w-[600px] mx-auto px-[22px] min-h-[calc(100vh-70px)] flex flex-col justify-center py-10">
-        {phase === 'ask' && <AskStep input={input} setInput={setInput} onSubmit={submit} />}
-
-        {phase === 'thinking' && (
-          <>
-            <Says>Give me a sec…</Says>
-            <div className="ml-[50px] inline-flex gap-1.5 py-1.5">
-              {[0, 1, 2].map(i => <span key={i} className="w-2 h-2 rounded-full bg-emerald-400" style={{ animation: `blink 1.1s ${i * 0.16}s infinite` }} />)}
-            </div>
-          </>
-        )}
-
-        {phase === 'reveal' && draft && (
-          <>
-            <Says><Typed text={draft.reaction} onDone={() => setReactionDone(true)} /></Says>
-            <div className="ml-[50px] animate-[popin_0.5s_cubic-bezier(0.2,0.9,0.25,1.04)]">
-              <Instrument kind={draft.kind} amt={amt} setAmt={setAmt} days={days} setDays={setDays} income={income} setIncome={setIncome} years={years} setYears={setYears} />
-              <MissionTag kind={draft.kind} stance={draft.stance} />
-              <div className={`flex items-center gap-3 mt-4 transition-opacity duration-500 ${reactionDone ? 'opacity-100' : 'opacity-0'}`}>
-                <button type="button" onClick={lockIn}
-                  className="flex-1 bg-emerald-600 text-white rounded-2xl py-4 text-[15px] font-bold hover:bg-emerald-700 transition-colors shadow-[0_16px_32px_-16px_rgba(5,150,105,0.7)]">
-                  Let&apos;s go →
-                </button>
-                {onSkip && <button type="button" onClick={onSkip} className="text-[13px] text-stone-400 hover:text-gray-900 transition-colors px-2">Not now</button>}
-              </div>
-            </div>
-          </>
-        )}
-
-        {phase === 'saving' && (
-          <div className="text-center py-10">
-            <div className="inline-block"><FinchLogo size={52} /></div>
-            <div className="text-lg font-semibold text-gray-900 mt-4" style={numeric}>Mission set.</div>
-            <div className="text-sm text-stone-500 mt-1">Building your cockpit…</div>
+      {/* the card */}
+      <div className="w-full max-w-[400px] bg-white border border-black/[0.06] rounded-3xl p-[22px] relative z-[1]"
+        style={{ boxShadow: '0 40px 90px -34px rgba(20,18,16,.55)', animation: 'fcIn .4s cubic-bezier(.2,.9,.25,1.04)' }}>
+        {done ? (
+          <div className="text-center py-4">
+            <div className="text-[22px] font-semibold text-gray-900" style={numeric}>Mission set ✓</div>
+            <div className="text-[12.5px] text-stone-500 mt-1">{saving ? 'Building your cockpit…' : ''}</div>
           </div>
+        ) : (
+          <>
+            {onSkip && (
+              <button type="button" onClick={onSkip} aria-label="Skip"
+                className="absolute top-3.5 right-3.5 w-[30px] h-[30px] rounded-[9px] bg-stone-100 text-stone-400 grid place-items-center text-base hover:bg-stone-200 hover:text-gray-900 transition-colors">✕</button>
+            )}
+            <div className="flex gap-1.5 mb-3.5 pr-9">
+              {steps.map((_, i) => (
+                <span key={i} className={`h-[5px] rounded-full flex-1 transition-all ${i < step ? 'bg-emerald-400' : i === step ? 'bg-gray-900' : 'bg-stone-200'}`} />
+              ))}
+            </div>
+
+            {key === 'capital' && <CapitalStep capital={capital} setCapital={setCapital} />}
+            {key === 'plan' && <PlanStep kind={kind} onPick={(k, r) => { setKind(k); setRisk(r); }} />}
+            {key === 'time' && (kind === 'number'
+              ? <TimeStep title="By when?" hint="Aggressive means real swings — a shorter clock is punchier." options={AGG_TF.map(t => [t[0], t[1]] as [number, string])} value={days} onChange={setDays} />
+              : <TimeStep title="For how long?" hint="Longer horizon — compounding does the work." options={HORIZONS.map(y => [y, `${y} yrs`] as [number, string])} value={years} onChange={setYears} />)}
+            {key === 'reveal' && <Reveal kind={kind!} capital={capital} rate={rate} days={days} years={years} />}
+
+            <div className="flex items-center gap-2.5 mt-[18px]">
+              {step > 0 && <button type="button" onClick={back} className="text-[13px] font-semibold text-stone-400 hover:text-gray-900 transition-colors py-2">← Back</button>}
+              <button type="button" onClick={next} disabled={!canNext}
+                className={`ml-auto rounded-xl px-[22px] py-3 text-sm font-bold text-white transition-colors disabled:opacity-25 ${isReveal ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-900 hover:bg-black'}`}>
+                {isReveal ? "Let's go →" : 'Continue'}
+              </button>
+            </div>
+
+            {!isReveal && onSkip && (
+              <button type="button" onClick={onSkip} className="block mx-auto mt-3 text-xs text-stone-400 underline underline-offset-[3px] hover:text-gray-900 transition-colors">Skip setup for now</button>
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function AskStep({ input, setInput, onSubmit }: { input: string; setInput: (v: string) => void; onSubmit: (t: string) => void }) {
-  const [greeted, setGreeted] = useState(false);
+function Q({ title, hint }: { title: string; hint: string }) {
+  return (<><div className="text-[17px] font-semibold text-gray-900 tracking-[-0.01em] mb-0.5">{title}</div><p className="text-[12.5px] text-stone-400 mb-4 leading-snug">{hint}</p></>);
+}
+
+function CapitalStep({ capital, setCapital }: { capital: number; setCapital: (n: number) => void }) {
   return (
     <>
-      <Says>
-        {greeted
-          ? 'What do you want your money to do?'
-          : <Typed text="Hey — I'm Finch." onDone={() => setTimeout(() => setGreeted(true), 350)} />}
-      </Says>
-      {greeted && (
-        <div className="ml-[50px] animate-[popin_0.45s_ease]">
-          <p className="text-[14.5px] text-stone-500 -mt-3 mb-4">Say it however — a number, a vibe, or “just don&apos;t lose it.”</p>
-          <div className="flex items-center gap-2.5 bg-white border-[1.5px] border-gray-200 rounded-2xl pl-[18px] pr-1.5 py-1.5 focus-within:border-emerald-600 focus-within:shadow-[0_0_0_4px_rgba(5,150,105,0.08)] transition-all">
-            <input value={input} onChange={e => setInput(e.target.value)} autoFocus
-              onKeyDown={e => { if (e.key === 'Enter' && input.trim()) onSubmit(input.trim()); }}
-              placeholder="e.g. make $1k this month…"
-              className="flex-1 bg-transparent outline-none text-base text-gray-900 py-3 placeholder:text-stone-400" />
-            <button type="button" disabled={!input.trim()} onClick={() => input.trim() && onSubmit(input.trim())}
-              className="w-10 h-10 rounded-xl bg-gray-900 text-white grid place-items-center text-lg disabled:opacity-25 hover:bg-black transition-colors">↑</button>
-          </div>
-          <div className="flex flex-wrap gap-2.5 mt-3.5">
-            {CHIPS.map(c => (
-              <button type="button" key={c.label} onClick={() => onSubmit(c.text)}
-                className="flex items-center gap-2.5 text-[14.5px] font-semibold text-gray-900 bg-white border-[1.5px] border-gray-200 rounded-2xl px-4 py-3 hover:border-emerald-600 hover:text-emerald-700 hover:-translate-y-0.5 transition-all">
-                <span className="text-lg">{c.e}</span>{c.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <Q title="How much are you starting with?" hint="You can add more later. This anchors everything." />
+      <div className="text-center text-[34px] font-semibold tracking-tight tabular-nums text-gray-900 mb-2.5" style={numeric}>${fmt(capital)}</div>
+      <div className="grid grid-cols-3 gap-2">
+        {CAPS.map(c => (
+          <button type="button" key={c} onClick={() => setCapital(c)}
+            className={`py-2.5 rounded-xl border-[1.5px] text-sm font-semibold transition-colors ${capital === c ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-900 border-gray-200 hover:border-emerald-600'}`}
+            style={numeric}>${c >= 1000 ? `${c / 1000}k` : c}</button>
+        ))}
+      </div>
     </>
   );
 }
 
-function Card({ label, children }: { label: string; children: React.ReactNode }) {
+function PlanStep({ kind, onPick }: { kind: GoalKind | null; onPick: (k: GoalKind, r: number | null) => void }) {
   return (
-    <div className="relative bg-white border border-[color:var(--finch-border,rgba(0,0,0,.06))] rounded-[20px] p-5 shadow-[0_24px_60px_-34px_rgba(20,18,16,0.5)] overflow-hidden">
-      <span className="absolute left-0 right-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent" />
-      <div className="flex items-center justify-between mb-3.5">
-        <span className="font-mono text-[10.5px] tracking-[0.14em] uppercase text-emerald-700">{label}</span>
-        <span className="font-mono text-[10px] uppercase text-stone-400 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />live</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Projection({ bow }: { bow: number }) {
-  const my = 64 - (64 - 14) * bow;
-  const d = `M6 64 Q 190 ${my - 8} 372 14`;
-  return (
-    <svg viewBox="0 0 378 78" preserveAspectRatio="none" className="w-full h-[80px] block my-1.5">
-      <path d={d} fill="none" stroke="#059669" strokeWidth={2.5} strokeLinecap="round"
-        style={{ strokeDasharray: 1, strokeDashoffset: 1, animation: 'draw 1.1s 0.15s ease forwards' }} pathLength={1} />
-      <circle cx={372} cy={14} r={4} fill="#fff" stroke="#059669" strokeWidth={2.5} />
-    </svg>
-  );
-}
-
-function Instrument(p: {
-  kind: GoalKind; amt: number; setAmt: (n: number) => void; days: number; setDays: (n: number) => void;
-  income: number; setIncome: (n: number) => void; years: number; setYears: (n: number) => void;
-}) {
-  const amtShown = useCountUp(p.amt, p.kind === 'number' || p.kind === 'income');
-  if (p.kind === 'protect') {
-    return <Card label="on watch"><p className="text-[15px] text-gray-900 leading-relaxed py-1">I&apos;ll keep eyes on your book 24/7 and only ping you when it actually matters — big drops, earnings, unusual moves. No noise.</p></Card>;
-  }
-  if (p.kind === 'grow') {
-    const fv = Math.round(5000 * Math.pow(1.08, p.years) / 1000);
-    return (
-      <Card label="the long game">
-        <div className="text-center text-[52px] font-semibold tracking-tight tabular-nums text-gray-900" style={numeric}>${fmt(fv)}k</div>
-        <Projection bow={0.7} />
-        <div className="flex items-center justify-center gap-3 mt-2">
-          <span className="text-[13px] text-stone-500">over</span>
-          <Stepper onDec={() => p.setYears(Math.max(1, p.years - 1))} onInc={() => p.setYears(Math.min(30, p.years + 1))}>
-            <span className="text-[22px] font-semibold tabular-nums text-gray-900 min-w-[92px] text-center" style={numeric}>{p.years} years</span>
-          </Stepper>
-        </div>
-        <p className="text-center text-[13px] text-stone-500 mt-3">steady, low-stress, no hype</p>
-      </Card>
-    );
-  }
-  if (p.kind === 'income') {
-    return (
-      <Card label="monthly income">
-        <div className="flex items-center justify-center gap-3 mb-1">
-          <Stepper onDec={() => p.setIncome(Math.max(50, p.income - 50))} onInc={() => p.setIncome(Math.min(2000, p.income + 50))}>
-            <span className="text-[48px] font-semibold tracking-tight tabular-nums text-gray-900" style={numeric}>${fmt(amtShown)}<span className="text-[20px] text-stone-400">/mo</span></span>
-          </Stepper>
-        </div>
-        <p className="text-center text-[13px] text-stone-500 mt-2">≈ <b className="text-gray-900" style={numeric}>${fmt(p.income * 12)}/yr</b> · covered calls &amp; dividends do the work</p>
-      </Card>
-    );
-  }
-  // number
-  const per = Math.round(p.amt / p.days);
-  return (
-    <Card label="the target">
-      <div className="flex items-center justify-center gap-3 mb-1">
-        <Stepper onDec={() => p.setAmt(Math.max(200, p.amt - 100))} onInc={() => p.setAmt(Math.min(5000, p.amt + 100))}>
-          <span className="text-[52px] font-semibold tracking-tight tabular-nums text-gray-900" style={numeric}>${fmt(amtShown)}</span>
-        </Stepper>
-      </div>
-      <div className="flex gap-1 bg-stone-100 rounded-xl p-1 my-3 max-w-[320px] mx-auto">
-        {[[7, '1 wk'], [21, '3 wks'], [30, '1 mo'], [90, '3 mo']].map(([d, t]) => (
-          <button type="button" key={d} onClick={() => p.setDays(d as number)}
-            className={`flex-1 text-xs font-semibold py-2 rounded-lg transition-colors ${p.days === d ? 'bg-white text-gray-900 shadow-sm' : 'text-stone-500'}`}>{t}</button>
+    <>
+      <Q title="What's the plan?" hint="Pick one — it sets how I'll invest." />
+      <div className="flex flex-col gap-2.5">
+        {PLANS.map(pl => (
+          <button type="button" key={pl.k} onClick={() => onPick(pl.k, pl.r)}
+            className={`flex items-center gap-3 px-[15px] py-3.5 rounded-2xl border-[1.5px] text-left transition-all ${kind === pl.k ? 'border-emerald-600 bg-emerald-50/60' : 'border-gray-200 bg-white hover:border-emerald-500 hover:-translate-y-px'}`}>
+            <span className="text-[22px]">{pl.e}</span>
+            <span><span className="block text-[14.5px] font-bold text-gray-900">{pl.h}</span><span className="block text-[12.5px] text-stone-500">{pl.p}</span></span>
+          </button>
         ))}
       </div>
-      <Projection bow={0.5 + (p.amt / 5000) * 0.5} />
-      <p className="text-center text-[13px] text-stone-500 mt-1">≈ <b className="text-gray-900" style={numeric}>${per}/day</b> to hit <b className="text-gray-900" style={numeric}>${fmt(p.amt)}</b> in {dayLabel(p.days)}. I&apos;ll pace you.</p>
-    </Card>
+    </>
   );
 }
 
-function MissionTag({ kind, stance }: { kind: GoalKind; stance: string }) {
-  if (!stance) return null;
+function TimeStep({ title, hint, options, value, onChange }: { title: string; hint: string; options: [number, string][]; value: number; onChange: (n: number) => void }) {
   return (
-    <div className="mt-3 flex justify-center">
-      <span className="inline-flex items-center gap-2 text-xs text-stone-600 bg-stone-50 border border-gray-200 px-3.5 py-1.5 rounded-full">{stance}</span>
+    <>
+      <Q title={title} hint={hint} />
+      <div className="flex gap-1.5 bg-stone-100 rounded-xl p-1">
+        {options.map(([v, t]) => (
+          <button type="button" key={v} onClick={() => onChange(v)}
+            className={`flex-1 text-[13px] font-semibold py-2.5 rounded-lg transition-colors ${value === v ? 'bg-white text-gray-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>{t}</button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function Reveal({ kind, capital, rate, days, years }: { kind: GoalKind; capital: number; rate: number; days: number; years: number }) {
+  const eyebrow = (s: string) => <div className="font-mono text-[10px] tracking-[0.14em] uppercase text-stone-400 mb-2">Your mission · {s}</div>;
+  const stat = (v: React.ReactNode, delta?: React.ReactNode, flat?: boolean) => (
+    <div className="flex items-baseline gap-2.5">
+      <span className="text-[30px] font-semibold tracking-tight tabular-nums text-gray-900" style={numeric}>{v}</span>
+      {delta != null && <span className={`text-sm font-semibold ${flat ? 'text-stone-400' : 'text-emerald-600'}`} style={numeric}>{delta}</span>}
     </div>
   );
+  const sub = (c: React.ReactNode) => <p className="text-[12.5px] text-stone-600 mt-2 leading-relaxed [&_b]:text-gray-900 [&_b]:font-semibold">{c}</p>;
+
+  if (kind === 'number') {
+    const target = Math.round(capital * rate / 50) * 50, end = capital + target, pct = Math.round(rate * 100);
+    const tf = (AGG_TF.find(t => t[0] === days) || AGG_TF[0])[1].toLowerCase();
+    const per = Math.round(target / days);
+    return <div>{eyebrow(tf)}{stat(`$${fmt(end)}`, `+$${fmt(target)} · ${pct}%`)}{sub(<>From your <b>${fmt(capital)}</b> — about <b style={numeric}>${fmt(per)}/day</b>. Aggressive means real swings; I size tight and bank profits.</>)}</div>;
+  }
+  if (kind === 'grow') {
+    const fv = Math.round(capital * Math.pow(1.08, years)), gain = fv - capital, pct = Math.round(gain / capital * 100);
+    const fill = Math.min(100, Math.round(capital / fv * 100));
+    return (
+      <div>
+        {eyebrow(`${years} years`)}{stat(`$${fmt(fv)}`, `+$${fmt(gain)} · ${pct}%`)}
+        {sub(<><b>${fmt(capital)}</b> compounding at ~8%/yr. Boring, and it works.</>)}
+        <div className="mt-3.5 h-2 rounded-full bg-stone-200 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400" style={{ width: `${fill}%` }} /></div>
+        <div className="flex justify-between font-mono text-[11px] text-stone-400 mt-1.5"><span>${fmt(capital)} today</span><span>${fmt(fv)} in {years}y</span></div>
+      </div>
+    );
+  }
+  if (kind === 'income') {
+    const mo = Math.round(capital * 0.03 / 12), modest = mo < 75;
+    return <div>{eyebrow('monthly income')}{stat(<>${fmt(mo)}<span className="text-base text-stone-400">/mo</span></>)}{sub(<>Realistic on <b>${fmt(capital)}</b> at a safe ~3% yield.{modest ? ' Honestly modest — growing the base first gets you a lot more.' : ' Covered calls can nudge it higher.'}</>)}</div>;
+  }
+  return <div>{eyebrow('watch & protect')}{stat(`$${fmt(capital)}`, 'on watch', true)}{sub(<>I&apos;ll keep eyes on your book 24/7 and only ping you when it matters — big drops, earnings, unusual moves. No noise.</>)}</div>;
 }

@@ -88,6 +88,9 @@ async def _get_goal_directive(user_id: str) -> str:
     if goal.title:
         lines.append(f"Goal: {goal.title}")
     lines.append(f"Type: {goal.kind}")
+    _cap = (getattr(goal, "config", None) or {}).get("starting_capital")
+    if _cap:
+        lines.append(f"Starting capital: ${_cap:,.0f}")
     if goal.target_amount is not None:
         line = f"Target: ${goal.target_amount:,.0f}"
         if goal.deadline:
