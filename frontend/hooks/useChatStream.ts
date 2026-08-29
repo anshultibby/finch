@@ -151,15 +151,21 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     const sorted = [...state.streamingTools].sort(
       (a, b) => (a._insertionOrder ?? 0) - (b._insertionOrder ?? 0)
     );
+    // Fold this round's thinking onto its tool message so it survives as a
+    // collapsed per-message ReasoningCard (mirrors the per-round rows the
+    // backend persists). Without this, each round's reasoning would vanish from
+    // the live transcript until a reload pulled it back from the DB.
+    const reasoning = state.streamingThoughts.map(t => t.text).join('\n\n').trim() || null;
     update(chatId, {
       messages: [...state.messages, {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         toolCalls: sorted,
+        reasoning,
       }],
       streamingTools: [],
-      // Thoughts belong to the batch being finalized — they evaporate with it
+      // Thoughts are now committed onto the message above — clear the live buffer
       streamingThoughts: [],
     }, notify);
   }, [getChatState, update]);

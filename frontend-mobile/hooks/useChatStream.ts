@@ -10,8 +10,13 @@ interface ChatStreamState {
   streamingTools: ToolCallStatus[];
   /** Live task-phase checklist from update_todos. Ephemeral — cleared on done. */
   todos: TodoItem[];
-  /** Live reasoning text. Evaporates when answer text or a tool arrives. */
+  /** Live reasoning text for the in-progress round. Cleared when that round's
+      tools commit or the final answer begins. */
   thinkingText: string;
+  /** Authoritative per-round reasoning (from each tool round's message_end),
+      folded onto the tool message when it commits so it persists as a collapsed
+      ReasoningCard. Kept in state so the setState updaters stay pure. */
+  pendingReasoning: string[];
   isStreaming: boolean;
   error: string | null;
 }
@@ -21,6 +26,7 @@ const EMPTY_STREAM = {
   streamingTools: [] as ToolCallStatus[],
   todos: [] as TodoItem[],
   thinkingText: '',
+  pendingReasoning: [] as string[],
 };
 
 export function useChatStream(userId: string, chatId: string) {
@@ -99,14 +105,40 @@ export function useChatStream(userId: string, chatId: string) {
 
     const handlers: SSEEventHandlers = {
       onMessageDelta: (event) => {
-        setState(prev => ({
-          ...prev,
-          streamingText: prev.streamingText + event.delta,
-          thinkingText: '',
-        }));
+        setState(prev => {
+          // First answer token while a tool round is pending → commit that round
+          // (its tools + reasoning) as its own message so it persists as a
+          // collapsed ReasoningCard, then begin the answer. Mirrors web's saveTools.
+          if (prev.streamingText === '' && prev.streamingTools.length > 0) {
+            const roundMsg: Message = {
+              role: 'assistant',
+              content: '',
+              timestamp: new Date().toISOString(),
+              toolCalls: prev.streamingTools,
+              reasoning: prev.pendingReasoning.join('\n\n').trim() || null,
+            };
+            return {
+              ...prev,
+              messages: [...prev.messages, roundMsg],
+              streamingTools: [],
+              pendingReasoning: [],
+              streamingText: event.delta,
+              thinkingText: '',
+            };
+          }
+          return { ...prev, streamingText: prev.streamingText + event.delta, thinkingText: '' };
+        });
       },
       onMessageEnd: (event) => {
-        if (event.reasoning) turnReasoning = event.reasoning;
+        // The backend emits one message_end per round with that round's reasoning.
+        // A round with visible content is the final answer (its reasoning rides on
+        // the answer message); an empty-content round is a tool round whose
+        // reasoning belongs on its tool message.
+        if (event.content?.trim()) {
+          if (event.reasoning) turnReasoning = event.reasoning;
+        } else if (event.reasoning) {
+          setState(prev => ({ ...prev, pendingReasoning: [...prev.pendingReasoning, event.reasoning!] }));
+        }
       },
       // Backend stripped unresolvable citations; swap the streamed text so the
       // committed message (built from streamingText on `done`) matches the
@@ -190,19 +222,35 @@ export function useChatStream(userId: string, chatId: string) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         }
         setState(prev => {
-          const assistantMessage: Message = {
-            role: 'assistant',
-            content: prev.streamingText,
-            timestamp: new Date().toISOString(),
-            toolCalls: prev.streamingTools.length > 0 ? prev.streamingTools : undefined,
-            reasoning: turnReasoning,
-          };
           // A recovered stream has no local transcript — reloadFromServer
           // (via onStreamRecovered) repopulates messages instead.
           const hasLocalTurn = prev.streamingText.length > 0 || prev.streamingTools.length > 0;
+          const msgs = [...prev.messages];
+          const now = new Date().toISOString();
+          // Turn ended on tools with no final answer text → commit the trailing
+          // tool round with its reasoning (mirrors onMessageDelta's commit path).
+          if (prev.streamingTools.length > 0) {
+            msgs.push({
+              role: 'assistant',
+              content: '',
+              timestamp: now,
+              toolCalls: prev.streamingTools,
+              reasoning: prev.pendingReasoning.join('\n\n').trim() || turnReasoning || null,
+            });
+          }
+          // The final answer is its own message so a tool round's reasoning card
+          // and the answer's stay distinct (matches the per-round rows on reload).
+          if (prev.streamingText.length > 0) {
+            msgs.push({
+              role: 'assistant',
+              content: prev.streamingText,
+              timestamp: now,
+              reasoning: turnReasoning,
+            });
+          }
           return {
             ...prev,
-            messages: hasLocalTurn ? [...prev.messages, assistantMessage] : prev.messages,
+            messages: hasLocalTurn ? msgs : prev.messages,
             ...EMPTY_STREAM,
             isStreaming: false,
           };
