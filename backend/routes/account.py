@@ -12,7 +12,7 @@ from core.database import get_db_session
 from core.config import Config
 from auth.dependencies import get_current_user_id, verify_user_access
 from schemas.preferences import UserPreferences, UpdatePreferencesRequest
-from schemas.goals import Goal, SetGoalRequest, InterpretGoalRequest, MissionDraft
+from schemas.goals import Goal, SetGoalRequest
 from crud import user_preferences as prefs_crud
 from crud import user_goals as goals_crud
 from utils.logger import get_logger
@@ -125,20 +125,6 @@ async def set_goal(
         logger.debug(f"profile.md sync after set_goal failed (non-fatal): {e}")
 
     return result
-
-
-@router.post("/{user_id}/goal/interpret", response_model=MissionDraft)
-async def interpret_goal_route(
-    user_id: str,
-    body: InterpretGoalRequest,
-    authenticated_user_id: str = Depends(get_current_user_id),
-):
-    """Turn the user's free-text goal into a structured mission draft (Meet-Finch
-    onboarding reveal). Not persisted — the client persists via PUT /goal on
-    'Let's go'. Never fails: falls back to a keyword heuristic."""
-    await verify_user_access(user_id, authenticated_user_id)
-    from services.goal_interpret import interpret_goal
-    return MissionDraft(**await interpret_goal(body.text))
 
 
 @router.delete("/{user_id}")

@@ -777,20 +777,6 @@ export type SetGoalRequest = Partial<Omit<Goal, 'kind' | 'status' | 'created_at'
   kind: GoalKind;
 };
 
-// Structured mission the LLM interprets from a free-text goal (Meet-Finch reveal).
-export interface MissionDraft {
-  kind: GoalKind;
-  target_amount?: number | null;
-  days?: number | null;             // 7 | 21 | 30 | 90 (number goals)
-  horizon_years?: number | null;
-  monthly_income?: number | null;
-  risk?: number | null;             // 1..10, null for protect
-  options_enabled: boolean;
-  title: string;
-  stance: string;                   // short tag, e.g. "full send · stocks + options"
-  reaction: string;                 // Finch's witty one-liner
-}
-
 export const goalApi = {
   // Returns null when the user hasn't set a goal yet (drives the wizard gate).
   getGoal: async (userId: string): Promise<Goal | null> => {
@@ -800,12 +786,6 @@ export const goalApi = {
 
   setGoal: async (userId: string, goal: SetGoalRequest): Promise<Goal> => {
     const response = await api.put<Goal>(`/account/${userId}/goal`, goal);
-    return response.data;
-  },
-
-  // Free-text goal → structured mission draft (never throws server-side).
-  interpret: async (userId: string, text: string): Promise<MissionDraft> => {
-    const response = await api.post<MissionDraft>(`/account/${userId}/goal/interpret`, { text });
     return response.data;
   },
 };

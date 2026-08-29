@@ -27,25 +27,6 @@ class Goal(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class InterpretGoalRequest(BaseModel):
-    """Free-text goal from the Meet-Finch onboarding input."""
-    text: str = Field("", max_length=400)
-
-
-class MissionDraft(BaseModel):
-    """Structured mission draft returned by the interpret endpoint (not persisted)."""
-    kind: GoalKind
-    target_amount: Optional[int] = None
-    days: Optional[int] = None
-    horizon_years: Optional[int] = None
-    monthly_income: Optional[int] = None
-    risk: Optional[int] = None
-    options_enabled: bool = False
-    title: str = ""
-    stance: str = ""
-    reaction: str = ""
-
-
 class SetGoalRequest(BaseModel):
     """Full upsert of the user's goal from the onboarding wizard.
 

@@ -768,20 +768,6 @@ export type SetGoalRequest = Partial<Omit<Goal, 'kind' | 'status' | 'created_at'
   kind: GoalKind;
 };
 
-// Structured mission the LLM interprets from a free-text goal (Meet-Finch reveal).
-export interface MissionDraft {
-  kind: GoalKind;
-  target_amount?: number | null;
-  days?: number | null;
-  horizon_years?: number | null;
-  monthly_income?: number | null;
-  risk?: number | null;
-  options_enabled: boolean;
-  title: string;
-  stance: string;
-  reaction: string;
-}
-
 export const goalApi = {
   // Returns null when no goal is set yet (drives the onboarding gate).
   getGoal: async (userId: string): Promise<Goal | null> => {
@@ -791,10 +777,6 @@ export const goalApi = {
   setGoal: async (userId: string, goal: SetGoalRequest): Promise<Goal> => {
     const response = await api.put(`/account/${userId}/goal`, goal);
     return response.data as Goal;
-  },
-  interpret: async (userId: string, text: string): Promise<MissionDraft> => {
-    const response = await api.post(`/account/${userId}/goal/interpret`, { text });
-    return response.data as MissionDraft;
   },
 };
 
