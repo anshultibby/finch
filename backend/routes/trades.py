@@ -33,6 +33,21 @@ router = APIRouter(prefix="/trades", tags=["trades"])
 
 
 # ---------------------------------------------------------------------------
+# Recent executed trades (for the trade-feedback wedge)
+# ---------------------------------------------------------------------------
+
+@router.get("/recent")
+async def recent_trades(
+    limit: int = 15,
+    user_id: str = Depends(get_current_user_id),
+):
+    """The authenticated user's last executed trades, newest-first, unified across
+    their connected broker. Drives the "review a recent trade" feedback flow."""
+    from services.recent_trades import get_recent_trades
+    return await get_recent_trades(user_id, limit=min(max(limit, 1), 50))
+
+
+# ---------------------------------------------------------------------------
 # Request a trade approval (called by automations, as the user)
 # ---------------------------------------------------------------------------
 

@@ -22,6 +22,7 @@ import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import TodayDigestCard from '@/components/insights/TodayDigestCard';
 import WhileYouWereGoneCard from '@/components/activity/WhileYouWereGoneCard';
 import AgentTabView from '@/components/AgentTabView';
+import RecentTradesFeedback from '@/components/RecentTradesFeedback';
 import AskBar from '@/components/chat/AskBar';
 import SignInPrompt from '@/components/SignInPrompt';
 import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
@@ -387,6 +388,12 @@ export default function HomeScreen() {
             <ChevronRight size={14} color="#047857" />
           </View>
         </TouchableOpacity>
+      )}
+
+      {/* Review a recent trade (trade-feedback wedge) — pinned above the tabs,
+          like pending approvals, so it's reachable from any tab. */}
+      {!searchActive && (
+        <RecentTradesFeedback onConnect={() => setActiveTab('portfolio')} />
       )}
 
       {/* Search Results */}

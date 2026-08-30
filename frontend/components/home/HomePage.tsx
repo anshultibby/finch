@@ -11,6 +11,7 @@ import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import WhileYouWereGone from '@/components/activity/WhileYouWereGone';
 import TodayDigest from '@/components/insights/TodayDigest';
+import RecentTradesFeedback from '@/components/home/RecentTradesFeedback';
 import AgentTabView from './AgentTabView';
 import ChatInput from '@/components/chat/ChatInput';
 import EmptyState from '@/components/ui/EmptyState';
@@ -1837,6 +1838,9 @@ export default function HomePage() {
               )}
             </div>
             )}
+
+            {/* Review a recent trade (trade-feedback wedge) */}
+            <RecentTradesFeedback onConnect={() => setShowConnectModal(true)} />
 
             {/* Quick Actions */}
             <div className="p-4">
