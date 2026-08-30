@@ -110,24 +110,19 @@ async def report_insight(
     user_id: str = Depends(get_current_user_id),
 ):
     """Record an agent insight in the ledger; optionally push it as an alert."""
-    await agent_events.record_event(
+    from services.monitoring.sink import Push, emit_signal
+
+    push = None
+    if report.alert:
+        push = Push(
+            title=report.title,
+            body=(report.body or report.title)[:180],
+            notif_type="insight",
+            data={"chatId": report.chat_id} if report.chat_id else None,
+        )
+    pushed = await emit_signal(
         user_id, "insight", report.title, body=report.body,
         data={"chat_id": report.chat_id, "alert": report.alert},
-        source="heartbeat",
+        source="heartbeat", push=push,
     )
-    pushed = False
-    if report.alert:
-        try:
-            from core.database import get_db_session
-            from services.push_notifications import send_push_notification
-            async with get_db_session() as db:
-                pushed = await send_push_notification(
-                    db, user_id,
-                    title=report.title,
-                    body=(report.body or report.title)[:180],
-                    data={"chatId": report.chat_id} if report.chat_id else None,
-                    notif_type="insight",
-                )
-        except Exception as e:
-            logger.warning(f"Insight alert push failed for {user_id}: {e}")
     return {"recorded": True, "alerted": pushed}

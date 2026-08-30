@@ -13,8 +13,6 @@ Dedup is DB-backed (one `insight` event per user per ET trading day), so
 overlapping dev/prod instances or restarts can't double-write.
 """
 import asyncio
-import csv
-import io
 import json
 import logging
 import re
@@ -22,16 +20,15 @@ from datetime import datetime, time as dtime, timezone
 from typing import Dict, List, Optional, Set
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from core.database import get_db_session
 from models.activity import AgentEvent
 from models.brokerage import PortfolioHoldingsCache, UserWatchlist
-from services.insight_model import (
-    filter_active_users,
-    resolve_insight_model,
-    thinking_off_kwargs,
-)
+from services.insight_model import filter_active_users
+from services.monitoring.inputs import batch_quotes, holdings_qty
+from services.monitoring.narrate import narrate
+from services.monitoring.sink import emit_signal
 
 logger = logging.getLogger(__name__)
 
@@ -59,24 +56,6 @@ def _in_review_window(now_et: datetime) -> bool:
     return now_et.weekday() < 5 and now_et.time() >= dtime(16, 15)
 
 
-def _holdings_from_cache(portfolio_data: dict) -> Dict[str, float]:
-    """symbol -> quantity from the cached holdings CSV (0 if unparseable)."""
-    out: Dict[str, float] = {}
-    holdings_csv = (portfolio_data or {}).get("holdings_csv") or ""
-    try:
-        for row in csv.DictReader(io.StringIO(holdings_csv)):
-            sym = (row.get("symbol") or "").upper().strip()
-            if not sym:
-                continue
-            try:
-                out[sym] = float(row.get("quantity") or 0)
-            except (TypeError, ValueError):
-                out[sym] = 0.0
-    except Exception:
-        return {}
-    return out
-
-
 async def _gather_users() -> Dict[str, Dict[str, float]]:
     """user_id -> {symbol: quantity} for recently-active users with symbols.
 
@@ -95,7 +74,7 @@ async def _gather_users() -> Dict[str, Dict[str, float]]:
             select(PortfolioHoldingsCache.user_id, PortfolioHoldingsCache.portfolio_data)
         )
         for uid, data in result.all():
-            for sym, qty in _holdings_from_cache(data).items():
+            for sym, qty in holdings_qty(data).items():
                 cur = users.setdefault(uid, {})
                 cur[sym] = max(cur.get(sym, 0.0), qty)
 
@@ -151,32 +130,20 @@ def _stat_lines(symbols: Dict[str, float], quotes: Dict[str, dict]) -> List[str]
 async def _narrate(
     lines: List[str], spy_pct: Optional[float], user_id: str
 ) -> Optional[dict]:
-    from modules.agent.llm_handler import LLMHandler
-
     prompt = []
     if spy_pct is not None:
         prompt.append(f"Market backdrop: S&P 500 {spy_pct:+.2f}% today.")
     prompt.append("Symbols (sorted by move size):")
     prompt.extend(f"- {l}" for l in lines)
 
-    model = await resolve_insight_model(user_id)
-    handler = LLMHandler(user_id=None, chat_id=None, agent_type="ledger_review")
-    try:
-        response = await handler.acompletion(
-            model=model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": "\n".join(prompt)},
-            ],
-            stream=False,
-            max_tokens=500,
-            **thinking_off_kwargs(model),
-        )
-        text = (response.choices[0].message.content or "").strip()
-        return _parse_review(text)
-    except Exception:
-        logger.exception("Ledger review narration failed")
-    return None
+    return await narrate(
+        system_prompt=_SYSTEM_PROMPT,
+        user_content="\n".join(prompt),
+        agent_type="ledger_review",
+        max_tokens=500,
+        user_id=user_id,
+        parser=_parse_review,
+    )
 
 
 def _parse_review(text: str) -> Optional[dict]:
@@ -219,8 +186,7 @@ async def _review_user(user_id: str, symbols: Dict[str, float],
     narrated = await _narrate(lines, spy_pct, user_id)
     if not narrated:
         return False
-    from services.agent_events import record_event
-    await record_event(
+    await emit_signal(
         user_id, "insight", narrated["title"], body=narrated["body"],
         data={"day": day, "symbols": list(symbols.keys())[:20]}, source="review",
     )
@@ -229,8 +195,6 @@ async def _review_user(user_id: str, symbols: Dict[str, float],
 
 async def review_once(now_et: Optional[datetime] = None) -> int:
     """One sweep: review every eligible user not yet reviewed today."""
-    from services.portfolio_digest import _batch_quotes
-
     now_et = now_et or datetime.now(ET)
     day = now_et.strftime("%Y-%m-%d")
     day_start_utc = now_et.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
@@ -257,7 +221,7 @@ async def review_once(now_et: Optional[datetime] = None) -> int:
         return 0
 
     all_symbols = sorted(set().union(*(set(list(s.keys())[:MAX_SYMBOLS_PER_USER]) for s in todo.values())) | {"SPY"})
-    quotes = await _batch_quotes(all_symbols)
+    quotes = await batch_quotes(all_symbols)
     if not quotes:
         return 0
     spy = quotes.get("SPY")

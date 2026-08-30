@@ -14,8 +14,8 @@ from sqlalchemy import text
 from auth.dependencies import get_current_user_id
 from core.database import get_db_session
 from crud.user_preferences import get_user_preferences
+from services.monitoring.sink import Push, emit_signal
 from services.notifications import send_morning_brief_email, send_morning_brief_whatsapp
-from services.push_notifications import send_push_notification
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -59,24 +59,17 @@ async def send_brief(
             email, body.subject, body.markdown, chat_url
         )
 
-    push_sent = False
-    try:
-        async with get_db_session() as db:
-            push_sent = await send_push_notification(
-                db, user_id,
-                title=body.subject,
-                # camelCase: the mobile deep-link handlers key on data.chatId
-                body=_push_preview(body.markdown),
-                data={"chatId": body.chat_id} if body.chat_id else None,
-                notif_type="general",
-            )
-    except Exception as e:
-        logger.warning(f"Morning brief push failed for {user_id}: {e}")
-
-    from services.agent_events import record_event
-    await record_event(
+    # One ledger write + the push, together. camelCase in push data: the mobile
+    # deep-link handlers key on data.chatId.
+    push_sent = await emit_signal(
         user_id, "brief", body.subject, body=_push_preview(body.markdown, 240),
         data={"chat_id": body.chat_id} if body.chat_id else None, source="brief",
+        push=Push(
+            title=body.subject,
+            body=_push_preview(body.markdown),
+            notif_type="general",
+            data={"chatId": body.chat_id} if body.chat_id else None,
+        ),
     )
 
     whatsapp_sent = False

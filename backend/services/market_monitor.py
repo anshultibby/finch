@@ -16,17 +16,17 @@ Design choices for v1:
 - Hard cap per user per day so a wild market day never becomes spam.
 """
 import asyncio
-import csv
-import io
 import logging
 from datetime import datetime
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Set, Tuple
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from core.database import get_db_session
 from services.insight_model import filter_active_users
+from services.monitoring.inputs import batch_quotes, symbols_from_portfolio_data
+from services.monitoring.sink import Push, emit_signal
 from models.brokerage import PortfolioHoldingsCache, UserWatchlist
 from models.user import DeviceToken
 
@@ -48,19 +48,6 @@ def _is_regular_session(now: datetime) -> bool:
         return False
     minutes = now.hour * 60 + now.minute
     return (9 * 60 + 30) <= minutes < (16 * 60)
-
-
-def _symbols_from_cached_portfolio(portfolio_data: dict) -> List[str]:
-    holdings_csv = (portfolio_data or {}).get("holdings_csv") or ""
-    symbols = []
-    try:
-        for row in csv.DictReader(io.StringIO(holdings_csv)):
-            sym = (row.get("symbol") or "").upper().strip()
-            if sym:
-                symbols.append(sym)
-    except Exception:
-        return []
-    return symbols
 
 
 async def _gather_user_symbols() -> Dict[str, Set[str]]:
@@ -95,28 +82,9 @@ async def _gather_user_symbols() -> Dict[str, Set[str]]:
             )
         )
         for uid, data in result.all():
-            watched[uid].update(_symbols_from_cached_portfolio(data))
+            watched[uid].update(symbols_from_portfolio_data(data))
 
     return {uid: syms for uid, syms in watched.items() if syms}
-
-
-async def _fetch_quotes(symbols: List[str]) -> Dict[str, dict]:
-    from skills.financial_modeling_prep.scripts.api import fmp
-
-    quotes: Dict[str, dict] = {}
-    for i in range(0, len(symbols), 100):
-        chunk = ",".join(symbols[i:i + 100])
-        try:
-            data = await asyncio.to_thread(fmp, f"/quote/{chunk}")
-        except Exception:
-            continue
-        if isinstance(data, dict):
-            data = [data]
-        if isinstance(data, list):
-            for q in data:
-                if isinstance(q, dict) and q.get("symbol"):
-                    quotes[q["symbol"].upper()] = q
-    return quotes
 
 
 def _crossed_band(pct: float) -> float | None:
@@ -140,7 +108,6 @@ async def _heartbeat_enabled(user_id: str) -> bool:
 
 async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
     from services.move_explainer import explain_move
-    from services.push_notifications import send_push_notification
 
     pct = quote.get("changesPercentage") or 0.0
     arrow = "▲" if pct >= 0 else "▼"
@@ -164,20 +131,10 @@ async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
         direction = "up" if pct >= 0 else "down"
         body = f"{quote.get('name') or symbol} is {direction} {abs(pct):.1f}% today."
 
-    async with get_db_session() as db:
-        await send_push_notification(
-            db,
-            user_id,
-            title=title,
-            body=body,
-            data={"symbol": symbol},
-            notif_type="price",
-        )
-
-    from services.agent_events import record_event
-    await record_event(
+    await emit_signal(
         user_id, "alert", title, body=body,
         data={"symbol": symbol, "pct": round(float(pct), 2)}, source="monitor",
+        push=Push(title=title, body=body, notif_type="price", data={"symbol": symbol}),
     )
 
 
@@ -188,7 +145,7 @@ async def check_once() -> int:
         return 0
 
     all_symbols = sorted(set().union(*watched.values()))
-    quotes = await _fetch_quotes(all_symbols)
+    quotes = await batch_quotes(all_symbols, chunk_size=100)
     if not quotes:
         return 0
 

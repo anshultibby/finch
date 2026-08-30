@@ -7,27 +7,25 @@ contribution = shares x today's $ change); the LLM only narrates them, grounded
 in headlines for the top movers. Cached per user for 10 minutes.
 """
 import asyncio
-import csv
-import io
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
-
-from core.database import get_db_session
-from models.brokerage import UserWatchlist
-from services.insight_model import resolve_insight_model, thinking_off_kwargs
+from services.monitoring.cache import TTLCache
+from services.monitoring.inputs import (
+    batch_quotes,
+    parse_holdings,
+    spy_backdrop,
+    watchlist_symbols,
+)
+from services.monitoring.narrate import narrate
 
 logger = logging.getLogger(__name__)
 
 # Model is resolved per user (see services.insight_model): this path sends the
 # user's actual holdings, so GLM is opt-in per tenant and off by default.
 
-_CACHE_TTL_SECONDS = 10 * 60
-_cache: Dict[str, Dict[str, Any]] = {}
-_locks: Dict[str, asyncio.Lock] = {}
+_digest_cache = TTLCache(ttl_seconds=10 * 60)
 
 _SYSTEM_PROMPT = """You write the short "Today" story for a person's portfolio in a finance app. You get computed numbers (already correct — never recompute or contradict them) plus headlines for the biggest movers.
 
@@ -39,63 +37,20 @@ Rules:
 - If this is a watchlist (not owned positions), talk about "your watchlist" naturally."""
 
 
-def _parse_holdings(holdings_csv: str) -> List[dict]:
-    holdings = []
-    for row in csv.DictReader(io.StringIO(holdings_csv)):
-        try:
-            holdings.append({
-                "symbol": (row.get("symbol") or "").upper(),
-                "quantity": float(row.get("quantity") or 0),
-                "value": float(row.get("value") or 0),
-            })
-        except (ValueError, TypeError):
-            continue
-    return [h for h in holdings if h["symbol"] and h["value"] > 0]
-
-
-async def _watchlist_symbols(user_id: str) -> List[str]:
-    async with get_db_session() as db:
-        result = await db.execute(
-            select(UserWatchlist.symbol).where(UserWatchlist.user_id == user_id).distinct()
-        )
-        return [s.upper() for (s,) in result.all()]
-
-
-async def _batch_quotes(symbols: List[str]) -> Dict[str, dict]:
-    from skills.financial_modeling_prep.scripts.api import fmp
-
-    quotes: Dict[str, dict] = {}
-    # FMP handles long symbol lists, but chunk defensively.
-    for i in range(0, len(symbols), 50):
-        chunk = ",".join(symbols[i:i + 50])
-        try:
-            data = await asyncio.to_thread(fmp, f"/quote/{chunk}")
-        except Exception:
-            continue
-        if isinstance(data, dict):
-            data = [data]
-        if isinstance(data, list):
-            for q in data:
-                if isinstance(q, dict) and q.get("symbol"):
-                    quotes[q["symbol"].upper()] = q
-    return quotes
-
-
 async def get_portfolio_digest(user_id: str) -> Dict[str, Any]:
-    cached = _cache.get(user_id)
-    if cached and (time.monotonic() - cached["at"]) < _CACHE_TTL_SECONDS:
-        return cached["result"]
+    cached = _digest_cache.get(user_id)
+    if cached is not None:
+        return cached
 
-    lock = _locks.setdefault(user_id, asyncio.Lock())
-    async with lock:
-        cached = _cache.get(user_id)
-        if cached and (time.monotonic() - cached["at"]) < _CACHE_TTL_SECONDS:
-            return cached["result"]
+    async with _digest_cache.lock(user_id):
+        cached = _digest_cache.get(user_id)
+        if cached is not None:
+            return cached
         result = await _build_digest(user_id)
         # Don't cache failures or empty states — the user may connect/add
         # symbols and expect the card to appear right away.
         if result.get("success") and result.get("mode") != "empty":
-            _cache[user_id] = {"at": time.monotonic(), "result": result}
+            _digest_cache.set(user_id, result)
         return result
 
 
@@ -107,21 +62,20 @@ async def _build_digest(user_id: str) -> Dict[str, Any]:
     try:
         portfolio = await snaptrade_tools.get_portfolio(user_id)
         if portfolio.get("success"):
-            holdings = _parse_holdings(portfolio.get("holdings_csv", ""))
+            holdings = parse_holdings(portfolio.get("holdings_csv", ""))
             if holdings:
                 mode = "portfolio"
     except Exception:
         logger.exception("Digest: portfolio fetch failed for %s", user_id)
 
     if mode == "watchlist":
-        symbols = await _watchlist_symbols(user_id)
+        symbols = await watchlist_symbols(user_id)
         if not symbols:
             return {"success": True, "mode": "empty"}
         holdings = [{"symbol": s, "quantity": 0.0, "value": 0.0} for s in symbols[:30]]
 
-    quotes = await _batch_quotes([h["symbol"] for h in holdings])
-    spy_quotes = await _batch_quotes(["SPY"])
-    spy = spy_quotes.get("SPY")
+    quotes = await batch_quotes([h["symbol"] for h in holdings])
+    spy = await spy_backdrop()
 
     movers = []
     day_change_total = 0.0
@@ -190,8 +144,6 @@ async def _generate_narrative(
     top_movers: List[dict],
     spy: Optional[dict],
 ) -> str:
-    from modules.agent.llm_handler import LLMHandler
-
     lines = []
     if mode == "portfolio":
         lines.append(
@@ -218,24 +170,15 @@ async def _generate_narrative(
 
     lines.append("\nWrite the 2-3 sentence 'Today' story.")
 
-    model = await resolve_insight_model(user_id)
-    handler = LLMHandler(user_id=None, chat_id=None, agent_type="portfolio_digest")
-    try:
-        response = await handler.acompletion(
-            model=model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": "\n".join(lines)},
-            ],
-            stream=False,
-            max_tokens=1000,
-            **thinking_off_kwargs(model),
-        )
-        text = (response.choices[0].message.content or "").strip()
-        if text:
-            return text
-    except Exception:
-        logger.exception("Digest narrative LLM call failed")
+    text = await narrate(
+        system_prompt=_SYSTEM_PROMPT,
+        user_content="\n".join(lines),
+        agent_type="portfolio_digest",
+        max_tokens=1000,
+        user_id=user_id,
+    )
+    if text:
+        return text
 
     leader = top_movers[0]
     return (

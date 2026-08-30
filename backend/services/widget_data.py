@@ -349,7 +349,7 @@ async def _fetch_portfolio_table(viewer_user_id: Optional[str]) -> dict:
     if not viewer_user_id:
         return dict(_EMPTY_BINDING)
     from modules.tools.clients import snaptrade_tools
-    from services.portfolio_digest import _parse_holdings, _batch_quotes
+    from services.monitoring.inputs import batch_quotes, parse_holdings
 
     try:
         portfolio = await snaptrade_tools.get_portfolio(viewer_user_id)
@@ -358,11 +358,11 @@ async def _fetch_portfolio_table(viewer_user_id: Optional[str]) -> dict:
         return dict(_EMPTY_BINDING)
     if not portfolio.get("success"):
         return dict(_EMPTY_BINDING)
-    holdings = _parse_holdings(portfolio.get("holdings_csv", ""))
+    holdings = parse_holdings(portfolio.get("holdings_csv", ""))
     if not holdings:
         return dict(_EMPTY_BINDING)
 
-    quotes = await _batch_quotes([h["symbol"] for h in holdings])
+    quotes = await batch_quotes([h["symbol"] for h in holdings])
     rows = []
     for h in holdings:
         q = quotes.get(h["symbol"], {})
@@ -383,9 +383,9 @@ async def _fetch_portfolio_table(viewer_user_id: Optional[str]) -> dict:
 async def _fetch_watchlist_table(viewer_user_id: Optional[str]) -> dict:
     if not viewer_user_id:
         return dict(_EMPTY_BINDING)
-    from services.portfolio_digest import _watchlist_symbols
+    from services.monitoring.inputs import watchlist_symbols
 
-    symbols = await _watchlist_symbols(viewer_user_id)
+    symbols = await watchlist_symbols(viewer_user_id)
     if not symbols:
         return {"shape": "empty", "reason": "empty_watchlist"}
     return await _fetch_quote_table(symbols[:30])

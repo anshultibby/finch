@@ -13,10 +13,11 @@ not survive the stock swinging to -4%.
 """
 import asyncio
 import logging
-import time
 from typing import Any, Dict, List, Optional
 
-from services.insight_model import DEFAULT_INSIGHT_MODEL, thinking_off_kwargs
+from services.insight_model import DEFAULT_INSIGHT_MODEL
+from services.monitoring.cache import TTLCache
+from services.monitoring.narrate import narrate
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +26,11 @@ logger = logging.getLogger(__name__)
 # job, only a public quote and headlines. Flat US-hosted default instead.
 EXPLAINER_MODEL = DEFAULT_INSIGHT_MODEL
 
-# Cache entries live this long, and are also dropped if the live change% has
+# Cache entries live 20 min, and are also dropped if the live change% has
 # drifted more than _CACHE_DRIFT_PCT points from when the entry was generated.
-_CACHE_TTL_SECONDS = 20 * 60
+# Bounded so a wide symbol churn can't grow it without limit.
 _CACHE_DRIFT_PCT = 1.0
-
-_cache: Dict[str, Dict[str, Any]] = {}
-# Per-symbol locks so a burst of requests for the same symbol generates once.
-_locks: Dict[str, asyncio.Lock] = {}
+_explain_cache = TTLCache(ttl_seconds=20 * 60, max_entries=500)
 
 _SYSTEM_PROMPT = """You are a sharp, honest markets analyst. Explain in 1-2 short sentences why a stock is moving today, for a regular person checking their phone.
 
@@ -92,20 +90,18 @@ async def explain_move(symbol: str) -> Dict[str, Any]:
         raise ValueError(f"No quote found for {sym}")
     change_pct = quote.get("changesPercentage") or 0.0
 
-    cached = _cache.get(sym)
-    if cached:
-        fresh = (time.monotonic() - cached["at"]) < _CACHE_TTL_SECONDS
-        stable = abs((cached["change_pct"] or 0.0) - change_pct) < _CACHE_DRIFT_PCT
-        if fresh and stable:
-            return {**cached["result"], **_quote_fields(quote), "cached": True}
+    def _stable(meta) -> bool:
+        return abs(((meta or {}).get("change_pct") or 0.0) - change_pct) < _CACHE_DRIFT_PCT
 
-    lock = _locks.setdefault(sym, asyncio.Lock())
-    async with lock:
+    cached = _explain_cache.get(sym, validate=_stable)
+    if cached is not None:
+        return {**cached, **_quote_fields(quote), "cached": True}
+
+    async with _explain_cache.lock(sym):
         # Re-check under the lock — another request may have just generated it.
-        cached = _cache.get(sym)
-        if cached and (time.monotonic() - cached["at"]) < _CACHE_TTL_SECONDS \
-                and abs((cached["change_pct"] or 0.0) - change_pct) < _CACHE_DRIFT_PCT:
-            return {**cached["result"], **_quote_fields(quote), "cached": True}
+        cached = _explain_cache.get(sym, validate=_stable)
+        if cached is not None:
+            return {**cached, **_quote_fields(quote), "cached": True}
 
         news, spy = await asyncio.gather(_fetch_news(sym), _fetch_quote("SPY"))
 
@@ -127,24 +123,13 @@ async def explain_move(symbol: str) -> Dict[str, Any]:
             "as_of": quote.get("timestamp"),
             "cached": False,
         }
-        _cache[sym] = {
-            "at": time.monotonic(),
-            "change_pct": change_pct,
-            "result": result,
-        }
-        # Bound the cache; symbols churn slowly so a coarse sweep is fine.
-        if len(_cache) > 500:
-            oldest = sorted(_cache.items(), key=lambda kv: kv[1]["at"])[:100]
-            for k, _ in oldest:
-                _cache.pop(k, None)
+        _explain_cache.set(sym, result, meta={"change_pct": change_pct})
         return result
 
 
 async def _generate_explanation(
     quote: dict, news: List[dict], spy: Optional[dict]
 ) -> str:
-    from modules.agent.llm_handler import LLMHandler
-
     sym = quote.get("symbol")
     name = quote.get("name") or sym
     pct = quote.get("changesPercentage") or 0.0
@@ -174,27 +159,18 @@ async def _generate_explanation(
 
     lines.append("\nWhy is it moving today?")
 
-    handler = LLMHandler(user_id=None, chat_id=None, agent_type="move_explainer")
-    try:
-        response = await handler.acompletion(
-            model=EXPLAINER_MODEL,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": "\n".join(lines)},
-            ],
-            stream=False,
-            max_tokens=1000,
-            # Thinking stays off for this short grounded task; on GLM that
-            # takes ~40s — far too slow for a tap-to-explain UI. Disabling
-            # thinking brings this to a few seconds with no quality loss on a
-            # 2-sentence summarization task.
-            **thinking_off_kwargs(EXPLAINER_MODEL),
-        )
-        text = (response.choices[0].message.content or "").strip()
-        if text:
-            return text
-    except Exception:
-        logger.exception("Move explanation LLM call failed for %s", sym)
+    # Thinking stays off for this short grounded task (see narrate); on GLM it
+    # otherwise takes ~40s — far too slow for a tap-to-explain UI. Flat,
+    # symbol-scoped model since the cache is shared across all users.
+    text = await narrate(
+        system_prompt=_SYSTEM_PROMPT,
+        user_content="\n".join(lines),
+        agent_type="move_explainer",
+        max_tokens=1000,
+        model=EXPLAINER_MODEL,
+    )
+    if text:
+        return text
 
     # Graceful fallback so the UI never shows an error state for this.
     if news:
