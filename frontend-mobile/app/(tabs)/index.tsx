@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDrawer } from '@/contexts/DrawerContext';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { snaptradeApi, marketApi, watchlistApi, notificationsApi, pendingTradesApi, type PendingTradeItem } from '@/lib/api';
+import { snaptradeApi, marketApi, watchlistApi, notificationsApi, pendingTradesApi, chatApi, type PendingTradeItem } from '@/lib/api';
 import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import { syncBadgeCount } from '@/lib/pushNotifications';
 import type { SnapTradeStatusResponse } from '@/lib/types';
@@ -22,7 +22,6 @@ import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import TodayDigestCard from '@/components/insights/TodayDigestCard';
 import WhileYouWereGoneCard from '@/components/activity/WhileYouWereGoneCard';
 import AgentTabView from '@/components/AgentTabView';
-import RecentTradesFeedback from '@/components/RecentTradesFeedback';
 import AskBar from '@/components/chat/AskBar';
 import SignInPrompt from '@/components/SignInPrompt';
 import { Skeleton, SkeletonMoverRow, SkeletonRows } from '@/components/ui/Skeleton';
@@ -390,10 +389,27 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Review a recent trade (trade-feedback wedge) — pinned above the tabs,
-          like pending approvals, so it's reachable from any tab. */}
-      {!searchActive && (
-        <RecentTradesFeedback onConnect={() => setActiveTab('portfolio')} />
+      {/* Review a recent trade (trade-feedback wedge) — hands off to the
+          trade_feedback skill, which tables the trades and asks which to dig into. */}
+      {!searchActive && isConnected && user && (
+        <TouchableOpacity
+          onPress={async () => {
+            Haptics.selectionAsync();
+            try {
+              const chatId = await chatApi.createChat(user.id);
+              const seed = 'Review my recent trades — pull them into a table and help me pick one to dig into.';
+              router.push(`/(tabs)/chat/${chatId}?seed=${encodeURIComponent(seed)}`);
+            } catch {}
+          }}
+          activeOpacity={0.8}
+          className="mx-4 mb-2 flex-row items-center justify-between rounded-xl border border-gray-100 bg-white px-3.5 py-2.5"
+        >
+          <View className="flex-row items-center" style={{ gap: 8 }}>
+            <DollarSign size={15} color={COLORS.emerald} />
+            <Text className="text-[13px] font-body-bold text-gray-900">Review a recent trade</Text>
+          </View>
+          <ChevronRight size={14} color="#9ca3af" />
+        </TouchableOpacity>
       )}
 
       {/* Search Results */}

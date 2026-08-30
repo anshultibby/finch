@@ -11,7 +11,6 @@ import MiniSparkline from '@/components/shared/MiniSparkline';
 import RobinhoodAgentCard from '@/components/RobinhoodAgentCard';
 import WhileYouWereGone from '@/components/activity/WhileYouWereGone';
 import TodayDigest from '@/components/insights/TodayDigest';
-import RecentTradesFeedback from '@/components/home/RecentTradesFeedback';
 import AgentTabView from './AgentTabView';
 import ChatInput from '@/components/chat/ChatInput';
 import EmptyState from '@/components/ui/EmptyState';
@@ -1839,13 +1838,19 @@ export default function HomePage() {
             </div>
             )}
 
-            {/* Review a recent trade (trade-feedback wedge) */}
-            <RecentTradesFeedback onConnect={() => setShowConnectModal(true)} />
-
             {/* Quick Actions */}
             <div className="p-4">
               <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick Actions</h2>
               <div className="space-y-2">
+                {hasBrokerage && (
+                  <button onClick={() => openChatWithPrompt('Review my recent trades — pull them into a table and help me pick one to dig into.', 'Review my trades')}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all text-left text-sm text-gray-700">
+                    <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                    </svg>
+                    Review my trades
+                  </button>
+                )}
                 {hasBrokerage && (
                   <button onClick={() => openChatWithPrompt(PORTFOLIO_REVIEW_PROMPT, 'Review my portfolio')}
                     className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all text-left text-sm text-gray-700">

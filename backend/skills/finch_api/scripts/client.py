@@ -139,6 +139,20 @@ def get_transactions(
     return result.get("transactions", [])
 
 
+def get_recent_trades(limit: int = 15) -> Dict[str, Any]:
+    """The user's recent EXECUTED trades across their connected broker.
+
+    Unified across Robinhood (filled orders) and SnapTrade (synced Transaction
+    table); newest-first, each with a $ `amount` (qty×price) for size. Prefer
+    this over get_transactions for "review my trades" — it covers Robinhood too
+    and auto-syncs SnapTrade if the local table is empty.
+
+    Returns {connected: bool, broker: str|None, trades: [
+        {id, symbol, side, quantity, price, amount, date, broker}, ...]}.
+    """
+    return _request("GET", "/trades/recent", params={"limit": limit})
+
+
 # ── Scheduled jobs ───────────────────────────────────────────────────────────
 
 def schedule_job(message, run_at=None, in_minutes=None, recurrence=None, name=None):

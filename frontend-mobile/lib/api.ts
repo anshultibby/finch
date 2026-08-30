@@ -571,30 +571,6 @@ export const activityApi = {
   },
 };
 
-export interface RecentTrade {
-  id: string;
-  symbol: string;
-  side: 'BUY' | 'SELL';
-  quantity: number;
-  price: number;
-  amount: number;
-  date: string | null;
-  broker: 'robinhood' | 'snaptrade';
-}
-
-export interface RecentTradesResponse {
-  connected: boolean;
-  broker: 'robinhood' | 'snaptrade' | null;
-  trades: RecentTrade[];
-}
-
-export const tradesApi = {
-  getRecent: async (limit = 15): Promise<RecentTradesResponse> => {
-    const response = await api.get('/trades/recent', { params: { limit } });
-    return response.data;
-  },
-};
-
 export const pendingTradesApi = {
   list: async (): Promise<{ pending_trades: PendingTradeItem[] }> => {
     const response = await api.get('/trades/pending');
