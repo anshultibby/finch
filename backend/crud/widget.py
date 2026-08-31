@@ -61,10 +61,12 @@ async def create_widget(
     emoji: Optional[str] = None,
     tags: Optional[List[str]] = None,
     cloned_from: Optional[str] = None,
+    kind: str = "widget",
 ) -> Widget:
     widget = Widget(
         id=_new_id(),
         user_id=user_id,
+        kind=kind,
         title=title,
         description=description,
         emoji=emoji,
@@ -85,6 +87,18 @@ async def get_widget(db: AsyncSession, widget_id: str) -> Optional[Widget]:
     ).scalar_one_or_none()
 
 
+async def get_cockpit(db: AsyncSession, user_id: str) -> Optional[Widget]:
+    """The user's single cockpit board, if it exists yet."""
+    return (
+        await db.execute(
+            select(Widget)
+            .where(Widget.user_id == user_id, Widget.kind == "cockpit")
+            .order_by(Widget.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def get_widget_by_slug(db: AsyncSession, slug: str) -> Optional[Widget]:
     return (
         await db.execute(
@@ -98,7 +112,7 @@ async def list_my_widgets(db: AsyncSession, user_id: str) -> List[Widget]:
         (
             await db.execute(
                 select(Widget)
-                .where(Widget.user_id == user_id)
+                .where(Widget.user_id == user_id, Widget.kind != "cockpit")
                 .order_by(Widget.updated_at.desc())
             )
         ).scalars()
@@ -112,7 +126,7 @@ async def list_gallery(
     sort: str = "recent",
     limit: int = 50,
 ) -> List[Widget]:
-    stmt = select(Widget).where(Widget.visibility == "public")
+    stmt = select(Widget).where(Widget.visibility == "public", Widget.kind != "cockpit")
     if q:
         like = f"%{q.lower()}%"
         stmt = stmt.where(

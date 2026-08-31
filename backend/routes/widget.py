@@ -77,6 +77,15 @@ def _to_summary(w: Widget) -> WidgetSummary:
     )
 
 
+def _ensure_goal_pin(spec: dict) -> dict:
+    """Guarantee the cockpit keeps a goal block (agent may reorder, not remove)."""
+    tiles = spec.get("tiles", [])
+    if not any((t.get("query") or {}).get("source") == "goal" for t in tiles):
+        goal_tile = {"id": "goal", "type": "goal", "size": "full", "query": {"source": "goal"}}
+        spec = {**spec, "tiles": [goal_tile, *tiles]}
+    return spec
+
+
 async def _owned_or_404(db: AsyncSession, widget_id: str, user_id: str) -> Widget:
     w = await crud.get_widget(db, widget_id)
     if not w or w.user_id != user_id:
@@ -117,6 +126,21 @@ async def gallery(
         return [_to_summary(w) for w in await crud.list_gallery(db, q=q, sort=sort)]
 
 
+@router.get("/cockpit", response_model=WidgetResponse)
+async def get_cockpit(user_id: str = Depends(get_current_user_id)):
+    """The user's home board — get-or-create from the per-goal default template."""
+    from services.cockpit_template import default_cockpit_spec
+    from crud.user_goals import get_goal
+    async with get_db_session() as db:
+        w = await crud.get_cockpit(db, user_id)
+        if w is None:
+            goal = await get_goal(db, user_id)
+            w = await crud.create_widget(
+                db, user_id, title="Mission", spec=default_cockpit_spec(goal), kind="cockpit",
+            )
+        return _to_response(w, user_id)
+
+
 @router.get("/{widget_id}", response_model=WidgetResponse)
 async def get_widget(widget_id: str, user_id: str = Depends(get_current_user_id)):
     async with get_db_session() as db:
@@ -138,6 +162,9 @@ async def update_widget(
         updates["spec"] = spec.model_dump(mode="json")
     async with get_db_session() as db:
         w = await _owned_or_404(db, widget_id, user_id)
+        # The cockpit's goal block is pinned — the home can't be left goalless.
+        if w.kind == "cockpit" and "spec" in updates:
+            updates["spec"] = _ensure_goal_pin(updates["spec"])
         w = await crud.update_widget(db, w, updates)
         return _to_response(w, user_id)
 

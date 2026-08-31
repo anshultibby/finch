@@ -1499,6 +1499,8 @@ export const widgetsApi = {
     (await api.post(`/widgets/${id}/publish`, { unpublish })).data,
   clone: async (id: string): Promise<Widget> => (await api.post(`/widgets/${id}/clone`)).data,
   getData: async (id: string): Promise<WidgetData> => (await api.get(`/widgets/${id}/data`)).data,
+  // The user's home board — get-or-create (kind="cockpit").
+  getCockpit: async (): Promise<Widget> => (await api.get('/widgets/cockpit')).data,
   // Public (no auth) — used by the share page.
   getShared: async (slug: string) => {
     const res = await fetch(`${API_BASE_URL}/widgets/shared/${encodeURIComponent(slug)}`, { cache: 'no-store' });

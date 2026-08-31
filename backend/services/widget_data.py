@@ -391,6 +391,120 @@ async def _fetch_watchlist_table(viewer_user_id: Optional[str]) -> dict:
     return await _fetch_quote_table(symbols[:30])
 
 
+# ── cockpit blocks: goal trajectory + activity feed (per-viewer) ─────────────
+def _m(n: float) -> str:
+    return f"${round(n):,}"
+
+
+async def _fetch_goal_trajectory(viewer_user_id: Optional[str]) -> dict:
+    """The viewer's active goal → a trajectory + instruments block. Mirrors the
+    frontend `heroFor` projection so the cockpit hero renders from one payload."""
+    if not viewer_user_id:
+        return {"shape": "empty", "reason": "no_goal"}
+    from core.database import get_db_session
+    from crud.user_goals import get_goal
+
+    async with get_db_session() as db:
+        goal = await get_goal(db, viewer_user_id)
+    if not goal or getattr(goal, "status", None) != "active":
+        return {"shape": "empty", "reason": "no_goal"}
+
+    cfg = getattr(goal, "config", None) or {}
+    cap = float(cfg.get("starting_capital") or 0)
+    kind = goal.kind
+    risk = "" if goal.risk is None else ("careful" if goal.risk <= 3 else "balanced" if goal.risk <= 7 else "full send")
+    risk_stat = {"k": "Risk", "v": ("—" if goal.risk is None else str(goal.risk)), "suffix": ("" if goal.risk is None else "/10")}
+    out: dict = {"shape": "trajectory", "kind": kind, "start": cap, "end": cap,
+                 "trajectory": False, "figure": None, "delta": None, "instruments": [],
+                 "source": {"label": "Your goal"}, "asof": _now().isoformat()}
+
+    if kind == "grow":
+        years = goal.horizon_years or 10
+        fv = round(cap * (1.08 ** years)) if cap else 0
+        end_year = datetime.now(timezone.utc).year + years
+        out.update({
+            "eyebrow": f"The long game · {years}-year horizon",
+            "title": goal.title or f"Grow steadily over {years} years",
+            "sub": f"{_m(cap)} compounding at ~8% a year. Boring, and it works." if cap else "Steady, low-stress compounding.",
+            "figure": fv or None, "figureCap": f"projected value in {years} years",
+            "delta": (f"+{_m(fv - cap)} · +{round((fv - cap) / cap * 100)}%" if cap and fv else None),
+            "trajectory": cap > 0 and fv > cap, "start": cap, "end": fv,
+            "axisEnd": f"{_m(fv)} · {end_year}",
+            "instruments": [{"k": "Starting", "v": _m(cap)}, {"k": "Projected", "v": _m(fv)},
+                            {"k": "Horizon", "v": str(years), "suffix": "yrs"}, risk_stat],
+        })
+    elif kind == "number":
+        target = goal.target_amount or cap
+        gain = target - cap
+        when = goal.deadline.strftime("%b %Y") if goal.deadline else "target"
+        out.update({
+            "eyebrow": f"The mission{(' · ' + risk) if risk else ''}",
+            "title": goal.title or f"Make {_m(target)}",
+            "sub": f"Starting from {_m(cap)}. Aggressive means real swings — I size tight and bank profits." if cap else "Let’s make this number.",
+            "figure": target, "figureCap": (f"target by {when}" if goal.deadline else "target"),
+            "delta": (f"+{_m(gain)} to go" if cap and gain > 0 else None),
+            "trajectory": cap > 0 and target > cap, "start": cap, "end": target,
+            "axisEnd": f"{_m(target)}" + (f" · {when}" if goal.deadline else ""),
+            "instruments": [{"k": "Starting", "v": _m(cap)}, {"k": "Target", "v": _m(target)},
+                            {"k": "By", "v": (when if goal.deadline else "—")}, risk_stat],
+        })
+    elif kind == "income":
+        mo = goal.monthly_income or 0
+        out.update({
+            "eyebrow": f"Cash flow{(' · ' + risk) if risk else ''}",
+            "title": goal.title or f"Generate {_m(mo)}/mo",
+            "sub": f"Realistic on {_m(cap)} at a safe ~3% yield. Covered calls can nudge it higher." if cap else "Recurring income from what you hold.",
+            "figure": mo, "figureCap": "target monthly income",
+            "instruments": [{"k": "Starting", "v": _m(cap)}, {"k": "Income", "v": _m(mo), "suffix": "/mo"}, risk_stat],
+        })
+    else:  # protect
+        out.update({
+            "eyebrow": "On watch",
+            "title": goal.title or "Watch & protect my portfolio",
+            "sub": "Monitoring — no scoreboard, just a heads-up when it matters.",
+            "figure": cap or None, "figureCap": ("on watch" if cap else ""),
+            "instruments": [{"k": "On watch", "v": _m(cap) if cap else "—"}],
+        })
+    return out
+
+
+async def _fetch_activity(viewer_user_id: Optional[str], limit: int) -> dict:
+    """The viewer's agent-activity ledger → the 'Finch's desk' feed."""
+    base = {"shape": "activity", "running_now": None, "events": [],
+            "source": {"label": "Finch"}, "asof": _now().isoformat()}
+    if not viewer_user_id:
+        return {**base, "connect_nudge": True}
+    from services.agent_events import get_recap
+    try:
+        recap = await get_recap(viewer_user_id)
+    except Exception:
+        logger.exception("widget: activity recap failed for %s", viewer_user_id)
+        return {**base, "connect_nudge": False}
+    events = [{
+        "type": e.get("event_type"), "title": e.get("title"), "body": e.get("body"),
+        "created_at": e.get("created_at"), "chat_id": (e.get("data") or {}).get("chat_id"),
+    } for e in (recap.get("events") or [])[:limit]]
+    running = recap.get("running_now")
+    return {**base, "running_now": running, "events": events,
+            "connect_nudge": not events and not running}
+
+
+async def _fetch_recent_trades(viewer_user_id: Optional[str], limit: int) -> dict:
+    """The viewer's recent executed trades → the trade-feedback block."""
+    base = {"shape": "trades", "connected": False, "broker": None, "trades": [],
+            "source": {"label": "Your broker"}, "asof": _now().isoformat()}
+    if not viewer_user_id:
+        return base
+    from services.recent_trades import get_recent_trades
+    try:
+        r = await get_recent_trades(viewer_user_id, limit=limit)
+    except Exception:
+        logger.exception("widget: recent trades failed for %s", viewer_user_id)
+        return base
+    return {**base, "connected": r.get("connected", False),
+            "broker": r.get("broker"), "trades": r.get("trades", [])}
+
+
 # ── inline (frozen snapshot) ────────────────────────────────────────────────
 def _inline_payload(query: dict) -> dict:
     shape = query.get("shape")
@@ -490,6 +604,12 @@ async def _resolve_query(query: dict, viewer_user_id: Optional[str]) -> dict:
         return await _fetch_portfolio_table(viewer_user_id)
     if source == "user_watchlist":
         return await _fetch_watchlist_table(viewer_user_id)
+    if source == "goal":
+        return await _fetch_goal_trajectory(viewer_user_id)
+    if source == "activity":
+        return await _fetch_activity(viewer_user_id, query.get("limit", 6))
+    if source == "trades":
+        return await _fetch_recent_trades(viewer_user_id, query.get("limit", 5))
 
     if source == "quote":
         symbols = query.get("symbols", [])

@@ -1,7 +1,7 @@
 // Widget spec + data-shape types. Mirrors backend/schemas/widget.py and the
 // data shapes in services/widget_data.py. See docs/widgets/spec.md.
 
-export type TileType = 'chart' | 'stat' | 'odds' | 'news' | 'table' | 'text' | 'chart_spec';
+export type TileType = 'chart' | 'stat' | 'odds' | 'news' | 'table' | 'text' | 'chart_spec' | 'goal' | 'activity' | 'trades';
 export type TileSize = 'sm' | 'md' | 'lg' | 'full';
 
 // Interactive controls — client-side filter/sort/search over a table tile.

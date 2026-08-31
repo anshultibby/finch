@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # ──────────────────────────────────────────────────────────────────────────
 # Enums (string literals — LLM-friendly, easy to validate)
 # ──────────────────────────────────────────────────────────────────────────
-TileType = Literal["chart", "stat", "odds", "news", "table", "text", "chart_spec"]
+TileType = Literal["chart", "stat", "odds", "news", "table", "text", "chart_spec", "goal", "activity", "trades"]
 TileSize = Literal["sm", "md", "lg", "full"]
 Range = Literal["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "5Y", "10Y", "MAX"]
 InlineShape = Literal["series", "table", "number", "markdown"]
@@ -26,7 +26,7 @@ InlineShape = Literal["series", "table", "number", "markdown"]
 # user-account reference. The publish sweep asserts every tile uses one of them.
 PUBLIC_SAFE_SOURCES = {
     "quote", "series", "news", "kalshi", "fred", "inline",
-    "user_portfolio", "user_watchlist",
+    "user_portfolio", "user_watchlist", "goal", "activity", "trades",
 }
 
 
@@ -81,6 +81,26 @@ class WatchlistQuery(_Strict):
     source: Literal["user_watchlist"]
 
 
+class GoalQuery(_Strict):
+    """Symbolic binding to the *viewing* user's active goal → a trajectory +
+    instruments block. Per-viewer, no params (extra='forbid')."""
+    source: Literal["goal"]
+
+
+class ActivityQuery(_Strict):
+    """Symbolic binding to the viewer's agent-activity ledger → the "Finch's
+    desk" feed (running-now + recent events)."""
+    source: Literal["activity"]
+    limit: int = Field(6, ge=1, le=20)
+
+
+class TradesQuery(_Strict):
+    """Symbolic binding to the viewer's recent executed trades → the trade-
+    feedback block (tap a trade to review it against the goal)."""
+    source: Literal["trades"]
+    limit: int = Field(5, ge=1, le=20)
+
+
 class InlineQuery(_Strict):
     """Frozen data the agent computed in its sandbox (Datawrapper-style
     snapshot). `data` shape must match `shape`."""
@@ -93,7 +113,7 @@ class InlineQuery(_Strict):
 Query = Annotated[
     Union[
         QuoteQuery, SeriesQuery, NewsQuery, KalshiQuery, FredQuery,
-        PortfolioQuery, WatchlistQuery, InlineQuery,
+        PortfolioQuery, WatchlistQuery, InlineQuery, GoalQuery, ActivityQuery, TradesQuery,
     ],
     Field(discriminator="source"),
 ]
@@ -297,6 +317,7 @@ class PublishRequest(BaseModel):
 class WidgetResponse(BaseModel):
     id: str
     user_id: str
+    kind: str = "widget"
     title: str
     description: Optional[str]
     emoji: Optional[str]

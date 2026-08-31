@@ -22,6 +22,9 @@ class Widget(Base):
 
     id = Column(String, primary_key=True)  # uuid4 hex — one id, no numeric/uid split
     user_id = Column(String, nullable=False, index=True)
+    # "widget" (a dashboard card, the default) | "cockpit" (the user's home board,
+    # one per user, excluded from lists/gallery). One unified blocks system.
+    kind = Column(String, nullable=False, server_default="widget", index=True)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     emoji = Column(String, nullable=True)
