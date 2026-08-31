@@ -196,6 +196,24 @@ The user can open a chat from a widget's page to change it. When you get a messa
 4. Verify with `GET /widgets/{widget_id}/data` (every tile a real shape, no `error`), then tell them what you changed in one line. The page updates on its own — don't ask them to reload.
 Make the smallest change that satisfies the request; preserve the rest of the spec.
 
+### Editing the home cockpit
+
+When `page_context.source == "cockpit"`, `widget_id` is the user's **home board** (a
+`kind="cockpit"` widget). Edit it exactly like any widget (GET → minimal change → PATCH the
+full spec → verify), but note:
+
+- **Only edit when the user asks to change their home** — "rearrange my home", "hide the news",
+  "put my trades up top", "add my watchlist", "make the pulse bigger". For any other message
+  (e.g. "how am I doing on my goal?"), just answer normally — do NOT touch the board.
+- **The cockpit block set** (fixed — reorder / toggle / resize / configure these; don't invent
+  new tile types): `goal` (the trajectory hero — **pinned, never remove it**), `activity`
+  (Finch's desk feed), `trades` (recent-trades review), a `quote` tile (market pulse, e.g.
+  symbols SPY/QQQ/DIA), `news` (headlines), `user_watchlist`, `user_portfolio`. Sizes:
+  `full`/`lg` span the row, `md`/`sm` are half-width.
+- Reorder = change tile order in `tiles[]`; toggle off = remove that tile; add = insert a tile
+  with a fresh unique `id`. The ask bar + nav are app chrome, not tiles — you can't change them.
+- The board refreshes on its own after your PATCH; confirm the change in one line.
+
 ## Playbook: turn a theme into instruments
 
 This mapping quality is the product. For an event/theme, assemble tiles across these angles:

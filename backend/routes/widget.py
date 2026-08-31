@@ -204,13 +204,20 @@ async def clone_widget(widget_id: str, user_id: str = Depends(get_current_user_i
 
 
 @router.get("/{widget_id}/data")
-async def get_widget_data(widget_id: str, user_id: str = Depends(get_current_user_id)):
+async def get_widget_data(
+    widget_id: str,
+    tile: Optional[str] = None,  # resolve just one tile → per-tile streaming
+    user_id: str = Depends(get_current_user_id),
+):
     async with get_db_session() as db:
         w = await crud.get_widget(db, widget_id)
         if not w or (w.user_id != user_id and w.visibility != "public"):
             raise HTTPException(status_code=404, detail="Widget not found")
+    spec = w.spec
+    if tile:
+        spec = {**spec, "tiles": [t for t in (spec.get("tiles") or []) if t.get("id") == tile]}
     from services.widget_data import resolve_widget_data
-    return await resolve_widget_data(w.spec, viewer_user_id=user_id)
+    return await resolve_widget_data(spec, viewer_user_id=user_id)
 
 
 # ──────────────────────────────────────────────────────────────────────────

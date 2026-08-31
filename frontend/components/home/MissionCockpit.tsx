@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight, LineChart, Bot, Wrench, Sparkles,
+  ArrowRight, LineChart, Bot, Wrench, Sparkles, SlidersHorizontal,
   Bell, TrendingUp, Clock, DollarSign, BookOpen, Newspaper, Star, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -80,11 +80,22 @@ const spanFor = (size?: string) => (size === 'full' || size === 'lg') ? 'lg:col-
 
 export default function MissionCockpit() {
   const { user } = useAuth();
-  const { openChatWithPrompt, navigateTo, openStock } = useNavigation();
+  const { openChatWithPrompt, openWidgetChat, navigateTo, openStock } = useNavigation();
   const [cockpit, setCockpit] = useState<Widget | null>(null);
   const [data, setData] = useState<Record<string, Payload>>({});
-  const [loading, setLoading] = useState(true);
+  const [loadingSpec, setLoadingSpec] = useState(true);
   const [ask, setAsk] = useState('');
+  const specKeyRef = React.useRef('');
+
+  // Stream each block's data in independently (one request per tile) so the
+  // hero shows in ~1s instead of blocking on the slowest tile (news/quotes).
+  const loadData = React.useCallback((w: Widget) => {
+    for (const t of ((w.spec?.tiles as Tile[]) || [])) {
+      widgetsApi.getData(w.id, t.id)
+        .then(part => setData(prev => ({ ...prev, ...(part as any) })))
+        .catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -93,14 +104,34 @@ export default function MissionCockpit() {
       try {
         const w = await widgetsApi.getCockpit();
         if (off) return;
+        specKeyRef.current = JSON.stringify(w.spec?.tiles || []);
         setCockpit(w);
-        const d = await widgetsApi.getData(w.id);
-        if (!off) setData(d as any);
-      } catch { /* fail open — render loading→empty */ }
-      finally { if (!off) setLoading(false); }
+        loadData(w);
+      } catch { /* fail open */ }
+      finally { if (!off) setLoadingSpec(false); }
     })();
     return () => { off = true; };
-  }, [user]);
+  }, [user, loadData]);
+
+  // Live edits: the agent rearranges the board from the Customize chat → poll
+  // the spec and re-stream when its tiles change.
+  useEffect(() => {
+    if (!user || !cockpit) return;
+    let off = false;
+    const iv = setInterval(async () => {
+      try {
+        const w = await widgetsApi.getCockpit();
+        const key = JSON.stringify(w.spec?.tiles || []);
+        if (!off && key !== specKeyRef.current) {
+          specKeyRef.current = key;
+          setCockpit(w);
+          setData({});
+          loadData(w);
+        }
+      } catch { /* ignore */ }
+    }, 6000);
+    return () => { off = true; clearInterval(iv); };
+  }, [user, cockpit, loadData]);
 
   const tiles: Tile[] = (cockpit?.spec?.tiles as any) || [];
   const heroTile = useMemo(() => tiles.find(t => t.type === 'goal'), [tiles]);
@@ -120,7 +151,9 @@ export default function MissionCockpit() {
     window.location.reload();
   };
 
-  if (loading) return <div className="h-full grid place-items-center text-gray-400 text-sm">Loading your mission…</div>;
+  if (loadingSpec && !cockpit) return <div className="h-full grid place-items-center text-gray-400 text-sm">Loading your mission…</div>;
+
+  const heroLoaded = heroTile ? data[heroTile.id] !== undefined : true;
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: 'radial-gradient(900px 380px at 84% -8%, rgba(16,185,129,.06), transparent 60%), radial-gradient(700px 320px at 6% -6%, rgba(28,25,23,.03), transparent 55%), var(--finch-bg, #faf9f7)' }}>
@@ -138,7 +171,9 @@ export default function MissionCockpit() {
       <div className="max-w-[1080px] mx-auto px-6 py-7">
         {/* HERO (goal block) — pinned full-width */}
         <div className="mc-rise mc-d1 mb-4">
-          {hasGoal ? <Hero p={heroData} big={<HeroFigure value={heroData.figure} />} />
+          {!heroTile ? <NoGoal onStart={startMission} />
+            : !heroLoaded ? <HeroSkeleton />
+            : hasGoal ? <Hero p={heroData} big={<HeroFigure value={heroData.figure} />} />
             : <NoGoal onStart={startMission} />}
         </div>
 
@@ -166,16 +201,24 @@ export default function MissionCockpit() {
         <div className="mc-rise mc-d3 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           {restTiles.map(tile => {
             const p = data[tile.id];
-            const block = renderBlock(tile, p, { openStock, openChatWithPrompt, navigateTo });
-            return block ? <div key={tile.id} className={spanFor(tile.size)}>{block}</div> : null;
+            const node = p === undefined ? <BlockSkeleton title={tile.title} /> : renderBlock(tile, p, { openStock, openChatWithPrompt, navigateTo });
+            return node ? <div key={tile.id} className={spanFor(tile.size)}>{node}</div> : null;
           })}
         </div>
 
-        {/* nav — fixed chrome */}
-        <nav className="mc-rise mc-d3 flex flex-wrap gap-2.5 mt-5">
+        {/* nav + customize — fixed chrome */}
+        <nav className="mc-rise mc-d3 flex flex-wrap items-center gap-2.5 mt-5">
           <NavChip icon={<LineChart className="w-[15px] h-[15px]" />} label="Markets" onClick={() => navigateTo({ type: 'home' })} />
           <NavChip icon={<Bot className="w-[15px] h-[15px]" />} label="Automations" onClick={() => navigateTo({ type: 'jobs' })} />
           <NavChip icon={<Wrench className="w-[15px] h-[15px]" />} label="Widgets" onClick={() => navigateTo({ type: 'widgets' })} />
+          <button
+            onClick={() => cockpit && openWidgetChat(
+              'Let’s customize my home board — you can reorder, resize, add, or remove blocks. What would you like to change?',
+              { source: 'cockpit', widget_id: cockpit.id, widget_title: 'Your cockpit' },
+            )}
+            className="ml-auto inline-flex items-center gap-2 text-[12.5px] text-emerald-700 border border-emerald-500/30 bg-emerald-50 rounded-[10px] px-3 py-2 hover:bg-emerald-100 transition-colors">
+            <SlidersHorizontal className="w-[15px] h-[15px]" /> Customize board
+          </button>
         </nav>
       </div>
     </div>
@@ -390,6 +433,32 @@ function StatBlock({ p }: { p: Payload }) {
         <div className="text-[12px] text-gray-500">{p.label}</div>
         <div className="text-[26px] font-semibold tabular-nums text-gray-900" style={{ fontFamily: NUM }}>{p.value != null ? Number(p.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</div>
         {p.delta_pct != null && <div className={`text-[13px] font-semibold tabular-nums ${up ? 'text-emerald-600' : 'text-rose-600'}`} style={{ fontFamily: NUM }}>{up ? '+' : ''}{Number(p.delta_pct).toFixed(2)}%</div>}
+      </div>
+    </Panel>
+  );
+}
+
+function HeroSkeleton() {
+  return (
+    <section className="bg-white rounded-[22px] border border-[color:var(--finch-border,rgba(0,0,0,.06))] p-6 sm:p-7" style={{ boxShadow: '0 24px 60px -44px rgba(28,25,23,.55)' }}>
+      <div className="grid gap-7 md:grid-cols-2 items-center animate-pulse">
+        <div>
+          <div className="h-2.5 w-40 bg-stone-100 rounded mb-4" />
+          <div className="h-7 w-3/4 bg-stone-100 rounded mb-2" />
+          <div className="h-3 w-1/2 bg-stone-100 rounded mb-6" />
+          <div className="h-11 w-52 bg-stone-100 rounded" />
+        </div>
+        <div className="h-[160px] bg-stone-100 rounded-2xl" />
+      </div>
+    </section>
+  );
+}
+
+function BlockSkeleton({ title }: { title?: string }) {
+  return (
+    <Panel title={title}>
+      <div className="p-4 space-y-3 animate-pulse">
+        {[0, 1, 2].map(i => <div key={i} className="h-4 bg-stone-100 rounded" style={{ width: `${90 - i * 15}%` }} />)}
       </div>
     </Panel>
   );
