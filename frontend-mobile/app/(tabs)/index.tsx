@@ -9,7 +9,7 @@ import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import { syncBadgeCount } from '@/lib/pushNotifications';
 import type { SnapTradeStatusResponse } from '@/lib/types';
 import { AlertTriangle } from 'lucide-react-native';
-import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell, Lock } from 'lucide-react-native';
+import { Search as SearchIcon, X, Calendar, Star, Trash2, DollarSign, Menu, SquarePen, Link, ExternalLink, Trash, ChevronRight, ChevronDown, Bell, Lock, BookOpen } from 'lucide-react-native';
 import { formatCurrency, formatPct, formatRelativeTime, COLORS, isIndianStock, currencySymbol } from '@/lib/constants';
 import FinchLogo from '@/components/FinchLogo';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -407,6 +407,28 @@ export default function HomeScreen() {
           <View className="flex-row items-center" style={{ gap: 8 }}>
             <DollarSign size={15} color={COLORS.emerald} />
             <Text className="text-[13px] font-body-bold text-gray-900">Review a recent trade</Text>
+          </View>
+          <ChevronRight size={14} color="#9ca3af" />
+        </TouchableOpacity>
+      )}
+
+      {/* Explore strategies (pillar 5) — hands off to the strategy_library skill. */}
+      {!searchActive && user && (
+        <TouchableOpacity
+          onPress={async () => {
+            Haptics.selectionAsync();
+            try {
+              const chatId = await chatApi.createChat(user.id);
+              const seed = 'Show me trading strategies I could try, and help me adopt one for my goal.';
+              router.push(`/(tabs)/chat/${chatId}?seed=${encodeURIComponent(seed)}`);
+            } catch {}
+          }}
+          activeOpacity={0.8}
+          className="mx-4 mb-2 flex-row items-center justify-between rounded-xl border border-gray-100 bg-white px-3.5 py-2.5"
+        >
+          <View className="flex-row items-center" style={{ gap: 8 }}>
+            <BookOpen size={15} color={COLORS.emerald} />
+            <Text className="text-[13px] font-body-bold text-gray-900">Explore strategies</Text>
           </View>
           <ChevronRight size={14} color="#9ca3af" />
         </TouchableOpacity>

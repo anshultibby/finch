@@ -400,3 +400,42 @@ def list_ideas(limit=100):
     lean into the catalyst types that are earning alpha, drop the ones that aren't.
     """
     return _request("GET", "/ideas", params={"limit": limit})
+
+
+# ── Strategy / playbook library (pillar 5) ────────────────────────────────────
+
+def list_strategies():
+    """The strategy library: starter playbooks + the user's adopted/authored ones.
+
+    Returns {"starters": [{slug, name, style, description, spec}, ...],
+             "mine": [{id, name, slug, style, spec, source, status, ...}, ...]}.
+    Use this to show the user a menu of strategies to try, then adopt one.
+    """
+    return _request("GET", "/strategies")
+
+
+def save_strategy(spec, name=None, style="custom", description=None, source="custom"):
+    """Persist a strategy the agent authored/distilled (e.g. from a Reddit
+    community or a pasted playbook), WITHOUT adopting it yet.
+
+    `spec` is the strategy_distiller shape (universe/entry/exit/sizing/risk/cadence).
+    Returns the saved strategy row (including its id). Call adopt_strategy to bind it.
+    """
+    body = {"spec": spec, "name": name or (spec.get("name") if isinstance(spec, dict) else None) or "My strategy",
+            "style": style, "description": description, "source": source}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", "/strategies", body=body)
+
+
+def adopt_strategy(starter_slug=None, spec=None, name=None, style=None, source="custom"):
+    """Adopt a strategy: persist it for the user AND bind it to their goal so the
+    agent's <mission> runs it every session.
+
+    Provide EITHER `starter_slug` (adopt a starter from list_strategies().starters)
+    OR a distilled `spec`. Returns {"strategy": {...}, "bound_to_goal": true}.
+    After adopting, offer to schedule a routine (schedule_job) — only if the user says yes.
+    """
+    body = {"starter_slug": starter_slug, "spec": spec, "name": name,
+            "style": style, "source": source}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", "/strategies/adopt", body=body)

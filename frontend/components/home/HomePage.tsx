@@ -1860,6 +1860,13 @@ export default function HomePage() {
                     Review portfolio
                   </button>
                 )}
+                <button onClick={() => openChatWithPrompt('Show me trading strategies I could try, and help me adopt one for my goal.', 'Explore strategies')}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all text-left text-sm text-gray-700">
+                  <svg className="w-4 h-4 text-indigo-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                  </svg>
+                  Explore strategies
+                </button>
                 <button onClick={() => openChatWithPrompt('What are the top stock picks for today? Analyze current market conditions and suggest 3-5 actionable trades.', 'Find trades')}
                   className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all text-left text-sm text-gray-700">
                   <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

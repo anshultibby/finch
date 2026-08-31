@@ -109,6 +109,15 @@ async def _get_goal_directive(user_id: str) -> str:
     if goal.objective:
         lines.append(f'In their words: "{goal.objective}"')
 
+    # An adopted strategy/playbook (pillar 5) — run its rules, hold-to-approve.
+    _strat = (getattr(goal, "config", None) or {}).get("strategy")
+    if isinstance(_strat, dict) and _strat.get("name"):
+        _wl = _strat.get("watchlist") or []
+        _line = f"Active strategy: {_strat['name']} ({_strat.get('style', '')}). Follow its rules and frame ideas around it; propose trades hold-to-approve."
+        if _wl:
+            _line += f" Universe: {', '.join(_wl[:12])}."
+        lines.append(_line)
+
     # Cross-kind profile preferences (the wizard's "about me"). The verbose
     # version lives in profile.md; keep the hard constraints in the prompt.
     prefs = dict(getattr(goal, "preferences", None) or {})
