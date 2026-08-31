@@ -88,9 +88,9 @@ export default function MissionCockpit() {
 
   const suggestions = goal
     ? goal.kind === 'protect'
-      ? ['Anything I should worry about today?', 'Summarise my risk', 'What changed overnight?']
-      : ['How am I doing on my goal?', "What should I do today?", 'Find me an idea that fits']
-    : ['What should I look into?'];
+      ? ['Anything I should worry about today?', 'Summarise my risk', 'Review my recent trades']
+      : ['How am I doing on my goal?', 'Review my recent trades', 'Explore strategies']
+    : ['Explore strategies', 'What should I look into?'];
 
   const submitAsk = (text: string) => {
     if (!text.trim()) return;
