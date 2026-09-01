@@ -312,13 +312,26 @@ function NoGoal({ onStart }: { onStart: () => void }) {
   );
 }
 
-function Panel({ title, muted, children }: { title?: string; muted?: string; children: React.ReactNode }) {
+type Accent = 'indigo' | 'amber' | 'sky' | 'stone' | 'emerald' | 'rose';
+const ACCENT: Record<Accent, string> = {
+  indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+  amber: 'bg-amber-50 text-amber-600 border-amber-100',
+  sky: 'bg-sky-50 text-sky-600 border-sky-100',
+  stone: 'bg-stone-100 text-stone-500 border-stone-200',
+  emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+  rose: 'bg-rose-50 text-rose-600 border-rose-100',
+};
+
+function Panel({ title, icon, accent = 'stone', action, children }: {
+  title?: string; icon?: React.ReactNode; accent?: Accent; action?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
-    <div className="bg-white rounded-[18px] border border-[color:var(--finch-border,rgba(0,0,0,.06))] overflow-hidden h-full">
-      {(title || muted) && (
-        <div className="flex items-center gap-2 px-4 pt-3.5 pb-2.5">
-          {title && <h2 className="text-sm font-semibold text-gray-900" style={{ fontFamily: NUM }}>{title}</h2>}
-          {muted && <span className="ml-auto font-mono text-[10px] tracking-[.1em] uppercase text-gray-400">{muted}</span>}
+    <div className="bg-white rounded-[18px] border border-[color:var(--finch-border,rgba(0,0,0,.06))] overflow-hidden h-full" style={{ boxShadow: '0 14px 42px -36px rgba(28,25,23,.55)' }}>
+      {(title || icon) && (
+        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3 border-b border-[color:var(--finch-border,rgba(0,0,0,.05))]">
+          {icon && <span className={`w-7 h-7 rounded-[9px] grid place-items-center border ${ACCENT[accent]}`}>{icon}</span>}
+          {title && <h2 className="text-[15px] font-semibold tracking-tight text-gray-900" style={{ fontFamily: NUM }}>{title}</h2>}
+          {action && <span className="ml-auto">{action}</span>}
         </div>
       )}
       {children}
@@ -348,19 +361,19 @@ function Desk({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
     <Row key="c" icon={<Star className="w-4 h-4" />} titleText="Connect a brokerage to bring this to life"
       sub="Right now your goal is a projection. Connect and I'll track real pace + review real trades." onClick={() => nav.navigateTo({ type: 'home' })} />
   );
-  return <Panel title={title || "Finch’s desk"} muted="while you were away">{rows}</Panel>;
+  return <Panel title={title || "Finch’s desk"} icon={<Bot className="w-4 h-4" />} accent="emerald">{rows}</Panel>;
 }
 
 function Row({ icon, titleText, sub, time, live, tag, onClick }: { icon: React.ReactNode; titleText: string; sub?: string; time?: string; live?: boolean; tag?: string; onClick?: () => void }) {
   return (
-    <button onClick={onClick} disabled={!onClick} className={`w-full text-left flex gap-3 px-4 py-3 items-start border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] ${onClick ? 'hover:bg-stone-50' : ''} transition-colors`}>
-      <span className={`w-[34px] h-[34px] rounded-[10px] grid place-items-center flex-shrink-0 border ${live ? 'bg-emerald-50 text-emerald-600 border-emerald-500/25' : 'bg-stone-50 text-gray-500 border-gray-100'}`}>{icon}</span>
+    <button onClick={onClick} disabled={!onClick} className={`w-full text-left flex gap-3.5 px-4 py-3.5 items-start border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] ${onClick ? 'hover:bg-stone-50/70' : ''} transition-colors`}>
+      <span className={`w-9 h-9 rounded-[10px] grid place-items-center flex-shrink-0 border ${live ? 'bg-emerald-50 text-emerald-600 border-emerald-500/25' : 'bg-stone-50 text-gray-500 border-stone-200'}`}>{icon}</span>
       <span className="flex-1 min-w-0">
-        {tag && <span className="flex items-center gap-1.5 font-mono text-[9.5px] tracking-[.1em] uppercase text-emerald-600 mb-0.5"><span className="mc-pulse" />{tag}</span>}
-        <span className="block text-[13.5px] font-semibold text-gray-900 truncate">{titleText}</span>
-        {sub && <span className="block text-[12.5px] text-gray-500 mt-0.5 line-clamp-2">{sub}</span>}
+        {tag && <span className="flex items-center gap-1.5 font-mono text-[9.5px] tracking-[.12em] uppercase text-emerald-600 mb-1"><span className="mc-pulse" />{tag}</span>}
+        <span className="block text-[14px] font-semibold text-gray-900 leading-snug">{titleText}</span>
+        {sub && <span className="block text-[13px] text-gray-600 mt-1 leading-relaxed line-clamp-3">{sub}</span>}
       </span>
-      {time && <span className="font-mono text-[10.5px] text-gray-400 flex-shrink-0">{time}</span>}
+      {time && <span className="font-mono text-[10.5px] text-gray-400 flex-shrink-0 mt-0.5">{time}</span>}
     </button>
   );
 }
@@ -368,16 +381,16 @@ function Row({ icon, titleText, sub, time, live, tag, onClick }: { icon: React.R
 function Trades({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
   if (!p.connected || !(p.trades || []).length) {
     return (
-      <Panel title={title || 'Review a recent trade'}>
-        <div className="px-4 pb-4 pt-1 text-[13px] text-gray-600">
-          Connect your brokerage and Finch will review your recent trades and suggest better alternatives.
-          <button onClick={() => nav.navigateTo({ type: 'home' })} className="mt-3 block w-full rounded-lg bg-emerald-600 py-2 text-white text-[13px] font-semibold hover:bg-emerald-700 transition-colors">Connect brokerage</button>
+      <Panel title={title || 'Review a recent trade'} icon={<DollarSign className="w-4 h-4" />} accent="amber">
+        <div className="px-4 py-4 text-[13.5px] text-gray-600 leading-relaxed">
+          Connect your brokerage and Finch will grade your recent trades and suggest better alternatives.
+          <button onClick={() => nav.navigateTo({ type: 'home' })} className="mt-3.5 block w-full rounded-xl bg-emerald-600 py-2.5 text-white text-[13.5px] font-semibold hover:bg-emerald-700 transition-colors">Connect brokerage</button>
         </div>
       </Panel>
     );
   }
   return (
-    <Panel title={title || 'Review a recent trade'} muted="tap to critique">
+    <Panel title={title || 'Review a recent trade'} icon={<DollarSign className="w-4 h-4" />} accent="amber">
       {(p.trades as Payload[]).map((t) => (
         <button key={t.id} onClick={() => nav.openChatWithPrompt(reviewPrompt(t))} className="w-full flex items-center justify-between px-4 py-2.5 border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] hover:bg-stone-50 transition-colors">
           <span className="flex items-center gap-2 min-w-0">
@@ -396,13 +409,13 @@ function Pulse({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
   const cols: string[] = p.columns || [];
   const iSym = cols.indexOf('symbol'), iName = cols.indexOf('name'), iPrice = cols.indexOf('price'), iPct = cols.indexOf('change_pct');
   return (
-    <Panel title={title || 'Market pulse'} muted="today">
+    <Panel title={title || 'Market pulse'} icon={<LineChart className="w-4 h-4" />} accent="sky">
       {(p.rows || []).map((r: any[], i: number) => {
         const pct = iPct >= 0 ? r[iPct] : null;
         return (
-          <button key={i} onClick={() => nav.openStock(r[iSym])} className="w-full flex items-center gap-3 px-4 py-2.5 border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] hover:bg-stone-50 transition-colors">
-            <span className="text-[13.5px] font-semibold text-gray-900 w-14 text-left" style={{ fontFamily: NUM }}>{r[iSym]}</span>
-            <span className="text-[12px] text-gray-400 flex-1 text-left truncate">{iName >= 0 ? r[iName] : ''}</span>
+          <button key={i} onClick={() => nav.openStock(r[iSym])} className="w-full flex items-center gap-3 px-4 py-3 border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] hover:bg-stone-50/70 transition-colors">
+            <span className="text-[14px] font-semibold text-gray-900 w-14 text-left" style={{ fontFamily: NUM }}>{r[iSym]}</span>
+            <span className="text-[12.5px] text-gray-500 flex-1 text-left truncate">{iName >= 0 ? r[iName] : ''}</span>
             <span className="text-[13.5px] font-semibold text-gray-900 tabular-nums" style={{ fontFamily: NUM }}>{iPrice >= 0 && r[iPrice] != null ? Number(r[iPrice]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</span>
             <span className={`text-[12px] font-semibold tabular-nums w-16 text-right ${(pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`} style={{ fontFamily: NUM }}>{pct == null ? '' : `${pct >= 0 ? '+' : ''}${Number(pct).toFixed(2)}%`}</span>
           </button>
@@ -414,11 +427,11 @@ function Pulse({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
 
 function News({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
   return (
-    <Panel title={title || 'Worth knowing'}>
+    <Panel title={title || 'Worth knowing'} icon={<Newspaper className="w-4 h-4" />} accent="stone">
       {(p.items || []).map((n: Payload, i: number) => (
-        <button key={i} onClick={() => nav.openChatWithPrompt(`What's the story behind: "${n.title}"?`)} className="w-full text-left px-4 py-3 border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] hover:bg-stone-50 transition-colors">
-          <div className="text-[13px] font-semibold text-gray-900 leading-snug line-clamp-2">{n.title}</div>
-          <div className="text-[11.5px] text-gray-400 mt-1">{[n.source, ago(n.published_at)].filter(Boolean).join(' · ')}</div>
+        <button key={i} onClick={() => nav.openChatWithPrompt(`What's the story behind: "${n.title}"?`)} className="w-full text-left px-4 py-3.5 border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] hover:bg-stone-50/70 transition-colors">
+          <div className="text-[13.5px] font-semibold text-gray-900 leading-snug line-clamp-2">{n.title}</div>
+          <div className="text-[12px] text-gray-500 mt-1.5">{[n.source, ago(n.published_at)].filter(Boolean).join(' · ')}</div>
         </button>
       ))}
     </Panel>
