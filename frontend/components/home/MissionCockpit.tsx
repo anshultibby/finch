@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight, LineChart, Bot, Wrench, Sparkles, SlidersHorizontal,
+  ArrowRight, LineChart, Bot, Wrench, Sparkles, SlidersHorizontal, Wallet,
   Bell, TrendingUp, Clock, DollarSign, BookOpen, Newspaper, Star, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -229,7 +229,12 @@ function renderBlock(tile: Tile, p: Payload | undefined, nav: any): React.ReactN
   const shape = p?.shape;
   if (shape === 'activity') return <Desk p={p!} title={tile.title} nav={nav} />;
   if (shape === 'trades') return <Trades p={p!} title={tile.title} nav={nav} />;
-  if (shape === 'table') return <Pulse p={p!} title={tile.title} nav={nav} />;
+  if (shape === 'table') {
+    // portfolio tables carry a `value` column; quote/watchlist tables carry price.
+    return (p!.columns || []).includes('value')
+      ? <Positions p={p!} title={tile.title} nav={nav} />
+      : <Pulse p={p!} title={tile.title} nav={nav} />;
+  }
   if (shape === 'news') return <News p={p!} title={tile.title} nav={nav} />;
   if (shape === 'number') return <StatBlock p={p!} />;
   return null;
@@ -417,6 +422,35 @@ function Pulse({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
             <span className="text-[14px] font-semibold text-gray-900 w-14 text-left" style={{ fontFamily: NUM }}>{r[iSym]}</span>
             <span className="text-[12.5px] text-gray-500 flex-1 text-left truncate">{iName >= 0 ? r[iName] : ''}</span>
             <span className="text-[13.5px] font-semibold text-gray-900 tabular-nums" style={{ fontFamily: NUM }}>{iPrice >= 0 && r[iPrice] != null ? Number(r[iPrice]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</span>
+            <span className={`text-[12px] font-semibold tabular-nums w-16 text-right ${(pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`} style={{ fontFamily: NUM }}>{pct == null ? '' : `${pct >= 0 ? '+' : ''}${Number(pct).toFixed(2)}%`}</span>
+          </button>
+        );
+      })}
+    </Panel>
+  );
+}
+
+function Positions({ p, title, nav }: { p: Payload; title?: string; nav: any }) {
+  const cols: string[] = p.columns || [];
+  const iSym = cols.indexOf('symbol'), iVal = cols.indexOf('value'), iPct = cols.indexOf('change_pct');
+  const rows: any[][] = p.rows || [];
+  if (!rows.length) {
+    return (
+      <Panel title={title || 'Your positions'} icon={<Wallet className="w-4 h-4" />} accent="emerald">
+        <div className="px-4 py-4 text-[13.5px] text-gray-600 leading-relaxed">Connect a brokerage to see your holdings here.</div>
+      </Panel>
+    );
+  }
+  const total = rows.reduce((s, r) => s + (iVal >= 0 && r[iVal] != null ? Number(r[iVal]) : 0), 0);
+  return (
+    <Panel title={title || 'Your positions'} icon={<Wallet className="w-4 h-4" />} accent="emerald"
+      action={<span className="font-mono text-[11px] text-gray-500 tabular-nums">{money(total)}</span>}>
+      {rows.slice(0, 8).map((r, i) => {
+        const pct = iPct >= 0 ? r[iPct] : null;
+        return (
+          <button key={i} onClick={() => nav.openStock(r[iSym])} className="w-full flex items-center gap-3 px-4 py-3 border-t first:border-t-0 border-[color:var(--finch-border,rgba(0,0,0,.06))] hover:bg-stone-50/70 transition-colors">
+            <span className="text-[14px] font-semibold text-gray-900 w-16 text-left" style={{ fontFamily: NUM }}>{r[iSym]}</span>
+            <span className="text-[13.5px] text-gray-600 flex-1 text-left tabular-nums" style={{ fontFamily: NUM }}>{iVal >= 0 && r[iVal] != null ? money(Number(r[iVal])) : '—'}</span>
             <span className={`text-[12px] font-semibold tabular-nums w-16 text-right ${(pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`} style={{ fontFamily: NUM }}>{pct == null ? '' : `${pct >= 0 ? '+' : ''}${Number(pct).toFixed(2)}%`}</span>
           </button>
         );

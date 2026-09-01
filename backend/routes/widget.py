@@ -135,8 +135,19 @@ async def get_cockpit(user_id: str = Depends(get_current_user_id)):
         w = await crud.get_cockpit(db, user_id)
         if w is None:
             goal = await get_goal(db, user_id)
+            has_brokerage = False
+            try:
+                from services import robinhood_auth
+                from modules.tools.clients import snaptrade_tools
+                has_brokerage = bool(
+                    await robinhood_auth.is_connected(user_id)
+                    or await snaptrade_tools.has_active_connection(user_id)
+                )
+            except Exception:
+                logger.warning("cockpit: brokerage check failed for %s", user_id)
             w = await crud.create_widget(
-                db, user_id, title="Mission", spec=default_cockpit_spec(goal), kind="cockpit",
+                db, user_id, title="Mission",
+                spec=default_cockpit_spec(goal, has_brokerage=has_brokerage), kind="cockpit",
             )
         return _to_response(w, user_id)
 
