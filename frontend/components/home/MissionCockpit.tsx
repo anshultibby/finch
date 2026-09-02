@@ -237,6 +237,21 @@ function renderBlock(tile: Tile, p: Payload | undefined, nav: any): React.ReactN
   }
   if (shape === 'news') return <News p={p!} title={tile.title} nav={nav} />;
   if (shape === 'number') return <StatBlock p={p!} />;
+  if (shape === 'empty') {
+    // Personal blocks keep a visible connect/empty state instead of vanishing.
+    const src = (tile as any).query?.source;
+    if (src === 'user_portfolio') return <Positions p={p!} title={tile.title} nav={nav} />;
+    if (src === 'user_watchlist') return (
+      <Panel title={tile.title || 'Watchlist'} icon={<Star className="w-4 h-4" />} accent="rose">
+        <div className="px-4 py-4 text-[13.5px] text-gray-600 leading-relaxed">
+          {p!.reason === 'empty_watchlist'
+            ? 'Your watchlist is empty — add stocks and they’ll track here.'
+            : 'Connect a brokerage to populate this.'}
+        </div>
+      </Panel>
+    );
+    return null;
+  }
   return null;
 }
 
