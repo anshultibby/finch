@@ -21,17 +21,21 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from core.database import get_db_session
-from models.jobs import ScheduledJob
+from models.jobs import (
+    ScheduledJob,
+    SYS_DAY_TRADING_NIGHTLY, SYS_MORNING_BRIEF, SYS_HEARTBEAT,
+    SYS_HEARTBEAT_TRIGGER, SYS_CATALYST_IDEAS,
+)
 from services.job_scheduler import schedule, set_enabled
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-DAY_TRADING_NIGHTLY = "day_trading_nightly"
-MORNING_BRIEF = "morning_brief"
-HEARTBEAT = "heartbeat"
-HEARTBEAT_TRIGGER = "heartbeat_trigger"  # one-off runs the market monitor fires
-CATALYST_IDEAS = "catalyst_ideas"
+DAY_TRADING_NIGHTLY = SYS_DAY_TRADING_NIGHTLY
+MORNING_BRIEF = SYS_MORNING_BRIEF
+HEARTBEAT = SYS_HEARTBEAT
+HEARTBEAT_TRIGGER = SYS_HEARTBEAT_TRIGGER  # one-off runs the market monitor fires
+CATALYST_IDEAS = SYS_CATALYST_IDEAS
 
 
 # ── nightly day-trading plan ─────────────────────────────────────────────────
@@ -60,6 +64,36 @@ _NIGHTLY_MESSAGE = (
     "`next_steps` is the first thing the next run sees — put the real handoff "
     "there. If the operation isn't set up yet (no strategy.md, no journal), "
     "bootstrap a one-paragraph plan, schedule tomorrow's first wakeup, and stop."
+)
+
+
+# Swapped in for _NIGHTLY_MESSAGE by the waker when the user has gone inactive
+# (job_scheduler.run_job). NOT stored on the row — the nightly review keeps its
+# normal instruction and only runs this one on nights the user is away, so it
+# reverts automatically the moment they come back. The market is closed at
+# nightly time, so this can't flatten directly; it schedules ONE close-out
+# wakeup for the next open if anything is still exposed, then lets the loop go
+# dormant. "Flatten once, then dormant."
+_STAND_DOWN_MESSAGE = (
+    "Stand-down review (built-in automation). The user has not opened Finch in "
+    "over 2 days, so the day-trading agent is standing down until they return — "
+    "do NOT plan, size, or open any new trades tonight.\n"
+    "Read `skills/day_trading/SKILL.md` and follow its 'Standing down' section. "
+    "Open with `journal.session_state()`. The market is closed now: place NO "
+    "orders.\n"
+    "Your only task tonight is to make sure nothing is left trading unattended:\n"
+    "1) If any position is open OR any resting/working order exists, schedule "
+    "exactly ONE close-out wakeup for the next regular open (use the skill's "
+    "clock helpers) whose instruction is to flatten every position and cancel "
+    "all resting orders — and schedule NOTHING else. Also cancel any intraday "
+    "wakeups already on the calendar for the coming session.\n"
+    "2) If the account is already flat with no resting orders, schedule nothing "
+    "at all.\n"
+    "Either way do NOT schedule tomorrow's opening or check-in wakeups — the "
+    "loop stays dormant. Close with `append_note` recording that the agent stood "
+    "down for inactivity, and `report_insight` a one-line note the user will see "
+    "when they return. Normal trading resumes on its own at the first nightly "
+    "review after they reopen the app."
 )
 
 
@@ -284,7 +318,7 @@ async def refresh_builtin_messages() -> int:
 async def trigger_heartbeat_now(user_id: str, reason: str) -> bool:
     """Fire a one-off heartbeat run immediately (the market-monitor tripwire).
     Skips if a trigger is already pending/running so a volatile day can't stack
-    investigations, and for users inactive >72h (the recurring heartbeat is
+    investigations, and for users inactive >48h (the recurring heartbeat is
     likewise gated — it resumes when they return). Returns True if enqueued."""
     from services.agent_events import is_user_active
     if not await is_user_active(user_id):

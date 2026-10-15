@@ -21,6 +21,16 @@ from core.database import Base
 JOB_CHAT_PREFIX = "job-"
 
 
+# system_key values for Finch built-ins. Defined here (not in services/system_jobs)
+# so both the provisioner and the waker can name them without a circular import —
+# the waker's inactivity policy keys off these (see job_scheduler._pauses_when_inactive).
+SYS_DAY_TRADING_NIGHTLY = "day_trading_nightly"
+SYS_MORNING_BRIEF = "morning_brief"
+SYS_HEARTBEAT = "heartbeat"
+SYS_HEARTBEAT_TRIGGER = "heartbeat_trigger"
+SYS_CATALYST_IDEAS = "catalyst_ideas"
+
+
 class ScheduledJob(Base):
     __tablename__ = "scheduled_jobs"
 

@@ -26,7 +26,7 @@ RECAP_MAX_AGE = timedelta(days=7)   # never dig further back than this
 RECAP_DEFAULT_WINDOW = timedelta(hours=48)  # first visit / never-dismissed
 RECAP_EVENT_LIMIT = 30
 
-ACTIVE_WINDOW = timedelta(hours=72)  # "active user" = opened the app within this
+ACTIVE_WINDOW = timedelta(hours=48)  # "active user" = opened the app within this
 _TOUCH_THROTTLE_SECONDS = 300
 _last_touch: dict[str, datetime] = {}  # in-memory write throttle
 
@@ -40,7 +40,7 @@ def _now() -> datetime:
 async def touch_activity(user_id: str) -> None:
     """Record that the user just opened the app. Never raises.
 
-    If this is a return from >72h away, wake a paused-by-inactivity heartbeat:
+    If this is a return from >48h away, wake a paused-by-inactivity heartbeat:
     pull its next run to now so the agent is visibly working within minutes.
     """
     now = _now()

@@ -279,6 +279,24 @@ recurrence — don't move it later). Keep each wakeup's message thin ("open
 positions per the day_trading skill") — the recipe lives here. Schedule nothing
 if the operation isn't set up (no playbook, no journal).
 
+## Standing down (user inactive)
+
+If the nightly review's instruction says to **stand down** (the user hasn't
+opened Finch in days), the goal flips from "plan tomorrow" to "leave nothing
+running unattended," and you flatten *once*, then go dormant:
+
+- The market is closed at nightly time — you can't sell now. If anything is
+  still exposed (any open position, any resting/working order), schedule
+  **exactly one** close-out wakeup for the next regular open whose message is to
+  flatten every position and cancel all resting orders. Cancel any intraday
+  wakeups already on the calendar for that session.
+- If the account is already flat with no resting orders, schedule nothing.
+- Either way, do **not** schedule opening or check-in wakeups — the loop stays
+  dormant. `append_note` that you stood down for inactivity and `report_insight`
+  a one-liner the user will see on their return.
+- Don't fight it: normal planning resumes by itself at the first nightly review
+  after the user reopens the app.
+
 ## Hard rules
 
 1. `session()` first (closed → exit); `session_state()` second and as your only

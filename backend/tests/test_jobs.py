@@ -12,6 +12,10 @@ import pytest
 
 from services.job_scheduler import (
     next_occurrence, _advance_past_now, _run_chat_id, _to_dto,
+    _pauses_when_inactive,
+)
+from models.jobs import (
+    SYS_DAY_TRADING_NIGHTLY, SYS_MORNING_BRIEF, SYS_HEARTBEAT, SYS_CATALYST_IDEAS,
 )
 
 
@@ -101,6 +105,32 @@ def test_run_chat_points_at_the_failed_run():
 def test_flags_round_trip():
     dto = _to_dto(_row(system_key="heartbeat", activity_gated=True, comped=False))
     assert dto.is_system and dto.activity_gated and not dto.comped
+
+
+# ── inactivity pause policy ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize("kw,expected", [
+    # Built-ins that spend credits / act autonomously → pause when away.
+    (dict(system_key=SYS_HEARTBEAT, activity_gated=True, recurrence="every_30m"), True),
+    (dict(system_key=SYS_CATALYST_IDEAS, recurrence="weekdays"), True),
+    # User recurring routine (no system_key) → pause.
+    (dict(system_key=None, recurrence="daily"), True),
+    # User one-off → always fires (time-sensitive, e.g. a reminder).
+    (dict(system_key=None, recurrence=None), False),
+    # Morning brief pauses too — no autonomous work for a lapsed user.
+    (dict(system_key=SYS_MORNING_BRIEF, recurrence="daily", comped=True), True),
+    # Trading nightly is never skipped here — it stands down instead.
+    (dict(system_key=SYS_DAY_TRADING_NIGHTLY, recurrence="weekdays", comped=True), False),
+])
+def test_pauses_when_inactive(kw, expected):
+    assert _pauses_when_inactive(_to_dto(_row(**kw))) is expected
+
+
+def test_trading_nightly_never_pauses_even_if_flagged():
+    """Belt and braces: the stand-down path owns the nightly, so the generic
+    skip must not also claim it even if the row carries the gate flag."""
+    row = _row(system_key=SYS_DAY_TRADING_NIGHTLY, activity_gated=True)
+    assert _pauses_when_inactive(_to_dto(row)) is False
 
 
 def test_projected_weekly_credits():

@@ -11,7 +11,11 @@ Every run executes in a FRESH chat. Cross-run memory is the agent-events ledger
 
 Two behaviours vary per job and are columns on the row, not special cases here:
   comped          — the run's credits are refunded (Finch-provided built-ins)
-  activity_gated  — skip the run if the user hasn't opened the app in 72h
+  activity_gated  — skip the run if the user hasn't opened the app in 48h
+
+Inactivity is handled per job kind (see _pauses_when_inactive / run_job): most
+paused jobs simply skip, the day-trading nightly stands the agent down instead
+(flatten once, then dormant), and one-off jobs always fire.
 
 Limits per user: RECURRING_LIMIT recurring + ONEOFF_LIMIT one-off active jobs.
 Built-ins (system_key set) don't count against either.
@@ -25,7 +29,11 @@ from typing import List, Optional
 from sqlalchemy import select, func, update
 
 from core.database import get_db_session
-from models.jobs import ScheduledJob, JOB_CHAT_PREFIX
+from models.jobs import (
+    ScheduledJob, JOB_CHAT_PREFIX,
+    SYS_DAY_TRADING_NIGHTLY, SYS_MORNING_BRIEF, SYS_HEARTBEAT,
+    SYS_HEARTBEAT_TRIGGER, SYS_CATALYST_IDEAS,
+)
 from schemas.jobs import Job, JobCreate, JobUpdate, JobList
 from utils.logger import get_logger
 
@@ -498,7 +506,7 @@ async def _skip_inactive(job: Job) -> None:
         else:
             row.status = "done"  # one-off tripwire: quietly drop it
         await db.commit()
-    logger.info(f"Skipped job {job.id} ({job.name}) — user inactive >72h")
+    logger.info(f"Skipped job {job.id} ({job.name}) — user inactive")
 
 
 async def _daily_run_count(user_id: str) -> int:
@@ -558,9 +566,46 @@ async def _skip_over_budget(job: Job) -> None:
     logger.info(f"Skipped job {job.id} ({job.name}) — daily run budget reached")
 
 
+# Built-ins whose runs pause while the user is away. The day-trading nightly is
+# deliberately absent: it never skips — it stands the agent down instead (below),
+# so open positions still get closed.
+_INACTIVITY_PAUSED_KEYS = {
+    SYS_HEARTBEAT, SYS_HEARTBEAT_TRIGGER, SYS_CATALYST_IDEAS, SYS_MORNING_BRIEF,
+}
+
+
+def _pauses_when_inactive(job: Job) -> bool:
+    """Should this job skip its run when the user hasn't opened the app recently?
+
+    Keyed on job kind, not a single per-row flag, so the policy also covers rows
+    provisioned before the flag existed. One-off jobs are never paused — they're
+    time-sensitive (a reminder, or the mandatory intraday close-out that must
+    fire to flatten an away user's positions). The day-trading nightly is never
+    paused here; run_job stands it down instead."""
+    if job.system_key == SYS_DAY_TRADING_NIGHTLY:
+        return False
+    if job.activity_gated or job.system_key in _INACTIVITY_PAUSED_KEYS:
+        return True
+    # User routines (no system_key) that recur act autonomously and spend the
+    # user's credits, so pause them too. Their one-offs still fire.
+    return job.system_key is None and job.recurrence is not None
+
+
 async def run_job(job: Job) -> None:
     """Run one claimed job: send its instruction to the agent, as the user."""
-    if job.activity_gated:
+    run_message = job.message
+
+    if job.system_key == SYS_DAY_TRADING_NIGHTLY:
+        # Never skip the trading agent — an away user may still have open risk.
+        # Stand it down: run tonight's review with the flatten-then-dormant
+        # instruction instead of the normal planning one. Reverts on its own the
+        # next time the user is active, since we only swap the message per run.
+        from services.agent_events import is_user_active
+        if not await is_user_active(job.user_id):
+            from services.system_jobs import _STAND_DOWN_MESSAGE
+            run_message = _STAND_DOWN_MESSAGE
+            logger.info(f"Standing down trading job {job.id} — user inactive")
+    elif _pauses_when_inactive(job):
         from services.agent_events import is_user_active
         if not await is_user_active(job.user_id):
             await _skip_inactive(job)
@@ -597,7 +642,7 @@ async def run_job(job: Job) -> None:
 
         before = await _user_credits(job.user_id)
         async for _ in service.send_message_stream(
-            message=job.message, chat_id=chat_id, user_id=job.user_id,
+            message=run_message, chat_id=chat_id, user_id=job.user_id,
             auth_token=auth_token,
             page_context={"source": "scheduled_job", "job_id": job.id},
         ):
