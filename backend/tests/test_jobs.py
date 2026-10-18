@@ -12,7 +12,7 @@ import pytest
 
 from services.job_scheduler import (
     next_occurrence, _advance_past_now, _run_chat_id, _to_dto,
-    _pauses_when_inactive,
+    _pauses_when_inactive, _is_day_trading_job, _is_entry_scan_job,
 )
 from models.jobs import (
     SYS_DAY_TRADING_NIGHTLY, SYS_MORNING_BRIEF, SYS_HEARTBEAT, SYS_CATALYST_IDEAS,
@@ -143,3 +143,44 @@ def test_one_off_projects_nothing():
     dto = _to_dto(_row(recurrence=None, last_run_credits=10, run_count=1,
                        last_run_at=_dt(2026, 8, 6)))
     assert dto.projected_weekly_credits == 0
+
+
+# ── day-trading job detection (model routing + entry-scan screen) ─────────────
+
+def test_nightly_is_a_day_trading_job():
+    assert _is_day_trading_job(_to_dto(_row(system_key=SYS_DAY_TRADING_NIGHTLY)))
+
+
+def test_intraday_one_off_detected_by_text():
+    row = _row(system_key=None, recurrence=None, name="Oct 15 open scan 09:36 ET",
+               message="Day trade — open positions. Run stocks_in_play(top_n=10).")
+    assert _is_day_trading_job(_to_dto(row))
+
+
+def test_unrelated_job_is_not_day_trading():
+    row = _row(system_key=None, recurrence=None, name="Morning brief",
+               message="Compose the user's daily pre-market brief.")
+    assert not _is_day_trading_job(_to_dto(row))
+
+
+def test_open_scan_is_screenable_entry():
+    row = _row(system_key=None, recurrence=None, name="Oct 15 open scan 09:36 ET",
+               message="Day trade — open positions. Opening range breakout.")
+    assert _is_entry_scan_job(_to_dto(row))
+
+
+def test_closeout_is_never_screened_out():
+    row = _row(system_key=None, recurrence=None, name="Oct 15 EOD closeout 15:45 ET",
+               message="Day trade — close out. Flatten every position.")
+    assert not _is_entry_scan_job(_to_dto(row))
+
+
+def test_nightly_is_not_a_screenable_entry():
+    # Load-bearing: schedules wakeups + stands down risk. Always runs.
+    assert not _is_entry_scan_job(_to_dto(_row(system_key=SYS_DAY_TRADING_NIGHTLY)))
+
+
+def test_recurring_day_trading_job_is_not_a_screenable_entry():
+    row = _row(system_key=None, recurrence="weekdays", name="open scan",
+               message="Day trade — open positions.")
+    assert not _is_entry_scan_job(_to_dto(row))

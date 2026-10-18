@@ -37,6 +37,22 @@ from skills.fred.scripts import upcoming_events        # macro calendar (module 
 ```
 The scripts' docstrings are the reference — read them; don't reimplement them.
 
+## Runtime & cost (set by the backend, not you)
+
+These jobs run on **Claude Haiku 5.5 at effort `high`** (`Config.DAY_TRADING_LLM_MODEL`),
+not the default coordinator — ~30x cheaper per token than Sonnet. Write for it:
+lean on the `scripts` for signals/math (don't reason your way through arithmetic
+the code already does), keep context narrow (see "Context discipline"), and be an
+operator, not a commentator.
+
+Before an **open-scan / entry** session even starts, the backend runs a cheap
+pre-flight screen (OpenAI Decisions API over an index/volatility snapshot,
+`services/trade_screen.py`): on a flat, quiet tape it skips the whole session and
+logs "Open scan — no setup". So by the time you're running an entry scan, the
+backdrop already cleared that bar — don't re-litigate whether the market is
+"worth it"; scan and act. The screen only gates entry scans; the nightly review
+and every close-out always run.
+
 ## How a trading day flows (reference — your wakeup goal drives)
 
 You're an autonomous agent pursuing a goal, not a script executing fixed steps.

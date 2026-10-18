@@ -23,6 +23,9 @@ MODEL_PRICING = {
     # 3.3x (Finch ate the difference) and Haiku overcharged 3x. Both are
     # user-selectable in the chat model picker, so both were live.
     "claude-fable-5":    {"input": 10.0, "output": 50.0, "cache_read": 1.00, "cache_write": 12.50},
+    # Haiku 5.5 (Oct 2026) — ~30x cheaper than Sonnet. Must precede claude-haiku-4-5
+    # here too (substring scan), though neither is a substring of the other.
+    "claude-haiku-5-5":  {"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125},
     "claude-haiku-4-5":  {"input": 1.0, "output": 5.0, "cache_read": 0.10, "cache_write": 1.25},
     # Claude 4 models
     "claude-opus-4-8":   {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
@@ -42,6 +45,8 @@ MODEL_PRICING = {
     "o1": {"input": 15.0, "output": 60.0, "cache_read": 7.50, "cache_write": 15.0},
     "o3-mini": {"input": 1.10, "output": 4.40, "cache_read": 0.55, "cache_write": 1.10},
     "gpt-5": {"input": 2.0, "output": 8.0, "cache_read": 1.0, "cache_write": 2.0},
+    # OpenAI Decisions API (gpt-6-luna): $0.10/Mtok in, no output/cache charge.
+    "gpt-6-luna": {"input": 0.10, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0},
     # Gemini models
     "gemini-2.0": {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0},  # Free tier
     "gemini-2.5": {"input": 1.25, "output": 5.0, "cache_read": 0.125, "cache_write": 1.5625},

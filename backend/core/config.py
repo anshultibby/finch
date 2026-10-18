@@ -50,6 +50,25 @@ class Settings(BaseSettings):
         default=2,
         description="Max sub-agents the delegate tool may spawn per chat (cost guard)"
     )
+    # Day-trading jobs (nightly planner + intraday entry scans) run on this model
+    # at the model's default effort ("high" for Haiku 5.5) instead of the global
+    # coordinator default — ~30x cheaper per token than Sonnet 4.6.
+    DAY_TRADING_LLM_MODEL: str = Field(
+        default=Models.CLAUDE_HAIKU_5_5,
+        description="LLM model for day-trading automation jobs (entry + nightly)"
+    )
+    # Pre-flight screen (OpenAI Decisions API) for intraday entry-scan jobs: skip
+    # the full thinking session when the market backdrop doesn't warrant it.
+    TRADE_SCREEN_ENABLED: bool = Field(
+        default=True,
+        description="Gate day-trading entry scans through the OpenAI Decisions API"
+    )
+    TRADE_SCREEN_MIN_PROBABILITY: float = Field(
+        default=0.35,
+        description="Run the entry-scan session when the screen's 'warrants a "
+                    "session' probability is at least this; below it, skip. Biased "
+                    "low so borderline setups still get a full look."
+    )
     LLM_NUM_RETRIES: int = Field(
         default=3,
         description="How many times LiteLLM retries a transient LLM error (429 "

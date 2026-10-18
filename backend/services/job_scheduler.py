@@ -28,6 +28,7 @@ from typing import List, Optional
 
 from sqlalchemy import select, func, update
 
+from core.config import Config
 from core.database import get_db_session
 from models.jobs import (
     ScheduledJob, JOB_CHAT_PREFIX,
@@ -509,6 +510,29 @@ async def _skip_inactive(job: Job) -> None:
     logger.info(f"Skipped job {job.id} ({job.name}) — user inactive")
 
 
+async def _skip_entry_scan(job: Job, reason: str) -> None:
+    """The entry-scan screen judged the backdrop not worth a full session: close
+    the one-off without running (no credits), and drop a ledger note so the user
+    can see the scan ran its cheap screen and stood pat."""
+    async with get_db_session() as db:
+        row = (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.id == job.id)
+        )).scalars().first()
+        if row:
+            row.status = "done"  # entry scans are one-offs
+            await db.commit()
+    try:
+        from services.agent_events import record_event
+        await record_event(
+            job.user_id, "run_skipped", "Open scan — no setup",
+            body=f"Skipped the full scan session; backdrop didn't warrant it ({reason}).",
+            data={"job_id": job.id, "screen": reason}, source="automation",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to record entry-scan skip for job {job.id}: {e}")
+    logger.info(f"Skipped entry scan {job.id} ({job.name}) — {reason}")
+
+
 async def _daily_run_count(user_id: str) -> int:
     """User-routine runs recorded today (UTC) — counts 'job_run' ledger events
     whose job had no system_key (i.e. user routines, not Finch built-ins)."""
@@ -591,6 +615,36 @@ def _pauses_when_inactive(job: Job) -> bool:
     return job.system_key is None and job.recurrence is not None
 
 
+# Markers the day-trading agent leaves on the intraday one-off jobs it provisions
+# (per skills/day_trading/SKILL.md). These jobs carry no system_key, so we match
+# on their instruction text. Used only to pick the cheaper coordinator model and
+# to screen entry scans — a miss just means the job runs on the default model and
+# unscreened, exactly as before, so false negatives are safe.
+_DAY_TRADING_MARKERS = ("day_trading", "day trade", "day-trading")
+_ENTRY_SCAN_MARKERS = ("open scan", "open positions", "opening range", "orb", "stocks_in_play")
+
+
+def _is_day_trading_job(job: Job) -> bool:
+    if job.system_key == SYS_DAY_TRADING_NIGHTLY:
+        return True
+    text = f"{job.name or ''}\n{job.message or ''}".lower()
+    return any(m in text for m in _DAY_TRADING_MARKERS)
+
+
+def _is_entry_scan_job(job: Job) -> bool:
+    """A day-trading intraday one-off that seeks a new entry (not a close-out or
+    position check). Only these are screen-skippable; the nightly and the
+    mandatory close-outs always run."""
+    if job.system_key is not None or job.recurrence is not None:
+        return False
+    if not _is_day_trading_job(job):
+        return False
+    text = f"{job.name or ''}\n{job.message or ''}".lower()
+    if "close" in text or "flatten" in text:  # never screen out a close-out
+        return False
+    return any(m in text for m in _ENTRY_SCAN_MARKERS)
+
+
 async def run_job(job: Job) -> None:
     """Run one claimed job: send its instruction to the agent, as the user."""
     run_message = job.message
@@ -610,6 +664,22 @@ async def run_job(job: Job) -> None:
         if not await is_user_active(job.user_id):
             await _skip_inactive(job)
             return
+
+    # Day-trading jobs (entry + nightly) run on the cheap Haiku coordinator at its
+    # high-effort default instead of the global default. Entry scans additionally
+    # go through a cheap OpenAI Decisions screen: skip the full session when the
+    # market backdrop doesn't warrant one. The nightly is never screened (it
+    # schedules wakeups and stands down open risk); a stood-down nightly carries
+    # the _STAND_DOWN_MESSAGE already set above and still runs.
+    requested_model: Optional[str] = None
+    if _is_day_trading_job(job):
+        requested_model = Config.DAY_TRADING_LLM_MODEL
+        if _is_entry_scan_job(job):
+            from services.trade_screen import should_run_entry_scan
+            screen = await should_run_entry_scan()
+            if not screen.run:
+                await _skip_entry_scan(job, screen.reason)
+                return
 
     # Daily run budget (free plan), user routines only. FAIL-OPEN: the cap must
     # never wedge the waker, so any error here falls through to running the job.
@@ -643,7 +713,7 @@ async def run_job(job: Job) -> None:
         before = await _user_credits(job.user_id)
         async for _ in service.send_message_stream(
             message=run_message, chat_id=chat_id, user_id=job.user_id,
-            auth_token=auth_token,
+            auth_token=auth_token, requested_model=requested_model,
             page_context={"source": "scheduled_job", "job_id": job.id},
         ):
             pass
