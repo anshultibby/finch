@@ -17,6 +17,12 @@ class Models(StrEnum):
     CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4-5"
     CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4-5-20251101"
     CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4-5"
+    # Haiku 5.5 (Oct 2026): $0.10/$0.50 per Mtok, 1M context, adaptive thinking +
+    # effort. ~30x cheaper than Sonnet 4.6 — the day-trading coordinator model.
+    CLAUDE_HAIKU_5_5 = "anthropic/claude-haiku-5-5"
+    # OpenAI Decisions API model (POST /v1/decisions). $0.10/Mtok in, no output
+    # charge. Used as a cheap pre-flight screen, never as a chat coordinator.
+    GPT_6_LUNA = "gpt-6-luna"
 
     # Gemini (gemini-3-pro-preview was retired; 3.1 is the current pro preview)
     GEMINI_3_1_PRO = "gemini/gemini-3.1-pro-preview"

@@ -118,6 +118,23 @@ MODEL_SPECS: List[ModelSpec] = [
         default_effort="medium",
         pricing={"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     ),
+    # ------------------------------------------------ Anthropic Claude Haiku 5.5
+    # Must precede the general Haiku spec (its prefix "claude-haiku" would also
+    # match "claude-haiku-5-5"). Unlike Haiku 4.5, Haiku 5.5 supports adaptive
+    # thinking + output_config.effort — so it uses anthropic_adaptive, not budget.
+    # Priced at $0.10/$0.50 (Oct 2026); the day-trading coordinator runs here at
+    # effort "high" (`default_effort`).
+    ModelSpec(
+        prefixes=("anthropic/claude-haiku-5", "claude-haiku-5"),
+        provider="anthropic",
+        api_key_setting="ANTHROPIC_API_KEY",
+        caching="anthropic",
+        stream_usage=True,
+        defaults={"caching": True, "max_tokens": 32000},
+        reasoning_style="anthropic_adaptive",
+        default_effort="high",
+        pricing={"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125},
+    ),
     # --------------------------------------------------- Anthropic Claude Haiku
     # Must precede the general Claude spec, which would otherwise catch Haiku and
     # cost-log it at Sonnet's $3/$15 — 3x its real rate. Same reasoning config as
@@ -244,6 +261,7 @@ SELECTABLE_MODELS: List[Dict[str, str]] = [
     {"id": "anthropic/claude-opus-4-8", "label": "Claude Opus 4.8", "provider": "Anthropic"},
     {"id": "anthropic/claude-fable-5", "label": "Claude Fable 5", "provider": "Anthropic"},
     {"id": "anthropic/claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "provider": "Anthropic"},
+    {"id": "anthropic/claude-haiku-5-5", "label": "Claude Haiku 5.5", "provider": "Anthropic"},
     {"id": "zai/glm-5.1", "label": "GLM-5.1", "provider": "Z.ai"},
     {"id": "gemini/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "provider": "Google"},
 ]
