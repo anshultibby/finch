@@ -2,11 +2,10 @@ import { View, Text, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDrawer } from '@/contexts/DrawerContext';
 import { useChatStream } from '@/hooks/useChatStream';
 import { chatApi } from '@/lib/api';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Menu, Share2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react-native';
+import { ChevronLeft, Share2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react-native';
 import type { ImageAttachment, ModelOption } from '@/lib/types';
 import ChatMessage from '@/components/chat/ChatMessage';
 import ChatInput from '@/components/chat/ChatInput';
@@ -21,8 +20,9 @@ export default function ChatScreen() {
   const { id, seed } = useLocalSearchParams<{ id: string; seed?: string }>();
   const seededRef = useRef(false);
   const { user } = useAuth();
-  const { openDrawer } = useDrawer();
   const router = useRouter();
+  // Back returns to wherever the chat was opened from (home card, Assistant).
+  const goBack = useCallback(() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/chat')), [router]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [chatTitle, setChatTitle] = useState('Chat');
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -108,6 +108,19 @@ export default function ChatScreen() {
     }
   }, [messages, isStreaming, id]);
 
+  const renderItem = useCallback(
+    ({ item, index }: { item: (typeof messages)[number]; index: number }) => (
+      <ChatMessage message={item} chatId={id} messageIndex={index} />
+    ),
+    [id],
+  );
+
+  // Content grows on every streamed token; an *animated* scroll each time
+  // stacks overlapping animations and janks the list. Jump instead.
+  const scrollToEnd = useCallback(() => {
+    flatListRef.current?.scrollToEnd({ animated: false });
+  }, []);
+
   const handleSend = useCallback((text: string, images?: ImageAttachment[]) => {
     if (!text.trim() || isStreaming) return;
     sendMessage(text, images, selectedModel);
@@ -188,8 +201,8 @@ export default function ChatScreen() {
     <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
       {/* Header */}
       <View style={chatStyles.header}>
-        <TouchableOpacity onPress={openDrawer} style={chatStyles.iconBtn} activeOpacity={0.7}>
-          <Menu size={22} color={COLORS.gray900} />
+        <TouchableOpacity onPress={goBack} style={chatStyles.iconBtn} activeOpacity={0.7} accessibilityLabel="Back">
+          <ChevronLeft size={24} color={COLORS.gray900} />
         </TouchableOpacity>
         <Text style={chatStyles.headerTitle} numberOfLines={1}>
           {chatTitle}
@@ -280,9 +293,14 @@ export default function ChatScreen() {
               ref={flatListRef}
               data={messages}
               keyExtractor={(_, index) => index.toString()}
-              renderItem={({ item, index }) => <ChatMessage message={item} chatId={id} messageIndex={index} />}
+              renderItem={renderItem}
               contentContainerClassName="px-4 pt-3 pb-4"
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              onContentSizeChange={scrollToEnd}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={11}
+              // Android-only: on iOS it can blank out variable-height markdown cells.
+              removeClippedSubviews={Platform.OS === 'android'}
               ListFooterComponent={
                 isStreaming ? (
                   <StreamingView text={streamingText} tools={streamingTools} todos={todos} thinkingText={thinkingText} />

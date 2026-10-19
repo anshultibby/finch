@@ -1,7 +1,8 @@
 from .client import (
     sync_transactions, get_transactions, finch_api,
     schedule_job, list_jobs, get_job, update_job, cancel_job,
-    request_trade_approval, send_morning_brief, report_insight,
+    request_trade_approval, send_morning_brief, report_insight, explain_move,
     list_events, search_past_chats,
     propose_idea, list_ideas,
+    list_theses, get_thesis, save_thesis, log_story,
 )

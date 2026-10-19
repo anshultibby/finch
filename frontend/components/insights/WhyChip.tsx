@@ -3,13 +3,14 @@
 /**
  * WhyChip — tap-to-explain for any price move.
  *
- * Renders a small "Why?" chip next to a price change. On click it fetches the
- * AI move explanation (grounded in today's headlines, cached server-side) and
- * reveals it in an inline card with source links.
+ * Renders a small "Why?" chip next to a price change. On click it fetches
+ * Finch's read of the move — routine, news with the story intact, or a
+ * narrative change; macro, sector or company — with the measured numbers behind
+ * the call and source links.
  */
 import { useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
-import { insightsApi, MoveExplanation } from '@/lib/api';
+import { insightsApi, MoveExplanation, VERDICT_META, DRIVER_LABEL, type MoveContext } from '@/lib/api';
 
 interface WhyChipProps {
   symbol: string;
@@ -63,7 +64,7 @@ export default function WhyChip({ symbol, changePct, className = '' }: WhyChipPr
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 z-30 w-80 max-w-[85vw] finch-surface rounded-xl bg-white p-3.5 shadow-lg border border-gray-100 text-left">
+        <div className="absolute left-0 top-full mt-2 z-30 w-96 max-w-[85vw] finch-surface rounded-xl bg-white p-3.5 shadow-lg border border-gray-100 text-left">
           <div className="flex items-start justify-between gap-2 mb-1.5">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
               <Sparkles className="w-3 h-3 text-emerald-500" />
@@ -92,7 +93,21 @@ export default function WhyChip({ symbol, changePct, className = '' }: WhyChipPr
 
           {data && !loading && (
             <>
+              {data.verdict && (
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="rounded-md px-1.5 py-0.5 text-[11px] font-bold"
+                    style={{ color: VERDICT_META[data.verdict].fg, background: VERDICT_META[data.verdict].bg }}>
+                    {VERDICT_META[data.verdict].label}
+                  </span>
+                  {data.driver && <span className="text-[11px] font-medium text-gray-400">{DRIVER_LABEL[data.driver]}</span>}
+                </div>
+              )}
+              {data.headline && <p className="text-[14px] font-semibold text-gray-900 leading-snug mb-1">{data.headline}</p>}
               <p className="text-[13px] leading-relaxed text-gray-800">{data.explanation}</p>
+              {data.context && <MeasuredStrip ctx={data.context} />}
+              {data.watch && (
+                <p className="text-[12.5px] leading-snug text-gray-600 mt-2"><span className="font-semibold text-gray-900">Watch: </span>{data.watch}</p>
+              )}
               {data.sources.length > 0 && (
                 <div className="mt-2.5 pt-2 border-t border-gray-100 space-y-1">
                   {data.sources.slice(0, 2).map((s, i) => (
@@ -113,6 +128,24 @@ export default function WhyChip({ symbol, changePct, className = '' }: WhyChipPr
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The numbers behind the verdict: how unusual, and how much is market/sector. */
+function MeasuredStrip({ ctx }: { ctx: MoveContext }) {
+  const pct = (n: number | null) => (n == null ? null : `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`);
+  const items = [
+    ctx.move_multiple != null ? `${ctx.move_multiple}× its typical move` : null,
+    pct(ctx.spy_change_pct) ? `Market ${pct(ctx.spy_change_pct)}` : null,
+    pct(ctx.sector_change_pct) ? `${ctx.sector_etf || 'Sector'} ${pct(ctx.sector_change_pct)}` : null,
+    ctx.volume_ratio != null ? `Volume ${ctx.volume_ratio}×` : null,
+    ctx.earnings,
+  ].filter(Boolean) as string[];
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {items.map(t => <span key={t} className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600">{t}</span>)}
     </div>
   );
 }

@@ -11,6 +11,26 @@ unless there's a platform-specific reason not to.
 **Shared API layer.** Both call the same backend; function names in `lib/api.ts` should
 match across web and mobile.
 
+## Proactive home (Oct 2026 redesign)
+
+One page: a ranked "Finch noticed" brief (hidden filler-free) + six cards, each a tool
+with a live status line. Shipped on both (web: `components/proactive/`; the Mission
+cockpit was removed and the old tabbed dashboard lives on as the `markets` view).
+
+| Feature | Web | Mobile | Notes |
+|---------|-----|--------|-------|
+| Home: brief + 6 cards (no drawer/tabs) | ✅ | ✅ | `app/(tabs)/index.tsx` |
+| Ask Finch (ideas + prompts + recents) | ✅ | ✅ | Web keeps recents in the sidebar; mobile in `app/(tabs)/chat/index.tsx` |
+| Screener (filters + plain-English + watch screen) | ✅ | ✅ | `GET /market/screener`; `marketApi.screen` |
+| Trader (approvals, Finch's calls scorecard, pause-all) | ✅ | ✅ | `ideasApi`, `jobsApi.pauseAll` |
+| Financials entry (search → stock `?tab=financials`) | ✅ | ✅ | `app/research.tsx` |
+| Calendar (your earnings + Finch's schedule) | ✅ | ✅ | `app/calendar.tsx` |
+| Watching (checks as plain-English rules, check-ins) | ✅ | ✅ | `app/watching.tsx`; template checks via `jobsApi.create` |
+| Theses: "Your thesis" card on stock page (write / draft with Finch / today's check / story log) | ✅ | ✅ | `ThesisCard`; backend `services/theses.py`, files in memory store `store/theses/` |
+| Theses list in Watching | ✅ | ✅ | |
+| "Why is it moving" verdict + measured context | ✅ | ✅ | `WhyChip` / `WhyMoveCard` |
+| Brief labels (verdict / thesis weakened-broken) | ✅ | ✅ | |
+
 ## Checklist
 
 | Feature | Web | Mobile | Notes |
@@ -28,10 +48,10 @@ match across web and mobile.
 | Earnings tab | ✅ | ✅ | |
 | News tab | ✅ | ✅ | |
 | Analysis tab (grades, AI notes) | ✅ | ✅ | |
-| Trades tab (order history) | ✅ | ✅ | |
-| Holdings display on stock page | ✅ | ✅ | |
-| Trade modal (buy/sell) | ✅ | ✅ | |
-| Orders page | ✅ | ✅ | |
+| Trades tab (order history) | ✅ | ❌ | Mobile in-app trading removed (b9e66af) |
+| Holdings display on stock page | ✅ | ❌ | Removed with mobile trading (b9e66af) |
+| Trade modal (buy/sell) | ✅ | ❌ | Removed with mobile trading (b9e66af) |
+| Orders page | ✅ | ❌ | Removed with mobile trading (b9e66af) |
 | Message actions (copy, feedback) | ✅ | ✅ | |
 | Tool call expansion (view output) | ✅ | ✅ | |
 | Sidebar/drawer navigation | ✅ | ✅ | |
@@ -61,4 +81,4 @@ match across web and mobile.
 | Email notification banner | ✅ | ❌ | |
 | PDF export | ✅ | ❌ | |
 | Earnings transcript | ✅ | ❌ | |
-| Privacy page | ✅ | ❌ | |
+| Privacy page | ✅ | ✅ | `app/privacy.tsx` |

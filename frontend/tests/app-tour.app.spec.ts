@@ -8,16 +8,16 @@ import { snap, watchHealth } from './helpers/ux';
  * loading polish — not just "did it render".
  */
 
-// Sidebar nav targets. Accessible name comes from the visible label (expanded
-// sidebar) or the title tooltip (collapsed) — getByRole handles both.
-const NAV = [
-  { name: 'Dashboard', shot: 'dashboard' },
-  { name: 'Widgets', shot: 'widgets' },
-  { name: 'Memory Store', shot: 'memory-store' },
-] as const;
+// The home's six cards are the primary navigation.
+const CARDS = ['assistant', 'screener', 'trader', 'financials', 'calendar', 'watching'] as const;
+
+async function skipMissionCard(page: import('@playwright/test').Page) {
+  const skip = page.getByText('Skip setup for now');
+  if (await skip.isVisible().catch(() => false)) { await skip.click(); await page.waitForTimeout(600); }
+}
 
 test.describe('Authenticated app tour', () => {
-  test('lands on the dashboard without errors', async ({ page }, testInfo) => {
+  test('lands on the home without errors', async ({ page }, testInfo) => {
     const health = watchHealth(page);
     await page.goto('/');
 
@@ -27,7 +27,9 @@ test.describe('Authenticated app tour', () => {
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(1500);
 
-    await snap(page, testInfo, 'dashboard-initial');
+    await skipMissionCard(page);
+    await expect(page.getByTestId('finch-brief')).toBeVisible();
+    await snap(page, testInfo, 'home-initial');
 
     health.assertClean(); // hard-fail only on crashes / 5xx
     await health.warn(testInfo); // surface console errors + 404s as warnings
@@ -38,13 +40,16 @@ test.describe('Authenticated app tour', () => {
     await page.goto('/');
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
 
-    for (const item of NAV) {
-      const btn = page.getByRole('button', { name: item.name }).first();
-      await expect(btn, `Nav button "${item.name}" should exist`).toBeVisible();
+    await skipMissionCard(page);
+    for (const card of CARDS) {
+      const btn = page.getByTestId(`home-card-${card}`);
+      await expect(btn, `Home card "${card}" should exist`).toBeVisible();
       await btn.click();
       // Settle: SPA view swap + any data fetch.
       await page.waitForTimeout(1200);
-      await snap(page, testInfo, item.shot);
+      await snap(page, testInfo, card);
+      await page.getByRole('button', { name: 'Home' }).first().click();
+      await page.waitForTimeout(400);
     }
 
     health.assertClean();
@@ -54,6 +59,7 @@ test.describe('Authenticated app tour', () => {
   test('global stock search opens a stock detail view', async ({ page }, testInfo) => {
     await page.goto('/');
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await skipMissionCard(page);
 
     // Top bar search — type a ticker, pick the result, land on the stock page.
     // NB: target the stock search specifically; the sidebar also has a

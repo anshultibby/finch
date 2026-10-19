@@ -105,6 +105,28 @@ export default function RootLayout() {
             headerShadowVisible: false,
           }}
         />
+        {/* These two set their own headerTitle; the header must be enabled here
+            or they render with no back button, under the status bar. */}
+        <Stack.Screen
+          name="activity"
+          options={{
+            headerShown: true,
+            headerTitle: 'Agent Activity',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="notifications"
+          options={{
+            headerShown: true,
+            headerTitle: 'Notifications',
+            headerBackTitle: 'Back',
+            headerStyle: { backgroundColor: '#fafaf9' },
+            headerShadowVisible: false,
+          }}
+        />
         <Stack.Screen
           name="mission"
           options={{

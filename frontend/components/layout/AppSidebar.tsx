@@ -62,13 +62,6 @@ const HomeIcon = () => (
   </svg>
 );
 
-const MissionIcon = () => (
-  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <circle cx={12} cy={12} r={9} strokeWidth={1.8} />
-    <circle cx={12} cy={12} r={5} strokeWidth={1.8} />
-    <circle cx={12} cy={12} r={1.4} fill="currentColor" stroke="none" />
-  </svg>
-);
 
 const SearchIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,24 +81,9 @@ const WatchlistIcon = () => (
   </svg>
 );
 
-const ScheduledIcon = () => (
-  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" />
-  </svg>
-);
 
 
-const WidgetsIcon = () => (
-  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
-  </svg>
-);
 
-const TasksIcon = () => (
-  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m-6-8h6M5.25 5.25h.008v.008H5.25V5.25Zm0 4.5h.008v.008H5.25V9.75Zm0 4.5h.008v.008H5.25v-.008Zm0 4.5h.008v.008H5.25V18.75Z" />
-  </svg>
-);
 
 const ChatIcon = () => (
   <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -119,11 +97,6 @@ const LinkedAccountsIcon = () => (
   </svg>
 );
 
-const MemoryStoreIcon = () => (
-  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125v-3.75m16.5 3.75v3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125v-3.75" />
-  </svg>
-);
 
 function viewMatch(a: View, b: View): boolean {
   return a.type === b.type;
@@ -177,17 +150,14 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
   const chatListRef = useRef<HTMLDivElement>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const PAGE_SIZE = 30;
+  // The home's six cards are the navigation; the sidebar keeps just Home,
+  // New chat and the conversation history.
   const navItems: NavItem[] = [
-    { id: 'mission', label: 'Mission', view: { type: 'mission' }, icon: <MissionIcon /> },
-    { id: 'home', label: 'Dashboard', view: { type: 'home' }, icon: <HomeIcon /> },
-    { id: 'tasks', label: 'Tasks', view: { type: 'tasks' }, icon: <TasksIcon /> },
-    { id: 'jobs', label: 'Automations', view: { type: 'jobs' }, icon: <ScheduledIcon /> },
-    { id: 'widgets', label: 'Widgets', view: { type: 'widgets' }, icon: <WidgetsIcon /> },
-    { id: 'memory-store', label: 'Memory Store', view: { type: 'memory-store' }, icon: <MemoryStoreIcon /> },
+    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon /> },
   ];
 
   const mobileNavItems: NavItem[] = [
-    { id: 'mission', label: 'Mission', view: { type: 'mission' }, icon: <MissionIcon />, mobileNav: true },
+    { id: 'home', label: 'Home', view: { type: 'home' }, icon: <HomeIcon />, mobileNav: true },
     { id: 'chat', label: 'Chat', view: { type: 'chat' }, icon: <ChatIcon />, mobileNav: true },
   ];
 
@@ -378,10 +348,10 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
             })}
 
             {/* Pending approvals — a trade waiting on the user outranks nav.
-                Visible from any view; lands on home where the approval card is. */}
+                Visible from any view; lands on Trader where the approval card is. */}
             {pendingTrades.length > 0 && (
               <button
-                onClick={() => onNavigate({ type: 'home' })}
+                onClick={() => onNavigate({ type: 'trader' })}
                 className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors ${expanded ? '' : 'justify-center'}`}
                 title={!expanded ? `${pendingTrades.length} trade${pendingTrades.length > 1 ? 's' : ''} waiting for approval` : undefined}
               >

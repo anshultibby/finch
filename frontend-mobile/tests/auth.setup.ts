@@ -22,7 +22,8 @@ if (!EMAIL || !PASSWORD) {
  * exactly like the web frontend — so storageState carries the session forward.
  */
 setup('authenticate', async ({ page }) => {
-  await page.goto('/');
+  // `/` is the guest-browsable home (App Store 5.1.1), so go to login directly.
+  await page.goto('/login');
 
   // Reveal the email form (the default CTA is "Continue with Google").
   await page.getByText('Sign in with email').click();

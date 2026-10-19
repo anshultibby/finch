@@ -2,46 +2,65 @@ import { test } from '@playwright/test';
 import path from 'path';
 
 /**
- * App Store screenshot capture at the required 6.7" iPhone resolution
- * (1290 x 2796 = 430pt viewport @ 3x). Output: tests/__shots__/store/.
- * These are for the App Store Connect listing, not assertions.
+ * App Store screenshot capture. These are for the App Store Connect listing,
+ * not assertions. Output: tests/__shots__/store/{iphone-6.7,ipad-13}/.
+ *
+ *   iPhone 6.7": 430 x 932 pt @3x  => 1290 x 2796 px
+ *   iPad 13":   1032 x 1376 pt @2x => 2064 x 2752 px
  */
 
-// 430 x 932 logical @ deviceScaleFactor 3 => 1290 x 2796 physical pixels.
-test.use({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 3 });
+type Page = import('@playwright/test').Page;
 
-const STORE = path.join(__dirname, '__shots__', 'store');
+const ROOT = path.join(__dirname, '__shots__', 'store');
 
-async function settle(page: import('@playwright/test').Page, ms = 2200) {
-  await page.waitForTimeout(ms);
+// Ordered as the listing tells the story: Finch speaks first (home brief),
+// then the tools it uses on your behalf.
+const SCREENS: { name: string; route: string; ready?: RegExp; prep?: (page: Page) => Promise<void> }[] = [
+  // Wait for the brief to finish checking in (the digest is LLM-written and slow).
+  { name: '01-home', route: '/', ready: /Your (watchlist|book) today|Finch noticed|All quiet/ },
+  { name: '02-screener', route: '/screener', ready: /\d+ matches/ },
+  { name: '03-trader', route: '/trader', ready: /Waiting on you/i },
+  { name: '04-calendar', route: '/calendar', ready: /Tomorrow|Today|Monday|Tuesday|Wednesday|Thursday|Friday/ },
+  {
+    // Finch's read of a move: verdict, driver, the numbers behind it, what to watch.
+    name: '05-why-it-moved', route: '/stock/META', ready: /Why is it moving/,
+    prep: async (page) => {
+      await page.getByText('Why is it moving?').first().click();
+      await page.getByText(/^Watch:/).first().waitFor({ timeout: 60_000 }).catch(() => {});
+    },
+  },
+  { name: '06-financials', route: '/stock/AAPL?tab=financials', ready: /Revenue/ },
+  { name: '07-watching', route: '/watching', ready: /Check-ins/ },
+  { name: '08-assistant', route: '/chat', ready: /Recent/ },
+];
+
+async function capture(page: Page, dir: string) {
+  for (const s of SCREENS) {
+    await page.goto(s.route);
+    // The review account has no mission set, so the onboarding card can cover the screen.
+    const skip = page.getByText('Skip setup for now');
+    await skip.waitFor({ state: 'visible', timeout: 4000 }).then(() => skip.click()).catch(() => {});
+    if (s.ready) await page.getByText(s.ready).first().waitFor({ timeout: 25_000 }).catch(() => {});
+    if (s.prep) await s.prep(page);
+    // Dev-server-only fast-refresh badge; never part of the shipped app.
+    await page.addStyleTag({ content: '.__expo_fast_refresh { display: none !important; }' });
+    await page.waitForTimeout(1500); // let entering animations finish
+    await page.screenshot({ path: path.join(ROOT, dir, `${s.name}.png`), fullPage: false });
+  }
 }
-async function shot(page: import('@playwright/test').Page, name: string) {
-  await page.screenshot({ path: path.join(STORE, `${name}.png`), fullPage: false });
-}
-async function tap(page: import('@playwright/test').Page, label: string) {
-  const el = page.getByText(label, { exact: true }).first();
-  await el.waitFor({ state: 'visible', timeout: 8000 });
-  await el.click();
-}
 
-test('capture App Store screenshots (6.7")', async ({ page }) => {
-  // 1. Markets home
-  await page.goto('/');
-  await settle(page, 3000);
-  await shot(page, '01-markets');
+test.describe('iPhone 6.7"', () => {
+  test.use({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 3 });
+  test('capture App Store screenshots', async ({ page }) => {
+    test.setTimeout(300_000);
+    await capture(page, 'iphone-6.7');
+  });
+});
 
-  // 2. Watchlist
-  try { await tap(page, 'Watchlist'); await settle(page); await shot(page, '02-watchlist'); } catch {}
-  // 3. Earnings
-  try { await tap(page, 'Earnings'); await settle(page); await shot(page, '03-earnings'); } catch {}
-
-  // 4. Stock detail
-  await page.goto('/stock/AAPL');
-  await settle(page, 3000);
-  await shot(page, '04-stock');
-
-  // 5. Chat welcome
-  await page.goto('/(tabs)/chat/store-preview');
-  await settle(page, 2200);
-  await shot(page, '05-chat');
+test.describe('iPad 13"', () => {
+  test.use({ viewport: { width: 1032, height: 1376 }, deviceScaleFactor: 2 });
+  test('capture App Store screenshots', async ({ page }) => {
+    test.setTimeout(300_000);
+    await capture(page, 'ipad-13');
+  });
 });

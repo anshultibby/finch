@@ -304,7 +304,72 @@ def search_past_chats(query, limit=10):
 
 # ── Agent insights (heartbeat & friends) ─────────────────────────────────────
 
-def report_insight(title, body=None, alert=False, chat_id=None):
+def explain_move(symbol):
+    """Finch's measured read of a stock's move today — call this before you
+    characterize any move to the user, so the call is grounded in numbers.
+
+    Returns {verdict, driver, headline, explanation, watch, context, sources}:
+      verdict: "noise" | "news" | "narrative_shift"
+      driver:  "macro" | "sector" | "company"
+      context: typical_move_pct, move_multiple (today vs typical), spy/sector
+               change, idiosyncratic_pct, volume_ratio, earnings timing.
+    Cached and shared across users, so it's cheap. Treat it as a strong prior:
+    dig deeper (news, filings, transcripts) only when it says narrative_shift or
+    the user holds a big position.
+    """
+    return _request("GET", f"/insights/why/{urllib.parse.quote(symbol.upper())}")
+
+
+def list_theses():
+    """The user's theses — why they own/watch/avoid each stock, what would make
+    them wrong, and a dated story log. Also readable at
+    /home/user/store/theses/ (README.md is the index), but write only via
+    save_thesis / log_story so the app sees the change.
+
+    Returns {"theses": [{symbol, stance, why, breaks, written, updated, log: [...]}],
+             "owned": [symbols held per the last brokerage sync]}.
+    Held names without a thesis are the ones worth asking the user about.
+    """
+    return _request("GET", "/theses")
+
+
+def get_thesis(symbol):
+    """One thesis, or None if the user hasn't written one for this symbol."""
+    return _request("GET", f"/theses/{urllib.parse.quote(symbol.upper())}")
+
+
+def save_thesis(symbol, why, breaks=None, stance="own"):
+    """Create or rewrite the user's thesis on `symbol` (story log is kept).
+
+    Save the USER's reasoning in their words — confirm it with them first;
+    never invent a thesis for them.
+    why: why they own/watch it (1-3 sentences).
+    breaks: what would make them wrong — the concrete, checkable condition
+      every future development is judged against. Push for this; it's the
+      most useful line in the file.
+    stance: "own" | "watch" | "avoid".
+    """
+    body = {"why": why, "stance": stance}
+    if breaks is not None:
+        body["breaks"] = breaks
+    return _request("PUT", f"/theses/{urllib.parse.quote(symbol.upper())}", body=body)
+
+
+def log_story(symbol, note, verdict="news", status=None, source=None):
+    """Append a dated development to a thesis's story log.
+
+    note: what happened and what it means for THEIR thesis (one or two lines).
+    verdict: "noise" | "news" | "narrative_shift" (see explain_move).
+    status: "intact" | "weakened" | "broken" — your judgment against what they
+      said would make them wrong.
+    Only log things that matter; the log is the thesis's memory, not a feed.
+    """
+    body = {"note": note, "verdict": verdict, "status": status, "source": source}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", f"/theses/{urllib.parse.quote(symbol.upper())}/log", body=body)
+
+
+def report_insight(title, body=None, alert=False, chat_id=None, verdict=None, driver=None, symbol=None):
     """Report an insight to the user's activity ledger ("while you were gone").
 
     Use this from heartbeat/automation runs when you find something the user
@@ -313,7 +378,12 @@ def report_insight(title, body=None, alert=False, chat_id=None):
     title: one punchy, specific line with numbers (<= 80 chars ideally).
     body: up to ~3 short supporting lines (optional).
     alert: True ALSO sends a push notification — reserve for urgent,
-      decision-relevant items; a wrong alert erodes trust fast.
+      decision-relevant items; a wrong alert erodes trust fast. Never alert
+      on a move you'd call noise.
+    verdict: "noise" | "news" | "narrative_shift" — your call on the move
+      (see explain_move); shown to the user as a label.
+    driver: "macro" | "sector" | "company".
+    symbol: the ticker the insight is about, so the app can link to it.
     chat_id: deep-links the insight/alert to a chat in the app. Defaults to
       the current run's chat (FINCH_CHAT_ID), so tapping it opens your work.
 
@@ -322,7 +392,8 @@ def report_insight(title, body=None, alert=False, chat_id=None):
     import os
     if chat_id is None:
         chat_id = os.getenv("FINCH_CHAT_ID") or None
-    payload = {"title": title, "body": body, "alert": alert, "chat_id": chat_id}
+    payload = {"title": title, "body": body, "alert": alert, "chat_id": chat_id,
+               "verdict": verdict, "driver": driver, "symbol": symbol}
     payload = {k: v for k, v in payload.items() if v is not None}
     return _request("POST", "/activity/insight", body=payload)
 

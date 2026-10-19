@@ -4,7 +4,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
 import { creditsApi, apiKeysApi, robinhoodApi, accountApi, UserPreferences, CreditBalance } from '@/lib/api';
-import { connectRobinhood } from '@/lib/robinhoodAuth';
 import { purchasesAvailable } from '@/lib/purchases';
 import PaywallModal from '@/components/PaywallModal';
 import { CreditCard, LogOut, ChevronRight, Key, Shield, Bell, X, Check, Trash2, Sparkles, Sunrise, Activity, Target } from 'lucide-react-native';
@@ -26,7 +25,6 @@ export default function SettingsScreen() {
   const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [rhConnected, setRhConnected] = useState(false);
-  const [rhBusy, setRhBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [requireApproval, setRequireApproval] = useState(true);
   const [prefsBusy, setPrefsBusy] = useState(false);
@@ -157,17 +155,12 @@ export default function SettingsScreen() {
       ]);
       return;
     }
-    setRhBusy(true);
-    try {
-      await connectRobinhood(user.id);
-      setRhConnected(true);
-    } catch (e: any) {
-      Alert.alert('Connection failed', e?.message === 'timed_out'
-        ? 'Timed out waiting for approval. Make sure to approve in your Robinhood app.'
-        : 'Could not connect Robinhood. Please try again.');
-    } finally {
-      setRhBusy(false);
-    }
+    // Robinhood renders agent consent only in a desktop browser on a loopback
+    // redirect — there is no phone path, so explain instead of failing.
+    Alert.alert(
+      'Link from your computer',
+      'Robinhood only lets you link a trading agent from a desktop. Open Finch Connect on your computer to link it — it will show as connected here.',
+    );
   };
 
   // Apple requires a path to manage/cancel from inside the app. iOS subscriptions
@@ -345,7 +338,7 @@ export default function SettingsScreen() {
 
         {/* AI Trading Agent (Robinhood) */}
         <View style={styles.menuCard} className="mb-3">
-          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" onPress={handleConnectRobinhood} activeOpacity={0.7} disabled={rhBusy}>
+          <TouchableOpacity className="p-3.5 flex-row items-center justify-between" onPress={handleConnectRobinhood} activeOpacity={0.7}>
             <View className="flex-row items-center gap-3">
               <View style={[styles.iconBox, { backgroundColor: '#ecfdf5' }]}>
                 <Sparkles size={16} color="#059669" />
@@ -353,15 +346,13 @@ export default function SettingsScreen() {
               <View>
                 <Text className="text-[13px] font-body-medium text-gray-900">AI Trading Agent</Text>
                 <Text className="text-[11px] font-body text-gray-500">
-                  {rhConnected ? 'Connected · Robinhood' : 'Connect Robinhood to enable trading'}
+                  {rhConnected ? 'Connected · Robinhood' : 'Link Robinhood from your computer'}
                 </Text>
               </View>
             </View>
-            {rhBusy
-              ? <ActivityIndicator size="small" color="#059669" />
-              : rhConnected
-                ? <Check size={16} color="#059669" />
-                : <ChevronRight size={16} color="#d1d5db" />}
+            {rhConnected
+              ? <Check size={16} color="#059669" />
+              : <ChevronRight size={16} color="#d1d5db" />}
           </TouchableOpacity>
 
           {/* Require approval for every trade */}

@@ -5,7 +5,7 @@
  * goal yet, it offers the MeetFinch onboarding and persists the result
  * (PUT /goal). Soft gate: the wizard is skippable and a skip is remembered
  * per-user (localStorage), so a user who just wants in isn't walled on every
- * load. MissionCockpit still nudges them to set a mission later. Fail-open: any
+ * load. Settings → "Your mission & profile" lets them set one later. Fail-open: any
  * error checking or saving the goal never blocks access to Finch.
  */
 import React, { useEffect, useState } from 'react';

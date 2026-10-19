@@ -8,12 +8,13 @@ import Svg, { Path } from 'react-native-svg';
 import FinchLogo from '@/components/FinchLogo';
 import { MessageSquare } from 'lucide-react-native';
 
+// What Finch says to you, unprompted — the pitch is that it speaks first.
 const EXAMPLE_PROMPTS = [
-  'Is NVDA overvalued right now?',
-  'Build me a momentum strategy',
-  'Compare AAPL vs MSFT fundamentals',
-  'What biotech catalysts are coming up?',
-  'Review my portfolio risk exposure',
+  'NVDA reports Thursday — here’s the setup',
+  'AAPL is down 6%. Here’s why, and what I’d do',
+  'You’re 41% in tech. Worth trimming?',
+  'Your NFLX thesis just weakened — here’s why',
+  'Nothing needs you today. I’m watching.',
 ];
 
 function useTypingAnimation() {
@@ -146,16 +147,16 @@ export default function LoginScreen() {
         {/* Hero */}
         <View style={styles.hero}>
           <Text style={styles.headline}>
-            Your AI{'\n'}investment{'\n'}
-            <Text style={styles.headlineGreen}>research desk</Text>
+            Your stocks,{'\n'}watched{'\n'}
+            <Text style={styles.headlineGreen}>for you</Text>
           </Text>
 
           <View style={styles.features}>
-            <Text style={styles.feature}>Real-time portfolio sync</Text>
+            <Text style={styles.feature}>Proactive alerts</Text>
             <Text style={styles.featureDot}>·</Text>
-            <Text style={styles.feature}>Code sandbox</Text>
+            <Text style={styles.feature}>Earnings previews</Text>
             <Text style={styles.featureDot}>·</Text>
-            <Text style={styles.feature}>Deep research</Text>
+            <Text style={styles.feature}>You stay in control</Text>
           </View>
         </View>
 

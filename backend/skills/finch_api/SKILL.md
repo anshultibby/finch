@@ -203,6 +203,85 @@ The backend emails the rendered brief (Resend) and sends a push notification.
 Only use this from the morning-brief automation — for ad-hoc chat results the
 normal chat-completion notification already covers delivery.
 
+## Judging a Move (every proactive update)
+
+Finch's updates must be deliberate: for every move you mention, say **why** it
+moved and **whether it matters**. Before you characterize a move, get the
+measured read:
+
+```python
+from skills.finch_api.scripts import explain_move
+
+r = explain_move("TSLA")
+# {"verdict": "noise", "driver": "macro",
+#  "headline": "Broad market selloff ahead of earnings",
+#  "explanation": "...", "watch": "Q3 earnings Oct 21 — margins, robotaxi timeline",
+#  "context": {"typical_move_pct": 1.61, "move_multiple": 1.3, "spy_change_pct": -1.11,
+#              "sector_change_pct": -0.84, "idiosyncratic_pct": -1.29,
+#              "volume_ratio": 1.6, "earnings": "Earnings are due in 3 day(s)", ...}}
+```
+
+The framework (same rubric the app's alerts, digest and "why is it moving" use —
+source of truth is `services/monitoring/move_context.py::FRAMEWORK`):
+
+1. **Unusual for this stock?** Today vs its typical daily move: <1.5x routine,
+   1.5–3x notable, >3x a real event. 5% is huge for KO and quiet for a biotech.
+2. **Driver: macro, sector or company.** Macro = the whole market moved (rates,
+   Fed, inflation/jobs data, dollar, oil, geopolitics). Sector = peers and the
+   sector ETF moved together. Company = it moved on its own (earnings, guidance,
+   analyst action, product, legal/regulatory, management, deal).
+3. **Verdict — exactly one:**
+   - `noise` — routine for the stock, or explained by market/sector with no
+     company news. The investment case didn't change.
+   - `news` — a real event that moves the price but fits the existing story
+     (a beat that sells off on high expectations, a one-off).
+   - `narrative_shift` — the reason people own or avoid it changed (guidance
+     reset, competitive threat, regulatory/legal turn, management change, broken
+     thesis). Rare — most days are not this.
+4. Ground everything in sources; never invent news. If the cause is unclear,
+   say so and lean `noise`.
+5. Close with what would confirm or change the call (next print, a date, a level).
+
+Write macro and micro separately: lead with the day's macro/sector theme only if
+it actually drove the user's names, then the company-specific stories. Saying
+"nothing changed the story" is a useful update; padding is not.
+
+## Theses — the user's own story on each stock (memory)
+
+A thesis is why the user owns (or watches, or avoids) a stock, **what would make
+them wrong**, and a dated story log. They live in the memory store at
+`/home/user/store/theses/` (`README.md` is the one-line-per-thesis index) —
+read them freely, but **write only through these helpers** (the backend owns
+the files, so direct edits are overwritten):
+
+```python
+from skills.finch_api.scripts import list_theses, get_thesis, save_thesis, log_story
+
+save_thesis("NFLX",
+    why="Ad tier + password crackdown keep revenue growth above 12% with margins expanding.",
+    breaks="Net adds stall two quarters running, or ad revenue stops outgrowing subscriptions.",
+    stance="own")
+log_story("NFLX", "Q3: ads revenue +40%, net adds re-accelerated — strengthens the ad-tier leg.",
+          verdict="news", status="intact", source="Q3 letter")
+```
+
+- **Held names come first.** `list_theses()["owned"]` is what they actually hold
+  (last brokerage sync). If a large holding has no thesis, it's worth one gentle
+  ask — at most once per conversation, never in automated runs.
+- **Capture, don't invent.** When the user says why they bought or are eyeing a
+  stock, offer to save it as their thesis, and ask for the "what would make you
+  wrong" line if they didn't give one — that line is what makes every later
+  alert useful. Never write a thesis they didn't state or confirm.
+- **Judge against it.** For any development on a name with a thesis, after
+  `explain_move`, say whether *their* thesis is intact, weakened or broken — in
+  terms of the reasons they gave, not your own view of the stock.
+- **Log what matters** with `log_story` (non-noise developments, earnings,
+  dividend changes, a status change). The log is the thesis's memory across
+  fresh-chat runs; check it before re-reporting something.
+- The app's alerts and earnings/dividend watch already run this check and log
+  automatically for price alerts and scheduled events — don't double-log those
+  (`list_events()` shows what was sent).
+
 ## Reporting Insights (heartbeat & automations)
 
 When an automation (especially the `heartbeat` system job) finds something the
@@ -213,15 +292,19 @@ risk building in their portfolio — report it to their activity ledger:
 from skills.finch_api.scripts import report_insight
 
 report_insight(
-    title="NVDA closed 3% off its 52-week high on double volume",
-    body="Volume ran 2.1x average into the close.\nYour 12-share position gained $310 today.",
-    alert=False,
+    title="NFLX -9% on a subscriber-guidance cut — story change",
+    body="Guidance now implies flat net adds into 2027 — the growth case rested on 8%+.\n"
+         "6.4x its typical move on 3x volume; the market was flat, so this is all company.\n"
+         "Watch: management's ad-tier commentary on Thursday's call.",
+    alert=True, verdict="narrative_shift", driver="company", symbol="NFLX",
 )
 # {"recorded": true, "alerted": false}
 ```
 
-`alert=True` ALSO sends a push notification — reserve it for urgent,
-decision-relevant items a holder should know about right now. A wrong alert
+Always pass `verdict`, `driver` and `symbol` — the app labels the insight with
+them. `alert=True` ALSO sends a push notification — reserve it for urgent,
+decision-relevant items a holder should know about right now, and never for
+`noise`. A wrong alert
 erodes trust fast; when in doubt, record without alerting. The insight shows
 up in the user's "while you were gone" recap and activity feed.
 

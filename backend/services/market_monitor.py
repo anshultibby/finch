@@ -3,9 +3,10 @@ Market monitor — real-time smart alerts with the "why" attached.
 
 During regular US market hours, watches the holdings + watchlist symbols of
 every push-capable user. When a watched stock crosses a move threshold
-(±5%, escalating at ±10%), sends a push notification whose body is the
-AI-generated explanation of the move (via services.move_explainer, which is
-cached and shared across users — N users watching NVDA cost one LLM call).
+(±5%, escalating at ±10%), it classifies the move via services.move_explainer
+(cached and shared across users — N users watching NVDA cost one LLM call):
+routine moves are logged to the ledger without a push; news and narrative
+shifts push with the explanation as the body.
 
 Design choices for v1:
 - Holdings symbols come from the last PortfolioHoldingsCache row even if it's
@@ -21,14 +22,9 @@ from datetime import datetime
 from typing import Dict, Set, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
-
 from core.database import get_db_session
-from services.insight_model import filter_active_users
-from services.monitoring.inputs import batch_quotes, symbols_from_portfolio_data
+from services.monitoring.inputs import batch_quotes, symbols_by_user
 from services.monitoring.sink import Push, emit_signal
-from models.brokerage import PortfolioHoldingsCache, UserWatchlist
-from models.user import DeviceToken
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +33,8 @@ ET = ZoneInfo("America/New_York")
 CHECK_INTERVAL_SECONDS = 15 * 60
 ALERT_BANDS = (5.0, 10.0)  # abs % move thresholds, escalating
 MAX_ALERTS_PER_USER_PER_DAY = 6
+
+VERDICT_LABEL = {"noise": "Routine", "news": "News", "narrative_shift": "Story change"}
 
 # (user_id, symbol, YYYY-MM-DD, band) already alerted
 _alerted: Set[Tuple[str, str, str, float]] = set()
@@ -51,40 +49,9 @@ def _is_regular_session(now: datetime) -> bool:
 
 
 async def _gather_user_symbols() -> Dict[str, Set[str]]:
-    """Map of user_id -> watched symbols, for recently-active users with a device.
-
-    A registered device is not evidence of a live user — tokens outlive the
-    people who installed the app. Gating on recent activity too keeps the
-    every-few-minutes sweep off dormant accounts.
-    """
-    async with get_db_session() as db:
-        result = await db.execute(select(DeviceToken.user_id).distinct())
-        user_ids = {row[0] for row in result.all()}
-    user_ids = await filter_active_users(user_ids)
-    if not user_ids:
-        return {}
-
-    async with get_db_session() as db:
-
-        watched: Dict[str, Set[str]] = {uid: set() for uid in user_ids}
-
-        result = await db.execute(
-            select(UserWatchlist.user_id, UserWatchlist.symbol).where(
-                UserWatchlist.user_id.in_(user_ids)
-            )
-        )
-        for uid, sym in result.all():
-            watched[uid].add(sym.upper())
-
-        result = await db.execute(
-            select(PortfolioHoldingsCache.user_id, PortfolioHoldingsCache.portfolio_data).where(
-                PortfolioHoldingsCache.user_id.in_(user_ids)
-            )
-        )
-        for uid, data in result.all():
-            watched[uid].update(symbols_from_portfolio_data(data))
-
-    return {uid: syms for uid, syms in watched.items() if syms}
+    """Map of user_id -> watched symbols, for recently-active users with a device."""
+    by_user = await symbols_by_user(require_device=True)
+    return {uid: v["owned"] | v["watched"] for uid, v in by_user.items()}
 
 
 def _crossed_band(pct: float) -> float | None:
@@ -121,21 +88,68 @@ async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
         await trigger_heartbeat_now(user_id, f"{symbol} moved {pct:+.1f}% today")
         return
 
-    body = ""
+    body, verdict, driver, result = "", "news", None, {}
     try:
         result = await explain_move(symbol)
         body = result.get("explanation") or ""
+        verdict = result.get("verdict") or "news"
+        driver = result.get("driver")
+        if result.get("headline"):
+            title = f"{title} · {result['headline']}"[:120]
     except Exception:
         logger.exception("Alert explanation failed for %s", symbol)
     if not body:
         direction = "up" if pct >= 0 else "down"
         body = f"{quote.get('name') or symbol} is {direction} {abs(pct):.1f}% today."
 
+    # Judge anything that isn't routine against the user's own thesis, if they
+    # wrote one, and log it to the thesis's story — that's what turns an alert
+    # into "does this change why I own it?".
+    thesis_status = None
+    if verdict != "noise" and result:
+        thesis_status, thesis_line = await _thesis_check(user_id, symbol, result)
+        if thesis_line:
+            body = f"{body}\n{thesis_line}"
+
+    # Deliberate, not noisy: a move that's routine for this stock (or just the
+    # market/sector) is logged to the ledger but doesn't buzz the phone. A
+    # narrative shift is called out as such in the push.
+    label = VERDICT_LABEL.get(verdict, "")
+    push = None
+    if verdict != "noise":
+        if thesis_status in ("weakened", "broken"):
+            label = f"Thesis {thesis_status}"
+        push = Push(
+            title=f"{label}: {title}" if verdict == "narrative_shift" or thesis_status in ("weakened", "broken") else title,
+            body=body, notif_type="price", data={"symbol": symbol},
+        )
+
     await emit_signal(
         user_id, "alert", title, body=body,
-        data={"symbol": symbol, "pct": round(float(pct), 2)}, source="monitor",
-        push=Push(title=title, body=body, notif_type="price", data={"symbol": symbol}),
+        data={"symbol": symbol, "pct": round(float(pct), 2), "verdict": verdict, "driver": driver,
+              "thesis_status": thesis_status},
+        source="monitor", push=push,
     )
+
+
+async def _thesis_check(user_id: str, symbol: str, read: dict) -> Tuple[str | None, str | None]:
+    """(status, one-line summary) of a move against the user's thesis, or (None, None)."""
+    from services import theses
+    try:
+        t = await theses.get_thesis(user_id, symbol)
+        if not t:
+            return None, None
+        check = await theses.check_against_thesis(user_id, t, theses.describe_read(read))
+        if not check:
+            return None, None
+        await theses.log_story(
+            user_id, symbol, f"{read.get('headline') or read.get('explanation', '')[:160]} — {check['reason']}",
+            verdict=read.get("verdict") or "news", status=check["status"],
+        )
+        return check["status"], f"Your thesis: {check['status']} — {check['reason']}"
+    except Exception:
+        logger.exception("Thesis check failed for %s/%s", user_id, symbol)
+        return None, None
 
 
 async def check_once() -> int:

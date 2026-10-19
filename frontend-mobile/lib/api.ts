@@ -408,8 +408,12 @@ export const marketApi = {
     const response = await api.get('/market/general-news', { params: { limit, market } });
     return response.data;
   },
-  getEarnings: async () => {
-    const response = await api.get('/market/earnings');
+  getEarnings: async (fromDate?: string, toDate?: string, market?: string) => {
+    const params: Record<string, string> = {};
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
+    if (market) params.market = market;
+    const response = await api.get('/market/earnings', { params });
     return response.data;
   },
   getPeers: async (symbol: string, limit = 6) => {
@@ -426,6 +430,10 @@ export const marketApi = {
   },
   getFinancials: async (symbol: string, statement = 'income-statement', period = 'annual', limit = 4) => {
     const response = await api.get(`/market/financials/${symbol}`, { params: { statement, period, limit } });
+    return response.data;
+  },
+  screen: async (filters: ScreenerFilters, limit = 30): Promise<ScreenerResult[]> => {
+    const response = await api.get('/market/screener', { params: { ...filters, limit } });
     return response.data;
   },
   getPrices: async (symbols: string[], days = 365) => {
@@ -488,9 +496,44 @@ export interface MoveExplanation {
   change: number | null;
   change_pct: number | null;
   explanation: string;
+  // Finch's read of the move (backend move_context.FRAMEWORK). Optional so an
+  // older backend still renders.
+  verdict?: MoveVerdict;
+  driver?: MoveDriver;
+  headline?: string;
+  watch?: string;
+  context?: MoveContext;
   sources: { title: string; site: string; url: string; publishedDate: string }[];
   cached: boolean;
 }
+
+export type MoveVerdict = 'noise' | 'news' | 'narrative_shift';
+export type MoveDriver = 'macro' | 'sector' | 'company';
+
+/** Measured inputs behind a verdict — computed, not model-generated. */
+export interface MoveContext {
+  typical_move_pct: number | null;
+  move_multiple: number | null;
+  sector: string | null;
+  sector_etf: string | null;
+  sector_change_pct: number | null;
+  spy_change_pct: number | null;
+  idiosyncratic_pct: number | null;
+  volume_ratio: number | null;
+  earnings: string | null;
+}
+
+export const VERDICT_META: Record<MoveVerdict, { label: string; fg: string; bg: string }> = {
+  noise: { label: 'Routine', fg: '#57534e', bg: '#f5f5f4' },
+  news: { label: 'News · story intact', fg: '#1d4ed8', bg: '#eff6ff' },
+  narrative_shift: { label: 'Story change', fg: '#b45309', bg: '#fffbeb' },
+};
+
+export const DRIVER_LABEL: Record<MoveDriver, string> = {
+  macro: 'Macro-driven',
+  sector: 'Sector-driven',
+  company: 'Company-specific',
+};
 
 export interface DigestMover {
   symbol: string;
@@ -870,3 +913,166 @@ export interface RobinhoodPortfolioResponse {
 }
 
 export default api;
+
+// ── Screener ─────────────────────────────────────────────────────────────────
+
+export interface ScreenerFilters {
+  sector?: string;
+  industry?: string;
+  market_cap_min?: number;
+  market_cap_max?: number;
+  beta_min?: number;
+  beta_max?: number;
+  dividend_min?: number;
+  price_min?: number;
+  price_max?: number;
+  volume_min?: number;
+}
+
+export interface ScreenerResult {
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  industry: string | null;
+  market_cap: number | null;
+  price: number | null;
+  beta: number | null;
+  dividend: number | null;
+  volume: number | null;
+  exchange: string | null;
+}
+
+// ── Scheduled jobs (automations) — mirrors web jobsApi ──────────────────────
+
+export type Recurrence = 'hourly' | 'daily' | 'weekly' | 'weekdays' | null;
+
+export interface ScheduledJob {
+  id: string;
+  name: string;
+  message: string;
+  run_at: string;
+  recurrence: Recurrence | string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'paused';
+  created_at: string;
+  last_run_at: string | null;
+  run_count: number;
+  last_error: string | null;
+  last_run_credits: number;
+  credits_spent: number;
+  system_key: string | null;
+  comped: boolean;
+  activity_gated: boolean;
+  run_chat_id: string | null;
+}
+
+export interface CreateJobInput {
+  message: string;
+  run_at: string;
+  recurrence?: Recurrence;
+  name?: string;
+}
+
+export interface JobListResponse {
+  jobs: ScheduledJob[];
+  recurring_count: number;
+  oneoff_count: number;
+  recurring_limit: number;
+  oneoff_limit: number;
+}
+
+export const jobsApi = {
+  list: async (): Promise<JobListResponse> => (await api.get('/jobs')).data,
+  create: async (input: CreateJobInput): Promise<ScheduledJob> => (await api.post('/jobs', input)).data,
+  cancel: async (jobId: string): Promise<void> => { await api.delete(`/jobs/${jobId}`); },
+  pause: async (jobId: string): Promise<void> => { await api.post(`/jobs/${jobId}/pause`); },
+  resume: async (jobId: string): Promise<void> => { await api.post(`/jobs/${jobId}/resume`); },
+  pauseAll: async (): Promise<void> => { await api.post('/jobs/pause-all'); },
+  resumeAll: async (): Promise<void> => { await api.post('/jobs/resume-all'); },
+};
+
+// ── Trade ideas — Finch's calls + the scorecard that grades them ─────────────
+
+export interface TradeIdea {
+  id: string;
+  created_at: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  catalyst_type: string;
+  catalyst_summary: string;
+  thesis: string;
+  bear_case: string | null;
+  sources: { title?: string; url?: string }[];
+  entry_ref: number;
+  stop: number;
+  target: number;
+  horizon_days: number;
+  conviction: number;
+  status: 'proposed' | 'approved' | 'rejected';
+  outcome: 'pending' | 'target' | 'stop' | 'expired';
+  return_pct: number | null;
+  benchmark_return_pct: number | null;
+}
+
+export interface IdeaScorecard {
+  total: number;
+  open: number;
+  scored: number;
+  wins: number;
+  losses: number;
+  hit_rate: number | null;
+  avg_return_pct: number | null;
+  avg_alpha_pct: number | null;
+}
+
+export const ideasApi = {
+  list: async (limit = 50): Promise<{ ideas: TradeIdea[]; scorecard: IdeaScorecard }> =>
+    (await api.get('/ideas', { params: { limit } })).data,
+  decide: async (ideaId: string, approve: boolean, execution_mode?: 'auto' | 'manual'): Promise<TradeIdea> =>
+    (await api.post(`/ideas/${ideaId}/decide`, { approve, execution_mode })).data,
+};
+
+// ── Theses — the user's own story on each stock (backend: services/theses.py,
+// stored in the memory store at store/theses/) ─────────────────────────────
+
+export type ThesisStance = 'own' | 'watch' | 'avoid';
+export type ThesisStatus = 'intact' | 'weakened' | 'broken';
+
+export interface ThesisLogEntry {
+  date: string;
+  verdict: MoveVerdict;
+  status: ThesisStatus | null;
+  note: string;
+}
+
+export interface Thesis {
+  symbol: string;
+  stance: ThesisStance;
+  why: string;
+  breaks: string;
+  written: string | null;
+  updated: string | null;
+  log: ThesisLogEntry[];
+}
+
+export interface ThesisCheck {
+  read: MoveExplanation;
+  check: { status: ThesisStatus; reason: string } | null;
+}
+
+export const THESIS_STATUS_META: Record<ThesisStatus, { label: string; fg: string; bg: string }> = {
+  intact: { label: 'Thesis intact', fg: '#047857', bg: '#ecfdf5' },
+  weakened: { label: 'Thesis weakened', fg: '#b45309', bg: '#fffbeb' },
+  broken: { label: 'Thesis broken', fg: '#b91c1c', bg: '#fef2f2' },
+};
+
+export const thesesApi = {
+  /** All theses + symbols held per the last brokerage sync (empty if not connected). */
+  list: async (): Promise<{ theses: Thesis[]; owned: string[] }> => (await api.get('/theses')).data,
+  /** null when the user hasn't written one. */
+  get: async (symbol: string): Promise<Thesis | null> =>
+    (await api.get(`/theses/${encodeURIComponent(symbol)}`)).data ?? null,
+  save: async (symbol: string, body: { why: string; breaks?: string; stance: ThesisStance }): Promise<Thesis> =>
+    (await api.put(`/theses/${encodeURIComponent(symbol)}`, body)).data,
+  remove: async (symbol: string): Promise<void> => { await api.delete(`/theses/${encodeURIComponent(symbol)}`); },
+  check: async (symbol: string): Promise<ThesisCheck> => (await api.get(`/theses/${encodeURIComponent(symbol)}/check`)).data,
+};

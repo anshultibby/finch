@@ -752,6 +752,76 @@ async def get_financials(
 
 
 # ---------------------------------------------------------------------------
+# 14b. Stock screener (powers the Screener card; the agent uses the FMP skill)
+# ---------------------------------------------------------------------------
+
+_SCREENER_PARAMS = {
+    "sector": "sector",
+    "industry": "industry",
+    "market_cap_min": "marketCapMoreThan",
+    "market_cap_max": "marketCapLowerThan",
+    "beta_min": "betaMoreThan",
+    "beta_max": "betaLowerThan",
+    "dividend_min": "dividendMoreThan",
+    "price_min": "priceMoreThan",
+    "price_max": "priceLowerThan",
+    "volume_min": "volumeMoreThan",
+    "exchange": "exchange",
+    "country": "country",
+}
+
+
+@router.get("/screener")
+async def screen_stocks_endpoint(
+    sector: str | None = None,
+    industry: str | None = None,
+    market_cap_min: float | None = None,
+    market_cap_max: float | None = None,
+    beta_min: float | None = None,
+    beta_max: float | None = None,
+    dividend_min: float | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+    volume_min: float | None = None,
+    exchange: str = "NASDAQ,NYSE,AMEX",
+    country: str = "US",
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Filter stocks on fundamentals. Every filter is optional; ETFs/funds are excluded."""
+    from skills.financial_modeling_prep.scripts._client import call_fmp_stable_api
+
+    values = locals()
+    params = {"limit": limit, "isEtf": "false", "isFund": "false", "isActivelyTrading": "true"}
+    for arg, fmp_key in _SCREENER_PARAMS.items():
+        if values.get(arg) not in (None, ""):
+            params[fmp_key] = values[arg]
+
+    try:
+        data = await asyncio.to_thread(call_fmp_stable_api, "/company-screener", params)
+    except Exception:
+        return []
+    # call_fmp_stable_api unwraps single-item lists to a bare dict — normalize back
+    if isinstance(data, dict):
+        data = [] if data.get("error") else [data]
+    return [
+        {
+            "symbol": r.get("symbol"),
+            "name": r.get("companyName"),
+            "sector": r.get("sector"),
+            "industry": r.get("industry"),
+            "market_cap": r.get("marketCap"),
+            "price": r.get("price"),
+            "beta": r.get("beta"),
+            "dividend": r.get("lastAnnualDividend"),
+            "volume": r.get("volume"),
+            "exchange": r.get("exchangeShortName"),
+        }
+        for r in data
+        if isinstance(r, dict) and r.get("symbol")
+    ]
+
+
+# ---------------------------------------------------------------------------
 # 15. SEC citation deep-link resolver
 # ---------------------------------------------------------------------------
 

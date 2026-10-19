@@ -2,8 +2,15 @@ import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+// createClient('') throws at module load, which crashes the app on launch
+// (the v1.0(20) App Store rejection). Fall back to an inert placeholder so a
+// misconfigured build still opens — auth calls fail visibly instead. The
+// `eas-build-post-install` env check stops such a build from shipping at all.
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://supabase-not-configured.invalid';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'missing-anon-key';
+if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+  console.error('[supabase] EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY are not set');
+}
 
 const ExpoSecureStoreAdapter = {
   getItem: (key: string) => {
