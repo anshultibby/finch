@@ -35,7 +35,9 @@ class ThesisBody(BaseModel):
 
 
 class StoryEntry(BaseModel):
-    note: str = Field(..., min_length=1, max_length=400)
+    # Accept long notes and let the service trim them: rejecting made the agent
+    # retry (seen on prod), and a lost log entry is worse than a trimmed one.
+    note: str = Field(..., min_length=1, max_length=4000)
     verdict: Literal["noise", "news", "narrative_shift"] = "news"
     status: Optional[Literal["intact", "weakened", "broken"]] = None
     source: Optional[str] = Field(None, max_length=200)
