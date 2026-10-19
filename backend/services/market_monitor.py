@@ -3,9 +3,10 @@ Market monitor — real-time smart alerts with the "why" attached.
 
 During regular US market hours, watches the holdings + watchlist symbols of
 every push-capable user. When a watched stock crosses a move threshold
-(±5%, escalating at ±10%), sends a push notification whose body is the
-AI-generated explanation of the move (via services.move_explainer, which is
-cached and shared across users — N users watching NVDA cost one LLM call).
+(±5%, escalating at ±10%), it classifies the move via services.move_explainer
+(cached and shared across users — N users watching NVDA cost one LLM call):
+routine moves are logged to the ledger without a push; news and narrative
+shifts push with the explanation as the body.
 
 Design choices for v1:
 - Holdings symbols come from the last PortfolioHoldingsCache row even if it's
@@ -37,6 +38,8 @@ ET = ZoneInfo("America/New_York")
 CHECK_INTERVAL_SECONDS = 15 * 60
 ALERT_BANDS = (5.0, 10.0)  # abs % move thresholds, escalating
 MAX_ALERTS_PER_USER_PER_DAY = 6
+
+VERDICT_LABEL = {"noise": "Routine", "news": "News", "narrative_shift": "Story change"}
 
 # (user_id, symbol, YYYY-MM-DD, band) already alerted
 _alerted: Set[Tuple[str, str, str, float]] = set()
@@ -121,20 +124,35 @@ async def _send_alert(user_id: str, symbol: str, quote: dict) -> None:
         await trigger_heartbeat_now(user_id, f"{symbol} moved {pct:+.1f}% today")
         return
 
-    body = ""
+    body, verdict, driver = "", "news", None
     try:
         result = await explain_move(symbol)
         body = result.get("explanation") or ""
+        verdict = result.get("verdict") or "news"
+        driver = result.get("driver")
+        if result.get("headline"):
+            title = f"{title} · {result['headline']}"[:120]
     except Exception:
         logger.exception("Alert explanation failed for %s", symbol)
     if not body:
         direction = "up" if pct >= 0 else "down"
         body = f"{quote.get('name') or symbol} is {direction} {abs(pct):.1f}% today."
 
+    # Deliberate, not noisy: a move that's routine for this stock (or just the
+    # market/sector) is logged to the ledger but doesn't buzz the phone. A
+    # narrative shift is called out as such in the push.
+    label = VERDICT_LABEL.get(verdict, "")
+    push = None
+    if verdict != "noise":
+        push = Push(
+            title=f"{label}: {title}" if verdict == "narrative_shift" else title,
+            body=body, notif_type="price", data={"symbol": symbol},
+        )
+
     await emit_signal(
         user_id, "alert", title, body=body,
-        data={"symbol": symbol, "pct": round(float(pct), 2)}, source="monitor",
-        push=Push(title=title, body=body, notif_type="price", data={"symbol": symbol}),
+        data={"symbol": symbol, "pct": round(float(pct), 2), "verdict": verdict, "driver": driver},
+        source="monitor", push=push,
     )
 
 

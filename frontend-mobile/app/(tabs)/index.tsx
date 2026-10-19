@@ -10,7 +10,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import {
   activityApi, insightsApi, marketApi, notificationsApi, pendingTradesApi, watchlistApi, jobsApi, ideasApi,
-  type ActivityRecap, type PortfolioDigest, type PendingTradeItem, type ScheduledJob, type TradeIdea,
+  type ActivityRecap, type PortfolioDigest, type PendingTradeItem, type ScheduledJob, type TradeIdea, type MoveVerdict,
+  VERDICT_META,
 } from '@/lib/api';
 import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import { useStartChat } from '@/hooks/useStartChat';
@@ -34,6 +35,7 @@ const PULSE = [
 
 type BriefItem = {
   key: string;
+  verdict?: MoveVerdict;
   tone: 'action' | 'heads-up' | 'info';
   title: string;
   body?: string;
@@ -197,6 +199,22 @@ export default function HomeScreen() {
         onPress: () => router.push('/trader'),
       });
     }
+    // Agent signals that cleared the bar. Routine noise stays in the ledger,
+    // and a story change outranks everything but an approval.
+    const signals = (recap?.events || [])
+      .filter(e => (e.event_type === 'alert' || e.event_type === 'insight') && e.data?.verdict !== 'noise');
+    const shift = signals.find(e => e.data?.verdict === 'narrative_shift');
+    const signal = shift || signals[0];
+    const signalItem: BriefItem | undefined = signal && {
+      key: `evt-${signal.id}`,
+      tone: shift ? 'action' : 'heads-up',
+      verdict: signal.data?.verdict as MoveVerdict | undefined,
+      title: signal.title,
+      body: signal.body || undefined,
+      onPress: () => (signal.data?.chat_id ? router.push(`/(tabs)/chat/${signal.data.chat_id}`)
+        : signal.data?.symbol ? router.push(`/stock/${signal.data.symbol}`) : router.push('/activity')),
+    };
+    if (signalItem && shift) items.push(signalItem);
     const soon = myEarnings.filter(e => dayDiff(e.date || e.reportDate) <= 2)[0];
     if (soon) {
       items.push({
@@ -210,16 +228,7 @@ export default function HomeScreen() {
         ),
       });
     }
-    const signal = (recap?.events || []).find(e => e.event_type === 'alert' || e.event_type === 'insight');
-    if (signal) {
-      items.push({
-        key: `evt-${signal.id}`,
-        tone: 'heads-up',
-        title: signal.title,
-        body: signal.body || undefined,
-        onPress: () => router.push('/activity'),
-      });
-    }
+    if (signalItem && !shift) items.push(signalItem);
     if (digest?.narrative && digest.mode !== 'empty') {
       items.push({
         key: 'digest',
@@ -364,6 +373,11 @@ export default function HomeScreen() {
                   <Animated.View key={b.key} entering={FadeInDown.delay(i * 60).springify().damping(16)}>
                     <TouchableOpacity onPress={b.onPress} activeOpacity={0.75} style={[styles.briefItem, i > 0 && styles.briefDivider]}>
                       <View style={{ flex: 1 }}>
+                        {b.verdict && (
+                          <View style={[styles.verdict, { backgroundColor: VERDICT_META[b.verdict].bg }]}>
+                            <Text style={[styles.verdictText, { color: VERDICT_META[b.verdict].fg }]}>{VERDICT_META[b.verdict].label}</Text>
+                          </View>
+                        )}
                         <Text style={styles.briefTitle}>{b.title}</Text>
                         {b.body ? <Text style={styles.briefBody} numberOfLines={3}>{b.body}</Text> : null}
                       </View>
@@ -459,6 +473,8 @@ const styles = StyleSheet.create({
   briefLabel: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.emerald, textTransform: 'uppercase', letterSpacing: 0.6 },
   briefItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   briefDivider: { borderTopWidth: 1, borderTopColor: COLORS.gray100 },
+  verdict: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginBottom: 4 },
+  verdictText: { fontFamily: 'DMSans-Bold', fontSize: 10.5 },
   briefTitle: { fontFamily: 'DMSans-Bold', fontSize: 15, color: COLORS.gray900, lineHeight: 20 },
   briefBody: { fontFamily: 'DMSans', fontSize: 13.5, color: COLORS.gray500, lineHeight: 19, marginTop: 2 },
   cta: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#ecfdf5' },

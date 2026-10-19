@@ -6,7 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation, type View } from '@/contexts/NavigationContext';
 import {
   activityApi, insightsApi, marketApi, watchlistApi, jobsApi, ideasApi,
-  type ActivityRecap, type PortfolioDigest, type ScheduledJob, type TradeIdea,
+  type ActivityRecap, type PortfolioDigest, type ScheduledJob, type TradeIdea, type MoveVerdict,
+  VERDICT_META,
 } from '@/lib/api';
 import { usePendingTrades } from '@/hooks/usePendingTrades';
 import { dayDiff, whenLabel, marketStatus, greeting, earningsPreviewPrompt, fmtUsd, fmtPct } from './shared';
@@ -23,11 +24,11 @@ const PULSE = [
   { symbol: 'DIA', label: 'Dow' },
 ];
 
-type BriefItem = { key: string; action?: boolean; title: string; body?: string; cta?: string; onClick: () => void };
+type BriefItem = { key: string; action?: boolean; verdict?: MoveVerdict; title: string; body?: string; cta?: string; onClick: () => void };
 
 export default function ProactiveHome() {
   const { user } = useAuth();
-  const { navigateTo, openChatWithPrompt, setHomeTab } = useNavigation();
+  const { navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock } = useNavigation();
   const { trades: pending } = usePendingTrades(!!user);
 
   const [loading, setLoading] = useState(true);
@@ -94,6 +95,21 @@ export default function ProactiveHome() {
         onClick: () => navigateTo({ type: 'trader' }),
       });
     }
+    // Agent signals that cleared the bar. Routine noise stays in the ledger,
+    // and a story change outranks everything but an approval.
+    const signals = (recap?.events || [])
+      .filter(e => (e.event_type === 'alert' || e.event_type === 'insight') && e.data?.verdict !== 'noise');
+    const shift = signals.find(e => e.data?.verdict === 'narrative_shift');
+    const signal = shift || signals[0];
+    const signalItem = signal && {
+      key: `evt-${signal.id}`,
+      verdict: signal.data?.verdict as MoveVerdict | undefined,
+      title: signal.title,
+      body: signal.body || undefined,
+      onClick: () => (signal.data?.chat_id ? loadChat(String(signal.data.chat_id))
+        : signal.data?.symbol ? openStock(String(signal.data.symbol)) : navigateTo({ type: 'trader' })),
+    };
+    if (signalItem && shift) items.push(signalItem);
     const soon = myEarnings.find(e => dayDiff(e.date) <= 2);
     if (soon) {
       items.push({
@@ -104,10 +120,7 @@ export default function ProactiveHome() {
         onClick: () => openChatWithPrompt(earningsPreviewPrompt(soon.symbol), `${soon.symbol} earnings preview`),
       });
     }
-    const signal = (recap?.events || []).find(e => e.event_type === 'alert' || e.event_type === 'insight');
-    if (signal) {
-      items.push({ key: `evt-${signal.id}`, title: signal.title, body: signal.body || undefined, onClick: () => navigateTo({ type: 'trader' }) });
-    }
+    if (signalItem && !shift) items.push(signalItem);
     if (digest?.narrative && digest.mode !== 'empty') {
       items.push({
         key: 'digest',
@@ -117,7 +130,7 @@ export default function ProactiveHome() {
       });
     }
     return items.slice(0, 3);
-  }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab]);
+  }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock]);
 
   const cards: { key: string; title: string; line: string; attention?: boolean; Icon: React.ComponentType<{ className?: string }>; tint: string; view: View }[] = [
     {
@@ -198,6 +211,12 @@ export default function ProactiveHome() {
               <button key={b.key} onClick={b.onClick}
                 className={`w-full flex items-center gap-4 py-2.5 text-left group ${i > 0 ? 'border-t border-stone-100' : ''}`}>
                 <div className="flex-1 min-w-0">
+                  {b.verdict && (
+                    <span className="inline-block rounded-md px-1.5 py-0.5 mb-1 text-[10.5px] font-bold"
+                      style={{ color: VERDICT_META[b.verdict].fg, background: VERDICT_META[b.verdict].bg }}>
+                      {VERDICT_META[b.verdict].label}
+                    </span>
+                  )}
                   <div className="text-[15px] font-bold text-gray-900">{b.title}</div>
                   {b.body && <div className="text-[13.5px] text-stone-500 leading-snug mt-0.5 line-clamp-2">{b.body}</div>}
                 </div>

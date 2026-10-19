@@ -304,7 +304,23 @@ def search_past_chats(query, limit=10):
 
 # ── Agent insights (heartbeat & friends) ─────────────────────────────────────
 
-def report_insight(title, body=None, alert=False, chat_id=None):
+def explain_move(symbol):
+    """Finch's measured read of a stock's move today — call this before you
+    characterize any move to the user, so the call is grounded in numbers.
+
+    Returns {verdict, driver, headline, explanation, watch, context, sources}:
+      verdict: "noise" | "news" | "narrative_shift"
+      driver:  "macro" | "sector" | "company"
+      context: typical_move_pct, move_multiple (today vs typical), spy/sector
+               change, idiosyncratic_pct, volume_ratio, earnings timing.
+    Cached and shared across users, so it's cheap. Treat it as a strong prior:
+    dig deeper (news, filings, transcripts) only when it says narrative_shift or
+    the user holds a big position.
+    """
+    return _request("GET", f"/insights/why/{urllib.parse.quote(symbol.upper())}")
+
+
+def report_insight(title, body=None, alert=False, chat_id=None, verdict=None, driver=None, symbol=None):
     """Report an insight to the user's activity ledger ("while you were gone").
 
     Use this from heartbeat/automation runs when you find something the user
@@ -313,7 +329,12 @@ def report_insight(title, body=None, alert=False, chat_id=None):
     title: one punchy, specific line with numbers (<= 80 chars ideally).
     body: up to ~3 short supporting lines (optional).
     alert: True ALSO sends a push notification — reserve for urgent,
-      decision-relevant items; a wrong alert erodes trust fast.
+      decision-relevant items; a wrong alert erodes trust fast. Never alert
+      on a move you'd call noise.
+    verdict: "noise" | "news" | "narrative_shift" — your call on the move
+      (see explain_move); shown to the user as a label.
+    driver: "macro" | "sector" | "company".
+    symbol: the ticker the insight is about, so the app can link to it.
     chat_id: deep-links the insight/alert to a chat in the app. Defaults to
       the current run's chat (FINCH_CHAT_ID), so tapping it opens your work.
 
@@ -322,7 +343,8 @@ def report_insight(title, body=None, alert=False, chat_id=None):
     import os
     if chat_id is None:
         chat_id = os.getenv("FINCH_CHAT_ID") or None
-    payload = {"title": title, "body": body, "alert": alert, "chat_id": chat_id}
+    payload = {"title": title, "body": body, "alert": alert, "chat_id": chat_id,
+               "verdict": verdict, "driver": driver, "symbol": symbol}
     payload = {k: v for k, v in payload.items() if v is not None}
     return _request("POST", "/activity/insight", body=payload)
 

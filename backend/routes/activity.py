@@ -6,7 +6,7 @@
 - POST /activity/seen     -> the user viewed/dismissed the recap
 """
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -102,6 +102,10 @@ class InsightReport(BaseModel):
     body: Optional[str] = Field(None, max_length=2000)
     alert: bool = False  # True = also push; reserve for genuinely urgent items
     chat_id: Optional[str] = Field(None, max_length=64)
+    # The agent's classification of the move (see services.monitoring.move_context).
+    verdict: Optional[Literal["noise", "news", "narrative_shift"]] = None
+    driver: Optional[Literal["macro", "sector", "company"]] = None
+    symbol: Optional[str] = Field(None, max_length=16)
 
 
 @router.post("/insight")
@@ -122,7 +126,8 @@ async def report_insight(
         )
     pushed = await emit_signal(
         user_id, "insight", report.title, body=report.body,
-        data={"chat_id": report.chat_id, "alert": report.alert},
+        data={"chat_id": report.chat_id, "alert": report.alert, "verdict": report.verdict,
+              "driver": report.driver, "symbol": report.symbol.upper() if report.symbol else None},
         source="heartbeat", push=push,
     )
     return {"recorded": True, "alerted": pushed}

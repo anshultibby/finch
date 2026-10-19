@@ -1395,9 +1395,44 @@ export interface MoveExplanation {
   change: number | null;
   change_pct: number | null;
   explanation: string;
+  // Finch's read of the move (backend move_context.FRAMEWORK). Optional so an
+  // older backend still renders.
+  verdict?: MoveVerdict;
+  driver?: MoveDriver;
+  headline?: string;
+  watch?: string;
+  context?: MoveContext;
   sources: { title: string; site: string; url: string; publishedDate: string }[];
   cached: boolean;
 }
+
+export type MoveVerdict = 'noise' | 'news' | 'narrative_shift';
+export type MoveDriver = 'macro' | 'sector' | 'company';
+
+/** Measured inputs behind a verdict — computed, not model-generated. */
+export interface MoveContext {
+  typical_move_pct: number | null;
+  move_multiple: number | null;
+  sector: string | null;
+  sector_etf: string | null;
+  sector_change_pct: number | null;
+  spy_change_pct: number | null;
+  idiosyncratic_pct: number | null;
+  volume_ratio: number | null;
+  earnings: string | null;
+}
+
+export const VERDICT_META: Record<MoveVerdict, { label: string; fg: string; bg: string }> = {
+  noise: { label: 'Routine', fg: '#57534e', bg: '#f5f5f4' },
+  news: { label: 'News · story intact', fg: '#1d4ed8', bg: '#eff6ff' },
+  narrative_shift: { label: 'Story change', fg: '#b45309', bg: '#fffbeb' },
+};
+
+export const DRIVER_LABEL: Record<MoveDriver, string> = {
+  macro: 'Macro-driven',
+  sector: 'Sector-driven',
+  company: 'Company-specific',
+};
 
 export interface DigestMover {
   symbol: string;
