@@ -151,6 +151,54 @@ async def _get_goal_directive(user_id: str) -> str:
     )
 
 
+async def _get_theses_directive(user_id: str) -> str:
+    """
+    The user's theses as an always-in-context index (like a memory index): the
+    rule for writing them, one line per thesis, and held names that lack one.
+    Details live in /home/user/store/theses/ and are read on demand. Without
+    this the agent doesn't know the helpers exist and saves theses as chat
+    notes the app and every monitor never see.
+    """
+    try:
+        from services.theses import list_theses
+        from services.monitoring.inputs import owned_symbols
+        theses = await list_theses(user_id)
+        owned = await owned_symbols(user_id)
+    except Exception as e:
+        logger.debug(f"Could not load theses (non-fatal): {e}")
+        return ""
+
+    def _clip(text: str, n: int) -> str:
+        text = " ".join((text or "").split())
+        return text if len(text) <= n else text[: n - 1] + "…"
+
+    lines = [
+        "<theses>",
+        "The user's own story on each stock lives in their memory (/home/user/store/theses/). "
+        "Judge news and moves on these names against THEIR stated reasons (intact / weakened / broken), "
+        "not your own view.",
+        "Write them ONLY through the finch_api helpers — never as chat files or notes, which the app "
+        "and Finch's monitors never see:",
+        "  from skills.finch_api.scripts import save_thesis, log_story, explain_move",
+        "  save_thesis(symbol, why, breaks, stance)   # when the user states or confirms why they own/watch/avoid it",
+        "  log_story(symbol, note, verdict, status)    # a development that matters to a thesis",
+        "Before characterizing any price move, call explain_move(symbol) for Finch's measured read.",
+    ]
+    if theses:
+        lines.append("Current theses:")
+        for t in theses[:15]:
+            lines.append(f"- {t['symbol']} ({t.get('stance', 'own')}) — {_clip(t.get('why', ''), 110)}"
+                         + (f" | if: {_clip(t['breaks'], 80)}" if t.get("breaks") else ""))
+    else:
+        lines.append("No theses yet.")
+    uncovered = [s for s in owned if s not in {t["symbol"] for t in theses}]
+    if uncovered:
+        lines.append(f"Held without a thesis: {', '.join(uncovered[:12])} — if relevant, ask about one "
+                     "(at most once per conversation; never in automated runs).")
+    lines.append("</theses>")
+    return "\n".join(lines)
+
+
 async def create_agent(context, user_id: str = None, skill_ids: list[str] = None, model: str = None):
     """Create an agent with the base system prompt.
 
@@ -177,6 +225,10 @@ async def create_agent(context, user_id: str = None, skill_ids: list[str] = None
     goal_directive = await _get_goal_directive(context.user_id)
     if goal_directive:
         dynamic_parts.append(goal_directive)
+
+    theses_directive = await _get_theses_directive(context.user_id)
+    if theses_directive:
+        dynamic_parts.append(theses_directive)
 
     dynamic_context = "\n\n".join(dynamic_parts) if dynamic_parts else None
 
