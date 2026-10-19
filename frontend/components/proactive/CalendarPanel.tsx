@@ -94,7 +94,7 @@ export default function CalendarPanel() {
         )}
 
         <div className="flex items-center justify-between mt-6 mb-3">
-          <div className="text-[11.5px] font-bold text-stone-500 uppercase tracking-wider">Earnings</div>
+          <div className="text-[15px] font-bold text-stone-900">Earnings</div>
           <div className="flex bg-stone-100 rounded-lg p-0.5">
             {(['yours', 'all'] as Scope[]).map(s => (
               <button key={s} onClick={() => setScope(s)}

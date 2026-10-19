@@ -187,7 +187,7 @@ export default function AssistantScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fafaf9' },
   scroll: { paddingHorizontal: 16, paddingBottom: 24, maxWidth: 760, width: '100%', alignSelf: 'center' },
-  section: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 18, marginBottom: 8 },
+  section: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#1c1917', marginTop: 18, marginBottom: 8 },
   list: { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: COLORS.gray100, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   divider: { borderTopWidth: 1, borderTopColor: COLORS.gray100 },

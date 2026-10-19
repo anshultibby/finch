@@ -20,6 +20,12 @@ test.describe('Jobs UI', () => {
     await page.route('**/jobs', route => route.request().method() === 'GET'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(JOBS) })
       : route.fallback());
+    // The panel also waits on usage; an unmocked call to a slow backend made
+    // this spec flaky (skeleton still showing at the visibility check).
+    await page.route('**/jobs/usage', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ plan: 'free', active_routines: 2, max_active_routines: 5 }),
+    }));
   });
 
   test('list with cost + pause-all', async ({ page }, testInfo) => {

@@ -129,7 +129,7 @@ export default function TraderPanel() {
                   <button onClick={() => openStock(i.symbol)} className="text-[14.5px] font-bold text-gray-900 hover:underline">{i.symbol}</button>
                   <span className="text-[12px] text-stone-400">conviction {i.conviction}/5 · {i.horizon_days}d</span>
                 </div>
-                <div className="text-[13.5px] text-stone-700 mt-1">{i.catalyst_summary}</div>
+                <div className="text-[13.5px] text-stone-700 mt-1 line-clamp-3" title={i.catalyst_summary}>{i.catalyst_summary}</div>
                 <div className="text-[12px] text-stone-400 mt-1 tabular-nums">Entry {fmtUsd(i.entry_ref)} · Target {fmtUsd(i.target)} · Stop {fmtUsd(i.stop)}</div>
                 <div className="flex gap-2 mt-2.5">
                   <button onClick={() => openChatWithPrompt(`Walk me through your ${i.direction} idea on ${i.symbol}: "${i.catalyst_summary}". What's the thesis, the bear case, and how would you size it for me?`, `${i.symbol} idea`)}

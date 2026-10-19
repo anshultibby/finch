@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Sparkles, SlidersHorizontal, Zap, FileText, CalendarDays, Eye, ChevronRight, ArrowUp } from 'lucide-react';
+import { Sparkles, SlidersHorizontal, Zap, FileText, CalendarDays, Eye, ChevronRight, ArrowUp, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation, type View } from '@/contexts/NavigationContext';
 import {
@@ -10,6 +10,7 @@ import {
   VERDICT_META, THESIS_STATUS_META, type ThesisStatus, type Thesis,
 } from '@/lib/api';
 import { usePendingTrades } from '@/hooks/usePendingTrades';
+import WatchRadar, { type RadarBlip } from './WatchRadar';
 import { dayDiff, whenLabel, marketStatus, greeting, earningsPreviewPrompt, fmtUsd, fmtPct } from './shared';
 
 // ── Home ─────────────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ export default function ProactiveHome() {
   const [ideas, setIdeas] = useState<TradeIdea[]>([]);
   const [pulse, setPulse] = useState<Record<string, any>>({});
   const [ask, setAsk] = useState('');
+  const [quotes, setQuotes] = useState<Record<string, number>>({});
 
   // The brief renders as soon as the fast, decisive sources land (approvals,
   // the user's symbols, the earnings calendar). Slower sources — the activity
@@ -80,6 +82,20 @@ export default function ProactiveHome() {
     return s;
   }, [watchlist, digest, owned]);
 
+  // Today's move for each of the user's stocks — the radar's blips.
+  const symbolsKey = Array.from(mySymbols).sort().join(',');
+  useEffect(() => {
+    if (!symbolsKey) return;
+    let alive = true;
+    marketApi.getBatchQuotes(symbolsKey.split(',').slice(0, 24)).then(rows => {
+      if (!alive || !Array.isArray(rows)) return;
+      const m: Record<string, number> = {};
+      rows.forEach((q: any) => { if (q?.symbol && q.changesPercentage != null) m[q.symbol.toUpperCase()] = q.changesPercentage; });
+      setQuotes(m);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [symbolsKey]);
+
   const myEarnings = useMemo(
     () => (earnings || [])
       .filter(e => e?.symbol && mySymbols.has(String(e.symbol).toUpperCase()))
@@ -88,7 +104,6 @@ export default function ProactiveHome() {
     [earnings, mySymbols],
   );
 
-  const activeJobs = (jobs || []).filter(j => j.status === 'pending' || j.status === 'running');
   const thesisBySymbol = useMemo(() => new Map(theses.map(t => [t.symbol, t])), [theses]);
   const openIdeas = ideas.filter(i => i.status === 'proposed' && i.outcome === 'pending');
 
@@ -163,32 +178,37 @@ export default function ProactiveHome() {
     return items.slice(0, 3);
   }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock, thesisBySymbol, theses, watchlist, owned]);
 
-  const cards: { key: string; title: string; line: string; attention?: boolean; Icon: React.ComponentType<{ className?: string }>; tint: string; view: View }[] = [
+  // Next of the user's own reports, as "NFLX Tue, META Wed".
+  const nextReports = myEarnings.slice(0, 2).map(e =>
+    `${e.symbol} ${new Date(`${e.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' })}`).join(', ');
+
+  // Each tile's second line is live state — what's there right now — rather
+  // than a tagline describing the tool.
+  const cards: { key: string; title: string; line: string; attention?: boolean; Icon: LucideIcon; view: View }[] = [
     {
-      key: 'assistant', title: 'Ask Finch', Icon: Sparkles, tint: 'bg-emerald-50 text-emerald-600', view: { type: 'assistant' },
-      line: openIdeas.length > 0 ? `${openIdeas.length} idea${openIdeas.length > 1 ? 's' : ''} for you` : 'Research, explain, plan',
+      key: 'assistant', title: 'Ask Finch', Icon: Sparkles, view: { type: 'assistant' },
+      line: openIdeas.length > 0 ? `${openIdeas.length} idea${openIdeas.length > 1 ? 's' : ''} waiting` : 'Ask about anything',
       attention: openIdeas.length > 0,
     },
-    { key: 'screener', title: 'Screener', Icon: SlidersHorizontal, tint: 'bg-blue-50 text-blue-600', view: { type: 'screener' }, line: 'Describe it, Finch finds it' },
+    { key: 'screener', title: 'Screener', Icon: SlidersHorizontal, view: { type: 'screener' }, line: 'Describe the stocks you want' },
     {
-      key: 'trader', title: 'Trader', Icon: Zap, tint: 'bg-amber-50 text-amber-600', view: { type: 'trader' },
-      line: pending.length > 0 ? `${pending.length} awaiting approval`
-        : activeJobs.length > 0 ? `${activeJobs.length} automation${activeJobs.length > 1 ? 's' : ''} running` : 'Your agent, on a leash',
+      key: 'trader', title: 'Trader', Icon: Zap, view: { type: 'trader' },
+      line: pending.length > 0 ? `${pending.length} trade${pending.length > 1 ? 's' : ''} to approve` : jobs === null ? 'Approvals and automations' : 'Nothing to approve',
       attention: pending.length > 0,
     },
-    { key: 'financials', title: 'Financials', Icon: FileText, tint: 'bg-violet-50 text-violet-600', view: { type: 'research' }, line: 'Statements, filings, calls' },
+    { key: 'financials', title: 'Financials', Icon: FileText, view: { type: 'research' }, line: 'Statements and filings' },
     {
-      key: 'calendar', title: 'Calendar', Icon: CalendarDays, tint: 'bg-pink-50 text-pink-600', view: { type: 'calendar' },
+      key: 'calendar', title: 'Calendar', Icon: CalendarDays, view: { type: 'calendar' },
       line: earnings === null || watchlist === null
-        ? 'Earnings & Finch’s schedule'
-        : myEarnings.length > 0 ? `${myEarnings.length} of yours this week` : `${earnings.length || 'No'} reports this week`,
+        ? 'Earnings and Finch’s schedule'
+        : nextReports || `${earnings.length || 'No'} reports this week`,
       attention: myEarnings.some(e => dayDiff(e.date) <= 1),
     },
     {
-      key: 'watching', title: 'Watching', Icon: Eye, tint: 'bg-teal-50 text-teal-600', view: { type: 'watching' },
+      key: 'watching', title: 'Watching', Icon: Eye, view: { type: 'watching' },
       line: watchlist === null || jobs === null
-        ? 'What Finch keeps an eye on'
-        : `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'} · ${theses.length} thes${theses.length === 1 ? 'is' : 'es'} · ${activeJobs.length} check${activeJobs.length === 1 ? '' : 's'}`,
+        ? 'Stocks, theses and checks'
+        : `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'}, ${theses.length} thes${theses.length === 1 ? 'is' : 'es'}`,
     },
   ];
 
@@ -196,116 +216,128 @@ export default function ProactiveHome() {
   const status = marketStatus();
   const submitAsk = () => { const q = ask.trim(); if (q) { openChatWithPrompt(q); setAsk(''); } };
 
+  // Names Finch has flagged (story change / thesis weakened or broken) glow amber on the radar.
+  const flagged = new Set(
+    (recap?.events || [])
+      .filter(e => e.data?.verdict === 'narrative_shift' || e.data?.thesis_status === 'weakened' || e.data?.thesis_status === 'broken')
+      .map(e => String(e.data?.symbol || '').toUpperCase()),
+  );
+  const blips: RadarBlip[] = Array.from(mySymbols).slice(0, 24).map(sym => ({
+    symbol: sym,
+    changePct: quotes[sym] ?? null,
+    held: owned.includes(sym),
+    thesis: thesisBySymbol.has(sym),
+    alert: flagged.has(sym),
+  }));
+
+  // Tag colours tuned for the dark desk.
+  const darkTag = (b: BriefItem) =>
+    b.thesis === 'broken' ? { text: THESIS_STATUS_META.broken.label, color: '#fda4af' }
+      : b.thesis === 'weakened' ? { text: THESIS_STATUS_META.weakened.label, color: '#fbbf24' }
+        : b.verdict === 'narrative_shift' ? { text: VERDICT_META.narrative_shift.label, color: '#fbbf24' }
+          : b.verdict === 'news' ? { text: VERDICT_META.news.label, color: '#7dd3fc' }
+            : null;
+
   return (
     <div className="h-full overflow-y-auto bg-[#fafaf9]">
-      <div className="max-w-3xl mx-auto px-5 pt-7 pb-16">
-        {/* Header */}
-        <div className="mb-5">
-          {status && <div className="text-[12.5px] font-medium text-stone-500">{status}</div>}
-          <h1 className="text-[28px] font-bold text-gray-900 tracking-tight mt-1">{greeting()}{firstName ? `, ${firstName}` : ''}</h1>
-        </div>
+      <div className="max-w-5xl mx-auto px-5 sm:px-6 pt-6 pb-16">
+        {/* Finch's desk — the one bold surface: Finch speaking, beside the radar
+            of everything it's watching. Everything below is quiet. */}
+        <section data-testid="finch-brief"
+          className="relative overflow-hidden rounded-[28px] text-emerald-50 bg-[radial-gradient(120%_130%_at_88%_18%,#0f5a45_0%,#073a2d_42%,#04241c_100%)] shadow-[0_24px_60px_-28px_rgba(4,36,28,0.65)]">
+          <div className="grid md:grid-cols-[minmax(0,1fr)_auto] gap-6 md:gap-10 items-center px-6 sm:px-9 pt-8 pb-6">
+            <div className="min-w-0">
+              {status && <div className="text-[13px] font-medium text-emerald-200/70">{status}</div>}
+              <h1 className="text-[34px] sm:text-[40px] font-bold tracking-tight leading-[1.05] mt-1.5 text-white">
+                {greeting()}{firstName ? `, ${firstName}` : ''}
+              </h1>
+              {digest?.mode === 'portfolio' && digest.total_value != null && (
+                <button onClick={() => { setHomeTab('portfolio'); navigateTo({ type: 'markets' }); }}
+                  className="mt-2 text-[15px] text-emerald-100/80 hover:text-white tabular-nums">
+                  Your book {fmtUsd(digest.total_value)}{' '}
+                  <span className={(digest.day_change_pct ?? 0) >= 0 ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>{fmtPct(digest.day_change_pct)}</span> today
+                </button>
+              )}
 
-        {/* Book strip */}
-        {digest?.mode === 'portfolio' && digest.total_value != null && (
-          <button
-            onClick={() => { setHomeTab('portfolio'); navigateTo({ type: 'markets' }); }}
-            className="w-full flex items-end justify-between bg-white border border-stone-200/80 rounded-2xl px-5 py-4 mb-3 hover:border-stone-300 transition-colors text-left"
-          >
-            <div>
-              <div className="text-[12px] font-medium text-stone-500">Your book</div>
-              <div className="text-[28px] font-bold text-gray-900 tracking-tight tabular-nums">{fmtUsd(digest.total_value)}</div>
-            </div>
-            <div className="text-right">
-              <div className={`text-[17px] font-bold tabular-nums ${(digest.day_change_pct ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtPct(digest.day_change_pct)}</div>
-              <div className="text-[11.5px] text-stone-400">today</div>
-            </div>
-          </button>
-        )}
-
-        {/* The brief */}
-        <div className="bg-white border border-emerald-100 rounded-2xl p-5 mb-4" data-testid="finch-brief">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-[7px] h-[7px] rounded-full bg-emerald-500" />
-            <span className="text-[11.5px] font-bold text-emerald-600 uppercase tracking-wider">
-              {loading ? 'Checking in…' : brief.length > 0 ? 'Finch noticed' : 'All quiet'}
-            </span>
-          </div>
-          {loading ? (
-            <div className="space-y-2 animate-pulse">
-              <div className="h-4 w-3/4 bg-stone-100 rounded" />
-              <div className="h-3.5 w-1/2 bg-stone-100 rounded" />
-            </div>
-          ) : brief.length === 0 ? (
-            <p className="text-[14.5px] text-stone-700 leading-relaxed">
-              {mySymbols.size > 0
-                ? `Nothing needs you right now. I'm watching ${mySymbols.size} stock${mySymbols.size === 1 ? '' : 's'} and will ping you if something moves.`
-                : "Add a few stocks to Watching or connect a brokerage, and I'll start keeping an eye on them for you."}
-            </p>
-          ) : (
-            brief.map((b, i) => (
-              <button key={b.key} onClick={b.onClick}
-                className={`w-full flex items-center gap-4 py-2.5 text-left group ${i > 0 ? 'border-t border-stone-100' : ''}`}>
-                <div className="flex-1 min-w-0">
-                  {b.thesis && b.thesis !== 'intact' ? (
-                    <span className="inline-block rounded-md px-1.5 py-0.5 mb-1 text-[10.5px] font-bold"
-                      style={{ color: THESIS_STATUS_META[b.thesis].fg, background: THESIS_STATUS_META[b.thesis].bg }}>
-                      {THESIS_STATUS_META[b.thesis].label}
-                    </span>
-                  ) : b.verdict ? (
-                    <span className="inline-block rounded-md px-1.5 py-0.5 mb-1 text-[10.5px] font-bold"
-                      style={{ color: VERDICT_META[b.verdict].fg, background: VERDICT_META[b.verdict].bg }}>
-                      {VERDICT_META[b.verdict].label}
-                    </span>
-                  ) : null}
-                  <div className="text-[15px] font-bold text-gray-900">{b.title}</div>
-                  {b.body && <div className="text-[13.5px] text-stone-500 leading-snug mt-0.5 line-clamp-2">{b.body}</div>}
-                </div>
-                {b.cta ? (
-                  <span className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-[12.5px] font-bold ${b.action ? 'bg-emerald-600 text-white group-hover:bg-emerald-700' : 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-100'}`}>{b.cta}</span>
+              <div className="mt-6 max-w-[560px]">
+                {loading ? (
+                  <div className="space-y-2.5 animate-pulse">
+                    <div className="h-5 w-4/5 bg-white/10 rounded" />
+                    <div className="h-4 w-3/5 bg-white/10 rounded" />
+                  </div>
+                ) : brief.length === 0 ? (
+                  <p className="text-[19px] font-medium leading-snug text-white">
+                    {mySymbols.size > 0
+                      ? `Nothing needs you right now. I'm watching ${mySymbols.size} stock${mySymbols.size === 1 ? '' : 's'} and will tell you if something changes.`
+                      : "Add a few stocks to Watching or connect a brokerage, and I'll start keeping an eye on them for you."}
+                  </p>
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-stone-400 flex-shrink-0" />
+                  brief.map((b, i) => {
+                    const tag = darkTag(b);
+                    return (
+                      <button key={b.key} onClick={b.onClick}
+                        className={`block w-full text-left group ${i === 0 ? '' : 'mt-4 pt-4 border-t border-white/10'}`}>
+                        {tag && <div className="text-[12.5px] font-bold mb-1" style={{ color: tag.color }}>{tag.text}</div>}
+                        <div className={`${i === 0 ? 'text-[21px]' : 'text-[16.5px]'} font-bold tracking-tight leading-snug text-white group-hover:text-emerald-100`}>{b.title}</div>
+                        {b.body && <div className={`${i === 0 ? 'text-[15px]' : 'text-[14px]'} text-emerald-50/70 leading-relaxed mt-1 line-clamp-3`}>{b.body}</div>}
+                        {b.cta && (
+                          <span className={`inline-block mt-3 px-4 py-1.5 rounded-full text-[13px] font-bold transition-colors ${b.action ? 'bg-emerald-400 text-emerald-950 group-hover:bg-emerald-300' : 'bg-white/10 text-emerald-50 group-hover:bg-white/20'}`}>{b.cta}</span>
+                        )}
+                      </button>
+                    );
+                  })
                 )}
-              </button>
-            ))
-          )}
-          {recap?.next_run?.run_at && (
-            <div className="text-[12px] text-stone-400 mt-2">
-              Next: {recap.next_run.name} · {new Date(recap.next_run.run_at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Six cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {cards.map(({ key, title, line, attention, Icon, tint, view }) => (
+            <div className="hidden md:flex flex-col items-center">
+              <WatchRadar blips={blips} size={300} onSelect={sym => openStock(sym)} />
+              <div className="text-[12.5px] text-emerald-100/60 -mt-1 text-center">
+                {mySymbols.size > 0
+                  ? `Watching ${mySymbols.size} stock${mySymbols.size === 1 ? '' : 's'}${theses.length ? `, ${theses.length} with your thesis` : ''}`
+                  : 'Nothing on the radar yet'}
+              </div>
+            </div>
+          </div>
+
+          {/* Market line + next check, set into the desk's bottom edge */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-6 sm:px-9 py-3.5 border-t border-white/10 bg-black/10 text-[13px] text-emerald-100/70 tabular-nums">
+            {PULSE.map(p => {
+              const chg = pulse[p.symbol]?.changesPercentage;
+              return (
+                <span key={p.symbol}>
+                  {p.label}{' '}
+                  <span className={`font-bold ${chg == null ? 'text-emerald-100/40' : chg >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmtPct(chg)}</span>
+                </span>
+              );
+            })}
+            {!loading && recap?.next_run?.run_at && (
+              <span className="text-emerald-100/50">
+                Next check: {recap.next_run.name.toLowerCase()}, {new Date(recap.next_run.run_at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+              </span>
+            )}
+            <button onClick={() => { setHomeTab('markets'); navigateTo({ type: 'markets' }); }}
+              className="ml-auto flex items-center gap-1 font-semibold text-emerald-100/80 hover:text-white">
+              Markets <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </section>
+
+        {/* The six tools: one quiet panel, hairline dividers, monochrome icons.
+            Emerald only where something needs the user. */}
+        <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 bg-white rounded-[18px] border border-stone-200/80 overflow-hidden [&>*]:border-stone-200/80">
+          {cards.map(({ key, title, line, attention, Icon, view }, i) => (
             <button key={key} data-testid={`home-card-${key}`} onClick={() => navigateTo(view)}
-              className={`text-left bg-white rounded-2xl border p-4 h-[132px] flex flex-col hover:shadow-sm hover:-translate-y-px transition-all ${attention ? 'border-emerald-200' : 'border-stone-200/80 hover:border-stone-300'}`}>
-              <div className="flex items-start justify-between">
-                <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${tint}`}><Icon className="w-[18px] h-[18px]" /></span>
-                {attention && <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1" />}
+              className={`text-left px-5 py-4 min-h-[112px] hover:bg-stone-50 transition-colors border-b sm:[&:nth-child(n+4)]:border-b-0 max-sm:[&:nth-child(n+5)]:border-b-0 ${i % 2 === 0 ? 'max-sm:border-r' : ''} ${i % 3 !== 2 ? 'sm:border-r' : ''}`}>
+              <div className="flex items-center justify-between">
+                <Icon className={`w-[17px] h-[17px] ${attention ? 'text-emerald-600' : 'text-stone-500'}`} strokeWidth={1.9} />
+                {attention && <span className="w-[7px] h-[7px] rounded-full bg-emerald-500" />}
               </div>
-              <div className="mt-auto">
-                <div className="text-[16px] font-bold text-gray-900 tracking-tight">{title}</div>
-                <div className={`text-[12.5px] mt-0.5 line-clamp-2 ${attention ? 'text-emerald-600' : 'text-stone-500'}`}>{line}</div>
-              </div>
+              <div className="text-[15.5px] font-bold text-stone-900 mt-3">{title}</div>
+              <div className={`text-[13px] mt-0.5 line-clamp-2 ${attention ? 'text-emerald-700 font-medium' : 'text-stone-500'}`}>{line}</div>
             </button>
           ))}
         </div>
-
-        {/* Market pulse */}
-        <button onClick={() => { setHomeTab('markets'); navigateTo({ type: 'markets' }); }}
-          className="w-full flex items-center bg-white border border-stone-200/80 rounded-2xl px-5 py-3.5 mt-3 hover:border-stone-300 transition-colors">
-          {PULSE.map(p => {
-            const chg = pulse[p.symbol]?.changesPercentage;
-            return (
-              <div key={p.symbol} className="flex-1 text-left">
-                <div className="text-[11.5px] font-medium text-stone-500">{p.label}</div>
-                <div className={`text-[14px] font-bold tabular-nums ${chg == null ? 'text-stone-400' : chg >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtPct(chg)}</div>
-              </div>
-            );
-          })}
-          <ChevronRight className="w-4 h-4 text-stone-400" />
-        </button>
 
         {/* Ask */}
         <div className="mt-5 flex items-center gap-2 bg-white border border-stone-200 rounded-2xl pl-4 pr-2 py-2 shadow-sm focus-within:border-emerald-300">
