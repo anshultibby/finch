@@ -1256,6 +1256,79 @@ export const marketApi = {
     const response = await api.get('/market/sec-citation', { params: { filing_url: filingUrl, field } });
     return response.data;
   },
+  screen: async (filters: ScreenerFilters, limit = 30): Promise<ScreenerResult[]> => {
+    const response = await api.get('/market/screener', { params: { ...filters, limit } });
+    return response.data;
+  },
+};
+
+export interface ScreenerFilters {
+  sector?: string;
+  industry?: string;
+  market_cap_min?: number;
+  market_cap_max?: number;
+  beta_min?: number;
+  beta_max?: number;
+  dividend_min?: number;
+  price_min?: number;
+  price_max?: number;
+  volume_min?: number;
+}
+
+export interface ScreenerResult {
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  industry: string | null;
+  market_cap: number | null;
+  price: number | null;
+  beta: number | null;
+  dividend: number | null;
+  volume: number | null;
+  exchange: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trade ideas — Finch's calls + the scorecard that grades them (mirrors mobile)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TradeIdea {
+  id: string;
+  created_at: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  catalyst_type: string;
+  catalyst_summary: string;
+  thesis: string;
+  bear_case: string | null;
+  sources: { title?: string; url?: string }[];
+  entry_ref: number;
+  stop: number;
+  target: number;
+  horizon_days: number;
+  conviction: number;
+  status: 'proposed' | 'approved' | 'rejected';
+  outcome: 'pending' | 'target' | 'stop' | 'expired';
+  return_pct: number | null;
+  benchmark_return_pct: number | null;
+}
+
+export interface IdeaScorecard {
+  total: number;
+  open: number;
+  scored: number;
+  wins: number;
+  losses: number;
+  hit_rate: number | null;
+  avg_return_pct: number | null;
+  avg_alpha_pct: number | null;
+}
+
+export const ideasApi = {
+  list: async (limit = 50): Promise<{ ideas: TradeIdea[]; scorecard: IdeaScorecard }> =>
+    (await api.get('/ideas', { params: { limit } })).data,
+  decide: async (ideaId: string, approve: boolean, execution_mode?: 'auto' | 'manual'): Promise<TradeIdea> =>
+    (await api.post(`/ideas/${ideaId}/decide`, { approve, execution_mode })).data,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

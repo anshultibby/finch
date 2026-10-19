@@ -13,7 +13,13 @@ import TickerLogo from '@/components/ui/TickerLogo';
 import StockPage from '@/components/stock/StockPage';
 import ChatPage from '@/components/chat/ChatPage';
 import HomePage from '@/components/home/HomePage';
-import MissionCockpit from '@/components/home/MissionCockpit';
+import ProactiveHome from '@/components/proactive/ProactiveHome';
+import AssistantPanel from '@/components/proactive/AssistantPanel';
+import ScreenerPanel from '@/components/proactive/ScreenerPanel';
+import TraderPanel from '@/components/proactive/TraderPanel';
+import ResearchPanel from '@/components/proactive/ResearchPanel';
+import CalendarPanel from '@/components/proactive/CalendarPanel';
+import WatchingPanel from '@/components/proactive/WatchingPanel';
 import WidgetsPanel from '@/components/widgets/WidgetsPanel';
 import MemoryStorePanel from '@/components/memory/MemoryStorePanel';
 import TasksPanel from '@/components/tasks/TasksPanel';
@@ -27,8 +33,14 @@ import { marketApi, widgetsApi } from '@/lib/api';
 
 function viewLabel(view: View): string {
   switch (view.type) {
-    case 'mission': return 'Mission';
-    case 'home': return 'Dashboard';
+    case 'home': return 'Home';
+    case 'assistant': return 'Ask Finch';
+    case 'screener': return 'Screener';
+    case 'trader': return 'Trader';
+    case 'research': return 'Financials';
+    case 'calendar': return 'Calendar';
+    case 'watching': return 'Watching';
+    case 'markets': return 'Markets';
     case 'stock': return view.symbol;
     case 'chat': return 'Chat';
     case 'widgets': return 'Widgets';
@@ -129,7 +141,7 @@ function TopBar() {
                 <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                 </svg>
-                <button onClick={() => { navigateTo({ type: 'home' }); /* could navigate to earnings tab */ }}
+                <button onClick={() => navigateTo({ type: 'calendar' })}
                   className="font-semibold text-gray-400 hover:text-gray-600 transition-colors">
                   Earnings
                 </button>
@@ -324,9 +336,21 @@ function AppLayoutInner() {
   // Render current view (excluding chat — chat is always mounted for stream persistence)
   const renderNonChatView = () => {
     switch (currentView.type) {
-      case 'mission':
-        return <MissionCockpit />;
       case 'home':
+        return <ProactiveHome />;
+      case 'assistant':
+        return <AssistantPanel />;
+      case 'screener':
+        return <ScreenerPanel />;
+      case 'trader':
+        return <TraderPanel />;
+      case 'research':
+        return <ResearchPanel />;
+      case 'calendar':
+        return <CalendarPanel />;
+      case 'watching':
+        return <WatchingPanel />;
+      case 'markets':
         return <HomePage />;
       case 'stock':
         return <StockPage symbol={currentView.symbol} initialTab={currentView.tab} />;

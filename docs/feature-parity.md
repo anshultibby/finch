@@ -14,17 +14,18 @@ match across web and mobile.
 ## Proactive home (Oct 2026 redesign)
 
 One page: a ranked "Finch noticed" brief (hidden filler-free) + six cards, each a tool
-with a live status line. Mobile shipped first; **web still on the Mission cockpit**.
+with a live status line. Shipped on both (web: `components/proactive/`; the Mission
+cockpit was removed and the old tabbed dashboard lives on as the `markets` view).
 
 | Feature | Web | Mobile | Notes |
 |---------|-----|--------|-------|
-| Home: brief + 6 cards (no drawer/tabs) | ❌ | ✅ | `app/(tabs)/index.tsx` |
-| Ask Finch (ideas + prompts + recents) | ❌ | ✅ | `app/(tabs)/chat/index.tsx`; replaces drawer recents |
-| Screener (filters + plain-English + watch screen) | ❌ | ✅ | `GET /market/screener`; `marketApi.screen` |
-| Trader (approvals, Finch's calls scorecard, pause-all) | ❌ | ✅ | `ideasApi`, `jobsApi.pauseAll` |
-| Financials entry (search → stock `?tab=financials`) | ❌ | ✅ | `app/research.tsx` |
-| Calendar (your earnings + Finch's schedule) | ❌ | ✅ | `app/calendar.tsx` |
-| Watching (checks as plain-English rules, check-ins) | ❌ | ✅ | `app/watching.tsx`; template checks via `jobsApi.create` |
+| Home: brief + 6 cards (no drawer/tabs) | ✅ | ✅ | `app/(tabs)/index.tsx` |
+| Ask Finch (ideas + prompts + recents) | ✅ | ✅ | Web keeps recents in the sidebar; mobile in `app/(tabs)/chat/index.tsx` |
+| Screener (filters + plain-English + watch screen) | ✅ | ✅ | `GET /market/screener`; `marketApi.screen` |
+| Trader (approvals, Finch's calls scorecard, pause-all) | ✅ | ✅ | `ideasApi`, `jobsApi.pauseAll` |
+| Financials entry (search → stock `?tab=financials`) | ✅ | ✅ | `app/research.tsx` |
+| Calendar (your earnings + Finch's schedule) | ✅ | ✅ | `app/calendar.tsx` |
+| Watching (checks as plain-English rules, check-ins) | ✅ | ✅ | `app/watching.tsx`; template checks via `jobsApi.create` |
 
 ## Checklist
 

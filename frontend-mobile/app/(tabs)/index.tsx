@@ -121,12 +121,14 @@ export default function HomeScreen() {
       }).catch(() => {}),
     ];
     if (user) {
+      // The digest is LLM-written and slow — it joins the brief when it lands
+      // instead of holding the whole brief on a skeleton.
+      insightsApi.getPortfolioDigest(user.id).then(setDigest).catch(() => {});
       tasks.push(
         pendingTradesApi.list().then(d => setPending(
           (d.pending_trades || []).filter(t => !t.expires_at || new Date(t.expires_at).getTime() > Date.now())
         )).catch(() => {}),
         activityApi.getRecap().then(setRecap).catch(() => {}),
-        insightsApi.getPortfolioDigest(user.id).then(setDigest).catch(() => {}),
         watchlistApi.getWatchlist(user.id).then(d => {
           const raw = d.symbols || d.watchlist || [];
           setWatchlist(raw.map((i: any) => (typeof i === 'string' ? i : i.symbol)).filter(Boolean));

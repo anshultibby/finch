@@ -40,6 +40,15 @@ setup('authenticate', async ({ page }) => {
 
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
 
+  // The test account has no mission set; mark onboarding as skipped (the same
+  // flag GoalGate writes on "Skip setup for now") so the mission card doesn't
+  // cover every screen the specs capture.
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => /sb-.*auth-token/.test(k));
+    const uid = key ? JSON.parse(localStorage.getItem(key) || '{}')?.user?.id : null;
+    if (uid) localStorage.setItem(`finch:goal-wizard-skipped:${uid}`, '1');
+  });
+
   fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
   await page.context().storageState({ path: AUTH_FILE });
 });

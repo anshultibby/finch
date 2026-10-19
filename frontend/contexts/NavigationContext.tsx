@@ -6,9 +6,18 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 // View types
 // ─────────────────────────────────────────────────────────────────────────────
 
+// `home` is the proactive one-page home (brief + six cards); each card opens
+// one of the tool views below. `markets` is the classic tabbed dashboard
+// (markets / earnings / watchlist / portfolio), reached from the pulse strip.
 export type View =
-  | { type: 'mission' }
   | { type: 'home' }
+  | { type: 'assistant' }
+  | { type: 'screener' }
+  | { type: 'trader' }
+  | { type: 'research' }
+  | { type: 'calendar' }
+  | { type: 'watching' }
+  | { type: 'markets' }
   | { type: 'stock'; symbol: string; tab?: string }
   | { type: 'chat' }
   | { type: 'widgets'; widgetId?: string }
@@ -57,7 +66,7 @@ interface NavigationContextType {
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
-  const [history, setHistory] = useState<View[]>([{ type: 'mission' }]);
+  const [history, setHistory] = useState<View[]>([{ type: 'home' }]);
   const [market, setMarket] = useState<Market>('us');
   const [homeTab, setHomeTab] = useState<HomeTab>('markets');
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);

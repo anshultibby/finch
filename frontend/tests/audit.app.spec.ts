@@ -29,6 +29,15 @@ async function openStock(page: any, symbol: string) {
   await settle(page, 2000);
 }
 
+// The review account has no mission set, so the onboarding card may cover the app.
+async function skipMissionCard(page: import('@playwright/test').Page) {
+  const skip = page.getByText('Skip setup for now');
+  if (await skip.isVisible().catch(() => false)) {
+    await skip.click();
+    await page.waitForTimeout(600);
+  }
+}
+
 test.describe('UX audit — desktop sweep', () => {
   test.use({ viewport: DESKTOP });
 
@@ -37,8 +46,10 @@ test.describe('UX audit — desktop sweep', () => {
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
     await settle(page, 1500);
 
-    // 1. Dashboard
-    await snap(page, testInfo, '01-dashboard');
+    await skipMissionCard(page);
+
+    // 1. Proactive home (brief + six cards)
+    await snap(page, testInfo, '01-home');
 
     // 2. Top-bar search dropdown (open state)
     const search = page.getByPlaceholder(/stocks, crypto/i);
@@ -48,17 +59,20 @@ test.describe('UX audit — desktop sweep', () => {
     await snap(page, testInfo, '02-search-dropdown');
     await page.keyboard.press('Escape');
 
-    // 3. Sidebar nav views
-    for (const [name, shot] of [
-      ['Widgets', '03-widgets'],
-      ['Memory Store', '04-memory-store'],
+    // 3. Each home card's destination, then back home via the sidebar.
+    for (const [card, shot] of [
+      ['assistant', '03-assistant'],
+      ['screener', '04-screener'],
+      ['trader', '05-trader'],
+      ['financials', '06-financials'],
+      ['calendar', '07-calendar'],
+      ['watching', '08-watching'],
     ] as const) {
-      const btn = page.getByRole('button', { name }).first();
-      if (await btn.isVisible().catch(() => false)) {
-        await btn.click();
-        await settle(page);
-        await snap(page, testInfo, shot);
-      }
+      await page.getByTestId(`home-card-${card}`).click();
+      await settle(page, 2000);
+      await snap(page, testInfo, shot);
+      await page.getByRole('button', { name: 'Home' }).first().click();
+      await settle(page, 600);
     }
 
     // 4. New chat / empty chat composer
@@ -66,19 +80,7 @@ test.describe('UX audit — desktop sweep', () => {
     if (await newChat.isVisible().catch(() => false)) {
       await newChat.click();
       await settle(page);
-      await snap(page, testInfo, '05-chat-empty');
-    }
-
-    // 5. Dashboard → Portfolio tab (top tabs on dashboard)
-    await page.getByRole('button', { name: 'Dashboard' }).first().click();
-    await settle(page);
-    for (const tab of ['Earnings', 'Watchlist', 'Portfolio']) {
-      const t = page.getByText(new RegExp(`^${tab}$`)).first();
-      if (await t.isVisible().catch(() => false)) {
-        await t.click();
-        await settle(page);
-        await snap(page, testInfo, `06-dash-${tab.toLowerCase()}`);
-      }
+      await snap(page, testInfo, '09-chat-empty');
     }
   });
 
@@ -110,7 +112,8 @@ test.describe('UX audit — mobile sweep', () => {
     await page.goto('/');
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
     await settle(page, 1500);
-    await snap(page, testInfo, '20-m-dashboard');
+    await skipMissionCard(page);
+    await snap(page, testInfo, '20-m-home');
 
     await openStock(page, 'AAPL');
     await snap(page, testInfo, '21-m-stock');
