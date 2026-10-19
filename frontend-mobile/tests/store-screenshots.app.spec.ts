@@ -20,14 +20,18 @@ const SCREENS: { name: string; route: string; ready?: RegExp; prep?: (page: Page
   { name: '01-home', route: '/', ready: /Your (watchlist|book) today|Finch noticed|All quiet/ },
   { name: '02-screener', route: '/screener', ready: /\d+ matches/ },
   { name: '03-trader', route: '/trader', ready: /Waiting on you/i },
+  { name: '04-calendar', route: '/calendar', ready: /Tomorrow|Today|Monday|Tuesday|Wednesday|Thursday|Friday/ },
   {
-    name: '04-calendar', route: '/calendar', ready: /Earnings/i,
-    // The review account's stocks don't report soon; show the whole week.
-    prep: async (page) => { await page.getByText('All', { exact: true }).first().click().catch(() => {}); },
+    // Finch's read of a move: verdict, driver, the numbers behind it, what to watch.
+    name: '05-why-it-moved', route: '/stock/META', ready: /Why is it moving/,
+    prep: async (page) => {
+      await page.getByText('Why is it moving?').first().click();
+      await page.getByText(/^Watch:/).first().waitFor({ timeout: 60_000 }).catch(() => {});
+    },
   },
-  { name: '05-financials', route: '/stock/AAPL?tab=financials', ready: /Revenue/ },
-  { name: '06-watching', route: '/watching', ready: /Check-ins/ },
-  { name: '07-assistant', route: '/chat', ready: /Recent/ },
+  { name: '06-financials', route: '/stock/AAPL?tab=financials', ready: /Revenue/ },
+  { name: '07-watching', route: '/watching', ready: /Check-ins/ },
+  { name: '08-assistant', route: '/chat', ready: /Recent/ },
 ];
 
 async function capture(page: Page, dir: string) {
@@ -38,6 +42,8 @@ async function capture(page: Page, dir: string) {
     await skip.waitFor({ state: 'visible', timeout: 4000 }).then(() => skip.click()).catch(() => {});
     if (s.ready) await page.getByText(s.ready).first().waitFor({ timeout: 25_000 }).catch(() => {});
     if (s.prep) await s.prep(page);
+    // Dev-server-only fast-refresh badge; never part of the shipped app.
+    await page.addStyleTag({ content: '.__expo_fast_refresh { display: none !important; }' });
     await page.waitForTimeout(1500); // let entering animations finish
     await page.screenshot({ path: path.join(ROOT, dir, `${s.name}.png`), fullPage: false });
   }

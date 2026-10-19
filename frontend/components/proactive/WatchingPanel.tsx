@@ -170,7 +170,7 @@ export default function WatchingPanel() {
             <div className={ui.section}>Check-ins</div>
             <div className={`${ui.card} overflow-hidden`}>
               <Toggle title="Morning brief" sub={`What changed overnight, before the open · ${prefs.morning_brief_time}`}
-                on={prefs.morning_brief_enabled} onChange={v => setPref({ morning_brief_enabled: v })} />
+                on={prefs.morning_brief_enabled} onChange={v => setPref({ morning_brief_enabled: v, morning_brief_timezone: localTimeZone() })} />
               <Toggle title="Daily portfolio watch" sub="Finch reviews your book and the news, and pings you only if it matters"
                 on={prefs.heartbeat_enabled} onChange={v => setPref({ heartbeat_enabled: v })} />
             </div>
@@ -230,4 +230,10 @@ function Toggle({ title, sub, on, onChange }: { title: string; sub: string; on: 
       </button>
     </div>
   );
+}
+
+// The brief time is stored as local HH:MM + an IANA zone; without the zone the
+// backend falls back to UTC and "08:00" fires at 1am Pacific.
+function localTimeZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
 }

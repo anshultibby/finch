@@ -67,9 +67,10 @@ def test_unknown_sector_falls_back_to_market(stub_lookups):
 
 def test_earnings_note_window():
     today = date.today()
-    assert "reported today" in mc._earnings_note({"earningsAnnouncement": today.isoformat()})
-    assert "2 day(s) ago" in mc._earnings_note({"earningsAnnouncement": (today - timedelta(days=2)).isoformat()})
-    assert "due in 5 day(s)" in mc._earnings_note({"earningsAnnouncement": (today + timedelta(days=5)).isoformat()})
+    assert mc._earnings_note({"earningsAnnouncement": today.isoformat()}).startswith("Earnings today")
+    assert "2 days ago" in mc._earnings_note({"earningsAnnouncement": (today - timedelta(days=2)).isoformat()})
+    assert "Earnings in 1 day " in mc._earnings_note({"earningsAnnouncement": (today + timedelta(days=1)).isoformat()})
+    assert "Earnings in 5 days" in mc._earnings_note({"earningsAnnouncement": (today + timedelta(days=5)).isoformat()})
     assert mc._earnings_note({"earningsAnnouncement": (today + timedelta(days=30)).isoformat()}) is None
     assert mc._earnings_note({}) is None
 

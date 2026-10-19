@@ -179,10 +179,13 @@ def _earnings_note(quote: dict) -> Optional[str]:
     except ValueError:
         return None
     days = (when - date.today()).days
-    if -3 <= days <= 0:
-        return f"Earnings were reported {'today' if days == 0 else f'{-days} day(s) ago'} ({when.isoformat()})."
+    label = f"{when:%b} {when.day}"
+    if days == 0:
+        return f"Earnings today ({label})"
+    if -3 <= days < 0:
+        return f"Reported earnings {-days} day{'s' if days < -1 else ''} ago ({label})"
     if 0 < days <= 7:
-        return f"Earnings are due in {days} day(s) ({when.isoformat()})."
+        return f"Earnings in {days} day{'s' if days > 1 else ''} ({label})"
     return None
 
 

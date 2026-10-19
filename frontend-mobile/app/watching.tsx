@@ -222,7 +222,7 @@ export default function WatchingScreen() {
                   <Text style={styles.jobName}>Morning brief</Text>
                   <Text style={styles.jobMeta}>What changed overnight, before the open · {prefs.morning_brief_time}</Text>
                 </View>
-                <Switch value={prefs.morning_brief_enabled} onValueChange={v => setPref({ morning_brief_enabled: v })} trackColor={{ true: '#10b981' }} />
+                <Switch value={prefs.morning_brief_enabled} onValueChange={v => setPref({ morning_brief_enabled: v, morning_brief_timezone: localTimeZone() })} trackColor={{ true: '#10b981' }} />
               </View>
               <View style={[styles.row, styles.divider]}>
                 <View style={{ flex: 1 }}>
@@ -287,3 +287,9 @@ const styles = StyleSheet.create({
   emptyCard: { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: COLORS.gray100, padding: 16 },
   emptyText: { fontFamily: 'DMSans', fontSize: 13.5, color: COLORS.gray500, lineHeight: 19 },
 });
+
+// The brief time is stored as local HH:MM + an IANA zone; without the zone the
+// backend falls back to UTC and "08:00" fires at 1am Pacific.
+function localTimeZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+}
