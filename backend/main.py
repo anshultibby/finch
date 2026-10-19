@@ -147,6 +147,7 @@ app.include_router(strategies_router)
 
 
 import asyncio
+import os
 
 # Background task for monitoring connection pool
 _pool_monitor_task = None
@@ -158,8 +159,18 @@ _pool_monitor_task = None
 _background_tasks: set[asyncio.Task] = set()
 
 
-def _spawn_background(coro, name: str) -> asyncio.Task:
+# Local dev servers share the prod database, so their schedulers/monitors would
+# double-run jobs and double-send pushes. Set DISABLE_BACKGROUND_JOBS=1 to serve
+# the API only.
+_BACKGROUND_DISABLED = os.getenv("DISABLE_BACKGROUND_JOBS", "").lower() in ("1", "true", "yes")
+
+
+def _spawn_background(coro, name: str) -> asyncio.Task | None:
     """Start a long-lived background loop and keep a strong reference to it."""
+    if _BACKGROUND_DISABLED:
+        coro.close()
+        logger.info(f"Background loop '{name}' skipped (DISABLE_BACKGROUND_JOBS)")
+        return None
     task = asyncio.create_task(coro, name=name)
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)

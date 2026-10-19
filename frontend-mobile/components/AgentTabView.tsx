@@ -1,4 +1,4 @@
-import { View, Text, Pressable, ActivityIndicator, ScrollView, Linking } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Sparkles } from 'lucide-react-native';
 import { robinhoodApi, type RobinhoodPortfolioResponse } from '@/lib/api';
@@ -64,7 +64,7 @@ export default function AgentTabView({ userId }: { userId: string }) {
   const col = (n: number) => (n >= 0 ? '#059669' : '#ef4444');
 
   return (
-    <ScrollView className="px-1" showsVerticalScrollIndicator={false}>
+    <View className="px-1">
       {/* Headline */}
       <View className="rounded-2xl border border-emerald-100 p-5 mb-4" style={{ backgroundColor: '#ecfdf5' }}>
         <View className="flex-row items-center gap-1.5">
@@ -121,6 +121,6 @@ export default function AgentTabView({ userId }: { userId: string }) {
       </View>
 
       <Text className="px-2 pb-4 text-center text-[11px] text-gray-400">The agent trades only in this Agentic account — never your main accounts.</Text>
-    </ScrollView>
+    </View>
   );
 }

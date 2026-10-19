@@ -25,40 +25,49 @@ async function shot(page: import('@playwright/test').Page, name: string) {
 async function tap(page: import('@playwright/test').Page, label: string) {
   const el = page.getByText(label, { exact: true }).first();
   await el.waitFor({ state: 'visible', timeout: 8000 });
-  await el.click();
+  await el.click({ timeout: 8000 });
 }
 
 test.describe('mobile UX audit', () => {
   test('capture every primary screen', async ({ page }, testInfo) => {
+    test.setTimeout(240_000);
     const health = watchHealth(page);
 
-    // ── Home: Markets ──────────────────────────────────────────────
+    // ── Home + the six card destinations ───────────────────────────
     await page.goto('/');
     await settle(page, 2500);
-    await shot(page, '01-home-markets');
+    await shot(page, '01-home');
 
-    // Home tabs (in-page state)
-    for (const [i, label] of ['Earnings', 'Watchlist', 'Portfolio'].entries()) {
+    const cards: [string, string][] = [
+      ['/chat', '02-assistant'],
+      ['/screener', '03-screener'],
+      ['/trader', '04-trader'],
+      ['/research', '05-financials'],
+      ['/calendar', '06-calendar'],
+      ['/watching', '07-watching'],
+      ['/portfolio', '08-portfolio'],
+      ['/markets', '09-markets'],
+      ['/watchlist', '09b-watchlist'],
+    ];
+    for (const [route, name] of cards) {
       try {
-        await tap(page, label);
-        await settle(page);
-        await shot(page, `0${i + 2}-home-${label.toLowerCase()}`);
+        await page.goto(route);
+        await settle(page, 2000);
+        await shot(page, name);
       } catch (e) {
-        testInfo.annotations.push({ type: 'skip', description: `home tab ${label}: ${e}` });
+        testInfo.annotations.push({ type: 'skip', description: `${route}: ${e}` });
       }
     }
-    // back to markets for a clean baseline
-    try { await tap(page, 'Markets'); await settle(page); } catch {}
 
     // ── Stock detail ───────────────────────────────────────────────
     await page.goto('/stock/AAPL');
     await settle(page, 2500);
-    await shot(page, '05-stock-overview');
+    await shot(page, '10-stock-overview');
     for (const [i, label] of ['Earnings', 'Financials', 'News', 'Analysis'].entries()) {
       try {
         await tap(page, label);
         await settle(page);
-        await shot(page, `0${i + 6}-stock-${label.toLowerCase()}`);
+        await shot(page, `${i + 11}-stock-${label.toLowerCase()}`);
       } catch (e) {
         testInfo.annotations.push({ type: 'skip', description: `stock tab ${label}: ${e}` });
       }
@@ -68,14 +77,13 @@ test.describe('mobile UX audit', () => {
     try {
       await page.goto('/(tabs)/chat/audit-preview');
       await settle(page, 2000);
-      await shot(page, '10-chat-empty');
+      await shot(page, '15-chat-empty');
     } catch (e) {
       testInfo.annotations.push({ type: 'skip', description: `chat: ${e}` });
     }
 
     // ── Profile / Settings / Privacy / Notifications ───────────────
     const routes: [string, string][] = [
-      ['/(tabs)/profile', '11-profile'],
       ['/settings', '12-settings'],
       ['/notification-settings', '13-notification-settings'],
       ['/privacy', '14-privacy'],
@@ -96,10 +104,11 @@ test.describe('mobile UX audit', () => {
   });
 
   test('search surfaces results', async ({ page }) => {
+    // Header search opens the Financials screen's search.
     await page.goto('/');
     await settle(page, 2000);
-    await page.getByTestId('search-button').click({ timeout: 8000 });
-    await page.getByTestId('search-input').fill('NVDA', { timeout: 8000 });
+    await page.getByLabel('Search stocks').click({ timeout: 8000 });
+    await page.getByTestId('research-search').fill('NVDA', { timeout: 8000 });
     await settle(page, 1800);
     await shot(page, '20-search-nvda');
     // Results render as tappable rows; the symbol should be visible.

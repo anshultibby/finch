@@ -68,18 +68,17 @@ export default function MeetFinch({ onDone, onSkip }: { onDone: (g: SetGoalReque
   const back = () => setStep(Math.max(0, step - 1));
 
   return (
-    <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: 'rgba(20,18,16,0.28)' }}>
+    <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: 'rgba(20,18,16,0.62)' }}>
       {/* Finch, presenting */}
-      <View className="items-center" style={{ marginBottom: 2, zIndex: 2 }}>
+      <View className="items-center" style={{ marginBottom: 12, zIndex: 2 }}>
         <View className="rounded-[13px]" style={{ shadowColor: '#059669', shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 14 } }}><FinchLogo size={46} /></View>
-        {!done && <Text className="mt-3.5 text-[13.5px] text-stone-100 text-center" style={{ maxWidth: 320, lineHeight: 20 }}>{LINE[key]}</Text>}
       </View>
 
       <View className="w-full bg-white rounded-3xl p-[22px]" style={{ maxWidth: 400, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 40, shadowOffset: { width: 0, height: 24 } }}>
         {done ? (
           <View className="items-center py-4">
             <Text className="text-[22px] font-body-bold text-gray-900">Mission set ✓</Text>
-            <Text className="text-[12.5px] text-stone-500 mt-1">Building your cockpit…</Text>
+            <Text className="text-[12.5px] text-stone-500 mt-1">Finch is setting up your watch…</Text>
           </View>
         ) : (
           <>
@@ -93,6 +92,9 @@ export default function MeetFinch({ onDone, onSkip }: { onDone: (g: SetGoalReque
                 <View key={i} className={`flex-1 rounded-full ${i < step ? 'bg-emerald-400' : i === step ? 'bg-gray-900' : 'bg-stone-200'}`} style={{ height: 5 }} />
               ))}
             </View>
+            {/* Finch's line lives inside the card — floating over the dimmed app it
+                collided with whatever was underneath. */}
+            <Text className="text-[13px] text-emerald-700 font-body-medium mb-3" style={{ lineHeight: 19 }}>{LINE[key]}</Text>
 
             {key === 'capital' && <CapitalStep capital={capital} onPick={c => tap(() => setCapital(c))()} />}
             {key === 'plan' && <PlanStep kind={kind} onPick={(k, r) => tap(() => { setKind(k); setRisk(r); })()} />}

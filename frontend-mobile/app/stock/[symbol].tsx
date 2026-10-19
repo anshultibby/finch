@@ -27,7 +27,7 @@ const TABS: { key: StockTab; label: string }[] = [
 ];
 
 export default function StockDetailScreen() {
-  const { symbol } = useLocalSearchParams<{ symbol: string }>();
+  const { symbol, tab } = useLocalSearchParams<{ symbol: string; tab?: string }>();
   const { user } = useAuth();
   const router = useRouter();
   const [quote, setQuote] = useState<any>(null);
@@ -40,7 +40,10 @@ export default function StockDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [inWatchlist, setInWatchlist] = useState(false);
-  const [activeTab, setActiveTab] = useState<StockTab>('overview');
+  // `?tab=financials` lets the Financials card deep-link past the overview.
+  const [activeTab, setActiveTab] = useState<StockTab>(
+    TABS.some(t => t.key === tab) ? (tab as StockTab) : 'overview'
+  );
 
   const fetchData = useCallback(async () => {
     try {
@@ -653,16 +656,24 @@ function FinancialsTab({ symbol }: { symbol: string }) {
   const [period, setPeriod] = useState<'annual' | 'quarter'>('annual');
   const [statement, setStatement] = useState<FinancialStatement>('key-stats');
 
-  const apiStatement = statement === 'key-stats' ? 'income-statement'
-    : statement === 'ratios' ? 'ratios' as any
-    : statement;
+  // The backend names statements without the "-statement" suffix
+  // (income-statement | balance-sheet | cash-flow | ratios); sending
+  // "balance-sheet-statement" / "cash-flow-statement" 422s.
+  const API_STATEMENT: Record<FinancialStatement, string> = {
+    'key-stats': 'income-statement',
+    'income-statement': 'income-statement',
+    'balance-sheet-statement': 'balance-sheet',
+    'cash-flow-statement': 'cash-flow',
+    ratios: 'ratios',
+  };
+  const apiStatement = API_STATEMENT[statement];
 
   useEffect(() => {
     setLoading(true);
     const fetches = [marketApi.getFinancials(symbol, apiStatement, period, 4).catch(() => null)];
     if (statement === 'key-stats') {
-      fetches.push(marketApi.getFinancials(symbol, 'cash-flow-statement', period, 4).catch(() => null));
-      fetches.push(marketApi.getFinancials(symbol, 'balance-sheet-statement', period, 4).catch(() => null));
+      fetches.push(marketApi.getFinancials(symbol, 'cash-flow', period, 4).catch(() => null));
+      fetches.push(marketApi.getFinancials(symbol, 'balance-sheet', period, 4).catch(() => null));
     }
     Promise.all(fetches).then(results => {
       const base = results[0]?.financials || results[0] || [];

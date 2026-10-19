@@ -11,6 +11,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import EmptyState from '@/components/ui/EmptyState';
 import SignInPrompt from '@/components/SignInPrompt';
+import ScreenHeader from '@/components/ui/ScreenHeader';
 
 interface WatchlistItem {
   symbol: string;
@@ -267,9 +268,7 @@ export default function WatchlistScreen() {
   if (!user) {
     return (
       <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
-        <View className="px-5 pt-2 pb-3">
-          <Text className="text-2xl font-body-bold text-gray-900">Watchlist</Text>
-        </View>
+        <ScreenHeader title="Watchlist" />
         <SignInPrompt
           title="Track your favorite stocks"
           description="Sign in to build a watchlist and follow the symbols you care about."
@@ -280,9 +279,9 @@ export default function WatchlistScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#fafaf9]" edges={['top']}>
-      <View className="px-5 pt-2 pb-3">
-        <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-2xl font-body-bold text-gray-900">Watchlist</Text>
+      <ScreenHeader title="Watchlist" />
+      <View className="px-5 pb-3">
+        <View className="flex-row items-center justify-end mb-3">
           <TouchableOpacity
             onPress={() => setShowImport(true)}
             disabled={syncing}

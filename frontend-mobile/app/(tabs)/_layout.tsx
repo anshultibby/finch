@@ -2,8 +2,6 @@ import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { DrawerProvider } from '@/contexts/DrawerContext';
-import Sidebar from '@/components/Sidebar';
 
 export default function MainLayout() {
   const { loading } = useAuth();
@@ -18,17 +16,11 @@ export default function MainLayout() {
 
   // No auth wall here: guests may browse markets, news, and stock pages
   // (App Store guideline 5.1.1). Account-based screens render SignInPrompt.
+  // Navigation is the home cards — no drawer, no tab bar.
   return (
-    <DrawerProvider>
-      <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="chat" />
-          <Stack.Screen name="profile" />
-          <Stack.Screen name="watchlist" />
-        </Stack>
-        <Sidebar />
-      </View>
-    </DrawerProvider>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="chat" />
+    </Stack>
   );
 }

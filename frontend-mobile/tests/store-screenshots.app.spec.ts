@@ -18,30 +18,24 @@ async function settle(page: import('@playwright/test').Page, ms = 2200) {
 async function shot(page: import('@playwright/test').Page, name: string) {
   await page.screenshot({ path: path.join(STORE, `${name}.png`), fullPage: false });
 }
-async function tap(page: import('@playwright/test').Page, label: string) {
-  const el = page.getByText(label, { exact: true }).first();
-  await el.waitFor({ state: 'visible', timeout: 8000 });
-  await el.click();
-}
-
 test('capture App Store screenshots (6.7")', async ({ page }) => {
-  // 1. Markets home
-  await page.goto('/');
-  await settle(page, 3000);
-  await shot(page, '01-markets');
-
-  // 2. Watchlist
-  try { await tap(page, 'Watchlist'); await settle(page); await shot(page, '02-watchlist'); } catch {}
-  // 3. Earnings
-  try { await tap(page, 'Earnings'); await settle(page); await shot(page, '03-earnings'); } catch {}
-
-  // 4. Stock detail
-  await page.goto('/stock/AAPL');
-  await settle(page, 3000);
-  await shot(page, '04-stock');
-
-  // 5. Chat welcome
-  await page.goto('/(tabs)/chat/store-preview');
-  await settle(page, 2200);
-  await shot(page, '05-chat');
+  // Ordered as the listing tells the story: Finch speaks first (home brief),
+  // then the tools it uses on your behalf.
+  const screens: [string, string, number][] = [
+    ['01-home', '/', 4000],
+    ['02-screener', '/screener', 3500],
+    ['03-trader', '/trader', 3500],
+    ['04-calendar', '/calendar', 3500],
+    ['05-financials', '/stock/AAPL?tab=financials', 4000],
+    ['06-watching', '/watching', 3500],
+    ['07-assistant', '/chat', 3500],
+  ];
+  for (const [name, route, wait] of screens) {
+    await page.goto(route);
+    await settle(page, wait);
+    // The review account has no mission set, so the onboarding card can cover the screen.
+    const skip = page.getByText('Skip setup for now');
+    if (await skip.isVisible().catch(() => false)) { await skip.click(); await settle(page, 800); }
+    await shot(page, name);
+  }
 });
