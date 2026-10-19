@@ -21,5 +21,7 @@ jobs:
     needs: [build_ios]
     type: submit
     params:
-      platform: ios
+      # Required: which build to upload. Without it the job fails validation
+      # ("[params.build_id]: Invalid input") and nothing reaches TestFlight.
+      build_id: ${{ needs.build_ios.outputs.build_id }}
       profile: production
