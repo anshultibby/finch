@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Clock, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, watchlistApi, snaptradeApi, jobsApi, type ScheduledJob } from '@/lib/api';
+import { marketApi, watchlistApi, snaptradeApi, jobsApi, thesesApi, type ScheduledJob, type Thesis } from '@/lib/api';
 import PageHeader from '@/components/ui/PageHeader';
 import { EARNINGS_SLOT, earningsPreviewPrompt, fmtUsd, shortWhen, ymd, ui } from './shared';
 
@@ -29,6 +29,7 @@ export default function CalendarPanel() {
   const [earnings, setEarnings] = useState<any[]>([]);
   const [mine, setMine] = useState<Set<string>>(new Set());
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
+  const [theses, setTheses] = useState<Thesis[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -45,6 +46,7 @@ export default function CalendarPanel() {
         .then((p: any) => addMine((p?.accounts || []).flatMap((a: any) => (a.positions || []).map((pos: any) => String(pos?.symbol || ''))).filter(Boolean)))
         .catch(() => {});
       jobsApi.list().then(d => alive && setJobs(d.jobs || [])).catch(() => {});
+      thesesApi.list().then(d => alive && setTheses(d.theses || [])).catch(() => {});
     }
     const from = new Date();
     const to = new Date(); to.setDate(to.getDate() + 14);
@@ -142,7 +144,7 @@ export default function CalendarPanel() {
                         </div>
                       </button>
                       {yours && (
-                        <button onClick={() => openChatWithPrompt(earningsPreviewPrompt(e.symbol), `${e.symbol} earnings preview`)}
+                        <button onClick={() => openChatWithPrompt(earningsPreviewPrompt(e.symbol, theses.find(t => t.symbol === String(e.symbol).toUpperCase())), `${e.symbol} earnings preview`)}
                           className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[12px] font-bold hover:bg-emerald-100">
                           <Sparkles className="w-3 h-3" /> Preview
                         </button>

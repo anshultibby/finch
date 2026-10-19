@@ -332,7 +332,7 @@ def list_theses():
 
 
 def get_thesis(symbol):
-    """One thesis, or raises FinchAPIError(404) if the user hasn't written one."""
+    """One thesis, or None if the user hasn't written one for this symbol."""
     return _request("GET", f"/theses/{urllib.parse.quote(symbol.upper())}")
 
 

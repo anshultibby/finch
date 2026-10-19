@@ -47,8 +47,12 @@ export function greeting(d = new Date()) {
   return 'Good evening';
 }
 
-export const earningsPreviewPrompt = (sym: string) =>
-  `Give me an earnings preview for ${sym}: consensus EPS and revenue, the options-implied move, the 2-3 things that will decide the reaction, and what it means for my position or watchlist interest. Take a stance.`;
+export function earningsPreviewPrompt(sym: string, thesis?: { why: string; breaks: string } | null) {
+  const base = `Give me an earnings preview for ${sym}: consensus EPS and revenue, the options-implied move, the 2-3 things that will decide the reaction, and what it means for my position or watchlist interest. Take a stance.`;
+  return thesis
+    ? `${base} My thesis: "${thesis.why}". I said I'd be wrong if: "${thesis.breaks || 'not stated'}". Tell me exactly what in this report would confirm or break it.`
+    : base;
+}
 
 /** Next weekday at `hour` local time; `weekly` pins it to Friday. */
 export function nextRunAt(hour: number, weekly = false): string {

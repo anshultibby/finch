@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Clock, Sparkles } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { marketApi, watchlistApi, snaptradeApi, jobsApi, type ScheduledJob } from '@/lib/api';
+import { marketApi, watchlistApi, snaptradeApi, jobsApi, thesesApi, type ScheduledJob, type Thesis } from '@/lib/api';
 import { useStartChat } from '@/hooks/useStartChat';
 import { COLORS, formatCurrency } from '@/lib/constants';
 import ScreenHeader from '@/components/ui/ScreenHeader';
@@ -40,6 +40,7 @@ export default function CalendarScreen() {
   const [earnings, setEarnings] = useState<any[]>([]);
   const [mine, setMine] = useState<Set<string>>(new Set());
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
+  const [theses, setTheses] = useState<Thesis[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,6 +59,7 @@ export default function CalendarScreen() {
         .then(p => addMine((p?.accounts || []).flatMap((a: any) => (a.positions || []).map((pos: any) => String(pos?.symbol || ''))).filter(Boolean)))
         .catch(() => {});
       jobsApi.list().then(d => setJobs(d.jobs || [])).catch(() => {});
+      thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {});
     }
     await marketApi.getEarnings(ymd(from), ymd(to))
       .then(d => { setEarnings(Array.isArray(d) ? d : d?.earnings || []); setError(false); })
@@ -92,9 +94,13 @@ export default function CalendarScreen() {
       .slice(0, 6);
   }, [jobs]);
 
-  const preview = (sym: string) => startChat(
-    `Give me an earnings preview for ${sym}: consensus EPS and revenue, the options-implied move, the 2-3 things that will decide the reaction, and what it means for my position or watchlist interest. Take a stance.`,
-  );
+  const preview = (sym: string) => {
+    const t = theses.find(x => x.symbol === sym.toUpperCase());
+    const base = `Give me an earnings preview for ${sym}: consensus EPS and revenue, the options-implied move, the 2-3 things that will decide the reaction, and what it means for my position or watchlist interest. Take a stance.`;
+    startChat(t
+      ? `${base} My thesis: "${t.why}". I said I'd be wrong if: "${t.breaks || 'not stated'}". Tell me exactly what in this report would confirm or break it.`
+      : base);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

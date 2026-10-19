@@ -16,6 +16,14 @@ const STANCES: { key: ThesisStance; label: string }[] = [
   { key: 'avoid', label: 'Avoiding' },
 ];
 
+// Plain-language prompts per stance. "What would make me wrong" is what's
+// stored (`breaks`), but people think in terms of the decision it triggers.
+const COPY: Record<ThesisStance, { why: string; breaks: string; breaksLabel: string }> = {
+  own: { why: 'Why do you own it?', breaks: 'What would make you sell?', breaksLabel: 'Sell if' },
+  watch: { why: 'Why are you watching it?', breaks: 'What would make you buy — or move on?', breaksLabel: 'Act if' },
+  avoid: { why: 'Why are you avoiding it?', breaks: 'What would change your mind?', breaksLabel: 'Reconsider if' },
+};
+
 /**
  * "Your thesis" on a stock: why the user owns/watches it and what would make
  * them wrong. Finch judges every move, earnings report and dividend change on
@@ -59,6 +67,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
 
   const save = async () => {
     if (!why.trim()) { setError('Say why in a sentence — that’s what Finch checks against.'); return; }
+    if (!breaks.trim()) { setError(`Answer “${COPY[stance].breaks}” — it’s the line every alert gets checked against.`); return; }
     setSaving(true);
     try {
       const t = await thesesApi.save(symbol, { why: why.trim(), breaks: breaks.trim(), stance });
@@ -75,7 +84,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
   };
 
   const draftWithFinch = () => startChat(
-    `Help me write my thesis on ${symbol}. Ask me why I own or am watching it and what would make me wrong — push me to make the "wrong if" concrete and checkable. When I confirm, save it with save_thesis.`,
+    `Help me write my thesis on ${symbol}. Ask me why I own or am watching it and what would make me sell — push me to make that line concrete and checkable (a number, a date, an event). When I confirm, save it with save_thesis.`,
   );
 
   // ── empty / editing ──
@@ -89,7 +98,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
         {!thesis && !editing ? (
           <>
             <Text style={styles.sub}>
-              Write down why you own or watch it, and what would make you wrong. Finch will judge every move, earnings report and dividend change against your words.
+              One line on why, and one on what would make you sell. Finch judges every move, earnings report and dividend change on {symbol} against your words.
             </Text>
             <View style={styles.row}>
               <TouchableOpacity onPress={startEdit} style={styles.primary} activeOpacity={0.85}>
@@ -111,11 +120,11 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.label}>Why</Text>
-            <TextInput value={why} onChangeText={setWhy} multiline placeholder="e.g. Ad tier keeps revenue growing 12%+ with margins expanding"
+            <Text style={styles.label}>{COPY[stance].why}</Text>
+            <TextInput value={why} onChangeText={setWhy} multiline placeholder="e.g. Revenue keeps growing 15%+ while margins expand"
               placeholderTextColor={COLORS.gray400} style={styles.input} />
-            <Text style={styles.label}>I'm wrong if…</Text>
-            <TextInput value={breaks} onChangeText={setBreaks} multiline placeholder="e.g. Subscriber growth stalls two quarters running"
+            <Text style={styles.label}>{COPY[stance].breaks}</Text>
+            <TextInput value={breaks} onChangeText={setBreaks} multiline placeholder="e.g. Growth drops below 10% two quarters in a row"
               placeholderTextColor={COLORS.gray400} style={styles.input} />
             {error && <Text style={styles.error}>{error}</Text>}
             <View style={styles.row}>
@@ -147,7 +156,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
       </View>
       <Text style={styles.why}>{thesis.why}</Text>
       {!!thesis.breaks && (
-        <Text style={styles.breaks}><Text style={{ fontFamily: 'DMSans-Bold', color: COLORS.gray900 }}>Wrong if: </Text>{thesis.breaks}</Text>
+        <Text style={styles.breaks}><Text style={{ fontFamily: 'DMSans-Bold', color: COLORS.gray900 }}>{COPY[thesis.stance].breaksLabel}: </Text>{thesis.breaks}</Text>
       )}
 
       {check?.check ? (

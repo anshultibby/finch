@@ -16,6 +16,10 @@ import { CHECK_TEMPLATES, cadenceLabel, nextRunAt, shortWhen, fmtUsd, fmtPct, ui
 
 type Stock = { symbol: string; name?: string; price?: number; change_pct?: number };
 
+// Morning brief and the heartbeat (and its one-off tripwire runs) are
+// controlled by the Check-ins toggles below.
+const TOGGLED_SYSTEM_JOBS = new Set(['morning_brief', 'heartbeat', 'heartbeat_trigger']);
+
 export default function WatchingPanel() {
   const { user } = useAuth();
   const { openStock, openChatWithPrompt, loadChat, navigateTo } = useNavigation();
@@ -44,8 +48,10 @@ export default function WatchingPanel() {
     setStocks(syms.map(s => ({ symbol: s, name: (m.get(s) as any)?.name, price: (m.get(s) as any)?.price, change_pct: (m.get(s) as any)?.changesPercentage })));
   }, [user]);
 
+  // Built-ins with their own toggle under Check-ins aren't repeated as checks.
   const loadJobs = useCallback(() => jobsApi.list()
-    .then(d => setJobs((d.jobs || []).filter(j => j.status !== 'cancelled' && j.status !== 'done')))
+    .then(d => setJobs((d.jobs || []).filter(j =>
+      j.status !== 'cancelled' && j.status !== 'done' && !TOGGLED_SYSTEM_JOBS.has(j.system_key || ''))))
     .catch(() => {}), []);
 
   useEffect(() => {
@@ -134,6 +140,20 @@ export default function WatchingPanel() {
             })}
           </div>
         )}
+        {(() => {
+          const uncovered = stocks.map(s => s.symbol).filter(sym => !theses.some(t => t.symbol === sym.toUpperCase()));
+          if (!uncovered.length) return null;
+          return (
+            <div className="mb-2">
+              <p className="text-[12.5px] text-stone-500 mb-1.5">No thesis yet — click to write one:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {uncovered.slice(0, 12).map(sym => (
+                  <button key={sym} onClick={() => openStock(sym)} className={`${ui.chip} ${ui.chipOff} font-bold`}>+ {sym}</button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Checks */}
         <div className="flex items-end justify-between">

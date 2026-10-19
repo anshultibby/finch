@@ -9,9 +9,9 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  activityApi, insightsApi, marketApi, notificationsApi, pendingTradesApi, watchlistApi, jobsApi, ideasApi,
+  activityApi, insightsApi, marketApi, notificationsApi, pendingTradesApi, watchlistApi, jobsApi, ideasApi, thesesApi,
   type ActivityRecap, type PortfolioDigest, type PendingTradeItem, type ScheduledJob, type TradeIdea, type MoveVerdict,
-  VERDICT_META, THESIS_STATUS_META, type ThesisStatus,
+  VERDICT_META, THESIS_STATUS_META, type ThesisStatus, type Thesis,
 } from '@/lib/api';
 import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import { useStartChat } from '@/hooks/useStartChat';
@@ -95,6 +95,13 @@ function whenLabel(dateStr: string, time?: string) {
   return `${day}${slot}`;
 }
 
+function earningsPreviewPrompt(sym: string, thesis?: Thesis) {
+  const base = `Give me an earnings preview for ${sym}: consensus EPS and revenue, the options-implied move, the 2-3 things that will decide the reaction, and what it means for my position or watchlist interest. Take a stance.`;
+  return thesis
+    ? `${base} My thesis: "${thesis.why}". I said I'd be wrong if: "${thesis.breaks || 'not stated'}". Tell me exactly what in this report would confirm or break it.`
+    : base;
+}
+
 export default function HomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
@@ -107,45 +114,50 @@ export default function HomeScreen() {
   const [pending, setPending] = useState<PendingTradeItem[]>([]);
   const [recap, setRecap] = useState<ActivityRecap | null>(null);
   const [digest, setDigest] = useState<PortfolioDigest | null>(null);
-  const [earnings, setEarnings] = useState<any[]>([]);
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<ScheduledJob[]>([]);
+  // null = not loaded yet, so card lines never claim "0 stocks" or "No reports"
+  // before the data has actually arrived.
+  const [earnings, setEarnings] = useState<any[] | null>(null);
+  const [watchlist, setWatchlist] = useState<string[] | null>(null);
+  const [jobs, setJobs] = useState<ScheduledJob[] | null>(null);
+  const [theses, setTheses] = useState<Thesis[]>([]);
   const [ideas, setIdeas] = useState<TradeIdea[]>([]);
   const [pulse, setPulse] = useState<Record<string, any>>({});
 
+  // The brief renders as soon as the fast, decisive sources land (approvals,
+  // the user's symbols, the earnings calendar). Slower sources — the activity
+  // recap, ideas, and the LLM-written digest — join it when they arrive.
   const load = useCallback(async () => {
-    const tasks: Promise<unknown>[] = [
-      marketApi.getEarnings().then(d => setEarnings(Array.isArray(d) ? d : d?.earnings || [])).catch(() => {}),
-      marketApi.getBatchQuotes(PULSE.map(p => p.symbol)).then(rows => {
-        if (!Array.isArray(rows)) return;
-        const m: Record<string, any> = {};
-        rows.forEach((q: any) => { if (q?.symbol) m[q.symbol] = q; });
-        setPulse(m);
-      }).catch(() => {}),
+    const core: Promise<unknown>[] = [
+      marketApi.getEarnings().then(d => setEarnings(Array.isArray(d) ? d : d?.earnings || [])).catch(() => setEarnings([])),
     ];
+    marketApi.getBatchQuotes(PULSE.map(p => p.symbol)).then(rows => {
+      if (!Array.isArray(rows)) return;
+      const m: Record<string, any> = {};
+      rows.forEach((q: any) => { if (q?.symbol) m[q.symbol] = q; });
+      setPulse(m);
+    }).catch(() => {});
     if (user) {
-      // The digest is LLM-written and slow — it joins the brief when it lands
-      // instead of holding the whole brief on a skeleton.
-      insightsApi.getPortfolioDigest(user.id).then(setDigest).catch(() => {});
-      tasks.push(
+      core.push(
         pendingTradesApi.list().then(d => setPending(
           (d.pending_trades || []).filter(t => !t.expires_at || new Date(t.expires_at).getTime() > Date.now())
         )).catch(() => {}),
-        activityApi.getRecap().then(setRecap).catch(() => {}),
         watchlistApi.getWatchlist(user.id).then(d => {
           const raw = d.symbols || d.watchlist || [];
           setWatchlist(raw.map((i: any) => (typeof i === 'string' ? i : i.symbol)).filter(Boolean));
-        }).catch(() => {}),
-        jobsApi.list().then(d => setJobs(d.jobs || [])).catch(() => {}),
-        ideasApi.list(20).then(d => setIdeas(d.ideas || [])).catch(() => {}),
-        notificationsApi.getUnreadCount().then(d => {
-          const n = d.unread_count || 0;
-          setUnread(n);
-          syncBadgeCount(n);
-        }).catch(() => {}),
+        }).catch(() => setWatchlist([])),
       );
+      insightsApi.getPortfolioDigest(user.id).then(setDigest).catch(() => {});
+      activityApi.getRecap().then(setRecap).catch(() => {});
+      jobsApi.list().then(d => setJobs(d.jobs || [])).catch(() => setJobs([]));
+      ideasApi.list(20).then(d => setIdeas(d.ideas || [])).catch(() => {});
+      thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {});
+      notificationsApi.getUnreadCount().then(d => {
+        const n = d.unread_count || 0;
+        setUnread(n);
+        syncBadgeCount(n);
+      }).catch(() => {});
     }
-    await Promise.all(tasks);
+    await Promise.all(core);
     setLoading(false);
   }, [user]);
 
@@ -170,20 +182,21 @@ export default function HomeScreen() {
 
   // The user's own symbols: holdings Finch already priced in the digest, plus the watchlist.
   const mySymbols = useMemo(() => {
-    const s = new Set<string>(watchlist.map(x => x.toUpperCase()));
+    const s = new Set<string>((watchlist || []).map(x => x.toUpperCase()));
     (digest?.movers || []).forEach(m => s.add(m.symbol.toUpperCase()));
     return s;
   }, [watchlist, digest]);
 
   const myEarnings = useMemo(
-    () => earnings
+    () => (earnings || [])
       .filter(e => e?.symbol && mySymbols.has(String(e.symbol).toUpperCase()))
       .filter(e => { const d = dayDiff(e.date || e.reportDate); return d >= 0 && d <= 7; })
       .sort((a, b) => String(a.date).localeCompare(String(b.date))),
     [earnings, mySymbols],
   );
 
-  const activeJobs = jobs.filter(j => j.status === 'pending' || j.status === 'running');
+  const activeJobs = (jobs || []).filter(j => j.status === 'pending' || j.status === 'running');
+  const thesisBySymbol = useMemo(() => new Map(theses.map(t => [t.symbol, t])), [theses]);
   const openIdeas = ideas.filter(i => i.status === 'proposed' && i.outcome === 'pending');
 
   // ── The brief: ranked, capped at three, never filler ──
@@ -222,15 +235,17 @@ export default function HomeScreen() {
     if (signalItem && shift) items.push(signalItem);
     const soon = myEarnings.filter(e => dayDiff(e.date || e.reportDate) <= 2)[0];
     if (soon) {
+      const t = thesisBySymbol.get(String(soon.symbol).toUpperCase());
       items.push({
         key: `earn-${soon.symbol}`,
         tone: 'heads-up',
         title: `${soon.symbol} reports ${whenLabel(soon.date || soon.reportDate, soon.time)}`,
-        body: 'Want the setup — what the street expects, the implied move, and what it means for you?',
+        // With a thesis, the heads-up is about *their* line in the sand.
+        body: t?.breaks
+          ? `You said you'd ${t.stance === 'own' ? 'sell' : 'reconsider'} if: ${t.breaks}`
+          : 'Want the setup — what the street expects, the implied move, and what it means for you?',
         cta: 'Preview it',
-        onPress: () => startChat(
-          `Give me an earnings preview for ${soon.symbol}: consensus EPS and revenue, the options-implied move, the 2-3 things that will decide the reaction, and what it means for my position or watchlist interest. Take a stance.`,
-        ),
+        onPress: () => startChat(earningsPreviewPrompt(soon.symbol, t)),
       });
     }
     if (signalItem && !shift) items.push(signalItem);
@@ -243,8 +258,19 @@ export default function HomeScreen() {
         onPress: () => router.push(digest.mode === 'portfolio' ? '/portfolio' : '/watching'),
       });
     }
+    const firstUncovered = (watchlist || []).find(sym => !thesisBySymbol.has(sym.toUpperCase()));
+    if (theses.length === 0 && firstUncovered && items.length < 3) {
+      items.push({
+        key: 'thesis-nudge',
+        tone: 'info',
+        title: `Why do you own ${firstUncovered}?`,
+        body: 'Write one line on why, and what would make you sell. Every alert on it gets judged against your words.',
+        cta: 'Write it',
+        onPress: () => router.push(`/stock/${firstUncovered}`),
+      });
+    }
     return items.slice(0, 3);
-  }, [user, pending, myEarnings, recap, digest, router, startChat]);
+  }, [user, pending, myEarnings, recap, digest, router, startChat, thesisBySymbol, theses, watchlist]);
 
   // ── Six cards, each with a live line ──
   const cards: CardSpec[] = [
@@ -268,15 +294,17 @@ export default function HomeScreen() {
     },
     {
       key: 'calendar', title: 'Calendar', icon: CalendarDays, tint: '#fdf2f8', fg: '#db2777', href: '/calendar',
-      line: myEarnings.length > 0
-        ? `${myEarnings.length} of yours report${myEarnings.length === 1 ? 's' : ''} this week`
-        : `${earnings.length || 'No'} reports this week`,
+      line: earnings === null || (user && watchlist === null)
+        ? 'Earnings & Finch’s schedule'
+        : myEarnings.length > 0
+          ? `${myEarnings.length} of yours this week`
+          : `${earnings.length || 'No'} reports this week`,
       attention: myEarnings.some(e => dayDiff(e.date || e.reportDate) <= 1),
     },
     {
       key: 'watching', title: 'Watching', icon: Eye, tint: '#f0fdfa', fg: '#0d9488', href: '/watching',
-      line: user
-        ? `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'} · ${activeJobs.length} check${activeJobs.length === 1 ? '' : 's'}`
+      line: user && watchlist !== null && jobs !== null
+        ? `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'} · ${theses.length} thes${theses.length === 1 ? 'is' : 'es'} · ${activeJobs.length} check${activeJobs.length === 1 ? '' : 's'}`
         : 'What Finch keeps an eye on',
     },
   ];
@@ -411,10 +439,12 @@ export default function HomeScreen() {
 
           {/* Six cards */}
           <View style={styles.grid}>
-            {cards.map((c, i) => {
+            {cards.map((c) => {
               const Icon = c.icon;
               return (
-                <Animated.View key={c.key} entering={FadeInDown.delay(80 + i * 40).springify().damping(16)}>
+                // No entering animation here: the cards are the navigation and must be
+                // visible immediately (web defers layout animations until JS is idle).
+                <View key={c.key}>
                   <TouchableOpacity
                     testID={`home-card-${c.key}`}
                     onPress={() => { Haptics.selectionAsync(); router.push(c.href as any); }}
@@ -430,7 +460,7 @@ export default function HomeScreen() {
                     <Text style={styles.cardTitle}>{c.title}</Text>
                     <Text style={[styles.cardLine, c.attention && { color: COLORS.emerald }]} numberOfLines={2}>{c.line}</Text>
                   </TouchableOpacity>
-                </Animated.View>
+                </View>
               );
             })}
           </View>

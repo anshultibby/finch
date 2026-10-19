@@ -13,7 +13,7 @@ const EXAMPLE_PROMPTS = [
   'NVDA reports Thursday — here’s the setup',
   'AAPL is down 6%. Here’s why, and what I’d do',
   'You’re 41% in tech. Worth trimming?',
-  'A trade is ready — approve it?',
+  'Your NFLX thesis just weakened — here’s why',
   'Nothing needs you today. I’m watching.',
 ];
 

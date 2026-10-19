@@ -3,7 +3,7 @@ Theses API — the user's own reason for owning/watching each stock, kept in the
 memory store (see services.theses), plus a story check of today's move against it.
 
 - GET    /theses                    -> all of the user's theses
-- GET    /theses/{symbol}           -> one thesis (404 if none)
+- GET    /theses/{symbol}           -> one thesis, or null if none
 - PUT    /theses/{symbol}           -> create/rewrite (story log is kept)
 - DELETE /theses/{symbol}
 - POST   /theses/{symbol}/log       -> append a dated development to the story log
@@ -55,10 +55,9 @@ async def list_theses(user_id: str = Depends(get_current_user_id)):
 
 @router.get("/{symbol}")
 async def get_thesis(symbol: str, user_id: str = Depends(get_current_user_id)):
-    t = await theses.get_thesis(user_id, _sym(symbol))
-    if not t:
-        raise HTTPException(status_code=404, detail="No thesis for this symbol")
-    return t
+    """The thesis, or null — not having written one yet is a normal state,
+    not an error (every stock page asks)."""
+    return await theses.get_thesis(user_id, _sym(symbol))
 
 
 @router.put("/{symbol}")

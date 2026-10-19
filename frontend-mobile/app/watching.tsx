@@ -43,6 +43,10 @@ const TEMPLATES: { name: string; message: string; recurrence: 'daily' | 'weekly'
   },
 ];
 
+// Morning brief and the heartbeat (and its one-off tripwire runs) are
+// controlled by the Check-ins toggles below.
+const TOGGLED_SYSTEM_JOBS = new Set(['morning_brief', 'heartbeat', 'heartbeat_trigger']);
+
 function nextAt(hour: number, weekly = false): string {
   const d = new Date();
   d.setHours(hour, 0, 0, 0);
@@ -91,7 +95,9 @@ export default function WatchingScreen() {
         const m = new Map((Array.isArray(quotes) ? quotes : []).map((q: any) => [q.symbol, q]));
         setStocks(syms.map(s => ({ symbol: s, price: (m.get(s) as any)?.price, change_pct: (m.get(s) as any)?.changesPercentage })));
       }).catch(() => {}),
-      jobsApi.list().then(d => setJobs((d.jobs || []).filter(j => j.status !== 'cancelled' && j.status !== 'done'))).catch(() => {}),
+      // Built-ins with their own toggle under Check-ins aren't repeated as checks.
+      jobsApi.list().then(d => setJobs((d.jobs || []).filter(j =>
+        j.status !== 'cancelled' && j.status !== 'done' && !TOGGLED_SYSTEM_JOBS.has(j.system_key || '')))).catch(() => {}),
       accountApi.getPreferences(user.id).then(setPrefs).catch(() => {}),
       thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {}),
     ]);
@@ -198,6 +204,23 @@ export default function WatchingScreen() {
             })}
           </View>
         )}
+        {(() => {
+          const uncovered = stocks.map(s => s.symbol).filter(sym => !theses.some(t => t.symbol === sym.toUpperCase()));
+          if (!uncovered.length) return null;
+          return (
+            <View style={{ marginTop: 10 }}>
+              <Text style={styles.jobMeta}>No thesis yet — tap to write one:</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {uncovered.slice(0, 10).map(sym => (
+                  <TouchableOpacity key={sym} onPress={() => router.push(`/stock/${sym}`)} activeOpacity={0.75}
+                    style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: COLORS.gray200, backgroundColor: '#fff' }}>
+                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 12.5, color: COLORS.gray700 }}>+ {sym}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          );
+        })()}
 
         {/* Checks */}
         <Text style={styles.section}>Checks Finch runs for you</Text>

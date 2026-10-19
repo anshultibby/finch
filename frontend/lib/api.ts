@@ -1897,14 +1897,8 @@ export const THESIS_STATUS_META: Record<ThesisStatus, { label: string; fg: strin
 export const thesesApi = {
   list: async (): Promise<{ theses: Thesis[] }> => (await api.get('/theses')).data,
   /** null when the user hasn't written one. */
-  get: async (symbol: string): Promise<Thesis | null> => {
-    try {
-      return (await api.get(`/theses/${encodeURIComponent(symbol)}`)).data;
-    } catch (e: any) {
-      if (e?.response?.status === 404) return null;
-      throw e;
-    }
-  },
+  get: async (symbol: string): Promise<Thesis | null> =>
+    (await api.get(`/theses/${encodeURIComponent(symbol)}`)).data ?? null,
   save: async (symbol: string, body: { why: string; breaks?: string; stance: ThesisStance }): Promise<Thesis> =>
     (await api.put(`/theses/${encodeURIComponent(symbol)}`, body)).data,
   remove: async (symbol: string): Promise<void> => { await api.delete(`/theses/${encodeURIComponent(symbol)}`); },

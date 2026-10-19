@@ -290,7 +290,13 @@ async def get_watchlist(
                 quote_map[q.get("symbol", "").upper()] = q
 
         symbols_out = []
+        seen = set()
         for item in items:
+            # Without a list filter this is the union of every list; a symbol
+            # saved to two lists must still appear once (keyed rows, counts).
+            if item.symbol.upper() in seen:
+                continue
+            seen.add(item.symbol.upper())
             q = quote_map.get(item.symbol.upper(), {})
             symbols_out.append({
                 "symbol": item.symbol,

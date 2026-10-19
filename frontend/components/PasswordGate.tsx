@@ -8,13 +8,14 @@ interface AuthGateProps {
   children: React.ReactNode;
 }
 
+// What Finch says to you, unprompted — the pitch is that it speaks first.
+// Mirrors frontend-mobile/app/(auth)/login.tsx.
 const prompts = [
-  'Is NVDA overvalued right now?',
-  'Build me a momentum bot for tech stocks',
-  'Who bought their own stock this week?',
-  'Compare Apple and Microsoft margins',
-  'What are prediction markets pricing for the Fed?',
-  'Show me my biggest winners this month',
+  'NVDA reports Thursday — here’s the setup',
+  'AAPL is down 6%. Here’s why, and what I’d do',
+  'You’re 41% in tech. Worth trimming?',
+  'Your NFLX thesis just weakened — here’s why',
+  'Nothing needs you today. I’m watching.',
 ];
 
 export default function AuthGate({ children }: AuthGateProps) {
@@ -107,16 +108,16 @@ export default function AuthGate({ children }: AuthGateProps) {
         {/* Hero */}
         <div className="flex-1 flex flex-col items-center justify-center px-4 -mt-16">
           <h1 className="text-5xl sm:text-7xl font-bold tracking-tight text-center max-w-3xl leading-[1.1] text-gray-900">
-            Bloomberg Terminal<br />
-            <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">for pennies</span>
+            Your stocks,<br />
+            <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">watched for you</span>
           </h1>
 
           <div className="flex items-center gap-6 mt-6 text-sm text-gray-500">
-            <span>Real-time portfolio sync</span>
+            <span>Proactive alerts</span>
             <span className="text-gray-300">|</span>
-            <span>Built-in code sandbox</span>
+            <span>Earnings previews</span>
             <span className="text-gray-300">|</span>
-            <span>Multi-hour research tasks</span>
+            <span>You stay in control</span>
           </div>
 
           {/* Fake chat input */}

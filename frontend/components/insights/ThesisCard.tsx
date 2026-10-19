@@ -21,6 +21,14 @@ const STANCES: { key: ThesisStance; label: string }[] = [
   { key: 'avoid', label: 'Avoiding' },
 ];
 
+// Plain-language prompts per stance. "What would make me wrong" is what's
+// stored (`breaks`), but people think in terms of the decision it triggers.
+const COPY: Record<ThesisStance, { why: string; breaks: string; breaksLabel: string }> = {
+  own: { why: 'Why do you own it?', breaks: 'What would make you sell?', breaksLabel: 'Sell if' },
+  watch: { why: 'Why are you watching it?', breaks: 'What would make you buy — or move on?', breaksLabel: 'Act if' },
+  avoid: { why: 'Why are you avoiding it?', breaks: 'What would change your mind?', breaksLabel: 'Reconsider if' },
+};
+
 export default function ThesisCard({ symbol }: { symbol: string }) {
   const { user } = useAuth();
   const { openChatWithPrompt } = useNavigation();
@@ -59,6 +67,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
 
   const save = async () => {
     if (!why.trim()) { setError('Say why in a sentence — that’s what Finch checks against.'); return; }
+    if (!breaks.trim()) { setError(`Answer “${COPY[stance].breaks}” — it’s the line every alert gets checked against.`); return; }
     setSaving(true);
     try {
       const t = await thesesApi.save(symbol, { why: why.trim(), breaks: breaks.trim(), stance });
@@ -74,7 +83,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
   };
 
   const draftWithFinch = () => openChatWithPrompt(
-    `Help me write my thesis on ${symbol}. Ask me why I own or am watching it and what would make me wrong — push me to make the "wrong if" concrete and checkable. When I confirm, save it with save_thesis.`,
+    `Help me write my thesis on ${symbol}. Ask me why I own or am watching it and what would make me sell — push me to make that line concrete and checkable (a number, a date, an event). When I confirm, save it with save_thesis.`,
     `${symbol} thesis`,
   );
 
@@ -90,7 +99,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
         {!thesis && !editing ? (
           <>
             <p className="text-[13px] text-stone-500 leading-relaxed">
-              Write down why you own or watch it, and what would make you wrong. Finch will judge every move, earnings report and dividend change against your words.
+              One line on why, and one on what would make you sell. Finch judges every move, earnings report and dividend change on {symbol} against your words.
             </p>
             <div className="flex gap-2 mt-3">
               <button onClick={startEdit} className="px-4 py-2 rounded-full bg-emerald-600 text-white text-[13px] font-bold hover:bg-emerald-700">Write it</button>
@@ -109,13 +118,13 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
                 </button>
               ))}
             </div>
-            <label className="block text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-2 mb-1">Why</label>
+            <label className="block text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-2 mb-1">{COPY[stance].why}</label>
             <textarea value={why} onChange={e => setWhy(e.target.value)} rows={2}
-              placeholder="e.g. Ad tier keeps revenue growing 12%+ with margins expanding"
+              placeholder="e.g. Revenue keeps growing 15%+ while margins expand"
               className="w-full border border-stone-200 rounded-xl px-3 py-2 text-[14px] focus:outline-none focus:border-emerald-300" />
-            <label className="block text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-2 mb-1">I&apos;m wrong if…</label>
+            <label className="block text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-2 mb-1">{COPY[stance].breaks}</label>
             <textarea value={breaks} onChange={e => setBreaks(e.target.value)} rows={2}
-              placeholder="e.g. Subscriber growth stalls two quarters running"
+              placeholder="e.g. Growth drops below 10% two quarters in a row"
               className="w-full border border-stone-200 rounded-xl px-3 py-2 text-[14px] focus:outline-none focus:border-emerald-300" />
             {error && <p className="text-[12.5px] text-red-600 mt-1.5">{error}</p>}
             <div className="flex gap-2 mt-3">
@@ -144,7 +153,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
         <button onClick={startEdit} className="text-[13px] font-bold text-emerald-700 hover:underline">Edit</button>
       </div>
       <p className="text-[14px] text-gray-900 leading-relaxed">{thesis.why}</p>
-      {thesis.breaks && <p className="text-[13px] text-stone-600 leading-relaxed mt-1.5"><span className="font-bold text-gray-900">Wrong if: </span>{thesis.breaks}</p>}
+      {thesis.breaks && <p className="text-[13px] text-stone-600 leading-relaxed mt-1.5"><span className="font-bold text-gray-900">{COPY[thesis.stance].breaksLabel}: </span>{thesis.breaks}</p>}
 
       <div className="mt-3 pt-3 border-t border-stone-100">
         {check?.check ? (

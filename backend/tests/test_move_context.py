@@ -90,3 +90,15 @@ def test_parse_coerces_unknown_labels_and_rejects_empty():
     assert read["driver"] == "company"
     assert move_explainer._parse('{"verdict": "news"}') is None
     assert move_explainer._parse("no json here") is None
+
+
+def test_session_line_names_the_last_session():
+    from datetime import datetime
+    sunday = datetime(2026, 10, 18, 20, 0, tzinfo=mc.ET)
+    assert "last session, Friday Oct 16" in mc.session_line(sunday)
+    monday_pre = datetime(2026, 10, 19, 8, 0, tzinfo=mc.ET)
+    assert "last session, Friday Oct 16" in mc.session_line(monday_pre)
+    open_ = datetime(2026, 10, 19, 11, 0, tzinfo=mc.ET)
+    assert "Markets are open" in mc.session_line(open_)
+    close = datetime(2026, 10, 19, 17, 0, tzinfo=mc.ET)
+    assert "Monday's" in mc.session_line(close)

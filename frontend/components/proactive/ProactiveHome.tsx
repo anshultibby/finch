@@ -5,9 +5,9 @@ import { Sparkles, SlidersHorizontal, Zap, FileText, CalendarDays, Eye, ChevronR
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation, type View } from '@/contexts/NavigationContext';
 import {
-  activityApi, insightsApi, marketApi, watchlistApi, jobsApi, ideasApi,
+  activityApi, insightsApi, marketApi, watchlistApi, jobsApi, ideasApi, thesesApi,
   type ActivityRecap, type PortfolioDigest, type ScheduledJob, type TradeIdea, type MoveVerdict,
-  VERDICT_META, THESIS_STATUS_META, type ThesisStatus,
+  VERDICT_META, THESIS_STATUS_META, type ThesisStatus, type Thesis,
 } from '@/lib/api';
 import { usePendingTrades } from '@/hooks/usePendingTrades';
 import { dayDiff, whenLabel, marketStatus, greeting, earningsPreviewPrompt, fmtUsd, fmtPct } from './shared';
@@ -34,53 +34,60 @@ export default function ProactiveHome() {
   const [loading, setLoading] = useState(true);
   const [recap, setRecap] = useState<ActivityRecap | null>(null);
   const [digest, setDigest] = useState<PortfolioDigest | null>(null);
-  const [earnings, setEarnings] = useState<any[]>([]);
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<ScheduledJob[]>([]);
+  // null = not loaded yet, so card lines never claim "0 stocks" or "No reports"
+  // before the data has actually arrived.
+  const [earnings, setEarnings] = useState<any[] | null>(null);
+  const [watchlist, setWatchlist] = useState<string[] | null>(null);
+  const [jobs, setJobs] = useState<ScheduledJob[] | null>(null);
+  const [theses, setTheses] = useState<Thesis[]>([]);
   const [ideas, setIdeas] = useState<TradeIdea[]>([]);
   const [pulse, setPulse] = useState<Record<string, any>>({});
   const [ask, setAsk] = useState('');
 
+  // The brief renders as soon as the fast, decisive sources land (approvals,
+  // the user's symbols, the earnings calendar). Slower sources — the activity
+  // recap, ideas, and the LLM-written digest — join it when they arrive.
   useEffect(() => {
     if (!user) return;
     let alive = true;
-    // The digest is LLM-written and slow — it joins the brief when it lands
-    // instead of holding the whole brief on a skeleton.
-    insightsApi.getPortfolioDigest(user.id).then(d => alive && setDigest(d)).catch(() => {});
+    const set = <T,>(fn: (v: T) => void) => (v: T) => { if (alive) fn(v); };
+    insightsApi.getPortfolioDigest(user.id).then(set(setDigest)).catch(() => {});
+    activityApi.getRecap().then(set(setRecap)).catch(() => {});
+    jobsApi.list().then(d => set(setJobs)(d.jobs || [])).catch(() => set(setJobs)([]));
+    ideasApi.list(20).then(d => set(setIdeas)(d.ideas || [])).catch(() => {});
+    thesesApi.list().then(d => set(setTheses)(d.theses || [])).catch(() => {});
+    marketApi.getBatchQuotes(PULSE.map(p => p.symbol)).then(rows => {
+      if (!Array.isArray(rows)) return;
+      const m: Record<string, any> = {};
+      rows.forEach((q: any) => { if (q?.symbol) m[q.symbol] = q; });
+      set(setPulse)(m);
+    }).catch(() => {});
     Promise.all([
-      marketApi.getEarnings().then(d => alive && setEarnings(Array.isArray(d) ? d : d?.earnings || [])).catch(() => {}),
-      marketApi.getBatchQuotes(PULSE.map(p => p.symbol)).then(rows => {
-        if (!alive || !Array.isArray(rows)) return;
-        const m: Record<string, any> = {};
-        rows.forEach((q: any) => { if (q?.symbol) m[q.symbol] = q; });
-        setPulse(m);
-      }).catch(() => {}),
-      activityApi.getRecap().then(r => alive && setRecap(r)).catch(() => {}),
+      marketApi.getEarnings().then(d => set(setEarnings)(Array.isArray(d) ? d : d?.earnings || [])).catch(() => set(setEarnings)([])),
       watchlistApi.getWatchlist(user.id).then(d => {
         const raw = d?.symbols || d?.watchlist || [];
-        alive && setWatchlist(raw.map((i: any) => (typeof i === 'string' ? i : i.symbol)).filter(Boolean));
-      }).catch(() => {}),
-      jobsApi.list().then(d => alive && setJobs(d.jobs || [])).catch(() => {}),
-      ideasApi.list(20).then(d => alive && setIdeas(d.ideas || [])).catch(() => {}),
+        set(setWatchlist)(raw.map((i: any) => (typeof i === 'string' ? i : i.symbol)).filter(Boolean));
+      }).catch(() => set(setWatchlist)([])),
     ]).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [user]);
 
   const mySymbols = useMemo(() => {
-    const s = new Set<string>(watchlist.map(x => x.toUpperCase()));
+    const s = new Set<string>((watchlist || []).map(x => x.toUpperCase()));
     (digest?.movers || []).forEach(m => s.add(m.symbol.toUpperCase()));
     return s;
   }, [watchlist, digest]);
 
   const myEarnings = useMemo(
-    () => earnings
+    () => (earnings || [])
       .filter(e => e?.symbol && mySymbols.has(String(e.symbol).toUpperCase()))
       .filter(e => { const d = dayDiff(e.date); return d >= 0 && d <= 7; })
       .sort((a, b) => String(a.date).localeCompare(String(b.date))),
     [earnings, mySymbols],
   );
 
-  const activeJobs = jobs.filter(j => j.status === 'pending' || j.status === 'running');
+  const activeJobs = (jobs || []).filter(j => j.status === 'pending' || j.status === 'running');
+  const thesisBySymbol = useMemo(() => new Map(theses.map(t => [t.symbol, t])), [theses]);
   const openIdeas = ideas.filter(i => i.status === 'proposed' && i.outcome === 'pending');
 
   // ── The brief: ranked, capped at three, never filler ──
@@ -116,12 +123,16 @@ export default function ProactiveHome() {
     if (signalItem && shift) items.push(signalItem);
     const soon = myEarnings.find(e => dayDiff(e.date) <= 2);
     if (soon) {
+      const t = thesisBySymbol.get(String(soon.symbol).toUpperCase());
       items.push({
         key: `earn-${soon.symbol}`,
         title: `${soon.symbol} reports ${whenLabel(soon.date, soon.time)}`,
-        body: 'Want the setup — what the street expects, the implied move, and what it means for you?',
+        // With a thesis, the heads-up is about *their* line in the sand.
+        body: t?.breaks
+          ? `You said you'd ${t.stance === 'own' ? 'sell' : 'reconsider'} if: ${t.breaks}`
+          : 'Want the setup — what the street expects, the implied move, and what it means for you?',
         cta: 'Preview it',
-        onClick: () => openChatWithPrompt(earningsPreviewPrompt(soon.symbol), `${soon.symbol} earnings preview`),
+        onClick: () => openChatWithPrompt(earningsPreviewPrompt(soon.symbol, t), `${soon.symbol} earnings preview`),
       });
     }
     if (signalItem && !shift) items.push(signalItem);
@@ -133,8 +144,18 @@ export default function ProactiveHome() {
         onClick: () => (digest.mode === 'portfolio' ? (setHomeTab('portfolio'), navigateTo({ type: 'markets' })) : navigateTo({ type: 'watching' })),
       });
     }
+    const firstUncovered = (watchlist || []).find(sym => !thesisBySymbol.has(sym.toUpperCase()));
+    if (theses.length === 0 && firstUncovered && items.length < 3) {
+      items.push({
+        key: 'thesis-nudge',
+        title: `Why do you own ${firstUncovered}?`,
+        body: 'Write one line on why, and what would make you sell. Every alert on it gets judged against your words.',
+        cta: 'Write it',
+        onClick: () => openStock(firstUncovered),
+      });
+    }
     return items.slice(0, 3);
-  }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock]);
+  }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock, thesisBySymbol, theses, watchlist]);
 
   const cards: { key: string; title: string; line: string; attention?: boolean; Icon: React.ComponentType<{ className?: string }>; tint: string; view: View }[] = [
     {
@@ -152,12 +173,16 @@ export default function ProactiveHome() {
     { key: 'financials', title: 'Financials', Icon: FileText, tint: 'bg-violet-50 text-violet-600', view: { type: 'research' }, line: 'Statements, filings, calls' },
     {
       key: 'calendar', title: 'Calendar', Icon: CalendarDays, tint: 'bg-pink-50 text-pink-600', view: { type: 'calendar' },
-      line: myEarnings.length > 0 ? `${myEarnings.length} of yours report${myEarnings.length === 1 ? 's' : ''} this week` : `${earnings.length || 'No'} reports this week`,
+      line: earnings === null || watchlist === null
+        ? 'Earnings & Finch’s schedule'
+        : myEarnings.length > 0 ? `${myEarnings.length} of yours this week` : `${earnings.length || 'No'} reports this week`,
       attention: myEarnings.some(e => dayDiff(e.date) <= 1),
     },
     {
       key: 'watching', title: 'Watching', Icon: Eye, tint: 'bg-teal-50 text-teal-600', view: { type: 'watching' },
-      line: `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'} · ${activeJobs.length} check${activeJobs.length === 1 ? '' : 's'}`,
+      line: watchlist === null || jobs === null
+        ? 'What Finch keeps an eye on'
+        : `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'} · ${theses.length} thes${theses.length === 1 ? 'is' : 'es'} · ${activeJobs.length} check${activeJobs.length === 1 ? '' : 's'}`,
     },
   ];
 

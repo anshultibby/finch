@@ -22,8 +22,9 @@ surface classifies moves the same way.
 """
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from services.monitoring.cache import TTLCache
 from services.monitoring.inputs import batch_quotes
@@ -64,6 +65,7 @@ FRAMEWORK = """How Finch judges a move (apply to every move you mention):
    - NEWS, STORY INTACT: a real event (earnings beat/miss, upgrade, deal) that moves the price but fits the existing narrative — e.g. a sell-off on a good quarter from high expectations, or a one-off.
    - NARRATIVE SHIFT: the reason people own (or avoid) the stock has changed — guidance cut or raise that resets the growth path, a competitive threat, a regulatory or legal turn, a management change, a broken thesis. Reserve this; most days are not this.
 4. Ground every claim in the headlines or numbers given. Never invent news. If the cause is unclear, say it's unclear and lean NOISE.
+   Use dates and weekdays exactly as written in the input — never work out a weekday or "today/tomorrow" yourself. When markets are closed, the moves are from the last session: name it ("Friday's selloff"), don't call it "today".
 5. End with what would confirm or change the call (the next print, a date, a level, a follow-up headline)."""
 
 VERDICTS = ("noise", "news", "narrative_shift")
@@ -156,7 +158,7 @@ async def macro_backdrop() -> Dict:
 
 def macro_lines(backdrop: Dict) -> List[str]:
     """Render the backdrop as prompt lines."""
-    lines = []
+    lines = [session_line()]
     if backdrop.get("tape"):
         lines.append("Macro tape today: " + "; ".join(
             f"{t['label']} {t['change_pct']:+.2f}%" for t in backdrop["tape"]))
@@ -170,6 +172,31 @@ def macro_lines(backdrop: Dict) -> List[str]:
     return lines
 
 
+ET = ZoneInfo("America/New_York")
+
+
+def _last_session(d: date) -> date:
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def session_line(now: Optional[datetime] = None) -> str:
+    """Where we are in the trading week, stated so the model never guesses it.
+    Holidays aren't modelled."""
+    now = now or datetime.now(ET)
+    today = now.date()
+    stamp = f"{now:%A}, {now:%b} {today.day}"
+    mins = now.hour * 60 + now.minute
+    if today.weekday() < 5 and 570 <= mins < 960:
+        return f"Now: {stamp}, {now:%-I:%M %p} ET. Markets are open — moves are intraday."
+    if today.weekday() < 5 and mins >= 960:
+        return f"Now: {stamp}, after the close. Moves are today's ({now:%A}'s) session."
+    last = _last_session(today - timedelta(days=1)) if (today.weekday() >= 5 or mins < 570) else today
+    return (f"Now: {stamp}. Markets are closed; moves shown are from the last session, "
+            f"{last:%A} {last:%b} {last.day}.")
+
+
 def _earnings_note(quote: dict) -> Optional[str]:
     raw = quote.get("earningsAnnouncement")
     if not raw:
@@ -179,7 +206,8 @@ def _earnings_note(quote: dict) -> Optional[str]:
     except ValueError:
         return None
     days = (when - date.today()).days
-    label = f"{when:%b} {when.day}"
+    # Weekday spelled out so no model ever has to compute it.
+    label = f"{when:%A} {when:%b} {when.day}"
     if days == 0:
         return f"Earnings today ({label})"
     if -3 <= days < 0:
