@@ -40,6 +40,7 @@ export default function ProactiveHome() {
   const [watchlist, setWatchlist] = useState<string[] | null>(null);
   const [jobs, setJobs] = useState<ScheduledJob[] | null>(null);
   const [theses, setTheses] = useState<Thesis[]>([]);
+  const [owned, setOwned] = useState<string[]>([]);
   const [ideas, setIdeas] = useState<TradeIdea[]>([]);
   const [pulse, setPulse] = useState<Record<string, any>>({});
   const [ask, setAsk] = useState('');
@@ -55,7 +56,7 @@ export default function ProactiveHome() {
     activityApi.getRecap().then(set(setRecap)).catch(() => {});
     jobsApi.list().then(d => set(setJobs)(d.jobs || [])).catch(() => set(setJobs)([]));
     ideasApi.list(20).then(d => set(setIdeas)(d.ideas || [])).catch(() => {});
-    thesesApi.list().then(d => set(setTheses)(d.theses || [])).catch(() => {});
+    thesesApi.list().then(d => { set(setTheses)(d.theses || []); set(setOwned)(d.owned || []); }).catch(() => {});
     marketApi.getBatchQuotes(PULSE.map(p => p.symbol)).then(rows => {
       if (!Array.isArray(rows)) return;
       const m: Record<string, any> = {};
@@ -74,9 +75,10 @@ export default function ProactiveHome() {
 
   const mySymbols = useMemo(() => {
     const s = new Set<string>((watchlist || []).map(x => x.toUpperCase()));
+    owned.forEach(x => s.add(x.toUpperCase()));
     (digest?.movers || []).forEach(m => s.add(m.symbol.toUpperCase()));
     return s;
-  }, [watchlist, digest]);
+  }, [watchlist, digest, owned]);
 
   const myEarnings = useMemo(
     () => (earnings || [])
@@ -144,18 +146,22 @@ export default function ProactiveHome() {
         onClick: () => (digest.mode === 'portfolio' ? (setHomeTab('portfolio'), navigateTo({ type: 'markets' })) : navigateTo({ type: 'watching' })),
       });
     }
-    const firstUncovered = (watchlist || []).find(sym => !thesisBySymbol.has(sym.toUpperCase()));
+    // Held stocks first — a thesis matters most where real money is.
+    const heldUncovered = owned.find(sym => !thesisBySymbol.has(sym));
+    const firstUncovered = heldUncovered || (watchlist || []).find(sym => !thesisBySymbol.has(sym.toUpperCase()));
     if (theses.length === 0 && firstUncovered && items.length < 3) {
       items.push({
         key: 'thesis-nudge',
-        title: `Why do you own ${firstUncovered}?`,
-        body: 'Write one line on why, and what would make you sell. Every alert on it gets judged against your words.',
+        title: heldUncovered ? `Why do you own ${firstUncovered}?` : `Why are you watching ${firstUncovered}?`,
+        body: heldUncovered
+          ? 'Write one line on why, and what would make you sell. Every alert on it gets judged against your words.'
+          : 'Write one line on why, and what would make you buy. Every alert on it gets judged against your words.',
         cta: 'Write it',
         onClick: () => openStock(firstUncovered),
       });
     }
     return items.slice(0, 3);
-  }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock, thesisBySymbol, theses, watchlist]);
+  }, [pending, myEarnings, recap, digest, navigateTo, openChatWithPrompt, setHomeTab, loadChat, openStock, thesisBySymbol, theses, watchlist, owned]);
 
   const cards: { key: string; title: string; line: string; attention?: boolean; Icon: React.ComponentType<{ className?: string }>; tint: string; view: View }[] = [
     {

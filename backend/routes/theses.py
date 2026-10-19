@@ -2,7 +2,7 @@
 Theses API — the user's own reason for owning/watching each stock, kept in the
 memory store (see services.theses), plus a story check of today's move against it.
 
-- GET    /theses                    -> all of the user's theses
+- GET    /theses                    -> all of the user's theses + held symbols
 - GET    /theses/{symbol}           -> one thesis, or null if none
 - PUT    /theses/{symbol}           -> create/rewrite (story log is kept)
 - DELETE /theses/{symbol}
@@ -50,7 +50,11 @@ def _sym(symbol: str) -> str:
 
 @router.get("")
 async def list_theses(user_id: str = Depends(get_current_user_id)):
-    return {"theses": await theses.list_theses(user_id)}
+    """All theses, plus the symbols the user actually holds (from their last
+    SnapTrade sync) so clients can default stances and prioritise the stocks
+    that most need a thesis — without a live brokerage call."""
+    from services.monitoring.inputs import owned_symbols
+    return {"theses": await theses.list_theses(user_id), "owned": await owned_symbols(user_id)}
 
 
 @router.get("/{symbol}")

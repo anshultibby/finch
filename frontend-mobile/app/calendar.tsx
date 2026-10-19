@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Clock, Sparkles } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { marketApi, watchlistApi, snaptradeApi, jobsApi, thesesApi, type ScheduledJob, type Thesis } from '@/lib/api';
+import { marketApi, watchlistApi, jobsApi, thesesApi, type ScheduledJob, type Thesis } from '@/lib/api';
 import { useStartChat } from '@/hooks/useStartChat';
 import { COLORS, formatCurrency } from '@/lib/constants';
 import ScreenHeader from '@/components/ui/ScreenHeader';
@@ -55,11 +55,9 @@ export default function CalendarScreen() {
       watchlistApi.getWatchlist(user.id)
         .then(d => addMine((d.symbols || d.watchlist || []).map((i: any) => String(typeof i === 'string' ? i : i.symbol))))
         .catch(() => {});
-      snaptradeApi.getPortfolio(user.id)
-        .then(p => addMine((p?.accounts || []).flatMap((a: any) => (a.positions || []).map((pos: any) => String(pos?.symbol || ''))).filter(Boolean)))
-        .catch(() => {});
+      // Holdings come from the backend's cached brokerage sync — no live SnapTrade call.
+      thesesApi.list().then(d => { setTheses(d.theses || []); addMine(d.owned || []); }).catch(() => {});
       jobsApi.list().then(d => setJobs(d.jobs || [])).catch(() => {});
-      thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {});
     }
     await marketApi.getEarnings(ymd(from), ymd(to))
       .then(d => { setEarnings(Array.isArray(d) ? d : d?.earnings || []); setError(false); })

@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Clock, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { marketApi, watchlistApi, snaptradeApi, jobsApi, thesesApi, type ScheduledJob, type Thesis } from '@/lib/api';
+import { marketApi, watchlistApi, jobsApi, thesesApi, type ScheduledJob, type Thesis } from '@/lib/api';
 import PageHeader from '@/components/ui/PageHeader';
 import { EARNINGS_SLOT, earningsPreviewPrompt, fmtUsd, shortWhen, ymd, ui } from './shared';
 
@@ -42,11 +42,9 @@ export default function CalendarPanel() {
       watchlistApi.getWatchlist(user.id)
         .then(d => addMine((d?.symbols || d?.watchlist || []).map((i: any) => String(typeof i === 'string' ? i : i.symbol))))
         .catch(() => {});
-      snaptradeApi.getPortfolio(user.id)
-        .then((p: any) => addMine((p?.accounts || []).flatMap((a: any) => (a.positions || []).map((pos: any) => String(pos?.symbol || ''))).filter(Boolean)))
-        .catch(() => {});
+      // Holdings come from the backend's cached brokerage sync — no live SnapTrade call.
+      thesesApi.list().then(d => { if (alive) { setTheses(d.theses || []); addMine(d.owned || []); } }).catch(() => {});
       jobsApi.list().then(d => alive && setJobs(d.jobs || [])).catch(() => {});
-      thesesApi.list().then(d => alive && setTheses(d.theses || [])).catch(() => {});
     }
     const from = new Date();
     const to = new Date(); to.setDate(to.getDate() + 14);

@@ -120,6 +120,7 @@ export default function HomeScreen() {
   const [watchlist, setWatchlist] = useState<string[] | null>(null);
   const [jobs, setJobs] = useState<ScheduledJob[] | null>(null);
   const [theses, setTheses] = useState<Thesis[]>([]);
+  const [owned, setOwned] = useState<string[]>([]);
   const [ideas, setIdeas] = useState<TradeIdea[]>([]);
   const [pulse, setPulse] = useState<Record<string, any>>({});
 
@@ -150,7 +151,7 @@ export default function HomeScreen() {
       activityApi.getRecap().then(setRecap).catch(() => {});
       jobsApi.list().then(d => setJobs(d.jobs || [])).catch(() => setJobs([]));
       ideasApi.list(20).then(d => setIdeas(d.ideas || [])).catch(() => {});
-      thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {});
+      thesesApi.list().then(d => { setTheses(d.theses || []); setOwned(d.owned || []); }).catch(() => {});
       notificationsApi.getUnreadCount().then(d => {
         const n = d.unread_count || 0;
         setUnread(n);
@@ -183,9 +184,10 @@ export default function HomeScreen() {
   // The user's own symbols: holdings Finch already priced in the digest, plus the watchlist.
   const mySymbols = useMemo(() => {
     const s = new Set<string>((watchlist || []).map(x => x.toUpperCase()));
+    owned.forEach(x => s.add(x.toUpperCase()));
     (digest?.movers || []).forEach(m => s.add(m.symbol.toUpperCase()));
     return s;
-  }, [watchlist, digest]);
+  }, [watchlist, digest, owned]);
 
   const myEarnings = useMemo(
     () => (earnings || [])
@@ -258,19 +260,23 @@ export default function HomeScreen() {
         onPress: () => router.push(digest.mode === 'portfolio' ? '/portfolio' : '/watching'),
       });
     }
-    const firstUncovered = (watchlist || []).find(sym => !thesisBySymbol.has(sym.toUpperCase()));
+    // Held stocks first — a thesis matters most where real money is.
+    const heldUncovered = owned.find(sym => !thesisBySymbol.has(sym));
+    const firstUncovered = heldUncovered || (watchlist || []).find(sym => !thesisBySymbol.has(sym.toUpperCase()));
     if (theses.length === 0 && firstUncovered && items.length < 3) {
       items.push({
         key: 'thesis-nudge',
         tone: 'info',
-        title: `Why do you own ${firstUncovered}?`,
-        body: 'Write one line on why, and what would make you sell. Every alert on it gets judged against your words.',
+        title: heldUncovered ? `Why do you own ${firstUncovered}?` : `Why are you watching ${firstUncovered}?`,
+        body: heldUncovered
+          ? 'Write one line on why, and what would make you sell. Every alert on it gets judged against your words.'
+          : 'Write one line on why, and what would make you buy. Every alert on it gets judged against your words.',
         cta: 'Write it',
         onPress: () => router.push(`/stock/${firstUncovered}`),
       });
     }
     return items.slice(0, 3);
-  }, [user, pending, myEarnings, recap, digest, router, startChat, thesisBySymbol, theses, watchlist]);
+  }, [user, pending, myEarnings, recap, digest, router, startChat, thesisBySymbol, theses, watchlist, owned]);
 
   // ── Six cards, each with a live line ──
   const cards: CardSpec[] = [

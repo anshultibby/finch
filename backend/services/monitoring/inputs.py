@@ -132,3 +132,18 @@ async def symbols_by_user(require_device: bool = True) -> Dict[str, Dict[str, se
     for v in out.values():
         v["watched"] -= v["owned"]
     return {uid: v for uid, v in out.items() if v["owned"] or v["watched"]}
+
+
+async def owned_symbols(user_id: str) -> List[str]:
+    """Symbols the user holds, from the last cached SnapTrade sync (no live call).
+    Empty when they haven't connected a brokerage."""
+    from models.brokerage import PortfolioHoldingsCache
+
+    async with get_db_session() as db:
+        rows = await db.execute(
+            select(PortfolioHoldingsCache.portfolio_data).where(PortfolioHoldingsCache.user_id == user_id)
+        )
+        owned: set = set()
+        for (data,) in rows.all():
+            owned.update(symbols_from_portfolio_data(data))
+    return sorted(owned)

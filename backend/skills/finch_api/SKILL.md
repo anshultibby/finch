@@ -265,6 +265,9 @@ log_story("NFLX", "Q3: ads revenue +40%, net adds re-accelerated — strengthens
           verdict="news", status="intact", source="Q3 letter")
 ```
 
+- **Held names come first.** `list_theses()["owned"]` is what they actually hold
+  (last brokerage sync). If a large holding has no thesis, it's worth one gentle
+  ask — at most once per conversation, never in automated runs.
 - **Capture, don't invent.** When the user says why they bought or are eyeing a
   stock, offer to save it as their thesis, and ask for the "what would make you
   wrong" line if they didn't give one — that line is what makes every later

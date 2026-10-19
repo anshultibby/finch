@@ -39,13 +39,17 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
   const [breaks, setBreaks] = useState('');
   const [stance, setStance] = useState<ThesisStance>('own');
   const [saving, setSaving] = useState(false);
+  const [held, setHeld] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
     setCheck(null);
     try {
-      const t = await thesesApi.get(symbol);
+      // One call: the thesis (if any) plus whether the user actually holds this.
+      const { theses, owned } = await thesesApi.list();
+      const t = theses.find(x => x.symbol === symbol.toUpperCase()) || null;
+      setHeld((owned || []).includes(symbol.toUpperCase()));
       setThesis(t);
       if (t) thesesApi.check(symbol).then(setCheck).catch(() => {});
     } catch {
@@ -60,7 +64,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
   const startEdit = () => {
     setWhy(thesis?.why || '');
     setBreaks(thesis?.breaks || '');
-    setStance(thesis?.stance || 'own');
+    setStance(thesis?.stance || (held ? 'own' : 'watch'));
     setError(null);
     setEditing(true);
   };
@@ -94,12 +98,14 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
       <div className={card}>
         <div className="flex items-center gap-1.5 mb-1.5">
           <Feather className="w-4 h-4 text-emerald-600" />
-          <span className="text-[15px] font-bold text-gray-900">{thesis ? `Edit your ${symbol} thesis` : `Why ${symbol}?`}</span>
+          <span className="text-[15px] font-bold text-gray-900">{thesis ? `Edit your ${symbol} thesis` : held ? `Why do you own ${symbol}?` : `Why ${symbol}?`}</span>
         </div>
         {!thesis && !editing ? (
           <>
             <p className="text-[13px] text-stone-500 leading-relaxed">
-              One line on why, and one on what would make you sell. Finch judges every move, earnings report and dividend change on {symbol} against your words.
+              {held
+                ? `You hold ${symbol}. One line on why, and one on what would make you sell — Finch judges every move, earnings report and dividend change against your words.`
+                : `One line on why you're watching ${symbol}, and what would make you act. Finch judges every move, earnings report and dividend change against your words.`}
             </p>
             <div className="flex gap-2 mt-3">
               <button onClick={startEdit} className="px-4 py-2 rounded-full bg-emerald-600 text-white text-[13px] font-bold hover:bg-emerald-700">Write it</button>

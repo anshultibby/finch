@@ -1895,7 +1895,8 @@ export const THESIS_STATUS_META: Record<ThesisStatus, { label: string; fg: strin
 };
 
 export const thesesApi = {
-  list: async (): Promise<{ theses: Thesis[] }> => (await api.get('/theses')).data,
+  /** All theses + symbols held per the last brokerage sync (empty if not connected). */
+  list: async (): Promise<{ theses: Thesis[]; owned: string[] }> => (await api.get('/theses')).data,
   /** null when the user hasn't written one. */
   get: async (symbol: string): Promise<Thesis | null> =>
     (await api.get(`/theses/${encodeURIComponent(symbol)}`)).data ?? null,

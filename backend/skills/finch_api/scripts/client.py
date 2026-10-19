@@ -326,7 +326,9 @@ def list_theses():
     /home/user/store/theses/ (README.md is the index), but write only via
     save_thesis / log_story so the app sees the change.
 
-    Returns {"theses": [{symbol, stance, why, breaks, written, updated, log: [...]}]}.
+    Returns {"theses": [{symbol, stance, why, breaks, written, updated, log: [...]}],
+             "owned": [symbols held per the last brokerage sync]}.
+    Held names without a thesis are the ones worth asking the user about.
     """
     return _request("GET", "/theses")
 

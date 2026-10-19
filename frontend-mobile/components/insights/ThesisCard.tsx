@@ -40,12 +40,16 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
   const [breaks, setBreaks] = useState('');
   const [stance, setStance] = useState<ThesisStance>('own');
   const [saving, setSaving] = useState(false);
+  const [held, setHeld] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
     try {
-      const t = await thesesApi.get(symbol);
+      // One call: the thesis (if any) plus whether the user actually holds this.
+      const { theses, owned } = await thesesApi.list();
+      const t = theses.find(x => x.symbol === symbol.toUpperCase()) || null;
+      setHeld((owned || []).includes(symbol.toUpperCase()));
       setThesis(t);
       if (t) thesesApi.check(symbol).then(setCheck).catch(() => {});
     } catch {
@@ -60,7 +64,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
   const startEdit = () => {
     setWhy(thesis?.why || '');
     setBreaks(thesis?.breaks || '');
-    setStance(thesis?.stance || 'own');
+    setStance(thesis?.stance || (held ? 'own' : 'watch'));
     setError(null);
     setEditing(true);
   };
@@ -93,12 +97,14 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
       <View style={styles.card}>
         <View style={styles.head}>
           <Feather size={15} color={COLORS.emerald} />
-          <Text style={styles.title}>{thesis ? `Edit your ${symbol} thesis` : `Why ${symbol}?`}</Text>
+          <Text style={styles.title}>{thesis ? `Edit your ${symbol} thesis` : held ? `Why do you own ${symbol}?` : `Why ${symbol}?`}</Text>
         </View>
         {!thesis && !editing ? (
           <>
             <Text style={styles.sub}>
-              One line on why, and one on what would make you sell. Finch judges every move, earnings report and dividend change on {symbol} against your words.
+              {held
+                ? `You hold ${symbol}. One line on why, and one on what would make you sell — Finch judges every move, earnings report and dividend change against your words.`
+                : `One line on why you're watching ${symbol}, and what would make you act. Finch judges every move, earnings report and dividend change against your words.`}
             </Text>
             <View style={styles.row}>
               <TouchableOpacity onPress={startEdit} style={styles.primary} activeOpacity={0.85}>

@@ -27,6 +27,7 @@ export default function WatchingPanel() {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
   const [theses, setTheses] = useState<Thesis[]>([]);
+  const [owned, setOwned] = useState<string[]>([]);
   const [custom, setCustom] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
   const [addSymbol, setAddSymbol] = useState('');
@@ -59,7 +60,7 @@ export default function WatchingPanel() {
     loadStocks();
     loadJobs();
     accountApi.getPreferences(user.id).then(setPrefs).catch(() => {});
-    thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {});
+    thesesApi.list().then(d => { setTheses(d.theses || []); setOwned(d.owned || []); }).catch(() => {});
   }, [user, loadStocks, loadJobs]);
 
   if (!user) return null;
@@ -141,14 +142,16 @@ export default function WatchingPanel() {
           </div>
         )}
         {(() => {
-          const uncovered = stocks.map(s => s.symbol).filter(sym => !theses.some(t => t.symbol === sym.toUpperCase()));
+          // Held names first (real money), then the watchlist.
+          const has = (sym: string) => theses.some(t => t.symbol === sym.toUpperCase());
+          const uncovered = Array.from(new Set([...owned, ...stocks.map(s => s.symbol.toUpperCase())])).filter(sym => !has(sym));
           if (!uncovered.length) return null;
           return (
             <div className="mb-2">
               <p className="text-[12.5px] text-stone-500 mb-1.5">No thesis yet — click to write one:</p>
               <div className="flex flex-wrap gap-1.5">
                 {uncovered.slice(0, 12).map(sym => (
-                  <button key={sym} onClick={() => openStock(sym)} className={`${ui.chip} ${ui.chipOff} font-bold`}>+ {sym}</button>
+                  <button key={sym} onClick={() => openStock(sym)} className={`${ui.chip} ${ui.chipOff} font-bold`}>+ {sym}{owned.includes(sym) ? ' · held' : ''}</button>
                 ))}
               </div>
             </div>

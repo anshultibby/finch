@@ -76,6 +76,7 @@ export default function WatchingScreen() {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
   const [theses, setTheses] = useState<Thesis[]>([]);
+  const [owned, setOwned] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [custom, setCustom] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
@@ -99,7 +100,7 @@ export default function WatchingScreen() {
       jobsApi.list().then(d => setJobs((d.jobs || []).filter(j =>
         j.status !== 'cancelled' && j.status !== 'done' && !TOGGLED_SYSTEM_JOBS.has(j.system_key || '')))).catch(() => {}),
       accountApi.getPreferences(user.id).then(setPrefs).catch(() => {}),
-      thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {}),
+      thesesApi.list().then(d => { setTheses(d.theses || []); setOwned(d.owned || []); }).catch(() => {}),
     ]);
   }, [user]);
 
@@ -205,7 +206,9 @@ export default function WatchingScreen() {
           </View>
         )}
         {(() => {
-          const uncovered = stocks.map(s => s.symbol).filter(sym => !theses.some(t => t.symbol === sym.toUpperCase()));
+          // Held names first (real money), then the watchlist.
+          const has = (sym: string) => theses.some(t => t.symbol === sym.toUpperCase());
+          const uncovered = Array.from(new Set([...owned, ...stocks.map(s => s.symbol.toUpperCase())])).filter(sym => !has(sym));
           if (!uncovered.length) return null;
           return (
             <View style={{ marginTop: 10 }}>
@@ -214,7 +217,7 @@ export default function WatchingScreen() {
                 {uncovered.slice(0, 10).map(sym => (
                   <TouchableOpacity key={sym} onPress={() => router.push(`/stock/${sym}`)} activeOpacity={0.75}
                     style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: COLORS.gray200, backgroundColor: '#fff' }}>
-                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 12.5, color: COLORS.gray700 }}>+ {sym}</Text>
+                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 12.5, color: COLORS.gray700 }}>+ {sym}{owned.includes(sym) ? ' · held' : ''}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
