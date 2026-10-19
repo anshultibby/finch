@@ -69,6 +69,19 @@ async def upsert_store_file(
     return file
 
 
+async def delete_store_file(
+    db: AsyncSession,
+    user_id: str,
+    filename: str,
+) -> bool:
+    existing = await get_store_file(db, user_id, filename)
+    if not existing:
+        return False
+    await db.delete(existing)
+    await db.commit()
+    return True
+
+
 # ============================================================================
 # Dreams
 # ============================================================================

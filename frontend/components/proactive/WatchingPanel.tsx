@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Clock, Pause, Play, Plus, Trash2, ArrowUp, Loader2, ExternalLink, Download } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { watchlistApi, marketApi, jobsApi, accountApi, type ScheduledJob, type UserPreferences } from '@/lib/api';
+import { watchlistApi, marketApi, jobsApi, accountApi, thesesApi, THESIS_STATUS_META, type ScheduledJob, type UserPreferences, type Thesis } from '@/lib/api';
 import PageHeader from '@/components/ui/PageHeader';
 import TickerLogo from '@/components/ui/TickerLogo';
 import WatchlistImportModal from '@/components/home/WatchlistImportModal';
@@ -22,6 +22,7 @@ export default function WatchingPanel() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const [theses, setTheses] = useState<Thesis[]>([]);
   const [custom, setCustom] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
   const [addSymbol, setAddSymbol] = useState('');
@@ -52,6 +53,7 @@ export default function WatchingPanel() {
     loadStocks();
     loadJobs();
     accountApi.getPreferences(user.id).then(setPrefs).catch(() => {});
+    thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {});
   }, [user, loadStocks, loadJobs]);
 
   if (!user) return null;
@@ -106,9 +108,36 @@ export default function WatchingPanel() {
       <div className={ui.page}>
         <PageHeader title="Watching" subtitle={`${stocks.length} stocks · ${active} active check${active === 1 ? '' : 's'}`} />
 
+        {/* Theses — the user's own story per stock; every alert is judged against these */}
+        <div className={`${ui.section} mt-0`}>Your theses</div>
+        {theses.length === 0 ? (
+          <p className={`${ui.card} p-4 text-[13.5px] text-stone-500 mb-2`}>
+            Write down why you own each stock and what would make you wrong. Finch judges every move, earnings report and dividend change against your words. Open any stock to add one.
+          </p>
+        ) : (
+          <div className={`${ui.card} overflow-hidden mb-2`}>
+            {theses.map(t => {
+              const last = [...t.log].reverse().find(e => e.status);
+              return (
+                <button key={t.symbol} onClick={() => openStock(t.symbol)} className={ui.row}>
+                  <TickerLogo symbol={t.symbol} size={26} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14.5px] font-bold text-gray-900">{t.symbol}</div>
+                    <div className="text-[12.5px] text-stone-500 truncate">{t.why}</div>
+                  </div>
+                  {last?.status && (
+                    <span className="rounded-md px-1.5 py-0.5 text-[10.5px] font-bold"
+                      style={{ color: THESIS_STATUS_META[last.status].fg, background: THESIS_STATUS_META[last.status].bg }}>{last.status}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Checks */}
         <div className="flex items-end justify-between">
-          <div className={`${ui.section} mt-0`}>Checks Finch runs for you</div>
+          <div className={ui.section}>Checks Finch runs for you</div>
           <button onClick={() => navigateTo({ type: 'jobs' })} className="mb-2.5 text-[12.5px] font-bold text-emerald-700 hover:underline">
             All automations
           </button>

@@ -6,8 +6,8 @@ import * as Haptics from 'expo-haptics';
 import { ChevronRight, Plus, Clock, Pause, ArrowUp } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  watchlistApi, marketApi, jobsApi, accountApi,
-  type ScheduledJob, type UserPreferences,
+  watchlistApi, marketApi, jobsApi, accountApi, thesesApi, THESIS_STATUS_META,
+  type ScheduledJob, type UserPreferences, type Thesis,
 } from '@/lib/api';
 import { useStartChat } from '@/hooks/useStartChat';
 import { COLORS, formatCurrency, formatPct, formatRelativeTime } from '@/lib/constants';
@@ -71,6 +71,7 @@ export default function WatchingScreen() {
   const [stocks, setStocks] = useState<{ symbol: string; price?: number; change_pct?: number }[]>([]);
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const [theses, setTheses] = useState<Thesis[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [custom, setCustom] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
@@ -92,6 +93,7 @@ export default function WatchingScreen() {
       }).catch(() => {}),
       jobsApi.list().then(d => setJobs((d.jobs || []).filter(j => j.status !== 'cancelled' && j.status !== 'done'))).catch(() => {}),
       accountApi.getPreferences(user.id).then(setPrefs).catch(() => {}),
+      thesesApi.list().then(d => setTheses(d.theses || [])).catch(() => {}),
     ]);
   }, [user]);
 
@@ -167,6 +169,36 @@ export default function WatchingScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Theses — the user's own story per stock; every alert is judged against these */}
+        <Text style={[styles.section, { marginTop: 4 }]}>Your theses</Text>
+        {theses.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>
+              Write down why you own each stock and what would make you wrong. Finch judges every move, earnings report and dividend change against your words. Open any stock to add one.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.list}>
+            {theses.map((t, i) => {
+              const last = [...t.log].reverse().find(e => e.status);
+              return (
+                <TouchableOpacity key={t.symbol} onPress={() => router.push(`/stock/${t.symbol}`)} style={[styles.row, i > 0 && styles.divider]} activeOpacity={0.7}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.jobName}>{t.symbol}</Text>
+                    <Text style={styles.jobMeta} numberOfLines={2}>{t.why}</Text>
+                  </View>
+                  {last?.status && (
+                    <View style={{ borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: THESIS_STATUS_META[last.status].bg }}>
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10.5, color: THESIS_STATUS_META[last.status].fg }}>{last.status}</Text>
+                    </View>
+                  )}
+                  <ChevronRight size={16} color={COLORS.gray400} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* Checks */}
         <Text style={styles.section}>Checks Finch runs for you</Text>
         {jobs.length > 0 && (

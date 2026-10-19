@@ -12,6 +12,7 @@ import EarningsTab from '@/components/stock/EarningsTab';
 import TradesTab from '@/components/stock/TradesTab';
 import ChatInput from '@/components/chat/ChatInput';
 import WhyChip from '@/components/insights/WhyChip';
+import ThesisCard from '@/components/insights/ThesisCard';
 import type { Position } from '@/lib/types';
 import { formatCurrency as fmt, formatCurrencyCompact as fmtB, getCurrency, isIndianTicker, formatDate } from '@/lib/currency';
 
@@ -966,6 +967,9 @@ export default function StockPage({ symbol, initialTab }: { symbol: string; init
         <div className="px-4 sm:px-6 pt-5">
           {activeTab === 'overview' && (
             <>
+              {/* The user's own story on this stock — every move is judged against it. */}
+              <div className="mb-5"><ThesisCard symbol={symbol} /></div>
+
               {/* Finch's take — lead with the analyst's synthesis, not raw data */}
               {aiNotes.length > 0 ? (
                 <div className="mb-5 rounded-2xl border border-gray-200 bg-white shadow-sm p-4">

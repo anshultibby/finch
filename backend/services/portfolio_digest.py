@@ -9,7 +9,7 @@ in headlines for the top movers. Cached per user for 10 minutes.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from services.monitoring.cache import TTLCache
 from services.monitoring.inputs import (

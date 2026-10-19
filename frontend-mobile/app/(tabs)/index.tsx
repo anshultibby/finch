@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   activityApi, insightsApi, marketApi, notificationsApi, pendingTradesApi, watchlistApi, jobsApi, ideasApi,
   type ActivityRecap, type PortfolioDigest, type PendingTradeItem, type ScheduledJob, type TradeIdea, type MoveVerdict,
-  VERDICT_META,
+  VERDICT_META, THESIS_STATUS_META, type ThesisStatus,
 } from '@/lib/api';
 import { isCacheFresh, touchCache } from '@/hooks/useCachedResource';
 import { useStartChat } from '@/hooks/useStartChat';
@@ -36,6 +36,7 @@ const PULSE = [
 type BriefItem = {
   key: string;
   verdict?: MoveVerdict;
+  thesis?: ThesisStatus;
   tone: 'action' | 'heads-up' | 'info';
   title: string;
   body?: string;
@@ -203,12 +204,16 @@ export default function HomeScreen() {
     // and a story change outranks everything but an approval.
     const signals = (recap?.events || [])
       .filter(e => (e.event_type === 'alert' || e.event_type === 'insight') && e.data?.verdict !== 'noise');
-    const shift = signals.find(e => e.data?.verdict === 'narrative_shift');
+    // A thesis the user wrote that's now weakened/broken is the most personal
+    // signal there is; then a market-level story change.
+    const shift = signals.find(e => e.data?.thesis_status === 'broken' || e.data?.thesis_status === 'weakened')
+      || signals.find(e => e.data?.verdict === 'narrative_shift');
     const signal = shift || signals[0];
     const signalItem: BriefItem | undefined = signal && {
       key: `evt-${signal.id}`,
       tone: shift ? 'action' : 'heads-up',
       verdict: signal.data?.verdict as MoveVerdict | undefined,
+      thesis: (signal.data?.thesis_status || undefined) as ThesisStatus | undefined,
       title: signal.title,
       body: signal.body || undefined,
       onPress: () => (signal.data?.chat_id ? router.push(`/(tabs)/chat/${signal.data.chat_id}`)
@@ -373,11 +378,15 @@ export default function HomeScreen() {
                   <Animated.View key={b.key} entering={FadeInDown.delay(i * 60).springify().damping(16)}>
                     <TouchableOpacity onPress={b.onPress} activeOpacity={0.75} style={[styles.briefItem, i > 0 && styles.briefDivider]}>
                       <View style={{ flex: 1 }}>
-                        {b.verdict && (
+                        {b.thesis && b.thesis !== 'intact' ? (
+                          <View style={[styles.verdict, { backgroundColor: THESIS_STATUS_META[b.thesis].bg }]}>
+                            <Text style={[styles.verdictText, { color: THESIS_STATUS_META[b.thesis].fg }]}>{THESIS_STATUS_META[b.thesis].label}</Text>
+                          </View>
+                        ) : b.verdict ? (
                           <View style={[styles.verdict, { backgroundColor: VERDICT_META[b.verdict].bg }]}>
                             <Text style={[styles.verdictText, { color: VERDICT_META[b.verdict].fg }]}>{VERDICT_META[b.verdict].label}</Text>
                           </View>
-                        )}
+                        ) : null}
                         <Text style={styles.briefTitle}>{b.title}</Text>
                         {b.body ? <Text style={styles.briefBody} numberOfLines={3}>{b.body}</Text> : null}
                       </View>

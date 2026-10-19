@@ -320,6 +320,53 @@ def explain_move(symbol):
     return _request("GET", f"/insights/why/{urllib.parse.quote(symbol.upper())}")
 
 
+def list_theses():
+    """The user's theses — why they own/watch/avoid each stock, what would make
+    them wrong, and a dated story log. Also readable at
+    /home/user/store/theses/ (README.md is the index), but write only via
+    save_thesis / log_story so the app sees the change.
+
+    Returns {"theses": [{symbol, stance, why, breaks, written, updated, log: [...]}]}.
+    """
+    return _request("GET", "/theses")
+
+
+def get_thesis(symbol):
+    """One thesis, or raises FinchAPIError(404) if the user hasn't written one."""
+    return _request("GET", f"/theses/{urllib.parse.quote(symbol.upper())}")
+
+
+def save_thesis(symbol, why, breaks=None, stance="own"):
+    """Create or rewrite the user's thesis on `symbol` (story log is kept).
+
+    Save the USER's reasoning in their words — confirm it with them first;
+    never invent a thesis for them.
+    why: why they own/watch it (1-3 sentences).
+    breaks: what would make them wrong — the concrete, checkable condition
+      every future development is judged against. Push for this; it's the
+      most useful line in the file.
+    stance: "own" | "watch" | "avoid".
+    """
+    body = {"why": why, "stance": stance}
+    if breaks is not None:
+        body["breaks"] = breaks
+    return _request("PUT", f"/theses/{urllib.parse.quote(symbol.upper())}", body=body)
+
+
+def log_story(symbol, note, verdict="news", status=None, source=None):
+    """Append a dated development to a thesis's story log.
+
+    note: what happened and what it means for THEIR thesis (one or two lines).
+    verdict: "noise" | "news" | "narrative_shift" (see explain_move).
+    status: "intact" | "weakened" | "broken" — your judgment against what they
+      said would make them wrong.
+    Only log things that matter; the log is the thesis's memory, not a feed.
+    """
+    body = {"note": note, "verdict": verdict, "status": status, "source": source}
+    body = {k: v for k, v in body.items() if v is not None}
+    return _request("POST", f"/theses/{urllib.parse.quote(symbol.upper())}/log", body=body)
+
+
 def report_insight(title, body=None, alert=False, chat_id=None, verdict=None, driver=None, symbol=None):
     """Report an insight to the user's activity ledger ("while you were gone").
 

@@ -26,6 +26,10 @@ cockpit was removed and the old tabbed dashboard lives on as the `markets` view)
 | Financials entry (search → stock `?tab=financials`) | ✅ | ✅ | `app/research.tsx` |
 | Calendar (your earnings + Finch's schedule) | ✅ | ✅ | `app/calendar.tsx` |
 | Watching (checks as plain-English rules, check-ins) | ✅ | ✅ | `app/watching.tsx`; template checks via `jobsApi.create` |
+| Theses: "Your thesis" card on stock page (write / draft with Finch / today's check / story log) | ✅ | ✅ | `ThesisCard`; backend `services/theses.py`, files in memory store `store/theses/` |
+| Theses list in Watching | ✅ | ✅ | |
+| "Why is it moving" verdict + measured context | ✅ | ✅ | `WhyChip` / `WhyMoveCard` |
+| Brief labels (verdict / thesis weakened-broken) | ✅ | ✅ | |
 
 ## Checklist
 

@@ -14,6 +14,7 @@ import PriceChange from '@/components/ui/PriceChange';
 import { CountUp } from '@/components/ui/CountUp';
 import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
 import WhyMoveCard from '@/components/insights/WhyMoveCard';
+import ThesisCard from '@/components/insights/ThesisCard';
 import Markdown from 'react-native-markdown-display';
 
 type StockTab = 'overview' | 'earnings' | 'financials' | 'news' | 'analysis';
@@ -165,6 +166,8 @@ export default function StockDetailScreen() {
               {user && quote.changesPercentage != null && (
                 <WhyMoveCard symbol={symbol} changePct={quote.changesPercentage} />
               )}
+              {/* The user's own story on this stock — every move is judged against it. */}
+              <ThesisCard symbol={symbol} />
             </View>
 
             {/* Price Chart */}

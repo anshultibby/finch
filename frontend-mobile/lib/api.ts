@@ -1030,3 +1030,54 @@ export const ideasApi = {
   decide: async (ideaId: string, approve: boolean, execution_mode?: 'auto' | 'manual'): Promise<TradeIdea> =>
     (await api.post(`/ideas/${ideaId}/decide`, { approve, execution_mode })).data,
 };
+
+// ── Theses — the user's own story on each stock (backend: services/theses.py,
+// stored in the memory store at store/theses/) ─────────────────────────────
+
+export type ThesisStance = 'own' | 'watch' | 'avoid';
+export type ThesisStatus = 'intact' | 'weakened' | 'broken';
+
+export interface ThesisLogEntry {
+  date: string;
+  verdict: MoveVerdict;
+  status: ThesisStatus | null;
+  note: string;
+}
+
+export interface Thesis {
+  symbol: string;
+  stance: ThesisStance;
+  why: string;
+  breaks: string;
+  written: string | null;
+  updated: string | null;
+  log: ThesisLogEntry[];
+}
+
+export interface ThesisCheck {
+  read: MoveExplanation;
+  check: { status: ThesisStatus; reason: string } | null;
+}
+
+export const THESIS_STATUS_META: Record<ThesisStatus, { label: string; fg: string; bg: string }> = {
+  intact: { label: 'Thesis intact', fg: '#047857', bg: '#ecfdf5' },
+  weakened: { label: 'Thesis weakened', fg: '#b45309', bg: '#fffbeb' },
+  broken: { label: 'Thesis broken', fg: '#b91c1c', bg: '#fef2f2' },
+};
+
+export const thesesApi = {
+  list: async (): Promise<{ theses: Thesis[] }> => (await api.get('/theses')).data,
+  /** null when the user hasn't written one. */
+  get: async (symbol: string): Promise<Thesis | null> => {
+    try {
+      return (await api.get(`/theses/${encodeURIComponent(symbol)}`)).data;
+    } catch (e: any) {
+      if (e?.response?.status === 404) return null;
+      throw e;
+    }
+  },
+  save: async (symbol: string, body: { why: string; breaks?: string; stance: ThesisStance }): Promise<Thesis> =>
+    (await api.put(`/theses/${encodeURIComponent(symbol)}`, body)).data,
+  remove: async (symbol: string): Promise<void> => { await api.delete(`/theses/${encodeURIComponent(symbol)}`); },
+  check: async (symbol: string): Promise<ThesisCheck> => (await api.get(`/theses/${encodeURIComponent(symbol)}/check`)).data,
+};

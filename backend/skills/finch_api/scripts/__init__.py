@@ -4,4 +4,5 @@ from .client import (
     request_trade_approval, send_morning_brief, report_insight, explain_move,
     list_events, search_past_chats,
     propose_idea, list_ideas,
+    list_theses, get_thesis, save_thesis, log_story,
 )

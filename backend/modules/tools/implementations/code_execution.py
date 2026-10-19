@@ -247,6 +247,12 @@ async def get_or_create_sandbox(user_id: str, envs: Dict[str, str]) -> _SandboxE
                 await write_profile_md(user_id, sbx=entry.sbx)
             except Exception as e:
                 logger.debug(f"profile.md seed failed (non-fatal): {e}")
+            # Theses live in the DB (services.theses); mirror them into the volume.
+            try:
+                from services.theses import seed_sandbox
+                await seed_sandbox(user_id, entry.sbx)
+            except Exception as e:
+                logger.debug(f"theses seed failed (non-fatal): {e}")
 
         return entry
 

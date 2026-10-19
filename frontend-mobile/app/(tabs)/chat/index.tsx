@@ -23,6 +23,7 @@ function prompts(sym?: string) {
   return [
     'What changed in my portfolio this week, and what should I do about it?',
     `Give me a bull vs. bear case on ${s} — and pick a side`,
+    `Help me write my thesis on ${s} — why I own it and what would make me wrong`,
     'Review my recent trades and tell me what I keep getting wrong',
     'Show me strategies that fit my goal, and help me adopt one',
   ];

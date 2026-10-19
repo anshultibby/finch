@@ -246,6 +246,39 @@ Write macro and micro separately: lead with the day's macro/sector theme only if
 it actually drove the user's names, then the company-specific stories. Saying
 "nothing changed the story" is a useful update; padding is not.
 
+## Theses — the user's own story on each stock (memory)
+
+A thesis is why the user owns (or watches, or avoids) a stock, **what would make
+them wrong**, and a dated story log. They live in the memory store at
+`/home/user/store/theses/` (`README.md` is the one-line-per-thesis index) —
+read them freely, but **write only through these helpers** (the backend owns
+the files, so direct edits are overwritten):
+
+```python
+from skills.finch_api.scripts import list_theses, get_thesis, save_thesis, log_story
+
+save_thesis("NFLX",
+    why="Ad tier + password crackdown keep revenue growth above 12% with margins expanding.",
+    breaks="Net adds stall two quarters running, or ad revenue stops outgrowing subscriptions.",
+    stance="own")
+log_story("NFLX", "Q3: ads revenue +40%, net adds re-accelerated — strengthens the ad-tier leg.",
+          verdict="news", status="intact", source="Q3 letter")
+```
+
+- **Capture, don't invent.** When the user says why they bought or are eyeing a
+  stock, offer to save it as their thesis, and ask for the "what would make you
+  wrong" line if they didn't give one — that line is what makes every later
+  alert useful. Never write a thesis they didn't state or confirm.
+- **Judge against it.** For any development on a name with a thesis, after
+  `explain_move`, say whether *their* thesis is intact, weakened or broken — in
+  terms of the reasons they gave, not your own view of the stock.
+- **Log what matters** with `log_story` (non-noise developments, earnings,
+  dividend changes, a status change). The log is the thesis's memory across
+  fresh-chat runs; check it before re-reporting something.
+- The app's alerts and earnings/dividend watch already run this check and log
+  automatically for price alerts and scheduled events — don't double-log those
+  (`list_events()` shows what was sent).
+
 ## Reporting Insights (heartbeat & automations)
 
 When an automation (especially the `heartbeat` system job) finds something the

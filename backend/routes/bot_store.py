@@ -104,6 +104,17 @@ async def update_store_file(
 ):
     from crud.store import upsert_store_file
     filename = path if path.startswith("store/") else f"store/{path}"
+
+    # Thesis files go through the thesis service so the file stays well-formed,
+    # the index stays in sync, and the row remains the source of truth.
+    from services.theses import THESES_DIR, INDEX_FILE, save_raw
+    if filename.startswith(f"{THESES_DIR}/") and filename.endswith(".md") and filename != INDEX_FILE:
+        try:
+            await save_raw(user_id, filename[len(THESES_DIR) + 1:-3], body.content)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"ok": True, "filename": filename}
+
     file = await upsert_store_file(db, user_id, filename, content=body.content)
 
     # Also write to sandbox if available

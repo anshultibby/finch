@@ -27,7 +27,14 @@ async def sync_store_files(user_id: str) -> int:
         if result.exit_code != 0 or not result.stdout:
             return 0
 
-        paths = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+        # Theses are owned by the backend (services.theses): the row is the source
+        # of truth and the sandbox copy is a mirror, so never sync them back up —
+        # a stale copy would clobber story-log entries appended since.
+        from services.theses import THESES_DIR
+        paths = [
+            p.strip() for p in result.stdout.strip().split("\n")
+            if p.strip() and not p.strip().startswith(f"/home/user/{THESES_DIR}/")
+        ]
         if not paths:
             return 0
 

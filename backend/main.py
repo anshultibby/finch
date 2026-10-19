@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from core.config import Config
 from core.rate_limit import limiter
-from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, market_router, watchlist_router, push_router, analysis_router, bot_store_router, account_router, trades_router, apple_notifications_router, casparser_router, widget_router, trade_ideas_router, strategies_router
+from routes import chat_router, snaptrade_router, robinhood_router, resources_router, chat_files_router, api_keys_router, credits_router, market_router, watchlist_router, push_router, analysis_router, bot_store_router, account_router, trades_router, apple_notifications_router, casparser_router, widget_router, trade_ideas_router, strategies_router, theses_router
 from routes.analytics import router as analytics_router
 from routes.jobs import router as jobs_router
 from routes.brief import router as brief_router
@@ -144,6 +144,7 @@ app.include_router(widget_router)
 app.include_router(trade_ideas_router)
 app.include_router(tasks_router)
 app.include_router(strategies_router)
+app.include_router(theses_router)
 
 
 import asyncio
@@ -264,6 +265,12 @@ async def startup_event():
     from services.market_monitor import run_market_monitor_loop
     _spawn_background(run_market_monitor_loop(), "market-monitor")
     logger.info("Started market monitor")
+
+    # Corporate-events watch: earnings heads-up/recap + dividend changes, once
+    # per trading day after the close (services/events_watch.py).
+    from services.events_watch import run_events_watch_loop
+    _spawn_background(run_events_watch_loop(), "events-watch")
+    logger.info("Started events watch")
 
     # Start the nightly ledger review (cheap GLM analysis of each user's
     # watchlist/portfolio written into the agent-activity ledger).

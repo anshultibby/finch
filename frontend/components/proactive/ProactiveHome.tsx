@@ -7,7 +7,7 @@ import { useNavigation, type View } from '@/contexts/NavigationContext';
 import {
   activityApi, insightsApi, marketApi, watchlistApi, jobsApi, ideasApi,
   type ActivityRecap, type PortfolioDigest, type ScheduledJob, type TradeIdea, type MoveVerdict,
-  VERDICT_META,
+  VERDICT_META, THESIS_STATUS_META, type ThesisStatus,
 } from '@/lib/api';
 import { usePendingTrades } from '@/hooks/usePendingTrades';
 import { dayDiff, whenLabel, marketStatus, greeting, earningsPreviewPrompt, fmtUsd, fmtPct } from './shared';
@@ -24,7 +24,7 @@ const PULSE = [
   { symbol: 'DIA', label: 'Dow' },
 ];
 
-type BriefItem = { key: string; action?: boolean; verdict?: MoveVerdict; title: string; body?: string; cta?: string; onClick: () => void };
+type BriefItem = { key: string; action?: boolean; verdict?: MoveVerdict; thesis?: ThesisStatus; title: string; body?: string; cta?: string; onClick: () => void };
 
 export default function ProactiveHome() {
   const { user } = useAuth();
@@ -99,11 +99,15 @@ export default function ProactiveHome() {
     // and a story change outranks everything but an approval.
     const signals = (recap?.events || [])
       .filter(e => (e.event_type === 'alert' || e.event_type === 'insight') && e.data?.verdict !== 'noise');
-    const shift = signals.find(e => e.data?.verdict === 'narrative_shift');
+    // A thesis the user wrote that's now weakened/broken is the most personal
+    // signal there is; then a market-level story change.
+    const shift = signals.find(e => e.data?.thesis_status === 'broken' || e.data?.thesis_status === 'weakened')
+      || signals.find(e => e.data?.verdict === 'narrative_shift');
     const signal = shift || signals[0];
     const signalItem = signal && {
       key: `evt-${signal.id}`,
       verdict: signal.data?.verdict as MoveVerdict | undefined,
+      thesis: (signal.data?.thesis_status || undefined) as ThesisStatus | undefined,
       title: signal.title,
       body: signal.body || undefined,
       onClick: () => (signal.data?.chat_id ? loadChat(String(signal.data.chat_id))
@@ -211,12 +215,17 @@ export default function ProactiveHome() {
               <button key={b.key} onClick={b.onClick}
                 className={`w-full flex items-center gap-4 py-2.5 text-left group ${i > 0 ? 'border-t border-stone-100' : ''}`}>
                 <div className="flex-1 min-w-0">
-                  {b.verdict && (
+                  {b.thesis && b.thesis !== 'intact' ? (
+                    <span className="inline-block rounded-md px-1.5 py-0.5 mb-1 text-[10.5px] font-bold"
+                      style={{ color: THESIS_STATUS_META[b.thesis].fg, background: THESIS_STATUS_META[b.thesis].bg }}>
+                      {THESIS_STATUS_META[b.thesis].label}
+                    </span>
+                  ) : b.verdict ? (
                     <span className="inline-block rounded-md px-1.5 py-0.5 mb-1 text-[10.5px] font-bold"
                       style={{ color: VERDICT_META[b.verdict].fg, background: VERDICT_META[b.verdict].bg }}>
                       {VERDICT_META[b.verdict].label}
                     </span>
-                  )}
+                  ) : null}
                   <div className="text-[15px] font-bold text-gray-900">{b.title}</div>
                   {b.body && <div className="text-[13.5px] text-stone-500 leading-snug mt-0.5 line-clamp-2">{b.body}</div>}
                 </div>

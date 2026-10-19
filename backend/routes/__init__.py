@@ -20,6 +20,7 @@ from .casparser import router as casparser_router
 from .widget import router as widget_router
 from .trade_ideas import router as trade_ideas_router
 from .strategies import router as strategies_router
+from .theses import router as theses_router
 
 __all__ = [
     "chat_router",
@@ -41,5 +42,6 @@ __all__ = [
     "widget_router",
     "trade_ideas_router",
     "strategies_router",
+    "theses_router",
 ]
 
