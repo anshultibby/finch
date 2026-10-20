@@ -382,7 +382,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
           {expanded && (
             <div className="flex flex-col min-h-0 flex-1 pb-2">
               <button onClick={() => setChatsCollapsed(c => !c)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors flex-shrink-0">
+                className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] font-semibold text-stone-500 hover:text-stone-800 transition-colors flex-shrink-0">
                 <span>Chats</span>
                 <svg className={`w-3 h-3 transition-transform ${chatsCollapsed ? '' : 'rotate-90'}`}
                   fill="currentColor" viewBox="0 0 20 20">
@@ -480,7 +480,7 @@ const AppSidebar = forwardRef<AppSidebarRef, AppSidebarProps>(({
             <div className="flex flex-col flex-shrink-0 border-t border-gray-200 pt-1 pb-2">
               <button onClick={toggleRuns}
                 aria-expanded={!runsCollapsed}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors flex-shrink-0">
+                className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] font-semibold text-stone-500 hover:text-stone-800 transition-colors flex-shrink-0">
                 <span>Automation runs</span>
                 <svg className={`w-3 h-3 transition-transform ${runsCollapsed ? '' : 'rotate-90'}`}
                   fill="currentColor" viewBox="0 0 20 20">

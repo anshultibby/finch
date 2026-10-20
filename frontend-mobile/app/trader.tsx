@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   killBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#ecfdf5' },
   killBtnStop: { backgroundColor: '#fef2f2' },
   killBtnText: { fontFamily: 'DMSans-Bold', fontSize: 13 },
-  section: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 22, marginBottom: 8 },
+  section: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#1c1917', marginTop: 22, marginBottom: 8 },
   empty: { fontFamily: 'DMSans', fontSize: 13.5, color: COLORS.gray500, lineHeight: 19 },
   scoreCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: COLORS.gray100, padding: 14, marginBottom: 10 },
   statLabel: { fontFamily: 'DMSans-Medium', fontSize: 11.5, color: COLORS.gray500 },

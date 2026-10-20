@@ -124,7 +124,7 @@ export const CHECK_TEMPLATES: { label: string; name: string; message: string; re
 export const ui = {
   page: 'max-w-3xl mx-auto px-5 py-7',
   card: 'bg-white border border-stone-200/80 rounded-2xl',
-  section: 'text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-7 mb-2.5',
+  section: 'text-[15px] font-bold text-stone-900 mt-7 mb-2.5',
   row: 'w-full flex items-center gap-3 px-4 py-3 text-left border-t first:border-t-0 border-stone-100 hover:bg-stone-50 transition-colors',
   chip: 'px-3 py-1.5 rounded-full text-[13px] font-medium border transition-colors',
   chipOn: 'bg-emerald-50 border-emerald-300 text-emerald-700',

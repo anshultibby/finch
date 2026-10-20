@@ -113,13 +113,13 @@ export default function WatchingPanel() {
   return (
     <div className="h-full overflow-y-auto bg-[#fafaf9]">
       <div className={ui.page}>
-        <PageHeader title="Watching" subtitle={`${stocks.length} stocks · ${active} active check${active === 1 ? '' : 's'}`} />
+        <PageHeader title="Watching" subtitle={`${stocks.length} stocks, ${active} active check${active === 1 ? '' : 's'}`} />
 
         {/* Theses — the user's own story per stock; every alert is judged against these */}
         <div className={`${ui.section} mt-0`}>Your theses</div>
         {theses.length === 0 ? (
           <p className={`${ui.card} p-4 text-[13.5px] text-stone-500 mb-2`}>
-            Write down why you own each stock and what would make you wrong. Finch judges every move, earnings report and dividend change against your words. Open any stock to add one.
+            Write down why you own each stock and what would make you sell. Finch judges every move, earnings report and dividend change against your words.
           </p>
         ) : (
           <div className={`${ui.card} overflow-hidden mb-2`}>

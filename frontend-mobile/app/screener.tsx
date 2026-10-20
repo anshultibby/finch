@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
   send: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   example: { paddingVertical: 6, paddingHorizontal: 4 },
   exampleText: { fontFamily: 'DMSans', fontSize: 13, color: COLORS.gray500 },
-  section: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 20, marginBottom: 8 },
+  section: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#1c1917', marginTop: 20, marginBottom: 8 },
   chipRow: { gap: 8, paddingRight: 8 },
   wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.gray200 },

@@ -207,7 +207,7 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fafaf9' },
   scroll: { paddingHorizontal: 16, paddingBottom: 40, maxWidth: 760, width: '100%', alignSelf: 'center' },
-  section: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 8, marginBottom: 8 },
+  section: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#1c1917', marginTop: 8, marginBottom: 8 },
   earnHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 12 },
   day: { fontFamily: 'DMSans-Bold', fontSize: 13.5, color: COLORS.gray900, marginBottom: 6 },
   list: { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: COLORS.gray100, overflow: 'hidden' },

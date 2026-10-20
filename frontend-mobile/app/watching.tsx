@@ -169,7 +169,7 @@ export default function WatchingScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScreenHeader title="Watching" subtitle={`${stocks.length} stocks · ${activeCount} active check${activeCount === 1 ? '' : 's'}`} />
+      <ScreenHeader title="Watching" subtitle={`${stocks.length} stocks, ${activeCount} active check${activeCount === 1 ? '' : 's'}`} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gray400} />}
@@ -181,7 +181,7 @@ export default function WatchingScreen() {
         {theses.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>
-              Write down why you own each stock and what would make you wrong. Finch judges every move, earnings report and dividend change against your words. Open any stock to add one.
+              Write down why you own each stock and what would make you sell. Finch judges every move, earnings report and dividend change against your words.
             </Text>
           </View>
         ) : (
@@ -326,7 +326,7 @@ export default function WatchingScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fafaf9' },
   scroll: { paddingHorizontal: 16, paddingBottom: 40, maxWidth: 760, width: '100%', alignSelf: 'center' },
-  section: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 18, marginBottom: 8 },
+  section: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#1c1917', marginTop: 18, marginBottom: 8 },
   list: { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: COLORS.gray100, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   divider: { borderTopWidth: 1, borderTopColor: COLORS.gray100 },

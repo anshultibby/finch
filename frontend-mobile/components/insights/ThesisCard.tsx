@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   stanceOn: { backgroundColor: '#ecfdf5', borderColor: '#6ee7b7' },
   stanceText: { fontFamily: 'DMSans-Medium', fontSize: 12.5, color: COLORS.gray700 },
   stanceTextOn: { color: '#047857' },
-  label: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 4 },
+  label: { fontFamily: 'DMSans-Bold', fontSize: 13.5, color: '#44403c', marginTop: 8, marginBottom: 4 },
   input: { borderWidth: 1, borderColor: COLORS.gray200, borderRadius: 12, padding: 10, minHeight: 56, fontFamily: 'DMSans', fontSize: 14, color: COLORS.gray900, textAlignVertical: 'top' },
   error: { fontFamily: 'DMSans', fontSize: 12.5, color: COLORS.red, marginTop: 6 },
   stancePill: { fontFamily: 'DMSans-Medium', fontSize: 11, color: COLORS.gray500, backgroundColor: COLORS.gray100, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, overflow: 'hidden' },

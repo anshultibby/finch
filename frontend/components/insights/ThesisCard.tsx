@@ -124,11 +124,11 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
                 </button>
               ))}
             </div>
-            <label className="block text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-2 mb-1">{COPY[stance].why}</label>
+            <label className="block text-[13.5px] font-bold text-stone-700 mt-3 mb-1">{COPY[stance].why}</label>
             <textarea value={why} onChange={e => setWhy(e.target.value)} rows={2}
               placeholder="e.g. Revenue keeps growing 15%+ while margins expand"
               className="w-full border border-stone-200 rounded-xl px-3 py-2 text-[14px] focus:outline-none focus:border-emerald-300" />
-            <label className="block text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mt-2 mb-1">{COPY[stance].breaks}</label>
+            <label className="block text-[13.5px] font-bold text-stone-700 mt-3 mb-1">{COPY[stance].breaks}</label>
             <textarea value={breaks} onChange={e => setBreaks(e.target.value)} rows={2}
               placeholder="e.g. Growth drops below 10% two quarters in a row"
               className="w-full border border-stone-200 rounded-xl px-3 py-2 text-[14px] focus:outline-none focus:border-emerald-300" />
@@ -177,7 +177,7 @@ export default function ThesisCard({ symbol }: { symbol: string }) {
 
       {thesis.log.length > 0 && (
         <div className="mt-3">
-          <div className="text-[11.5px] font-bold text-stone-500 uppercase tracking-wider mb-1">Story so far</div>
+          <div className="text-[13.5px] font-bold text-stone-700 mb-1">Story so far</div>
           {thesis.log.slice(-3).reverse().map((e, i) => (
             <div key={`${e.date}-${i}`} className="flex gap-3 py-1.5">
               <span className="text-[12px] text-stone-400 w-12 flex-shrink-0">

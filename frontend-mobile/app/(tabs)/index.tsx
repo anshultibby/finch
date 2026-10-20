@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl, StyleSheet, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
   Sparkles, SlidersHorizontal, Zap, FileText, CalendarDays, Eye, Bell, Settings, ChevronRight, Search,
@@ -49,9 +48,7 @@ type CardSpec = {
   title: string;
   line: string;
   attention?: boolean;
-  icon: React.ComponentType<{ size?: number; color?: string }>;
-  tint: string;
-  fg: string;
+  icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
   href: string;
 };
 
@@ -197,7 +194,6 @@ export default function HomeScreen() {
     [earnings, mySymbols],
   );
 
-  const activeJobs = (jobs || []).filter(j => j.status === 'pending' || j.status === 'running');
   const thesisBySymbol = useMemo(() => new Map(theses.map(t => [t.symbol, t])), [theses]);
   const openIdeas = ideas.filter(i => i.status === 'proposed' && i.outcome === 'pending');
 
@@ -279,45 +275,52 @@ export default function HomeScreen() {
   }, [user, pending, myEarnings, recap, digest, router, startChat, thesisBySymbol, theses, watchlist, owned]);
 
   // ── Six cards, each with a live line ──
+  // Next of the user's own reports, as "NFLX Tue, META Wed".
+  const nextReports = myEarnings.slice(0, 2).map(e => {
+    const d = new Date(`${e.date || e.reportDate}T12:00:00`);
+    return `${e.symbol} ${d.toLocaleDateString('en-US', { weekday: 'short' })}`;
+  }).join(', ');
+  const loaded = !!user && watchlist !== null && jobs !== null;
+
+  // Each tile's second line is live state — what's there right now — rather
+  // than a tagline describing the tool.
   const cards: CardSpec[] = [
     {
-      key: 'assistant', title: 'Ask Finch', icon: Sparkles, tint: '#ecfdf5', fg: COLORS.emerald, href: '/(tabs)/chat',
-      line: openIdeas.length > 0 ? `${openIdeas.length} idea${openIdeas.length > 1 ? 's' : ''} for you` : 'Research, explain, plan',
+      key: 'assistant', title: 'Ask Finch', icon: Sparkles, href: '/(tabs)/chat',
+      line: openIdeas.length > 0 ? `${openIdeas.length} idea${openIdeas.length > 1 ? 's' : ''} waiting` : 'Ask about anything',
       attention: openIdeas.length > 0,
     },
     {
-      key: 'screener', title: 'Screener', icon: SlidersHorizontal, tint: '#eff6ff', fg: COLORS.blue, href: '/screener',
-      line: 'Describe it, Finch finds it',
+      key: 'screener', title: 'Screener', icon: SlidersHorizontal, href: '/screener',
+      line: 'Describe the stocks you want',
     },
     {
-      key: 'trader', title: 'Trader', icon: Zap, tint: '#fffbeb', fg: '#d97706', href: '/trader',
-      line: pending.length > 0 ? `${pending.length} awaiting approval` : activeJobs.length > 0 ? `${activeJobs.length} automation${activeJobs.length > 1 ? 's' : ''} running` : 'Your agent, on a leash',
+      key: 'trader', title: 'Trader', icon: Zap, href: '/trader',
+      line: pending.length > 0
+        ? `${pending.length} trade${pending.length > 1 ? 's' : ''} to approve`
+        : jobs === null ? 'Approvals and automations' : 'Nothing to approve',
       attention: pending.length > 0,
     },
     {
-      key: 'financials', title: 'Financials', icon: FileText, tint: '#f5f3ff', fg: COLORS.violet, href: '/research',
-      line: 'Statements, filings, calls',
+      key: 'financials', title: 'Financials', icon: FileText, href: '/research',
+      line: 'Statements and filings',
     },
     {
-      key: 'calendar', title: 'Calendar', icon: CalendarDays, tint: '#fdf2f8', fg: '#db2777', href: '/calendar',
+      key: 'calendar', title: 'Calendar', icon: CalendarDays, href: '/calendar',
       line: earnings === null || (user && watchlist === null)
-        ? 'Earnings & Finch’s schedule'
-        : myEarnings.length > 0
-          ? `${myEarnings.length} of yours this week`
-          : `${earnings.length || 'No'} reports this week`,
+        ? 'Earnings and Finch’s schedule'
+        : nextReports || `${earnings.length || 'No'} reports this week`,
       attention: myEarnings.some(e => dayDiff(e.date || e.reportDate) <= 1),
     },
     {
-      key: 'watching', title: 'Watching', icon: Eye, tint: '#f0fdfa', fg: '#0d9488', href: '/watching',
-      line: user && watchlist !== null && jobs !== null
-        ? `${watchlist.length} stock${watchlist.length === 1 ? '' : 's'} · ${theses.length} thes${theses.length === 1 ? 'is' : 'es'} · ${activeJobs.length} check${activeJobs.length === 1 ? '' : 's'}`
-        : 'What Finch keeps an eye on',
+      key: 'watching', title: 'Watching', icon: Eye, href: '/watching',
+      line: loaded
+        ? `${watchlist!.length} stock${watchlist!.length === 1 ? '' : 's'}, ${theses.length} thes${theses.length === 1 ? 'is' : 'es'}`
+        : 'Stocks, theses and checks',
     },
   ];
 
   const cols = width >= 700 ? 3 : 2;
-  const contentW = Math.min(width, 760);
-  const cardW = (contentW - 16 * 2 - 10 * (cols - 1)) / cols;
   const firstName = (user?.user_metadata?.full_name || user?.user_metadata?.name || '').split(' ')[0];
   const status = marketStatus();
 
@@ -333,10 +336,7 @@ export default function HomeScreen() {
           {/* Header */}
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
-              <View style={styles.brandRow}>
-                <FinchLogo size={18} />
-                {status ? <Text style={styles.status}>{status}</Text> : null}
-              </View>
+              {status ? <Text style={styles.status}>{status}</Text> : null}
               <Text style={styles.hello}>{greeting()}{firstName ? `, ${firstName}` : ''}</Text>
             </View>
             <TouchableOpacity onPress={() => router.push('/research')} style={styles.iconBtn} activeOpacity={0.7} accessibilityLabel="Search stocks">
@@ -387,105 +387,89 @@ export default function HomeScreen() {
                 <Text style={styles.guestBtnText}>Get started</Text>
               </TouchableOpacity>
             </View>
-          ) : loading ? (
-            <View style={styles.briefCard}>
-              <Skeleton width={120} height={12} radius={4} />
-              <View style={{ height: 10 }} />
-              <Skeleton width={'90%' as any} height={16} radius={4} />
-              <View style={{ height: 6 }} />
-              <Skeleton width={'70%' as any} height={14} radius={4} />
-            </View>
           ) : (
-            <View style={styles.briefCard}>
-              <View style={styles.briefHead}>
-                <View style={styles.liveDot} />
-                <Text style={styles.briefLabel}>{brief.length > 0 ? 'Finch noticed' : 'All quiet'}</Text>
-              </View>
-              {brief.length === 0 ? (
-                <Text style={styles.quiet}>
-                  {mySymbols.size > 0
-                    ? `Nothing needs you right now. I'm watching ${mySymbols.size} stock${mySymbols.size === 1 ? '' : 's'} and will ping you if something moves.`
-                    : 'Add a few stocks to Watching or connect a brokerage, and I\'ll start keeping an eye on them for you.'}
-                </Text>
-              ) : (
-                brief.map((b, i) => (
-                  <Animated.View key={b.key} entering={FadeInDown.delay(i * 60).springify().damping(16)}>
-                    <TouchableOpacity onPress={b.onPress} activeOpacity={0.75} style={[styles.briefItem, i > 0 && styles.briefDivider]}>
-                      <View style={{ flex: 1 }}>
-                        {b.thesis && b.thesis !== 'intact' ? (
-                          <View style={[styles.verdict, { backgroundColor: THESIS_STATUS_META[b.thesis].bg }]}>
-                            <Text style={[styles.verdictText, { color: THESIS_STATUS_META[b.thesis].fg }]}>{THESIS_STATUS_META[b.thesis].label}</Text>
-                          </View>
-                        ) : b.verdict ? (
-                          <View style={[styles.verdict, { backgroundColor: VERDICT_META[b.verdict].bg }]}>
-                            <Text style={[styles.verdictText, { color: VERDICT_META[b.verdict].fg }]}>{VERDICT_META[b.verdict].label}</Text>
-                          </View>
-                        ) : null}
-                        <Text style={styles.briefTitle}>{b.title}</Text>
-                        {b.body ? <Text style={styles.briefBody} numberOfLines={3}>{b.body}</Text> : null}
-                      </View>
+            // The one bold surface on the page: Finch speaking. Everything below is quiet.
+            <View style={styles.brief}>
+              <View style={styles.briefMark}><FinchLogo size={26} /></View>
+              <View style={{ flex: 1 }}>
+                {loading ? (
+                  <View style={{ gap: 8, paddingTop: 4 }}>
+                    <Skeleton width={'85%' as any} height={16} radius={4} />
+                    <Skeleton width={'60%' as any} height={14} radius={4} />
+                  </View>
+                ) : brief.length === 0 ? (
+                  <Text style={styles.quiet}>
+                    {mySymbols.size > 0
+                      ? `Nothing needs you right now. I'm watching ${mySymbols.size} stock${mySymbols.size === 1 ? '' : 's'} and will tell you if something changes.`
+                      : 'Add a few stocks to Watching or connect a brokerage, and I\'ll start keeping an eye on them for you.'}
+                  </Text>
+                ) : (
+                  brief.map((b, i) => (
+                    <TouchableOpacity key={b.key} onPress={b.onPress} activeOpacity={0.7} style={[styles.briefItem, i > 0 && styles.briefDivider]}>
+                      {b.thesis && b.thesis !== 'intact' ? (
+                        <Text style={[styles.tag, { color: THESIS_STATUS_META[b.thesis].fg }]}>{THESIS_STATUS_META[b.thesis].label}</Text>
+                      ) : b.verdict && b.verdict !== 'noise' ? (
+                        <Text style={[styles.tag, { color: VERDICT_META[b.verdict].fg }]}>{VERDICT_META[b.verdict].label}</Text>
+                      ) : null}
+                      <Text style={styles.briefTitle}>{b.title}</Text>
+                      {b.body ? <Text style={styles.briefBody} numberOfLines={3}>{b.body}</Text> : null}
                       {b.cta ? (
                         <View style={[styles.cta, b.tone === 'action' && styles.ctaAction]}>
                           <Text style={[styles.ctaText, b.tone === 'action' && { color: '#fff' }]}>{b.cta}</Text>
                         </View>
-                      ) : (
-                        <ChevronRight size={16} color={COLORS.gray400} />
-                      )}
+                      ) : null}
                     </TouchableOpacity>
-                  </Animated.View>
-                ))
-              )}
-              {recap?.next_run?.run_at && (
-                <Text style={styles.nextRun}>
-                  Next: {recap.next_run.name} · {new Date(recap.next_run.run_at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
-                </Text>
-              )}
+                  ))
+                )}
+                {!loading && recap?.next_run?.run_at && (
+                  <Text style={styles.nextRun}>
+                    Next check: {recap.next_run.name.toLowerCase()}, {new Date(recap.next_run.run_at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+                  </Text>
+                )}
+              </View>
             </View>
           )}
 
-          {/* Six cards */}
-          <View style={styles.grid}>
-            {cards.map((c) => {
+          {/* The six tools: one quiet panel, hairline dividers, monochrome icons.
+              Emerald only where something needs the user. */}
+          <View style={styles.panel}>
+            {cards.map((c, i) => {
               const Icon = c.icon;
+              const lastRow = i >= cards.length - (cards.length % cols || cols);
+              const lastCol = (i + 1) % cols === 0;
               return (
-                // No entering animation here: the cards are the navigation and must be
-                // visible immediately (web defers layout animations until JS is idle).
-                <View key={c.key}>
-                  <TouchableOpacity
-                    testID={`home-card-${c.key}`}
-                    onPress={() => { Haptics.selectionAsync(); router.push(c.href as any); }}
-                    activeOpacity={0.8}
-                    style={[styles.card, { width: cardW }, c.attention && styles.cardAttention]}
-                  >
-                    <View style={styles.cardTop}>
-                      <View style={[styles.cardIcon, { backgroundColor: c.tint }]}>
-                        <Icon size={18} color={c.fg} />
-                      </View>
-                      {c.attention && <View style={styles.attnDot} />}
-                    </View>
-                    <Text style={styles.cardTitle}>{c.title}</Text>
-                    <Text style={[styles.cardLine, c.attention && { color: COLORS.emerald }]} numberOfLines={2}>{c.line}</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  key={c.key}
+                  testID={`home-card-${c.key}`}
+                  onPress={() => { Haptics.selectionAsync(); router.push(c.href as any); }}
+                  activeOpacity={0.6}
+                  style={[styles.tile, { width: `${100 / cols}%` as any }, !lastRow && styles.tileBottom, !lastCol && styles.tileRight]}
+                >
+                  <View style={styles.tileHead}>
+                    <Icon size={17} color={c.attention ? COLORS.emerald : '#57534e'} strokeWidth={1.9} />
+                    {c.attention && <View style={styles.attnDot} />}
+                  </View>
+                  <Text style={styles.tileTitle}>{c.title}</Text>
+                  <Text style={[styles.tileLine, c.attention && styles.tileLineOn]} numberOfLines={2}>{c.line}</Text>
+                </TouchableOpacity>
               );
             })}
           </View>
 
-          {/* Market pulse — a glance, tap through for the full markets view */}
-          <TouchableOpacity onPress={() => router.push('/markets')} activeOpacity={0.8} style={styles.pulse}>
+          {/* Market line — a glance; tap for the full markets view */}
+          <TouchableOpacity onPress={() => router.push('/markets')} activeOpacity={0.6} style={styles.pulse}>
             {PULSE.map(p => {
-              const q = pulse[p.symbol];
-              const chg = q?.changesPercentage;
+              const chg = pulse[p.symbol]?.changesPercentage;
               return (
-                <View key={p.symbol} style={styles.pulseItem}>
-                  <Text style={styles.pulseLabel}>{p.label}</Text>
-                  <Text style={[styles.pulseChg, { color: chg == null ? COLORS.gray400 : chg >= 0 ? COLORS.emerald : COLORS.red }]}>
+                <Text key={p.symbol} style={styles.pulseItem}>
+                  {p.label}{' '}
+                  <Text style={{ color: chg == null ? COLORS.gray400 : chg >= 0 ? COLORS.emerald : COLORS.red, fontFamily: 'DMSans-Bold' }}>
                     {chg == null ? '—' : formatPct(chg)}
                   </Text>
-                </View>
+                </Text>
               );
             })}
-            <ChevronRight size={16} color={COLORS.gray400} />
+            <View style={{ marginLeft: 'auto' }}><ChevronRight size={15} color={COLORS.gray400} /></View>
           </TouchableOpacity>
         </ScrollView>
 
@@ -499,9 +483,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fafaf9' },
   scroll: { paddingHorizontal: 16, paddingBottom: 24 },
   header: { flexDirection: 'row', alignItems: 'center', paddingTop: 8, paddingBottom: 14 },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   status: { fontFamily: 'DMSans-Medium', fontSize: 12, color: COLORS.gray500 },
-  hello: { fontFamily: 'DMSans-Bold', fontSize: 24, color: COLORS.gray900, letterSpacing: -0.5, marginTop: 6 },
+  hello: { fontFamily: 'DMSans-Bold', fontSize: 28, color: '#1c1917', letterSpacing: -0.7, marginTop: 4 },
   iconBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   badge: { position: 'absolute', top: 4, right: 3, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: COLORS.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   badgeText: { color: '#fff', fontSize: 9.5, fontFamily: 'DMSans-Bold' },
@@ -512,21 +495,19 @@ const styles = StyleSheet.create({
   bookChange: { fontFamily: 'DMSans-Bold', fontSize: 16, fontVariant: ['tabular-nums'] },
   bookSub: { fontFamily: 'DMSans', fontSize: 11.5, color: COLORS.gray400 },
 
-  briefCard: { backgroundColor: '#fff', borderRadius: 18, borderWidth: 1, borderColor: '#d1fae5', padding: 16, marginBottom: 14 },
-  briefHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#10b981' },
-  briefLabel: { fontFamily: 'DMSans-Bold', fontSize: 12, color: COLORS.emerald, textTransform: 'uppercase', letterSpacing: 0.6 },
-  briefItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-  briefDivider: { borderTopWidth: 1, borderTopColor: COLORS.gray100 },
-  verdict: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginBottom: 4 },
-  verdictText: { fontFamily: 'DMSans-Bold', fontSize: 10.5 },
-  briefTitle: { fontFamily: 'DMSans-Bold', fontSize: 15, color: COLORS.gray900, lineHeight: 20 },
-  briefBody: { fontFamily: 'DMSans', fontSize: 13.5, color: COLORS.gray500, lineHeight: 19, marginTop: 2 },
-  cta: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#ecfdf5' },
+  brief: { flexDirection: 'row', gap: 12, backgroundColor: '#fff', borderRadius: 22, padding: 18, marginBottom: 18,
+    shadowColor: '#1c1917', shadowOpacity: 0.06, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  briefMark: { paddingTop: 2 },
+  briefItem: { paddingVertical: 10 },
+  briefDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e7e5e4' },
+  tag: { fontFamily: 'DMSans-Bold', fontSize: 12.5, marginBottom: 2 },
+  briefTitle: { fontFamily: 'DMSans-Bold', fontSize: 17, color: '#1c1917', lineHeight: 23, letterSpacing: -0.2 },
+  briefBody: { fontFamily: 'DMSans', fontSize: 14.5, color: '#57534e', lineHeight: 21, marginTop: 3 },
+  cta: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: '#ecfdf5', marginTop: 10 },
   ctaAction: { backgroundColor: COLORS.emerald },
-  ctaText: { fontFamily: 'DMSans-Bold', fontSize: 12.5, color: COLORS.emerald },
-  quiet: { fontFamily: 'DMSans', fontSize: 14, color: COLORS.gray700, lineHeight: 20 },
-  nextRun: { fontFamily: 'DMSans', fontSize: 12, color: COLORS.gray400, marginTop: 8 },
+  ctaText: { fontFamily: 'DMSans-Bold', fontSize: 13, color: '#047857' },
+  quiet: { fontFamily: 'DMSans-Medium', fontSize: 16, color: '#1c1917', lineHeight: 23, paddingVertical: 4 },
+  nextRun: { fontFamily: 'DMSans', fontSize: 12.5, color: '#a8a29e', marginTop: 10 },
 
   guest: { backgroundColor: '#fff', borderRadius: 18, borderWidth: 1, borderColor: '#d1fae5', padding: 18, marginBottom: 14 },
   guestTitle: { fontFamily: 'DMSans-Bold', fontSize: 18, color: COLORS.gray900, lineHeight: 24, letterSpacing: -0.3 },
@@ -534,17 +515,16 @@ const styles = StyleSheet.create({
   guestBtn: { alignSelf: 'flex-start', backgroundColor: COLORS.emerald, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 10, marginTop: 14 },
   guestBtnText: { color: '#fff', fontFamily: 'DMSans-Bold', fontSize: 14 },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  card: { backgroundColor: '#fff', borderRadius: 18, borderWidth: 1, borderColor: COLORS.gray100, padding: 14, height: 128 },
-  cardAttention: { borderColor: '#a7f3d0' },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  cardIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  attnDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981', marginTop: 4 },
-  cardTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: COLORS.gray900, marginTop: 14, letterSpacing: -0.2 },
-  cardLine: { fontFamily: 'DMSans', fontSize: 12.5, color: COLORS.gray500, marginTop: 3, lineHeight: 17 },
+  panel: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#fff', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e7e5e4', overflow: 'hidden' },
+  tile: { paddingHorizontal: 16, paddingVertical: 16, minHeight: 104 },
+  tileBottom: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e7e5e4' },
+  tileRight: { borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: '#e7e5e4' },
+  tileHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  attnDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#10b981' },
+  tileTitle: { fontFamily: 'DMSans-Bold', fontSize: 15.5, color: '#1c1917', marginTop: 12, letterSpacing: -0.1 },
+  tileLine: { fontFamily: 'DMSans', fontSize: 13, color: '#78716c', marginTop: 2, lineHeight: 18 },
+  tileLineOn: { color: '#047857', fontFamily: 'DMSans-Medium' },
 
-  pulse: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: COLORS.gray100, paddingHorizontal: 14, paddingVertical: 12, marginTop: 14 },
-  pulseItem: { flex: 1 },
-  pulseLabel: { fontFamily: 'DMSans-Medium', fontSize: 11.5, color: COLORS.gray500 },
-  pulseChg: { fontFamily: 'DMSans-Bold', fontSize: 14, marginTop: 1, fontVariant: ['tabular-nums'] },
+  pulse: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 4, paddingVertical: 14, marginTop: 4 },
+  pulseItem: { fontFamily: 'DMSans-Medium', fontSize: 13, color: '#78716c', fontVariant: ['tabular-nums'] },
 });
